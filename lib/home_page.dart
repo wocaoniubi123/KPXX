@@ -77,14 +77,16 @@ class _HomePageState extends State<HomePage>
   }
 }
 
-/// 单个分类的列表状态与翻页
-class _CategoryFeed {
+/// 单个分类的列表状态与翻页。
+/// 继承 ChangeNotifier：数据返回后通知页面重建（否则列表首帧后永远停在转圈）。
+class _CategoryFeed extends ChangeNotifier {
   final String slug;
   final Api _api;
   final List<Article> items = [];
   int _page = 1;
   bool _loading = false;
   bool _done = false;
+  bool error = false;
 
   _CategoryFeed(this.slug, this._api);
 
@@ -101,10 +103,13 @@ class _CategoryFeed {
         // 不足一屏可继续拉
         if (next.length < 8) _done = true;
       }
+      error = false;
     } catch (_) {
-      _done = true; // 网络失败不再重试，避免死循环
+      error = true;
+      _done = true; // 失败不自动重试（避免死循环），靠用户下拉刷新
     } finally {
       _loading = false;
+      notifyListeners();
     }
   }
 }
@@ -125,7 +130,18 @@ class _FeedViewState extends State<_FeedView>
   @override
   void initState() {
     super.initState();
+    widget.feed.addListener(_onFeedChanged);
     widget.feed.ensureMore();
+  }
+
+  @override
+  void dispose() {
+    widget.feed.removeListener(_onFeedChanged);
+    super.dispose();
+  }
+
+  void _onFeedChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -137,19 +153,33 @@ class _FeedViewState extends State<_FeedView>
         feed.items.clear();
         feed._page = 1;
         feed._done = false;
+        feed.error = false;
         await feed.ensureMore();
       },
       child: feed.items.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: const [
-                Padding(
-                  padding: EdgeInsets.only(top: 120),
-                  child: Center(
-                      child: CircularProgressIndicator()),
-                ),
-              ],
-            )
+          ? (feed.error
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.only(top: 120),
+                      child: Center(
+                          child: Text('加载失败，请下拉重试',
+                              style:
+                                  TextStyle(color: Colors.grey, fontSize: 14))),
+                    ),
+                  ],
+                )
+              : ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.only(top: 120),
+                      child: Center(
+                          child: CircularProgressIndicator()),
+                    ),
+                  ],
+                ))
           : GridView.builder(
               padding: const EdgeInsets.all(8),
               physics: const AlwaysScrollableScrollPhysics(),
