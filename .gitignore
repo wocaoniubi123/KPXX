@@ -1,0 +1,16 @@
+# macOS / iOS
+.DS_Store
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+.idea/
+*.iml
+
+# 证书相关（绝不入库）
+cert/
+*.p12
+*.mobileprovision
+ExportOptions.plist
