@@ -274,6 +274,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                           max: v.duration.inMilliseconds > 0
                               ? v.duration.inMilliseconds.toDouble()
                               : 1,
+                          onChanged: (val) {}, // 预览：拖动过程不 seek，松手才生效
                           onChangeEnd: (val) {
                             ctl.seekTo(Duration(milliseconds: val.toInt()));
                           },
