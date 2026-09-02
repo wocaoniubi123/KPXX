@@ -38,14 +38,16 @@ jobs:
         run: |
           echo "$P12_BASE64" | base64 -d > /tmp/cert.p12
           echo "$PROFILE_BASE64" | base64 -d > /tmp/profile.mobileprovision
-          # 从描述文件提取 UUID（python3 plistlib，比 plutil 稳）
+          # 从描述文件提取 UUID + Name（Xcode 用 Name 匹配 PROVISIONING_PROFILE_SPECIFIER）
           security cms -D -i /tmp/profile.mobileprovision -o /tmp/profile.plist 2>/dev/null
           UUID=$(python3 -c "import plistlib; print(plistlib.load(open('/tmp/profile.plist','rb'))['UUID'])")
+          PNAME=$(python3 -c "import plistlib, json; p=''; p=plistlib.load(open('/tmp/profile.plist','rb')); print(p.get('Name',''))")
           if [ -z "$UUID" ]; then
             echo "::error:: 无法提取描述文件 UUID"
             exit 1
           fi
           echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PNAME" >> "$GITHUB_ENV"
           mkdir -p -v "$HOME/Library/MobileDevice/Provisioning Profiles"
           cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
           # 独立 keychain，避免污染 runner
@@ -61,11 +63,13 @@ jobs:
           cd ios
           # bundle id 必须是描述文件里的 ysc.tool6041.sign
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/' Runner.xcodeproj/project.pbxproj
-          # 手动签名 + 团队 ID + 显式指定描述文件（UUID 来自上一步 PROFILE_UUID）
+          # 手动签名 + 团队 ID + 显式指定描述文件
+          # PROVISIONING_PROFILE_SPECIFIER 用描述文件 Name（这里是设备 UDID 命名）
           sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' Runner.xcodeproj/project.pbxproj
           sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Manual;\
                 CODE_SIGN_IDENTITY = "Apple Distribution";\
-                PROVISIONING_PROFILE_SPECIFIER = ${{ env.PROFILE_UUID }};/g' Runner.xcodeproj/project.pbxproj
+                PROVISIONING_PROFILE = ${{ env.PROFILE_UUID }};\
+                PROVISIONING_PROFILE_SPECIFIER = "${{ env.PROFILE_NAME }}";/g' Runner.xcodeproj/project.pbxproj
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};\
                 DEVELOPMENT_TEAM = ${{ env.TEAM_ID }};/' Runner.xcodeproj/project.pbxproj
           # 应用显示名
