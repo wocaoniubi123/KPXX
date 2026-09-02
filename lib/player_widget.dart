@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
@@ -28,6 +30,8 @@ class _PlayerWidgetState extends State<PlayerWidget> {
   String? _error;
   String? _toast;
   bool _init = false;
+  bool _controlsVisible = true;
+  Timer? _hideTimer;
 
   @override
   void didChangeDependencies() {
@@ -36,6 +40,13 @@ class _PlayerWidgetState extends State<PlayerWidget> {
       _init = true;
       _initPlayer();
     }
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    _ctl?.dispose(); // 退出页面立即停止播放，不在后台继续
+    super.dispose();
   }
 
   Future<void> _initPlayer() async {
@@ -55,9 +66,23 @@ class _PlayerWidgetState extends State<PlayerWidget> {
       await ctl.initialize();
       await ctl.play();
       if (mounted) setState(() => _ctl = ctl);
+      _scheduleHide();
     } catch (e) {
       if (mounted) setState(() => _error = '视频加载失败：$e');
     }
+  }
+
+  /// 控制条显示数秒后自动隐藏
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _controlsVisible = false);
+    });
+  }
+
+  void _toggleControls() {
+    setState(() => _controlsVisible = !_controlsVisible);
+    if (_controlsVisible) _scheduleHide();
   }
 
   void _openFullscreen({required bool vertical}) {
@@ -109,17 +134,28 @@ class _PlayerWidgetState extends State<PlayerWidget> {
                 children: [
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      // 单击切换播放/暂停
-                      ctl.value.isPlaying ? ctl.pause() : ctl.play();
-                    },
-                    // 左右滑：快进快退 10 秒
+                    onTap: _toggleControls, // 单击显示/隐藏控制条
+                    // 左右滑：快进快退 10 秒（不弹出控制条）
                     onHorizontalDragEnd: (d) {
                       final v = d.primaryVelocity ?? 0;
                       if (v.abs() < 150) return;
                       _seekBy(v > 0 ? 10 : -10);
                     },
-                    child: Center(child: VideoPlayer(ctl)),
+                    child: Center(
+                      // FittedBox contain：等比缩放，绝不拉伸
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: SizedBox(
+                          width: ctl.value.size.width > 0
+                              ? ctl.value.size.width
+                              : 16,
+                          height: ctl.value.size.height > 0
+                              ? ctl.value.size.height
+                              : 9,
+                          child: VideoPlayer(ctl),
+                        ),
+                      ),
+                    ),
                   ),
                   // 快进快退提示
                   if (_toast != null)
@@ -136,30 +172,31 @@ class _PlayerWidgetState extends State<PlayerWidget> {
                                 color: Colors.white, fontSize: 15)),
                       ),
                     ),
-                  // 底部控制条（常驻）
-                  Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withOpacity(0.6),
-                          ],
+                  // 底部控制条（未操作时隐藏，单击视频显示）
+                  if (_controlsVisible)
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withOpacity(0.6),
+                            ],
+                          ),
+                        ),
+                        child: _ControlBar(
+                          controller: ctl,
+                          onVerticalFullscreen: () =>
+                              _openFullscreen(vertical: true),
+                          onFullscreen: () => _openFullscreen(vertical: false),
+                          showFullscreen: true,
                         ),
                       ),
-                      child: _ControlBar(
-                        controller: ctl,
-                        onVerticalFullscreen: () =>
-                            _openFullscreen(vertical: true),
-                        onFullscreen: () => _openFullscreen(vertical: false),
-                        showFullscreen: true,
-                      ),
                     ),
-                  ),
                 ],
               ),
       ),
@@ -313,6 +350,7 @@ class FullscreenPlayer extends StatefulWidget {
 class _FullscreenPlayerState extends State<FullscreenPlayer> {
   String? _toast;
   bool _controls = true;
+  Timer? _hideTimer;
 
   @override
   void initState() {
@@ -326,13 +364,27 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         DeviceOrientation.landscapeRight,
       ]);
     }
+    _scheduleHide();
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     // 退出全屏恢复竖屏
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _controls = false);
+    });
+  }
+
+  void _toggleControls() {
+    setState(() => _controls = !_controls);
+    if (_controls) _scheduleHide();
   }
 
   /// 快进快退（秒），右滑 +
@@ -363,12 +415,12 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
       backgroundColor: Colors.black,
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _controls = !_controls),
+        onTap: _toggleControls,
         // 下滑返回
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 200) Navigator.pop(context);
         },
-        // 左右滑动：快进快退 10 秒（右滑快进）
+        // 左右滑动：快进快退 10 秒（右滑快进，不弹控制条）
         onHorizontalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
           if (v.abs() < 150) return;
@@ -376,12 +428,19 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         },
         child: Stack(
           children: [
-            // 全屏视频（填满，留黑边）
+            // 全屏视频（FittedBox contain 等比缩放，绝不拉伸）
             Center(
-              child: AspectRatio(
-                aspectRatio:
-                    ctl.value.aspectRatio == 0 ? 16 / 9 : ctl.value.aspectRatio,
-                child: VideoPlayer(ctl),
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: ctl.value.size.width > 0
+                      ? ctl.value.size.width
+                      : 16,
+                  height: ctl.value.size.height > 0
+                      ? ctl.value.size.height
+                      : 9,
+                  child: VideoPlayer(ctl),
+                ),
               ),
             ),
             // 顶部：返回

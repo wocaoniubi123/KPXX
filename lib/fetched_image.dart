@@ -1,15 +1,18 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-/// 网络图片加载（绕过 Flutter 默认网络图片对 Content-Type 的校验）。
-/// 站点图片响应头是 binary/octet-stream，Image.network/CachedNetworkImage 会拒绝，
-/// 这里用 http 下载字节后 Image.memory 解码（按字节魔数，不看 Content-Type），并做内存缓存。
+/// 网络图片加载。
+/// 站点图片下载下来是 AES-CBC 加密的二进制密文（密钥/IV 与该站网页端一致的公开参数），
+/// 需解密后才得到真实图片（jpeg/png/gif/webp）。这里下载→（必要时）解密→Image.memory，
+/// 并做内存缓存。解密后的图片字节按魔数校验，确保只向解码器投递真图片。
 class FetchedImage extends StatefulWidget {
   final String url;
   final BoxFit fit;
-  final int? memWidth; // 解码宽度，<原图尺寸可省内存
+  final int? memWidth;
   const FetchedImage({
     super.key,
     required this.url,
@@ -24,7 +27,7 @@ class FetchedImage extends StatefulWidget {
 class _FetchedImageState extends State<FetchedImage> {
   static final Map<String, Uint8List> _cache = {};
   static final Map<String, Future<Uint8List?>> _inflight = {};
-  static const int _maxCache = 400; // 简单上限，超出全部清空防止内存膨胀
+  static const int _maxCache = 400;
 
   Uint8List? _bytes;
   bool _error = false;
@@ -52,7 +55,7 @@ class _FetchedImageState extends State<FetchedImage> {
       setState(() => _bytes = hit);
       return;
     }
-    final f = _inflight.putIfAbsent(url, () => _download(url));
+    final f = _inflight.putIfAbsent(url, _download);
     final bytes = await f;
     if (!mounted) return;
     if (bytes == null) {
@@ -72,17 +75,69 @@ class _FetchedImageState extends State<FetchedImage> {
             'Accept': 'image/*,*/*;q=0.8',
           })
           .timeout(const Duration(seconds: 15));
-      if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
-        if (_cache.length >= _maxCache) _cache.clear();
-        _cache[url] = r.bodyBytes;
-        return r.bodyBytes;
+      if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+      final raw = r.bodyBytes;
+      Uint8List? img;
+      if (_looksLikeImage(raw)) {
+        img = raw; // 未加密（可能是站外图）
+      } else {
+        img = _decrypt(raw); // 加密密文，AES-CBC 解密
       }
+      if (img == null || !_looksLikeImage(img)) return null;
+      if (_cache.length >= _maxCache) _cache.clear();
+      _cache[url] = img;
+      return img;
     } catch (_) {
-      // 网络失败，走 error 分支
+      return null;
     } finally {
       _inflight.remove(url);
     }
+  }
+
+  /// AES-128-CBC 解密（PKCS7 padding），兼容"密文"与"密文的 Base64 文本"两种形态。
+  static Uint8List? _decrypt(Uint8List raw) {
+    try {
+      final aes = enc.AES(
+        enc.Key.fromUtf8('f5d965df75336270'),
+        mode: enc.AESMode.cbc,
+      );
+      final iv = enc.IV.fromUtf8('97b60394abc2fbe1');
+      // 形态1：直接二进制密文
+      if (raw.length % 16 == 0) {
+        final out = aes.decryptBytes(enc.Encrypted(raw), iv: iv);
+        if (_looksLikeImage(out)) return out;
+      }
+      // 形态2：Base64 文本密文（去掉空白后解码再解密）
+      try {
+        final txt = utf8.decode(raw, allowMalformed: true).trim();
+        final b64 = base64Decode(txt.replaceAll(RegExp(r'\s+'), ''));
+        if (b64.length % 16 == 0) {
+          final out = aes.decryptBytes(enc.Encrypted(b64), iv: iv);
+          if (_looksLikeImage(out)) return out;
+        }
+      } catch (_) {
+        // 非 base64 形态
+      }
+    } catch (_) {
+      // 解密失败（该图可能未加密/其他格式），交回上层判断
+    }
     return null;
+  }
+
+  /// 常见图片格式魔数校验
+  static bool _looksLikeImage(Uint8List b) {
+    if (b.length < 12) return false;
+    if (b[0] == 0xFF && b[1] == 0xD8) return true; // JPEG
+    if (b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) {
+      return true; // PNG
+    }
+    final s = String.fromCharCodes(b.sublist(0, 6));
+    if (s.startsWith('GIF8')) return true; // GIF
+    if (s.startsWith('RIFF') &&
+        String.fromCharCodes(b.sublist(8, 12)) == 'WEBP') {
+      return true; // WebP
+    }
+    return false;
   }
 
   @override
