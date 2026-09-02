@@ -27,7 +27,7 @@ jobs:
 
       - name: 生成 iOS 工程（iOS 目录不入库，构建时生成）
         run: |
-          flutter create --platforms=ios --org ysc .
+          flutter create --platforms=ios --org ysc --project-name kpxx .
           ls ios/
 
       - name: 导入签名证书 (p12 + 描述文件)
