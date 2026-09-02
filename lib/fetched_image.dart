@@ -97,14 +97,16 @@ class _FetchedImageState extends State<FetchedImage> {
   /// AES-128-CBC 解密（PKCS7 padding），兼容"密文"与"密文的 Base64 文本"两种形态。
   static Uint8List? _decrypt(Uint8List raw) {
     try {
-      final aes = enc.AES(
-        enc.Key.fromUtf8('f5d965df75336270'),
-        mode: enc.AESMode.cbc,
+      final encrypter = enc.Encrypter(
+        enc.AES(
+          enc.Key.fromUtf8('f5d965df75336270'),
+          mode: enc.AESMode.cbc,
+        ),
       );
       final iv = enc.IV.fromUtf8('97b60394abc2fbe1');
       // 形态1：直接二进制密文
       if (raw.length % 16 == 0) {
-        final out = aes.decryptBytes(enc.Encrypted(raw), iv: iv);
+        final out = encrypter.decryptBytes(enc.Encrypted(raw), iv: iv);
         if (_looksLikeImage(out)) return out;
       }
       // 形态2：Base64 文本密文（去掉空白后解码再解密）
@@ -112,7 +114,7 @@ class _FetchedImageState extends State<FetchedImage> {
         final txt = utf8.decode(raw, allowMalformed: true).trim();
         final b64 = base64Decode(txt.replaceAll(RegExp(r'\s+'), ''));
         if (b64.length % 16 == 0) {
-          final out = aes.decryptBytes(enc.Encrypted(b64), iv: iv);
+          final out = encrypter.decryptBytes(enc.Encrypted(b64), iv: iv);
           if (_looksLikeImage(out)) return out;
         }
       } catch (_) {
