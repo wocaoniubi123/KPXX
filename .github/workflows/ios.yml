@@ -106,17 +106,6 @@ jobs:
           EOF
           cat ExportOptions.plist
 
-      - name: 诊断签名环境（排查后可从仓库删除）
-        run: |
-          echo "=== keychain 证书 ==="
-          security find-identity -v -p codesigning
-          echo "=== provisioning profiles ==="
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles/" || true
-          echo "=== xcodebuild 签名配置 ==="
-          cd ios
-          xcodebuild -showBuildSettings -project Runner.xcodeproj -scheme Runner \
-            -configuration Release 2>/dev/null | grep -E "CODE_SIGN|PROVISIONING|DEVELOPMENT_TEAM|BUNDLE_IDENTIFIER" | head -20
-
       - name: Flutter build IPA
         run: |
           flutter pub get
