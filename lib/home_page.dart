@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -116,7 +117,11 @@ class _FeedView extends StatefulWidget {
   State<_FeedView> createState() => _FeedViewState();
 }
 
-class _FeedViewState extends State<_FeedView> {
+class _FeedViewState extends State<_FeedView>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true; // 切走分类再回来不重新加载
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +130,7 @@ class _FeedViewState extends State<_FeedView> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // keepAlive 必须调用
     final feed = widget.feed;
     return RefreshIndicator(
       onRefresh: () async {
@@ -196,11 +202,18 @@ class _ArticleCard extends StatelessWidget {
                 width: double.infinity,
                 child: article.cover.isEmpty
                     ? const ColoredBox(color: Color(0xFFEEEEEE))
-                    : Image.network(
-                        article.cover,
+                    : CachedNetworkImage(
+                        imageUrl: article.cover,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
+                        memCacheWidth: 480,
+                        fadeInDuration: const Duration(milliseconds: 200),
+                        placeholder: (_, __) =>
                             const ColoredBox(color: Color(0xFFEEEEEE)),
+                        errorWidget: (_, __, ___) => const ColoredBox(
+                          color: Color(0xFFEEEEEE),
+                          child: Icon(Icons.broken_image,
+                              color: Colors.black26),
+                        ),
                       ),
               ),
             ),

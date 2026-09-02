@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
@@ -90,12 +91,13 @@ class DetailPageState extends State<DetailPage> {
               ? const Center(child: CircularProgressIndicator())
               : ListView(
                   children: [
-                    // 视频区（无视频时显示封面/占位）
+                    // 视频区（无视频时显示封面/占位；用正文首图做海报）
                     PlayerWidget(
                       videoUrl: d.videoUrl.isNotEmpty
                           ? d.videoUrl
                           : d.videoUrlH265,
                       referer: _api.base,
+                      poster: d.images.isNotEmpty ? d.images.first : '',
                     ),
                     Padding(
                       padding: const EdgeInsets.all(12),
@@ -130,18 +132,24 @@ class DetailPageState extends State<DetailPage> {
                           for (final img in d.images)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: Image.network(
-                                img,
+                              child: CachedNetworkImage(
+                                imageUrl: img,
                                 fit: BoxFit.contain,
-                                loadingBuilder: (_, child, progress) =>
-                                    progress == null
-                                        ? child
-                                        : const Center(
-                                            child: Padding(
-                                              padding: EdgeInsets.all(32),
-                                              child:
-                                                  CircularProgressIndicator(),
-                                            )),
+                                memCacheWidth: 1280,
+                                placeholder: (_, __) => const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(32),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                                errorWidget: (_, __, ___) => const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: Text('图片加载失败',
+                                        style: TextStyle(
+                                            color: Colors.grey, fontSize: 12)),
+                                  ),
+                                ),
                               ),
                             ),
                         ],

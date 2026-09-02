@@ -1,15 +1,21 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 /// 视频播放器组件。
-/// - 内嵌模式：详情页顶部 16:9，点击全屏。
-/// - 全屏模式：黑底沉浸，左右滑动快进/快退 ±10 秒（右滑快进，左滑快退。
-///   注意：手势为"向当前时间轴推进"即向右滑动 seek 到更后的位置）。
+/// - 内嵌模式：详情页顶部 16:9，常驻控制条（播放/暂停 + 可拖动进度条 + 时间 + 全屏）。
+///   视频初始化前显示 poster 封面（正文首图）。
+/// - 全屏模式：黑底沉浸，左右滑动快进/快退 ±10 秒（右滑快进），进度条可直接拖动。
 class PlayerWidget extends StatefulWidget {
   final String videoUrl;
   final String referer;
-  const PlayerWidget(
-      {super.key, required this.videoUrl, required this.referer});
+  final String poster; // 视频封面，可为空
+  const PlayerWidget({
+    super.key,
+    required this.videoUrl,
+    required this.referer,
+    this.poster = '',
+  });
 
   @override
   State<PlayerWidget> createState() => _PlayerWidgetState();
@@ -18,7 +24,6 @@ class PlayerWidget extends StatefulWidget {
 class _PlayerWidgetState extends State<PlayerWidget> {
   VideoPlayerController? _ctl;
   String? _error;
-  String? _toast; // 快进快退提示
   bool _init = false;
 
   @override
@@ -52,16 +57,211 @@ class _PlayerWidgetState extends State<PlayerWidget> {
     }
   }
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+  void _openFullscreen() {
+    final ctl = _ctl;
+    if (ctl == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FullscreenPlayer(controller: ctl),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctl = _ctl;
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: ColoredBox(
+        color: Colors.black,
+        child: ctl == null
+            ? _coverArea()
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      // 单击切换播放/暂停
+                      ctl.value.isPlaying ? ctl.pause() : ctl.play();
+                    },
+                    child: Center(child: VideoPlayer(ctl)),
+                  ),
+                  // 底部控制条（常驻）
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.6),
+                          ],
+                        ),
+                      ),
+                      child: _ControlBar(
+                        controller: ctl,
+                        onFullscreen: _openFullscreen,
+                        showFullscreen: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  /// 未初始化完成前的区域：poster 封面 + 加载指示
+  Widget _coverArea() {
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(_error!,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+              textAlign: TextAlign.center),
+        ),
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (widget.poster.isNotEmpty)
+          CachedNetworkImage(
+            imageUrl: widget.poster,
+            fit: BoxFit.cover,
+            memCacheWidth: 1280,
+            placeholder: (_, __) => const ColoredBox(color: Colors.black26),
+            errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black),
+          ),
+        const Center(
+            child: CircularProgressIndicator(color: Colors.white70)),
+      ],
+    );
+  }
+}
+
+/// 底部控制条：播放/暂停 + 可拖进度条 + 时间 + 全屏。
+/// 拖动时的预览值由本组件内部状态持有，松手才 seek。
+class _ControlBar extends StatefulWidget {
+  final VideoPlayerController controller;
+  final VoidCallback? onFullscreen;
+  final bool showFullscreen;
+  const _ControlBar({
+    required this.controller,
+    this.onFullscreen,
+    this.showFullscreen = false,
+  });
+
+  @override
+  State<_ControlBar> createState() => _ControlBarState();
+}
+
+class _ControlBarState extends State<_ControlBar> {
+  double? _dragMs;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder(
+      valueListenable: widget.controller,
+      builder: (_, v, __) {
+        final totalMs = v.duration.inMilliseconds.toDouble()
+            .clamp(1.0, double.infinity)
+            .toDouble();
+        final posMs = v.position.inMilliseconds.toDouble();
+        final shownMs = (_dragMs ?? posMs).clamp(0.0, totalMs).toDouble();
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 12),
+              ),
+              child: Slider(
+                value: shownMs,
+                max: totalMs,
+                activeColor: Colors.white,
+                inactiveColor: Colors.white24,
+                onChanged: (val) => setState(() => _dragMs = val),
+                onChangeEnd: (val) {
+                  widget.controller
+                      .seekTo(Duration(milliseconds: val.toInt()));
+                  setState(() => _dragMs = null);
+                },
+              ),
+            ),
+            Row(
+              children: [
+                IconButton(
+                  iconSize: 20,
+                  color: Colors.white,
+                  icon: Icon(
+                    v.isPlaying ? Icons.pause : Icons.play_arrow,
+                  ),
+                  onPressed: () => v.isPlaying
+                      ? widget.controller.pause()
+                      : widget.controller.play(),
+                ),
+                Expanded(
+                  child: Text(
+                    '${_fmt(Duration(milliseconds: shownMs.round()))} / '
+                    '${_fmt(v.duration)}',
+                    style: const TextStyle(
+                        color: Colors.white, fontSize: 11),
+                  ),
+                ),
+                if (widget.showFullscreen)
+                  IconButton(
+                    iconSize: 20,
+                    color: Colors.white,
+                    icon: const Icon(Icons.fullscreen),
+                    onPressed: widget.onFullscreen,
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+String _fmt(Duration d) {
+  final m = d.inMinutes.toString().padLeft(2, '0');
+  final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return '$m:$s';
+}
+
+/// 全屏播放页：黑底 + 左右滑动快进快退。
+class FullscreenPlayer extends StatefulWidget {
+  final VideoPlayerController controller;
+  const FullscreenPlayer({super.key, required this.controller});
+
+  @override
+  State<FullscreenPlayer> createState() => _FullscreenPlayerState();
+}
+
+class _FullscreenPlayerState extends State<FullscreenPlayer> {
+  String? _toast;
+  bool _controls = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.play();
   }
 
   /// 快进快退（秒），右滑 +
   void _seekBy(int seconds) {
-    final ctl = _ctl;
-    if (ctl == null) return;
+    final ctl = widget.controller;
     final pos = ctl.value.position + Duration(seconds: seconds);
     final Duration target;
     if (pos < Duration.zero) {
@@ -80,118 +280,6 @@ class _PlayerWidgetState extends State<PlayerWidget> {
     });
   }
 
-  void _openFullscreen() {
-    final ctl = _ctl;
-    if (ctl == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FullscreenPlayer(
-          controller: ctl,
-          onSeek: _seekBy,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ctl = _ctl;
-    return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: ColoredBox(
-        color: Colors.black,
-        child: ctl == null
-            ? Center(
-                child: _error != null
-                    ? Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(_error!,
-                            style: const TextStyle(
-                                color: Colors.white70, fontSize: 12)),
-                      )
-                    : const CircularProgressIndicator(color: Colors.white70),
-              )
-            : Stack(
-                fit: StackFit.expand,
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      // 单击：显示/隐藏控制条
-                      setState(() {});
-                    },
-                    child: Center(
-                      child: VideoPlayer(ctl),
-                    ),
-                  ),
-                  // 顶部小控制条
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: GestureDetector(
-                      onTap: _openFullscreen,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black45,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Icon(Icons.fullscreen,
-                            color: Colors.white, size: 22),
-                      ),
-                    ),
-                  ),
-                  // 进度条
-                  Positioned(
-                    left: 8,
-                    right: 8,
-                    bottom: 4,
-                    child: ValueListenableBuilder(
-                      valueListenable: ctl,
-                      builder: (_, v, __) => Row(
-                        children: [
-                          Text(
-                            '${_fmt(v.position)} / ${_fmt(v.duration)}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
-}
-
-/// 全屏播放页：黑底 + 左右滑动快进快退。
-class FullscreenPlayer extends StatefulWidget {
-  final VideoPlayerController controller;
-  final void Function(int seconds) onSeek;
-  const FullscreenPlayer(
-      {super.key, required this.controller, required this.onSeek});
-
-  @override
-  State<FullscreenPlayer> createState() => _FullscreenPlayerState();
-}
-
-class _FullscreenPlayerState extends State<FullscreenPlayer> {
-  String? _toast;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.play();
-  }
-
-  String _fmt(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
   @override
   Widget build(BuildContext context) {
     final ctl = widget.controller;
@@ -199,6 +287,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
       backgroundColor: Colors.black,
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _controls = !_controls),
         // 下滑返回
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 200) Navigator.pop(context);
@@ -207,37 +296,31 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         onHorizontalDragEnd: (d) {
           final v = d.primaryVelocity ?? 0;
           if (v.abs() < 150) return;
-          final sec = v > 0 ? 10 : -10;
-          widget.onSeek(sec);
-          setState(() {
-            _toast = '${sec > 0 ? '快进' : '快退'} ${sec.abs()} 秒';
-          });
-          Future.delayed(const Duration(milliseconds: 800), () {
-            if (mounted) setState(() => _toast = null);
-          });
+          _seekBy(v > 0 ? 10 : -10);
         },
         child: Stack(
           children: [
             // 全屏视频（填满，留黑边）
             Center(
               child: AspectRatio(
-                aspectRatio: ctl.value.aspectRatio == 0
-                    ? 16 / 9
-                    : ctl.value.aspectRatio,
+                aspectRatio:
+                    ctl.value.aspectRatio == 0 ? 16 / 9 : ctl.value.aspectRatio,
                 child: VideoPlayer(ctl),
               ),
             ),
-            // 顶部：返回 + 标题
-            SafeArea(
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
+            // 顶部：返回
+            if (_controls)
+              SafeArea(
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const Expanded(child: SizedBox()),
+                  ],
+                ),
               ),
-            ),
             // 中间：快进快退提示
             if (_toast != null)
               Center(
@@ -254,58 +337,17 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                 ),
               ),
             // 底部：控制条
-            SafeArea(
-              child: Align(
+            if (_controls)
+              Align(
                 alignment: Alignment.bottomCenter,
-                child: ValueListenableBuilder(
-                  valueListenable: ctl,
-                  builder: (_, v, __) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // 进度滑动条
-                        Slider(
-                          value: v.duration.inMilliseconds == 0
-                              ? 0
-                              : v.position.inMilliseconds
-                                  .clamp(0, v.duration.inMilliseconds)
-                                  .toDouble(),
-                          max: v.duration.inMilliseconds > 0
-                              ? v.duration.inMilliseconds.toDouble()
-                              : 1,
-                          onChanged: (val) {}, // 预览：拖动过程不 seek，松手才生效
-                          onChangeEnd: (val) {
-                            ctl.seekTo(Duration(milliseconds: val.toInt()));
-                          },
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '${_fmt(v.position)} / ${_fmt(v.duration)}',
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 12),
-                            ),
-                            IconButton(
-                              icon: Icon(
-                                v.isPlaying
-                                    ? Icons.pause
-                                    : Icons.play_arrow,
-                                color: Colors.white,
-                              ),
-                              onPressed: () => v.isPlaying
-                                  ? ctl.pause()
-                                  : ctl.play(),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _ControlBar(controller: ctl),
                   ),
                 ),
               ),
-            ),
           ],
         ),
       ),
