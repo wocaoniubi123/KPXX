@@ -21,6 +21,7 @@ class ArticleDetail {
   final String videoUrl; // 标准 hls（H264），可能为空字符串
   final String videoUrlH265; // H265 备选源，可能为空字符串
   final String seriesPrefix; // 系列前缀（如"良子重生绑定系统"），非系列文章为空
+  final List<Article> linkedItems; // 合集文章：正文里的子文章链接（目录条目）
 
   ArticleDetail({
     required this.title,
@@ -30,5 +31,6 @@ class ArticleDetail {
     required this.videoUrl,
     required this.videoUrlH265,
     required this.seriesPrefix,
+    this.linkedItems = const [],
   });
 }

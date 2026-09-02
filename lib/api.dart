@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:html/dom.dart' as hd;
 import 'package:html/parser.dart' as hp;
 
 import 'config.dart';
@@ -140,35 +141,59 @@ class Api {
       }
     }
 
-    // 正文图片：post 容器内 img，取 data-src（懒加载）
+    // 正文图片：post-content 内 img，图源属性优先级 data-src -> data-xkrkllgl -> src。
+    // 该站真实图地址常放在 data-xkrkllgl（懒加载占位是站内 zw.png），只收 pic.sbhioa.cn 的图。
     final images = <String>[];
-    for (final img in doc.querySelectorAll('article img[data-src]')) {
-      final src = img.attributes['data-src'] ?? '';
-      if (src.startsWith('http')) images.add(src);
+    for (final img in doc.querySelectorAll('.post-content img')) {
+      var src = img.attributes['data-src'] ?? '';
+      if (src.isEmpty) src = img.attributes['data-xkrkllgl'] ?? '';
+      if (src.isEmpty) src = img.attributes['src'] ?? '';
+      if (src.startsWith('http') && src.contains('pic.sbhioa.cn')) {
+        if (!images.contains(src)) images.add(src);
+      }
     }
-    // 有的正文图在 script 里 loadBannerDirect
-    for (final s in doc.querySelectorAll('article script')) {
-      if (images.length > 20) break;
-      final m = RegExp("loadBannerDirect\\('([^']+)'").firstMatch(s.text);
-      if (m != null) {
-        final u = m.group(1)!;
-        if (u.startsWith('http') && !images.contains(u)) images.add(u);
+    // 无 .post-content 容器的旧结构兜底
+    if (images.isEmpty) {
+      for (final img in doc.querySelectorAll('article img[data-src]')) {
+        final src = img.attributes['data-src'] ?? '';
+        if (src.startsWith('http') && !images.contains(src)) images.add(src);
       }
     }
 
     // 视频：div.dplayer[data-config] JSON
+    // 注意：video_h265 可能是对象（有 H265 源）也可能是空数组（无），
+    // 必须类型容错，否则一篇无 H265 的文章整体解析失败导致"无视频"。
     String videoUrl = '';
     String videoUrlH265 = '';
     for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {
       try {
         final cfg = jsonDecode(dp.attributes['data-config']!) as Map<String, dynamic>;
-        final video = (cfg['video'] as Map<String, dynamic>?) ?? const {};
-        final h265 = (cfg['video_h265'] as Map<String, dynamic>?) ?? const {};
-        videoUrl = (video['url'] as String?) ?? '';
-        videoUrlH265 = (h265['url'] as String?) ?? '';
+        final video = cfg['video'];
+        final h265 = cfg['video_h265'];
+        if (video is Map<String, dynamic>) {
+          videoUrl = (video['url'] as String?) ?? '';
+        }
+        if (h265 is Map<String, dynamic>) {
+          videoUrlH265 = (h265['url'] as String?) ?? '';
+        }
         break;
       } catch (_) {
         // 配置坏则该篇视为无视频继续
+      }
+    }
+
+    // 合集文章：正文 .post-content 里的子文章链接（每个条目一篇独立文章）。
+    // 排除本文自身、上一篇/下一篇导航（post-near）、尾部相关推荐区（hot-news）。
+    final linked = <Article>[];
+    final seen = <String>{};
+    for (final a in doc.querySelectorAll('.post-content a[href^="/archives/"]')) {
+      final href = a.attributes['href'] ?? '';
+      if (href.isEmpty || href == url) continue;
+      final t = a.text.trim();
+      if (t.isEmpty) continue;
+      if (_inBadAncestor(a)) continue;
+      if (seen.add(href)) {
+        linked.add(Article(title: t, url: href, cover: '', meta: ''));
       }
     }
 
@@ -180,7 +205,17 @@ class Api {
       videoUrl: videoUrl,
       videoUrlH265: videoUrlH265,
       seriesPrefix: _seriesPrefix(title),
+      linkedItems: linked,
     );
+  }
+
+  /// 链接祖先是否位于"上一篇/下一篇 / 相关推荐"区域（这些不是合集条目）
+  static bool _inBadAncestor(hd.Element e) {
+    for (var p = e; p != null; p = p.parent) {
+      final c = p.className ?? '';
+      if (c.contains('post-near') || c.contains('hot-news')) return true;
+    }
+    return false;
   }
 
   /// 标题中含"第 N 集"则提取系列前缀，否则空串。

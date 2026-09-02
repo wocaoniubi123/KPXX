@@ -125,8 +125,11 @@ class DetailPageState extends State<DetailPage> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                          // 选集横条
+                          // 选集横条（同系列文章）
                           if (_series.isNotEmpty) _buildSeriesStrip(d),
+                          // 合集条目（合集文章正文里的子文章目录）
+                          if (d.linkedItems.isNotEmpty)
+                            _buildLinkedStrip(d),
                           const SizedBox(height: 8),
                           // 正文图片
                           for (final img in d.images)
@@ -146,6 +149,60 @@ class DetailPageState extends State<DetailPage> {
                     ),
                   ],
                 ),
+    );
+  }
+
+  /// 合集条目列表：序号 + 标题，点击进入对应文章。
+  Widget _buildLinkedStrip(ArticleDetail d) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('合集条目（${d.linkedItems.length}）',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 6),
+        for (final (i, item) in d.linkedItems.indexed)
+          InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DetailPage(baseUrl: item.url),
+                ),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.deepOrange.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text('${i + 1}',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.deepOrange)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
