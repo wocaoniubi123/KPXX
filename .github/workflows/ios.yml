@@ -54,15 +54,18 @@ jobs:
           security unlock-keychain -p "$P12_PASSWORD" build.keychain
           security import /tmp/cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+          security list-keychains -d user -s build.keychain login.keychain-db
 
       - name: 修改 iOS 工程（bundle id / 手动签名 / 显示名）
         run: |
           cd ios
           # bundle id 必须是描述文件里的 ysc.tool6041.sign
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/' Runner.xcodeproj/project.pbxproj
-          # 手动签名 + 团队 ID
+          # 手动签名 + 团队 ID + 显式指定描述文件（UUID 来自上一步 PROFILE_UUID）
           sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Manual;\
+                CODE_SIGN_IDENTITY = "Apple Distribution";\
+                PROVISIONING_PROFILE_SPECIFIER = ${{ env.PROFILE_UUID }};/g' Runner.xcodeproj/project.pbxproj
           sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};\
                 DEVELOPMENT_TEAM = ${{ env.TEAM_ID }};/' Runner.xcodeproj/project.pbxproj
           # 应用显示名
