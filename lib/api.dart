@@ -211,7 +211,7 @@ class Api {
 
   /// 链接祖先是否位于"上一篇/下一篇 / 相关推荐"区域（这些不是合集条目）
   static bool _inBadAncestor(hd.Element e) {
-    for (var p = e; p != null; p = p.parent) {
+    for (hd.Element? p = e; p != null; p = p.parent) {
       final c = p.className ?? '';
       if (c.contains('post-near') || c.contains('hot-news')) return true;
     }
