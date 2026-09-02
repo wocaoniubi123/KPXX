@@ -52,7 +52,7 @@ class _FetchedImageState extends State<FetchedImage> {
       setState(() => _bytes = hit);
       return;
     }
-    final f = _inflight.putIfAbsent(url, _download);
+    final f = _inflight.putIfAbsent(url, () => _download(url));
     final bytes = await f;
     if (!mounted) return;
     if (bytes == null) {
