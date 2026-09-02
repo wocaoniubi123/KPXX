@@ -61,21 +61,26 @@ jobs:
       - name: 修改 iOS 工程（bundle id / 手动签名 / 显示名）
         run: |
           cd ios
-          # bundle id 必须是描述文件里的 ysc.tool6041.sign
-          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/' Runner.xcodeproj/project.pbxproj
-          # 手动签名 + 团队 ID + 显式指定描述文件
-          # PROVISIONING_PROFILE_SPECIFIER 用描述文件 Name（这里是设备 UDID 命名）
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Manual;\
-                CODE_SIGN_IDENTITY = "Apple Distribution";\
-                PROVISIONING_PROFILE = ${{ env.PROFILE_UUID }};\
-                PROVISIONING_PROFILE_SPECIFIER = "${{ env.PROFILE_NAME }}";/g' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};/PRODUCT_BUNDLE_IDENTIFIER = ${{ env.BUNDLE_ID }};\
-                DEVELOPMENT_TEAM = ${{ env.TEAM_ID }};/' Runner.xcodeproj/project.pbxproj
+          # 用 python3 做全局替换（BSD sed 多行插入不可靠）
+          python3 - << 'PYEOF'
+          import os
+          p = 'Runner.xcodeproj/project.pbxproj'
+          s = open(p, encoding='utf-8').read()
+          s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;',
+                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;')
+          s = s.replace('CODE_SIGN_STYLE = Automatic;',
+                        'CODE_SIGN_STYLE = Manual;')
+          s = s.replace('CODE_SIGN_STYLE = Manual;',
+                        'CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
+                        + os.environ.get('PROFILE_NAME', '') + '";')
+          s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;',
+                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = Z8J7VYHQZF;')
+          open(p, 'w', encoding='utf-8').write(s)
+          PYEOF
           # 应用显示名
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ env.APP_NAME }}" Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${{ env.APP_NAME }}" Runner/Info.plist || true
-          grep -n "PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_STYLE\|DEVELOPMENT_TEAM" Runner.xcodeproj/project.pbxproj | head -8
+          grep -n "PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_STYLE\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE\|DEVELOPMENT_TEAM" Runner.xcodeproj/project.pbxproj | head -12
 
       - name: 生成导出选项 (Ad-hoc)
         run: |
