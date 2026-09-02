@@ -62,8 +62,15 @@ class _PlayerWidgetState extends State<PlayerWidget> {
   void _seekBy(int seconds) {
     final ctl = _ctl;
     if (ctl == null) return;
-    final target = (ctl.value.position + Duration(seconds: seconds))
-        .clamp(Duration.zero, ctl.value.duration);
+    final pos = ctl.value.position + Duration(seconds: seconds);
+    final Duration target;
+    if (pos < Duration.zero) {
+      target = Duration.zero;
+    } else if (pos > ctl.value.duration) {
+      target = ctl.value.duration;
+    } else {
+      target = pos;
+    }
     ctl.seekTo(target);
     setState(() {
       _toast = '${seconds > 0 ? '快进' : '快退'} ${seconds.abs()} 秒';
