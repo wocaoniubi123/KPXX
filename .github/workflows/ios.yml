@@ -70,6 +70,9 @@ jobs:
                         'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;')
           s = s.replace('CODE_SIGN_STYLE = Automatic;',
                         'CODE_SIGN_STYLE = Manual;')
+          # Flutter 模板自带 iphoneos 专用 identity（优先级最高），必须一并换成 Distribution
+          s = s.replace('"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";',
+                        '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";')
           s = s.replace('CODE_SIGN_STYLE = Manual;',
                         'CODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
                         + os.environ.get('PROFILE_NAME', '') + '";')
