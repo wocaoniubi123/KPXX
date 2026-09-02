@@ -60,7 +60,7 @@ class EntryPage extends StatelessWidget {
                           color: cs.primaryContainer,
                           borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const Icon(Icons.watermelon_rounded,
+                        child: const Icon(Icons.play_circle_fill,
                             size: 40),
                       ),
                       const SizedBox(width: 16),
