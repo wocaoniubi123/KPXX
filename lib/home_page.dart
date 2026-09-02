@@ -1,9 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'config.dart';
 import 'detail_page.dart';
+import 'fetched_image.dart';
 import 'models.dart';
 
 /// 51吃瓜主界面：顶部分类 tab + 双列瀑布流卡片列表。
@@ -187,7 +187,7 @@ class _FeedViewState extends State<_FeedView>
                 crossAxisCount: 2,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: 0.82,
+                childAspectRatio: 1.05, // 16:9 封面 + 两行标题的长方形块
               ),
               // 滚动到底部附近时翻页
               itemCount: feed.items.length + 1,
@@ -227,28 +227,18 @@ class _ArticleCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            // 16:9 封面
+            AspectRatio(
+              aspectRatio: 16 / 9,
               child: SizedBox(
                 width: double.infinity,
                 child: article.cover.isEmpty
                     ? const ColoredBox(color: Color(0xFFEEEEEE))
-                    : CachedNetworkImage(
-                        imageUrl: article.cover,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 480,
-                        fadeInDuration: const Duration(milliseconds: 200),
-                        placeholder: (_, __) =>
-                            const ColoredBox(color: Color(0xFFEEEEEE)),
-                        errorWidget: (_, __, ___) => const ColoredBox(
-                          color: Color(0xFFEEEEEE),
-                          child: Icon(Icons.broken_image,
-                              color: Colors.black26),
-                        ),
-                      ),
+                    : FetchedImage(url: article.cover, memWidth: 480),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -257,16 +247,17 @@ class _ArticleCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600),
+                        fontSize: 13, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    article.meta,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.grey),
-                  ),
+                  if (article.meta.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      article.meta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
                 ],
               ),
             ),

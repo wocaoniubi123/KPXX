@@ -1,7 +1,7 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'fetched_image.dart';
 import 'models.dart';
 import 'player_widget.dart';
 
@@ -132,23 +132,12 @@ class DetailPageState extends State<DetailPage> {
                           for (final img in d.images)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: CachedNetworkImage(
-                                imageUrl: img,
-                                fit: BoxFit.contain,
-                                memCacheWidth: 1280,
-                                placeholder: (_, __) => const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(32),
-                                    child: CircularProgressIndicator(),
-                                  ),
-                                ),
-                                errorWidget: (_, __, ___) => const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Text('图片加载失败',
-                                        style: TextStyle(
-                                            color: Colors.grey, fontSize: 12)),
-                                  ),
+                              child: AspectRatio(
+                                aspectRatio: 16 / 9,
+                                child: FetchedImage(
+                                  url: img,
+                                  fit: BoxFit.contain,
+                                  memWidth: 1280,
                                 ),
                               ),
                             ),
