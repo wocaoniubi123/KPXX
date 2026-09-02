@@ -38,12 +38,9 @@ jobs:
         run: |
           echo "$P12_BASE64" | base64 -d > /tmp/cert.p12
           echo "$PROFILE_BASE64" | base64 -d > /tmp/profile.mobileprovision
-          # 从描述文件取 UUID，安装到系统 Provisioning Profiles 目录
-          UUID=$(security cms -D -i /tmp/profile.mobileprovision -o - 2>/dev/null | plutil -extract UUID raw - 2>/dev/null | tr -d '\n' | sed 's/.*://' || true)
-          # plutil 输出可能带前缀，兜底提取
-          if [ -z "$UUID" ]; then
-            UUID=$(security cms -D -i /tmp/profile.mobileprovision -o - 2>/dev/null | plutil -extract UUID raw - 2>/dev/null | sed -E 's/.*<string>([^<]+)<\/string>.*/\1/' || true)
-          fi
+          # 从描述文件提取 UUID（python3 plistlib，比 plutil 稳）
+          security cms -D -i /tmp/profile.mobileprovision -o /tmp/profile.plist 2>/dev/null
+          UUID=$(python3 -c "import plistlib; print(plistlib.load(open('/tmp/profile.plist','rb'))['UUID'])")
           if [ -z "$UUID" ]; then
             echo "::error:: 无法提取描述文件 UUID"
             exit 1
