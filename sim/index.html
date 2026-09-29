@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>KPXX 模拟器（数据/界面验证）</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #e9eaee;
+    font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; align-items: center; justify-content: center; gap: 28px;
+    color: #1b1b1f;
+  }
+  /* ---------- 手机外壳 ---------- */
+  .phone {
+    width: 390px; height: 844px; background: #000; border-radius: 44px;
+    padding: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex: 0 0 auto;
+  }
+  .screen {
+    position: relative; width: 100%; height: 100%; background: #fff;
+    border-radius: 36px; overflow: hidden; display: flex; flex-direction: column;
+  }
+  .status {
+    height: 44px; flex: 0 0 auto; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 22px; font-weight: 600; font-size: 14px;
+    background: inherit;
+  }
+  .status .right { letter-spacing: 2px; }
+  /* ---------- 顶栏 ---------- */
+  .appbar {
+    flex: 0 0 auto; background: #fdf1ee; display: flex; align-items: center;
+    gap: 6px; padding: 4px 8px 8px; position: relative;
+  }
+  .appbar h1 { flex: 1; text-align: center; font-size: 20px; font-weight: 600; margin: 0; }
+  .appbar .ic {
+    width: 40px; height: 40px; display: grid; place-items: center; font-size: 20px;
+    cursor: pointer; border-radius: 50%;
+  }
+  .appbar .ic:hover { background: rgba(0,0,0,.06); }
+  .appbar .spacer { width: 40px; }
+  /* ---------- 内容区 ---------- */
+  .body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; background: #F6F6F9; }
+  .body.white { background: #fff; }
+  /* ---------- 底部导航 ---------- */
+  .nav {
+    flex: 0 0 auto; display: flex; background: #fdf1ee; border-top: 1px solid #eee;
+  }
+  .nav .item {
+    flex: 1; padding: 8px 0 14px; display: flex; flex-direction: column;
+    align-items: center; gap: 2px; cursor: pointer; color: #6b6b6b; font-size: 12px;
+  }
+  .nav .item.on { color: #8d4b2a; }
+  .nav svg { width: 26px; height: 26px; }
+  /* ---------- 宫格 ---------- */
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px 8px; padding: 18px 10px; }
+  .tile { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+  .tile .box {
+    width: 62px; height: 62px; border-radius: 13px; background: #fff;
+    border: 1px solid rgba(0,0,0,.08); display: grid; place-items: center; overflow: hidden;
+  }
+  .tile .box img { width: 100%; height: 100%; object-fit: contain; padding: 9px; }
+  .tile .box .noimg { color: #fff; font-size: 26px; font-weight: 700; width: 100%; height: 100%;
+    display: grid; place-items: center; }
+  .tile span { font-size: 12px; color: #333; text-align: center; }
+  /* ---------- 列表页 ---------- */
+  .tabs {
+    display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: #fff;
+    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs .tab {
+    padding: 12px 0 8px; font-size: 14px; color: #333; white-space: nowrap;
+    cursor: pointer; border-bottom: 3px solid transparent;
+  }
+  .tabs .tab.on { color: #8d4b2a; border-color: #8d4b2a; font-weight: 600; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+  .card { background: #fff; border-radius: 12px; overflow: hidden; cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card .cover { position: relative; width: 100%; aspect-ratio: 16/9; background: #eee; }
+  .card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .txt { padding: 6px 8px 8px; }
+  .card .ttl { font-size: 13px; font-weight: 600; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .meta { margin-top: 4px; font-size: 10px; color: #999; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  /* ---------- 详情页 ---------- */
+  .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; }
+  .player video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .pbar { position: absolute; left: 10px; right: 10px; bottom: 6px; height: 14px; cursor: pointer; }
+  .pbar .track { position: absolute; left: 0; right: 0; bottom: 3px; height: 3px;
+    background: rgba(255,255,255,.25); border-radius: 2px; }
+  .pbar .buf { position: absolute; left: 0; bottom: 3px; height: 3px; width: 0;
+    background: rgba(255,255,255,.5); border-radius: 2px; }
+  .pbar .play { position: absolute; left: 0; bottom: 3px; height: 3px; width: 0;
+    background: #fff; border-radius: 2px; }
+  .pbar .knob { position: absolute; bottom: .5px; width: 8px; height: 8px; border-radius: 50%;
+    background: #fff; transform: translateX(-4px); }
+  .ptime { position: absolute; left: 10px; bottom: 22px; color: #fff; font-size: 11px;
+    text-shadow: 0 1px 2px #000; }
+  .pstate { position: absolute; left: 0; right: 0; top: 45%; text-align: center;
+    color: #fff9; font-size: 12px; }
+  .dwrap { padding: 12px; }
+  .dwrap h2 { font-size: 18px; margin: 0 0 8px; line-height: 1.4; }
+  .dmeta { font-size: 12px; color: #888; display: flex; gap: 10px; align-items: center; }
+  .sec { margin-top: 14px; }
+  .sec h3 { font-size: 15px; margin: 0 0 6px; }
+  .intro { font-size: 13px; color: #333; line-height: 1.6; white-space: pre-wrap; }
+  .vlist { display: flex; flex-direction: column; }
+  .vrow { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+  .vrow .num { width: 22px; height: 22px; border-radius: 6px; background: rgba(0,0,0,.06);
+    color: #555; font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: 0 0 auto; }
+  .vrow.on .num { background: #e8590c; color: #fff; }
+  .vrow.on .t { font-weight: 700; }
+  .vrow .t { font-size: 13px; line-height: 1.4; }
+  .stills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+  .stills img { width: 120px; height: 84px; object-fit: cover; border-radius: 6px;
+    background: #eee; cursor: zoom-in; flex: 0 0 auto; }
+  /* ---------- 大图 ---------- */
+  .lightbox { position: absolute; inset: 0; background: #000; display: none;
+    align-items: center; justify-content: center; z-index: 20; }
+  .lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .lightbox .info { position: absolute; top: 48px; right: 16px; color: #fff9; font-size: 12px; }
+  /* ---------- 搜索 ---------- */
+  .searchbar { display: flex; align-items: center; gap: 8px; }
+  .searchbar input { flex: 1; border: 0; border-bottom: 2px solid #8d4b2a; outline: 0;
+    padding: 6px 2px; font-size: 15px; background: transparent; }
+  .hint { text-align: center; color: #666; margin-top: 120px; font-size: 14px; }
+  /* ---------- 设置 ---------- */
+  .stlist { background: #fff; }
+  .strow { padding: 14px 16px; border-bottom: 1px solid #f2f2f2; }
+  .strow .t { font-size: 15px; }
+  .strow .s { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.5; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 16px; }
+  .chip { padding: 6px 14px; border-radius: 18px; border: 1px solid #ddd; font-size: 13px; }
+  .chip.on { background: #e8590c; color: #fff; border-color: #e8590c; }
+  /* ---------- 侧栏日志 ---------- */
+  .side { width: 420px; max-height: 844px; background: #181a20; color: #c9d1d9;
+    border-radius: 14px; padding: 12px; overflow: auto; font: 12px/1.6 Consolas, monospace; }
+  .side h3 { margin: 0 0 8px; font-size: 13px; color: #fff; font-weight: 600; }
+  .side .ok { color: #7ee787; } .side .err { color: #ff7b72; } .side .dim { color: #8b949e; }
+  .side button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 11px; margin-right: 6px; }
+  .spin { display:inline-block; width:16px; height:16px; border:2px solid #ddd;
+    border-top-color:#8d4b2a; border-radius:50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="screen">
+    <div class="status">
+      <span id="clock">23:10</span>
+      <span class="right">▮▮▮ ⌾▮ 72</span>
+    </div>
+    <div class="appbar" id="appbar"></div>
+    <div class="tabs" id="tabs" style="display:none"></div>
+    <div class="body" id="body"></div>
+    <div class="nav" id="nav">
+      <div class="item on" data-nav="grid">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+        <span>模块</span>
+      </div>
+      <div class="item" data-nav="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.05a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.05a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        <span>设置</span>
+      </div>
+    </div>
+    <div class="lightbox" id="lightbox">
+      <img id="lightbox-img" alt="" />
+      <div class="info" id="lightbox-info"></div>
+    </div>
+  </div>
+</div>
+
+<div class="side">
+  <h3>模拟器日志（数据抓取 / 解密 / 播放）</h3>
+  <div style="margin-bottom:8px">
+    <button onclick="document.getElementById('log').innerHTML=''">清空</button>
+    <button onclick="reloadSites()">重读站点清单</button>
+    <span class="dim">站点清单来自 lib/sites.dart</span>
+  </div>
+  <div id="log"></div>
+</div>
+
+<script>
+/* =========================================================================
+   KPXX 模拟器 —— 只做两件事：验证真实数据能不能抓到、界面显示对不对。
+   解析规则与 app 的 lib/api.dart 一一对应（改动要两边同步）。
+   ========================================================================= */
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+function log(msg, cls) {
+  const t = new Date().toTimeString().slice(0, 8);
+  logEl.insertAdjacentHTML('beforeend',
+    `<div class="${cls || ''}">[${t}] ${msg}</div>`);
+  logEl.parentElement.scrollTop = 1e9;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmt(sec) {
+  if (!isFinite(sec)) sec = 0;
+  const m = String(Math.floor(sec / 60)).padStart(2, '0');
+  const s = String(Math.floor(sec % 60)).padStart(2, '0');
+  return `${m}:${s}`;
+}
+setInterval(() => {
+  const d = new Date();
+  $('clock').textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}, 10000);
+
+/* ---------------------------- 数据层 ---------------------------- */
+const AES_KEY = 'f5d965df75336270';   // 与 app 的 fetched_image.dart 一致
+const AES_IV = '97b60394abc2fbe1';
+
+let SITES = [];
+
+async function reloadSites() {
+  const r = await fetch('/sites');
+  const j = await r.json();
+  if (j.error) { log('站点清单解析失败：' + j.error, 'err'); return; }
+  SITES = j.sites;
+  log(`站点清单：${SITES.map((s) => s.name).join('、')}`, 'ok');
+  renderGrid();
+}
+
+const base = (site) => 'https://' + (site.hosts[0] || '');
+const px = (url) => '/proxy?url=' + encodeURIComponent(url);
+
+// 走 /site：服务端会依次试该站的所有域名（和 App 的 _fetchText 一样），
+// 跑通哪个记住哪个。要抓的是站点 HTML，不能直连（浏览器跨域会被拦）。
+async function getHtml(site, path) {
+  const r = await fetch('/site?name=' + encodeURIComponent(site.name) +
+    '&path=' + encodeURIComponent(path));
+  const text = await r.text();
+  if (r.status !== 200) throw new Error(text.slice(0, 140));
+  return text;
+}
+
+/** 与 api.dart 的 _parseArticles 对应 */
+function parseArticles(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  for (const el of doc.querySelectorAll('article[itemscope]')) {
+    const cls = el.className || '';
+    const a = el.querySelector('a[href^="/archives/"]');
+    if (!a || cls.includes('ad-item')) continue;
+    const title = (el.querySelector('.post-card-title')?.textContent || '').trim();
+    if (!title) continue;
+    let cover = '';
+    for (const s of el.querySelectorAll('script')) {
+      const m = /loadBannerDirect\('([^']+)'/.exec(s.textContent);
+      if (m) { cover = m[1]; break; }
+    }
+    if (!cover) cover = el.querySelector('img[data-src]')?.getAttribute('data-src') || '';
+    const meta = (el.querySelector('.post-card-info')?.textContent || '')
+      .replace(/\s+/g, ' ').trim();
+    out.push({ title, url: a.getAttribute('href'), cover, meta });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 与 api.dart 的 detail() 对应 */
+function parseDetail(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const title = (doc.querySelector('.post-title')?.textContent || '').trim();
+  const intro = (doc.querySelector('meta[name="description"]')?.getAttribute('content') || '')
+    .replace(/\s+/g, ' ').trim();
+  const time = doc.querySelector('meta[itemprop="datePublished"]')?.getAttribute('content') || '';
+
+  const images = [];
+  for (const img of doc.querySelectorAll('.post-content img')) {
+    let src = img.getAttribute('data-xkrkllgl') || '';
+    if (!src) src = img.getAttribute('data-src') || '';
+    if (!src) src = img.getAttribute('src') || '';
+    if (src.startsWith('http') && !src.includes('/hc237/') && !images.includes(src)) images.push(src);
+  }
+
+  const videos = [];
+  let order = 0;
+  for (const dp of doc.querySelectorAll('.dplayer[data-config]')) {
+    order++;
+    const sources = [];
+    try {
+      const cfg = JSON.parse(dp.getAttribute('data-config'));
+      if (cfg.video && cfg.video.url) sources.push(cfg.video.url);
+      if (cfg.video_h265 && cfg.video_h265.url) sources.push(cfg.video_h265.url);
+    } catch (e) { /* 单个视频配置坏，跳过 */ }
+    const texts = [];
+    for (let e = dp.previousElementSibling; e && texts.length < 2; e = e.previousElementSibling) {
+      const t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!t || t.length > 60) continue;
+      texts.push(t);
+    }
+    let ord = 0;
+    for (const t of texts) { const v = videoOrdinal(t); if (v > 0) { ord = v; break; } }
+    const n = ord > 0 ? ord : order;
+    videos.push({ ordinal: n, label: ord > 0 && texts.length ? texts[0] : '视频 ' + n, sources });
+  }
+  videos.sort((a, b) => a.ordinal - b.ordinal);
+  return { title, intro, time, images, videos };
+}
+
+function videoOrdinal(s) {
+  const m = /视频\s*([0-9一二三四五六七八九十百]+)/.exec(s);
+  if (!m) return 0;
+  const t = m[1];
+  if (/^[0-9]+$/.test(t)) return parseInt(t, 10);
+  const cn = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (t === '十') return 10;
+  if (t.startsWith('十')) return 10 + (cn[t.slice(1)] || 0);
+  if (t.includes('十')) {
+    const p = t.split('十');
+    return (cn[p[0]] || 0) * 10 + (p.length > 1 ? (cn[p[1]] || 0) : 0);
+  }
+  return cn[t] || 0;
+}
+
+/* -------- 图片：下载 + AES 解密（与 fetched_image.dart 对应） -------- */
+const imgCache = new Map();
+function looksLikeImage(b) {
+  if (b.length < 12) return false;
+  if (b[0] === 0xff && b[1] === 0xd8) return true;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return true;
+  const s = String.fromCharCode(...b.slice(0, 6));
+  if (s.startsWith('GIF8')) return true;
+  if (s.startsWith('RIFF') && String.fromCharCode(...b.slice(8, 12)) === 'WEBP') return true;
+  return false;
+}
+const isIco = (b) => b.length > 6 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0;
+
+async function imageUrl(url) {
+  if (!url) return '';
+  if (imgCache.has(url)) return imgCache.get(url);
+  const task = (async () => {
+    const r = await fetch(px(url));
+    let b = new Uint8Array(await r.arrayBuffer());
+    if (isIco(b)) return URL.createObjectURL(new Blob([b]));   // 浏览器自己能显示 ICO
+    if (!looksLikeImage(b)) {
+      try {
+        const key = await crypto.subtle.importKey('raw',
+          new TextEncoder().encode(AES_KEY), { name: 'AES-CBC' }, false, ['decrypt']);
+        b = new Uint8Array(await crypto.subtle.decrypt(
+          { name: 'AES-CBC', iv: new TextEncoder().encode(AES_IV) }, key, b));
+      } catch (e) { log('图片解密失败：' + url.slice(0, 60), 'err'); return ''; }
+      if (!looksLikeImage(b)) { log('解密后仍不是图片：' + url.slice(0, 60), 'err'); return ''; }
+    }
+    return URL.createObjectURL(new Blob([b]));
+  })();
+  imgCache.set(url, task);
+  return task;
+}
+async function fillImages(root) {
+  for (const img of root.querySelectorAll('img[data-src]')) {
+    const u = img.getAttribute('data-src');
+    img.removeAttribute('data-src');
+    const obj = await imageUrl(u);
+    if (obj) img.src = obj; else img.style.visibility = 'hidden';
+  }
+}
+
+/* ---------------------------- 界面 ---------------------------- */
+let stack = [];   // 简易返回栈
+
+function setAppbar(html) { $('appbar').innerHTML = html; }
+function showNav(on) { $('nav').style.display = on ? 'flex' : 'none'; }
+function setTabs(cats, activeIdx, onPick) {
+  const el = $('tabs');
+  if (!cats || !cats.length) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = cats.map((c, i) =>
+    `<div class="tab ${i === activeIdx ? 'on' : ''}" data-i="${i}">${esc(c.name)}</div>`).join('');
+  el.querySelectorAll('.tab').forEach((t) =>
+    t.onclick = () => onPick(parseInt(t.dataset.i, 10)));
+}
+
+function push(view) { stack.push(view); view(); }
+function back() { stack.pop(); (stack[stack.length - 1] || viewGrid)(); }
+
+/* -------- 宫格首页 -------- */
+function viewGrid() {
+  showNav(true);
+  $('tabs').style.display = 'none';
+  setAppbar(`<div class="spacer"></div><h1>KPXX</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').innerHTML = `<div class="grid">${SITES.map((s, i) => `
+    <div class="tile" data-i="${i}">
+      <div class="box">
+        ${s.iconUrl
+          ? `<img src="${px(s.iconUrl.startsWith('/') ? base(s) + s.iconUrl : s.iconUrl)}" />`
+          : `<div class="noimg" style="background:#${s.color}">${esc(s.name[0] || '?')}</div>`}
+      </div>
+      <span>${esc(s.name)}</span>
+    </div>`).join('')}</div>`;
+  $('body').querySelectorAll('.tile').forEach((t) => {
+    t.onclick = () => openSite(SITES[parseInt(t.dataset.i, 10)]);
+  });
+}
+
+function openSite(site) {
+  if (site.kind === 'web') { log('web 站点（App 里走内置 WebView）：' + site.url); return; }
+  push(() => viewList(site, 0));
+}
+
+/* -------- 列表页 -------- */
+const listState = new Map();   // site.name + slug -> { items, page, done }
+
+function viewList(site, idx, scrollTop) {
+  const cat = site.categories[idx];
+  if (!cat) { log(site.name + ' 没有分类', 'err'); return; }
+  showNav(false);
+  setAppbar(`
+    <div class="ic" onclick="back()">‹</div>
+    <h1>${esc(site.name)}</h1>
+    <div class="ic" onclick="openSearch(${SITES.indexOf(site)})">🔍</div>`);
+  setTabs(site.categories, idx, (i) => viewList(site, i));
+  $('body').className = 'body';
+
+  const key = site.name + '/' + cat.slug;
+  const st = listState.get(key) || { items: [], page: 1, done: false };
+  listState.set(key, st);
+
+  $('body').innerHTML = `<div class="cards" id="cards"></div>
+    <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
+  renderCards(cat, st);
+  if (scrollTop) $('body').scrollTop = scrollTop;
+  $('body').onscroll = () => {
+    if ($('body').scrollTop + $('body').clientHeight > $('body').scrollHeight - 300) {
+      loadMore(site, cat, st);
+    }
+  };
+  if (!st.items.length) loadMore(site, cat, st);
+}
+
+function renderCards(cat, st) {
+  const wrap = $('cards');
+  if (!wrap) return;
+  wrap.innerHTML = st.items.map((a, i) => `
+    <div class="card" data-i="${i}">
+      <div class="cover"><img data-src="${esc(a.cover)}" alt="" /></div>
+      <div class="txt">
+        <div class="ttl">${esc(a.title)}</div>
+        ${a.meta ? `<div class="meta">${esc(a.meta)}</div>` : ''}
+      </div>
+    </div>`).join('');
+  wrap.querySelectorAll('.card').forEach((c) => {
+    c.onclick = () => openDetail(st.items[parseInt(c.dataset.i, 10)], cat, $('body').scrollTop);
+  });
+  fillImages(wrap);
+  $('more').innerHTML = st.done ? '<span class="dim">没有更多了</span>' : '<span class="spin"></span>';
+  log(`${cat.name}：已加载 ${st.items.length} 篇`, 'dim');
+}
+
+async function loadMore(site, cat, st) {
+  if (st.loading || st.done) return;
+  st.loading = true;
+  const path = st.page <= 1 ? `/category/${cat.slug}/` : `/category/${cat.slug}/${st.page}/`;
+  try {
+    const items = parseArticles(await getHtml(site, path));
+    if (!items.length) { st.done = true; log(`${cat.name} 第 ${st.page} 页：0 篇（到底）`, 'dim'); }
+    else {
+      st.items.push(...items);
+      st.page++;
+      log(`${cat.name} 第 ${st.page - 1} 页：${items.length} 篇`, 'ok');
+    }
+  } catch (e) {
+    st.done = true;
+    log(`抓取失败 ${path}：${e.message}`, 'err');
+  } finally {
+    st.loading = false;
+    renderCards(cat, st);
+  }
+}
+
+/* -------- 详情页 -------- */
+let curPlayer = null;
+
+function openDetail(article, cat, scrollTop) {
+  push(() => viewDetail(article, cat, scrollTop));
+}
+
+async function viewDetail(article, cat, scrollTop) {
+  showNav(false);
+  const site = SITES.find((s) => cat && s.categories.includes(cat)) || SITES[0];
+  setAppbar(`
+    <div class="ic" onclick="back()">‹</div>
+    <h1>${esc(site.name)}</h1>
+    <div class="ic" title="用网页播放器打开（App 里的入口）" onclick="window.open('${esc(base(site) + article.url)}','_blank')">🌐</div>`);
+  $('tabs').style.display = 'none';
+  $('body').className = 'body white';
+  $('body').onscroll = null;
+  $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
+
+  let d;
+  try {
+    d = parseDetail(await getHtml(site, article.url));
+    log(`详情：${d.videos.length} 个视频 / ${d.images.length} 张剧照 / 简介 ${d.intro ? d.intro.length : 0} 字`, 'ok');
+  } catch (e) {
+    $('body').innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
+    log('详情抓取失败：' + e.message, 'err');
+    return;
+  }
+  $('body').innerHTML = `
+    <div class="player" id="player">
+      <video id="v" playsinline></video>
+      <div class="pstate" id="pstate">加载中…</div>
+      <div class="ptime" id="ptime">00:00 / 00:00</div>
+      <div class="pbar" id="pbar">
+        <div class="track"></div><div class="buf" id="pbuf"></div>
+        <div class="play" id="pplay"></div><div class="knob" id="pknob"></div>
+      </div>
+    </div>
+    <div class="dwrap">
+      <h2>${esc(d.title || article.title)}</h2>
+      <div class="dmeta">🔥 ${esc((d.time || '').slice(0, 10))}
+        <span>${d.videos.length} 集</span></div>
+      ${d.videos.length > 1 ? `
+        <div class="sec"><h3>视频（${d.videos.length}）</h3><div class="vlist" id="vlist">
+          ${d.videos.map((v, i) => `<div class="vrow ${i === 0 ? 'on' : ''}" data-i="${i}">
+            <div class="num">${v.ordinal}</div><div class="t">${esc(v.label)}</div></div>`).join('')}
+        </div></div>` : ''}
+      ${d.intro ? `<div class="sec"><h3>简介</h3><div class="intro">${esc(d.intro)}</div></div>` : ''}
+      ${d.images.length ? `<div class="sec"><h3>剧照</h3><div class="stills" id="stills">
+          ${d.images.map((u) => `<img data-src="${esc(u)}" alt="" />`).join('')}</div></div>` : ''}
+    </div>`;
+  fillImages($('body'));
+  if (scrollTop) $('body').scrollTop = scrollTop;
+
+  // 剧照大图
+  const stills = $('stills');
+  if (stills) {
+    stills.querySelectorAll('img').forEach((im, i) => {
+      im.onclick = async () => {
+        $('lightbox-img').src = im.src;
+        $('lightbox-info').textContent = `${i + 1} / ${d.images.length}`;
+        $('lightbox').style.display = 'flex';
+      };
+    });
+  }
+  $('lightbox').onclick = () => { $('lightbox').style.display = 'none'; };
+
+  // 多视频切换
+  const vlist = $('vlist');
+  if (vlist) {
+    vlist.querySelectorAll('.vrow').forEach((row) => {
+      row.onclick = () => {
+        const i = parseInt(row.dataset.i, 10);
+        vlist.querySelectorAll('.vrow').forEach((r) => r.classList.remove('on'));
+        row.classList.add('on');
+        playVideo(d.videos[i]);
+      };
+    });
+  }
+  playVideo(d.videos[0]);
+}
+
+/* -------- 播放器（hls.js + 自定义进度条，行为对齐 App） -------- */
+const HLS_CDNS = [
+  'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js',
+  'https://unpkg.com/hls.js@1/dist/hls.min.js',
+  'https://cdn.bootcdn.net/ajax/libs/hls.js/1.5.15/hls.min.js',
+];
+async function ensureHls() {
+  if (window.Hls) return true;
+  for (const src of HLS_CDNS) {
+    try {
+      await new Promise((ok, no) => {
+        const s = document.createElement('script');
+        s.src = src; s.onload = ok; s.onerror = no;
+        document.head.appendChild(s);
+      });
+      if (window.Hls) { log('hls.js 已加载：' + src, 'dim'); return true; }
+    } catch (e) { log('hls.js 源不可用：' + src, 'dim'); }
+  }
+  return false;
+}
+
+async function playVideo(v) {
+  const video = $('v');
+  if (!video) return;
+  if (curPlayer && curPlayer.destroy) { try { curPlayer.destroy(); } catch (e) {} curPlayer = null; }
+  const src = v && v.sources && v.sources[0];
+  if (!src) {
+    $('pstate').textContent = '该视频没有可用源';
+    log('视频无源（dplayer 配置里 video/video_h265 都为空）', 'err');
+    return;
+  }
+  $('pstate').textContent = '加载中…';
+  log('播放：' + src.slice(0, 90), 'dim');
+  const url = video.canPlayType('application/vnd.apple.mpegurl') ? src : src;
+  if (await ensureHls() && window.Hls.isSupported()) {
+    const hls = new window.Hls({ maxBufferLength: 30, maxMaxBufferLength: 120 });
+    curPlayer = hls;
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+      $('pstate').textContent = '';
+      video.play().catch(() => {});
+    });
+    hls.on(window.Hls.Events.ERROR, (_, data) => {
+      if (data.fatal) {
+        $('pstate').textContent = '播放出错：' + (data.details || '');
+        log('hls 致命错误：' + data.details, 'err');
+      } else {
+        log('hls：' + data.details, 'dim');
+      }
+    });
+  } else {
+    video.src = url;
+    video.onloadeddata = () => { $('pstate').textContent = ''; };
+    video.onerror = () => {
+      $('pstate').textContent = '播放出错（浏览器不支持该格式，且 hls.js 没加载上）';
+      log('video 元素报错', 'err');
+    };
+    video.play().catch(() => {});
+  }
+  bindPlayerUi(video);
+}
+
+function bindPlayerUi(video) {
+  const upd = () => {
+    const dur = video.duration || 0;
+    const pos = video.currentTime || 0;
+    let bufEnd = 0;
+    try {
+      for (let i = 0; i < video.buffered.length; i++) {
+        if (video.buffered.start(i) <= pos + 0.5 && video.buffered.end(i) > bufEnd) {
+          bufEnd = video.buffered.end(i);
+        }
+      }
+    } catch (e) {}
+    const p = dur ? (pos / dur) * 100 : 0;
+    const b = dur ? (bufEnd / dur) * 100 : 0;
+    $('pplay').style.width = p + '%';
+    $('pbuf').style.width = b + '%';
+    $('pknob').style.left = p + '%';
+    $('ptime').textContent = `${fmt(pos)} / ${fmt(dur)}`;
+  };
+  video.ontimeupdate = upd;
+  video.onprogress = upd;
+  video.ondurationchange = upd;
+  upd();
+
+  // 双击左右 = 后退/快进 10 秒（与 App 的设置项一致，这里固定 10）
+  $('player').ondblclick = (ev) => {
+    const r = $('player').getBoundingClientRect();
+    const back = (ev.clientX - r.left) < r.width / 2;
+    video.currentTime = Math.max(0, Math.min(video.duration || 0,
+      video.currentTime + (back ? -10 : 10)));
+    upd();
+  };
+  // 左右拖动 = 按距离跳转（滑满一屏 120 秒），松手才跳
+  let dragging = false, dx = 0, from = 0, width = 0;
+  $('player').onpointerdown = (ev) => {
+    dragging = true; dx = 0; from = video.currentTime;
+    width = $('player').getBoundingClientRect().width;
+  };
+  $('player').onpointermove = (ev) => {
+    if (!dragging) return;
+    dx += ev.movementX || 0;
+    if (Math.abs(dx) > 6) $('ptime').textContent =
+      `${fmt(Math.max(0, from + dx / width * 120))} （松手跳转 ${Math.round(dx / width * 120)}s）`;
+  };
+  $('player').onpointerup = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (Math.abs(dx) > 6) {
+      video.currentTime = Math.max(0, Math.min(video.duration || 0, from + dx / width * 120));
+      upd();
+    }
+  };
+  $('pbar').onclick = (ev) => {
+    const r = $('pbar').getBoundingClientRect();
+    video.currentTime = ((ev.clientX - r.left) / r.width) * (video.duration || 0);
+    upd();
+  };
+}
+
+/* -------- 搜索页 -------- */
+function openSearch(siteIdx) { push(() => viewSearch(SITES[siteIdx])); }
+
+function viewSearch(site) {
+  showNav(false);
+  setAppbar(`<div class="ic" onclick="back()">‹</div>
+    <div class="searchbar" style="flex:1">
+      <input id="kw" placeholder="搜索文章关键词..." />
+    </div>
+    <div style="padding:0 10px;color:#8d4b2a;cursor:pointer" id="doSearch">搜索</div>`);
+  $('tabs').style.display = 'none';
+  $('body').className = 'body';
+  $('body').innerHTML = `<div class="hint">输入关键词即可搜索</div>`;
+  $('doSearch').onclick = doSearch;
+  $('kw').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
+  $('kw').focus();
+  async function doSearch() {
+    const kw = $('kw').value.trim();
+    if (!kw) return;
+    $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
+    try {
+      const items = parseArticles(await getHtml(site, '/search/' + encodeURIComponent(kw) + '/'));
+      log(`搜索「${kw}」：${items.length} 篇`, items.length ? 'ok' : 'err');
+      if (!items.length) { $('body').innerHTML = `<div class="hint">无结果</div>`; return; }
+      $('body').innerHTML = `<div class="cards" id="cards"></div>`;
+      const st = { items, page: 1, done: true };
+      renderCards({ name: '搜索' }, st);
+      $('cards').querySelectorAll('.card').forEach((c) => {
+        c.onclick = () => openDetail(items[parseInt(c.dataset.i, 10)], null, 0);
+      });
+    } catch (e) {
+      $('body').innerHTML = `<div class="hint">搜索失败：${esc(e.message)}</div>`;
+      log('搜索失败：' + e.message, 'err');
+    }
+  }
+}
+
+/* -------- 设置页 -------- */
+function viewSettings() {
+  showNav(true);
+  $('tabs').style.display = 'none';
+  setAppbar(`<div class="spacer"></div><h1>设置</h1><div class="spacer"></div>`);
+  $('body').className = 'body white';
+  $('body').onscroll = null;
+  $('body').innerHTML = `
+    <div class="stlist">
+      <div class="strow"><div class="t">快进/快退秒数</div>
+        <div class="s">双击画面左侧后退、右侧快进，一次跳转的时长（App 里可选 5/10/15，默认 10）</div></div>
+      <div class="chips">${[5, 10, 15].map((n) =>
+        `<div class="chip ${n === 10 ? 'on' : ''}">${n} 秒</div>`).join('')}</div>
+      <div class="strow"><div class="t">自动播放下一集</div>
+        <div class="s">一篇里有多个视频时，播完自动切下一个（默认关）</div></div>
+      <div class="strow"><div class="t">播放缓冲大小</div>
+        <div class="s">App 里可选 100MB / 200MB / 300MB / 500MB / 1G，默认 200MB（改完重进视频生效）</div></div>
+      <div class="chips">${[100, 200, 300, 500, 1024].map((n) =>
+        `<div class="chip ${n === 200 ? 'on' : ''}">${n >= 1024 ? '1G' : n + 'MB'}</div>`).join('')}</div>
+      <div class="strow"><div class="t">左右滑动</div>
+        <div class="s">按滑动距离快进/快退：滑满一屏 = 120 秒，松手才跳转</div></div>
+    </div>
+    <div class="hint" style="margin-top:20px;font-size:12px">
+      这里是模拟器，设置项只做展示，不影响 App
+    </div>`;
+}
+
+/* -------- 启动 -------- */
+$('nav').querySelectorAll('.item').forEach((it) => {
+  it.onclick = () => {
+    $('nav').querySelectorAll('.item').forEach((x) => x.classList.remove('on'));
+    it.classList.add('on');
+    stack = [];
+    if (it.dataset.nav === 'grid') viewGrid(); else viewSettings();
+  };
+});
+log('模拟器已就绪；站点清单来自 lib/sites.dart', 'ok');
+reloadSites();
+</script>
+</body>
+</html>
