@@ -128,7 +128,8 @@ class PlayerWidget extends StatefulWidget {
   State<PlayerWidget> createState() => _PlayerWidgetState();
 }
 
-class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
+class _PlayerWidgetState extends State<PlayerWidget>
+    with _SwipeSeek<PlayerWidget>, AutomaticKeepAliveClientMixin {
   static const _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -146,6 +147,11 @@ class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
 
   @override
   VideoPlayerController get swipeCtl => _ctl!;
+
+  /// 详情页往下翻看剧照时，播放器会滑出可视区。
+  /// 不保活的话 ListView 会把它整个销毁，翻回来就从头重新加载/播放。
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void didChangeDependencies() {
@@ -270,6 +276,7 @@ class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 必须调用
     final ctl = _ctl;
     return AspectRatio(
       aspectRatio: 16 / 9,
