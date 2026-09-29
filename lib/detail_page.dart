@@ -5,6 +5,7 @@ import 'fetched_image.dart';
 import 'models.dart';
 import 'player_widget.dart';
 import 'sites.dart';
+import 'web_page.dart';
 
 /// 文章详情：顶部视频 + 标题/标签 + 选集 + 正文图片。
 class DetailPage extends StatefulWidget {
@@ -48,6 +49,20 @@ class DetailPageState extends State<DetailPage> {
     }
   }
 
+  /// 用站点自己的网页播放器打开本篇（应用内 WebView）。
+  /// 原生 AVPlayer 在个别片源上跳转会卡死，这里是另一个引擎的出口。
+  void _openInWeb() {
+    if (widget.site.hosts.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WebPage(
+          title: widget.site.name,
+          url: 'https://${widget.site.hosts.first}${widget.baseUrl}',
+        ),
+      ),
+    );
+  }
+
   /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
   Future<List<String>> _refreshSources() async {
     final fresh = await _api.detail(widget.baseUrl);
@@ -87,7 +102,17 @@ class DetailPageState extends State<DetailPage> {
     final d = _detail;
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: Text(widget.site.name)),
+      appBar: AppBar(
+        title: Text(widget.site.name),
+        actions: [
+          // 原生播放器卡的时候换网页那套引擎（hls.js，跳转更快）
+          IconButton(
+            tooltip: '用网页播放器打开',
+            icon: const Icon(Icons.public),
+            onPressed: _openInWeb,
+          ),
+        ],
+      ),
       body: _error != null
           ? Center(
               child: Column(
