@@ -202,6 +202,25 @@ class SettingsPage extends StatelessWidget {
             ),
             const Divider(height: 32),
             const ListTile(
+              title: Text('播放缓冲大小'),
+              subtitle: Text('越大越抗卡、拖动越顺，但更吃内存（1G 在低内存机型上可能被杀进程）；改完重进视频生效'),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  for (final mb in AppSettings.bufferOptions)
+                    ChoiceChip(
+                      label: Text(AppSettings.bufferLabel(mb)),
+                      selected: AppSettings.i.bufferMb == mb,
+                      onSelected: (_) => AppSettings.i.setBufferMb(mb),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 32),
+            const ListTile(
               title: Text('左右滑动'),
               subtitle: Text('按滑动距离快进/快退：滑满一屏 = 120 秒，松手才跳转'),
             ),

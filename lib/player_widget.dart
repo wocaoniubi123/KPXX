@@ -74,7 +74,7 @@ class KpState {
 /// 长视频/加密 HLS 跳转容易长时间卡加载；libmpv 由 FFmpeg 层面处理 HLS，
 /// 且 bufferSize 可调（就是网页播放器那种缓冲控制）。
 class KpPlayer extends ValueNotifier<KpState> {
-  KpPlayer({int bufferMb = 48})
+  KpPlayer({int bufferMb = 200})
       : _p = Player(
           configuration: PlayerConfiguration(
             bufferSize: bufferMb * 1024 * 1024,
@@ -298,7 +298,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
 
     var kp = _kp;
     if (kp == null) {
-      kp = KpPlayer();
+      kp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
       _attach(kp); // 立刻上屏
       setState(() => _busy = false);
     }
