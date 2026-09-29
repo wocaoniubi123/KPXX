@@ -27,6 +27,9 @@ dependencies:
   shared_preferences: '>=2.3.5 <2.5.4'
   # 亮度调节（media_kit_video 本来就依赖它，版本区间要保持一致，否则解析冲突）
   screen_brightness: '>=0.2.2+1 <0.3.0'
+  # 站点 favicon 是 ICO（内嵌 BMP），Flutter 不认识 ICO，
+  # 用纯 Dart 的 image 包解成 PNG（无原生代码）
+  image: ^4.2.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0

@@ -306,6 +306,110 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// 竖向手势：左半屏上下滑调亮度、右半屏上下滑调音量（内嵌与全屏共用）。
+/// 代价：内嵌播放器接管竖向拖动后，在视频区域内上下拖不会再滚动详情页
+/// （这正是"在视频上调亮度/音量"的必要代价，详情页其它区域照常滚动）。
+mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
+  KpPlayer get gesturePlayer;
+
+  bool _bvBrightness = false; // 本次调的是亮度？
+  double _bvDy = 0; // 本次竖向累计位移
+  double _bvStart = 0.5; // 起点值（亮度 0~1 / 音量 0~100）
+  double? _bvShow; // 指示条的值 0~1（null = 不显示）
+  bool _bvApplied = false; // 本次是否真的调整过
+  Timer? _bvTimer;
+
+  /// 本次拖动是否实际调整过（供全屏判断"要不要当作下滑退出"）
+  bool get bvApplied => _bvApplied;
+
+  void bvStart(DragStartDetails d) {
+    final w = context.size?.width ?? MediaQuery.of(context).size.width;
+    _bvBrightness = d.localPosition.dx < w / 2;
+    _bvDy = 0;
+    _bvApplied = false;
+    if (_bvBrightness) {
+      () async {
+        try {
+          final v = await ScreenBrightness().current;
+          if (mounted) _bvStart = v;
+        } catch (_) {}
+      }();
+    } else {
+      _bvStart = gesturePlayer.value.volume;
+    }
+  }
+
+  void bvUpdate(DragUpdateDetails d) {
+    final h = context.size?.height ?? MediaQuery.of(context).size.height;
+    if (h <= 0) return;
+    _bvDy += d.delta.dy;
+    if (_bvDy.abs() > 8) _bvApplied = true;
+    final delta = -_bvDy / h; // 向上滑为正
+    if (_bvBrightness) {
+      final v = (_bvStart + delta).clamp(0.02, 1.0).toDouble();
+      () async {
+        try {
+          await ScreenBrightness().setScreenBrightness(v);
+        } catch (_) {}
+      }();
+      _bvGauge(v);
+    } else {
+      final v = (_bvStart + delta * 100).clamp(0.0, 100.0).toDouble();
+      gesturePlayer.setVolume(v);
+      _bvGauge(v / 100);
+    }
+  }
+
+  void bvEnd(DragEndDetails d) {
+    _bvTimer?.cancel();
+    _bvTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _bvShow = null);
+    });
+  }
+
+  void _bvGauge(double v) {
+    _bvTimer?.cancel();
+    setState(() => _bvShow = v.clamp(0.0, 1.0).toDouble());
+  }
+
+  void disposeBv() => _bvTimer?.cancel();
+
+  /// 指示条：图标 + 进度条（不显示数字）
+  Widget buildGauge() {
+    final v = _bvShow;
+    if (v == null) return const SizedBox.shrink();
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _bvBrightness ? Icons.brightness_6 : Icons.volume_up,
+              color: Colors.white,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 110,
+              height: 4,
+              child: LinearProgressIndicator(
+                value: v,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 视频播放器组件。
 /// - 内嵌模式：详情页顶部 16:9，初始化前显示 poster 封面（正文首图）。
 /// - 全屏模式：黑底沉浸，横屏/竖屏全屏，下滑返回。
@@ -339,7 +443,7 @@ class PlayerWidget extends StatefulWidget {
 }
 
 class _PlayerWidgetState extends State<PlayerWidget>
-    with _SwipeSeek<PlayerWidget>, AutomaticKeepAliveClientMixin {
+    with _SwipeSeek<PlayerWidget>, AutomaticKeepAliveClientMixin, _BrightnessVolume {
   static const _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -361,6 +465,9 @@ class _PlayerWidgetState extends State<PlayerWidget>
 
   @override
   KpPlayer get swipePlayer => _kp!;
+
+  @override
+  KpPlayer get gesturePlayer => _kp!;
 
   /// 详情页往下翻看剧照时，播放器会滑出可视区。
   /// 不保活的话 ListView 会把它整个销毁，翻回来就从头重新加载/播放。
@@ -396,6 +503,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
   void dispose() {
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
+    disposeBv();
     disposeSwipe();
     _kp?.shutdown();
     super.dispose();
@@ -578,6 +686,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
                     onTap: _toggleControls, // 单击显示/隐藏控制条
                     onDoubleTapDown: _onDoubleTapDown,
                     onDoubleTap: _onDoubleTap, // 双击左半后退/右半快进
+                    // 竖向：左半屏调亮度、右半屏调音量
+                    // （代价：在视频区域内上下拖不再滚动详情页）
+                    onVerticalDragStart: bvStart,
+                    onVerticalDragUpdate: bvUpdate,
+                    onVerticalDragEnd: bvEnd,
                     onHorizontalDragStart: swipeStart,
                     onHorizontalDragUpdate: swipeUpdate,
                     onHorizontalDragEnd: swipeEnd,
@@ -607,6 +720,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
                   // 跳转后重新拉流时的缓冲提示
                   _bufferingHint(kp),
                   // 播放中途出错：给个重试入口
+                  // 亮度/音量指示条
+                  buildGauge(),
                   if (_errShown || _error != null)
                     Center(
                       child: TextButton.icon(
@@ -839,19 +954,15 @@ class FullscreenPlayer extends StatefulWidget {
   State<FullscreenPlayer> createState() => _FullscreenPlayerState();
 }
 
-class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
+class _FullscreenPlayerState extends State<FullscreenPlayer>
+    with _SwipeSeek, _BrightnessVolume {
   bool _controls = true;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero;
   bool? _tapHintBack;
   Timer? _tapHintTimer;
-  // 竖向手势：左半屏调亮度、右半屏调音量
-  bool _gBrightness = false; // 本次调的是亮度？
-  double _dyTotal = 0; // 本次竖向累计位移
-  double _startValue = 0.5; // 起点值（亮度 0~1 / 音量 0~100）
-  double? _gShow; // 指示条的值 0~1（null = 不显示）
-  bool _gApplied = false; // 本次是否真的调整过
-  Timer? _gTimer;
+  @override
+  KpPlayer get gesturePlayer => widget.player;
 
   @override
   KpPlayer get swipePlayer => widget.player;
@@ -876,7 +987,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void dispose() {
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
-    _gTimer?.cancel();
+    disposeBv();
     // 退出全屏把窗口亮度还原（否则系统亮度被这次播放改掉了）
     () async {
       try {
@@ -895,62 +1006,6 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void _onTick() {
     final err = widget.player.value.error;
     if (err != _errShown && mounted) setState(() => _errShown = err);
-  }
-
-  /// 竖向拖动开始：按落点在左半/右半决定调亮度还是音量
-  void _onVStart(DragStartDetails d) {
-    final w = context.size?.width ?? MediaQuery.of(context).size.width;
-    _gBrightness = d.localPosition.dx < w / 2;
-    _dyTotal = 0;
-    _gApplied = false;
-    if (_gBrightness) {
-      () async {
-        try {
-          final v = await ScreenBrightness().current;
-          if (mounted) _startValue = v;
-        } catch (_) {}
-      }();
-    } else {
-      _startValue = widget.player.value.volume;
-    }
-  }
-
-  void _onVUpdate(DragUpdateDetails d) {
-    final h = context.size?.height ?? MediaQuery.of(context).size.height;
-    if (h <= 0) return;
-    _dyTotal += d.delta.dy;
-    if (_dyTotal.abs() > 8) _gApplied = true;
-    final delta = -_dyTotal / h; // 向上滑为正
-    if (_gBrightness) {
-      final v = (_startValue + delta).clamp(0.02, 1.0).toDouble();
-      () async {
-        try {
-          await ScreenBrightness().setScreenBrightness(v);
-        } catch (_) {}
-      }();
-      _showGauge(v);
-    } else {
-      final v = (_startValue + delta * 100).clamp(0.0, 100.0).toDouble();
-      widget.player.setVolume(v);
-      _showGauge(v / 100);
-    }
-  }
-
-  void _onVEnd(DragEndDetails d) {
-    // 没真的调整过、并且是快速下滑 → 仍然当作"下滑退出"
-    if (!_gApplied && (d.primaryVelocity ?? 0) > 900) {
-      Navigator.pop(context);
-      return;
-    }
-    _gTimer?.cancel();
-    _gTimer = Timer(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _gShow = null);
-    });
-  }
-
-  void _showGauge(double v) {
-    _gTimer?.cancel();
-    setState(() => _gShow = v.clamp(0.0, 1.0).toDouble());
   }
 
   /// 双击左半屏后退、右半屏快进（步长来自设置）
@@ -989,10 +1044,15 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
         onTap: _toggleControls,
         onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
         onDoubleTap: _onDoubleTap,
-        // 竖向：左半屏调亮度、右半屏调音量；没调整时的快速下滑仍退出
-        onVerticalDragStart: _onVStart,
-        onVerticalDragUpdate: _onVUpdate,
-        onVerticalDragEnd: _onVEnd,
+        // 竖向：左半屏调亮度、右半屏调音量；没实际调整时的快速下滑仍是退出
+        onVerticalDragStart: bvStart,
+        onVerticalDragUpdate: bvUpdate,
+        onVerticalDragEnd: (d) {
+          bvEnd(d);
+          if (!bvApplied && (d.primaryVelocity ?? 0) > 900) {
+            Navigator.pop(context);
+          }
+        },
         onHorizontalDragStart: swipeStart,
         onHorizontalDragUpdate: swipeUpdate,
         onHorizontalDragEnd: swipeEnd,
@@ -1012,40 +1072,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                   ],
                 ),
               ),
-            // 亮度/音量指示（图标 + 条，不显示数字）
-            if (_gShow != null)
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _gBrightness ? Icons.brightness_6 : Icons.volume_up,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 110,
-                        height: 4,
-                        child: LinearProgressIndicator(
-                          value: _gShow,
-                          backgroundColor: Colors.white24,
-                          valueColor:
-                              const AlwaysStoppedAnimation(Colors.white),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            // 双击左/右的提示图标
+            // 亮度/音量指示条（图标 + 条，不显示数字）
+            buildGauge(),            // 双击左/右的提示图标（必须判空：_tapHintBack 为 null 时
+            // 少了这层判断会直接 null! 崩溃，整页灰屏）
+            if (_tapHintBack != null)
               Align(
                 alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
                 child: Icon(

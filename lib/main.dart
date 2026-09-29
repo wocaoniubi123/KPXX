@@ -101,10 +101,10 @@ class ModuleGridPage extends StatelessWidget {
         child: GridView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 5,
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 4,
-            childAspectRatio: 0.8,
+            crossAxisCount: 4,
+            mainAxisSpacing: 18,
+            crossAxisSpacing: 8,
+            childAspectRatio: 0.86,
           ),
           itemCount: kSites.length,
           itemBuilder: (_, i) => _SiteTile(
@@ -133,8 +133,8 @@ class _SiteTile extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
           Container(
-            width: 50,
-            height: 50,
+            width: 62,
+            height: 62,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               // 有 logo 时用浅底 + contain（避免宽 logo 被裁掉），没 logo 时用首字色块
@@ -154,7 +154,7 @@ class _SiteTile extends StatelessWidget {
                     ),
                   )
                 : Padding(
-                    padding: const EdgeInsets.all(5),
+                    padding: const EdgeInsets.all(9),
                     child: FetchedImage(
                       url: entry.iconUrl.startsWith('/')
                           ? 'https://${entry.hosts.isNotEmpty ? entry.hosts.first : ''}${entry.iconUrl}'
@@ -172,7 +172,7 @@ class _SiteTile extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: Colors.black87),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
             ),
           ),
         ],

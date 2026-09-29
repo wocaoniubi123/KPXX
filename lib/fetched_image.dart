@@ -4,7 +4,25 @@ import 'dart:typed_data';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as im;
 import 'package:http/http.dart' as http;
+
+/// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
+bool _isIco(Uint8List b) =>
+    b.length > 6 && b[0] == 0 && b[1] == 0 && b[2] == 1 && b[3] == 0;
+
+/// ICO → PNG。Flutter 的解码器不认识 ICO，但站点 favicon 都是 ICO
+/// （实测两站都是 ICO 内嵌 BMP），所以在这里用纯 Dart 的 image 包解码后
+/// 重新编码成 PNG 再交给 Flutter。解不出来返回 null（上层会走占位图）。
+Uint8List? _icoToPng(Uint8List b) {
+  try {
+    final img = im.decodeIco(b);
+    if (img == null) return null;
+    return Uint8List.fromList(im.encodePng(img));
+  } catch (_) {
+    return null;
+  }
+}
 
 /// 给 compute 用的解密入口（后台 isolate 只能调顶层/静态函数）
 Uint8List? _decryptInIsolate(Uint8List raw) => _FetchedImageState._decrypt(raw);
@@ -84,6 +102,8 @@ class _FetchedImageState extends State<FetchedImage> {
       Uint8List? img;
       if (_looksLikeImage(raw)) {
         img = raw; // 未加密（可能是站外图）
+      } else if (_isIco(raw)) {
+        img = _icoToPng(raw); // 站点 favicon：ICO 解成 PNG
       } else {
         // AES-CBC 解密是纯 Dart 计算，一张图几百 KB~几 MB。
         // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
