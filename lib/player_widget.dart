@@ -37,7 +37,9 @@ class KpState {
   final bool buffering;
   final bool error;
   final String errorText; // 引擎的致命日志（便于把黑屏/加载失败的原因显示出来）
-  final Duration buffer; // 当前播放位置之后已缓冲多久（mpv demuxer-cache-time）
+  /// 已缓存数据的最后时间戳（绝对值，来自 mpv demuxer-cache-time）。
+  /// 注意：它不是"当前位置往后缓冲了多少秒"，别拿它加当前位置。
+  final Duration buffer;
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -95,6 +97,7 @@ class KpPlayer extends ValueNotifier<KpState> {
       _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
       _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
       _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
+      // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
       _p.stream.error.listen((e) => value = value.copyWith(error: true, errorText: e)),
       // 引擎致命日志（例如 vo 打不开）也当错误暴露出来，便于定位黑屏
@@ -846,7 +849,7 @@ class _SeekBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
 
-  /// 当前位置之后已缓冲多久（画成浅色一段）
+  /// 已缓存数据的最后时间戳（绝对位置），画成浅色一段
   final Duration buffer;
 
   /// 拖动中的预览（null = 松手了）
@@ -889,10 +892,13 @@ class _SeekBarState extends State<_SeekBar> {
     final shownMs = (_drag ?? widget.position).inMilliseconds.toDouble();
     final frac =
         (totalMs <= 0 ? 0.0 : (shownMs / totalMs).clamp(0.0, 1.0)).toDouble();
-    // 缓冲段 = 当前位置 + 已缓冲量
-    final bufMs = (widget.position + widget.buffer).inMilliseconds.toDouble();
-    final bufFrac =
-        (totalMs <= 0 ? 0.0 : (bufMs / totalMs).clamp(0.0, 1.0)).toDouble();
+    // 缓冲段 = 已缓存数据的最后时间戳 / 总时长。
+    // （demuxer-cache-time 本身就是绝对位置，叠加当前位置会把位置算两遍，
+    //   表现就是那条浅色带一直跟着播放进度跑）
+    final bufFrac = (totalMs <= 0
+            ? 0.0
+            : (widget.buffer.inMilliseconds / totalMs).clamp(0.0, 1.0))
+        .toDouble();
     return LayoutBuilder(
       builder: (ctx, c) {
         final w = c.maxWidth;
