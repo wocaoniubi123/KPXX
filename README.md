@@ -96,12 +96,16 @@ lib/
 ```dart
 SiteEntry(
   name: '站点名',                       // 方块下面显示的名字
-  kind: SiteKind.native,
+  template: SiteTemplate.wordpress,     // 默认值，可不写
   iconUrl: '/favicon.ico',             // 以 / 开头 = 用该站第一个域名拼
   hosts: ['真站域名.com', '备用域名.com'],
   categories: [
-    MapEntry('mrds', '每日大赛'),       // slug => tab 显示名，顺序即 tab 顺序
-    MapEntry('ztds', '主题大赛'),
+    SiteTab('mrds', '每日大赛'),        // key => tab 显示名
+    SiteTab('ztds', '主题大赛'),
+    // ⚠️ 顺序必须照抄站点导航（首页那几个入口组）的原顺序，别自己按"重要程度"排
+    // （51fans 就被排错过一次：把「吃瓜黑料」提到第一位、把「热门/今日更新」挪到了最后）
+    // 分类下有子分类就写第三参（会显示成第二行小胶囊）：
+    // SiteTab('cat', '分类名', [SiteTab('sub1', '子1'), SiteTab('sub2', '子2')]),
   ],
   color: Color(0xFFFF6B6B),            // 没有 iconUrl 时的首字色块底色
 )
@@ -111,15 +115,26 @@ SiteEntry(
 只有根路径 `/` 会跳到真站，`/category/...`、`/archives/...` 这类内容路径直接 **404**。
 把入口域名放前面，每个请求都要白等一轮超时。
 
-`categories` 的 slug 从站点首页导航栏的 `a[href^="/category/"]` 里取（页面上能看到中文名）。
+`categories` 的 key 从站点首页导航栏的 `a[href^="/category/"]` 里取（页面上能看到中文名）；
+要是列表页不在 `/category/{key}/` 下（如 51fans1 的 `/order/hot/`），key 直接写**站内路径**
+（以 `/` 开头，翻页按 `/order/hot/2/` 拼）。
 
 ### 情况 B：不是这套模板的站
+
+1. 先看能不能加个模板（`SiteEntry.template`），解析都集中在 `lib/api.dart`：
+   - `SiteTemplate.huangguo`：列表走 JSON 接口、详情页内嵌 JSON（见 README §8.4 黄果短剧）
+   - `SiteTemplate.porna`：列表 `div.video-item`、详情要再请求一个接口换 m3u8
+2. 实在抓不动（页面纯 JS 渲染、接口要签名/登录）就退到 WebView：
 
 ```dart
 SiteEntry(name: '站点名', kind: SiteKind.web, url: 'https://xxx.com'),
 ```
 
 点开就是应用内 WebView（`web_page.dart`，已伪装手机 Safari UA、带进度条和错误重试）。
+
+**加新模板时记得两处同步**：`lib/api.dart`（App）+ `sim/index.html` 的
+`parseArticles`/`parseDetail`/`fetchList`（模拟器），两边规则要一致，
+先在模拟器验数据，再推 CI 构建。
 
 ### 图标怎么来的
 
@@ -204,6 +219,14 @@ KpPlayer() : _p = Player(...), super(const KpState()) {
   每个视频就近往上取短文本：`视频一：` 解析序号（中文数字也认），紧邻的 `blockquote` 当标题；
   解析不到编号就按出现顺序编号。**按序号排序**后交给详情页做「视频（N）」列表。
 
+### 5.1.1 站点把播放地址藏在"打包 JS"里（Dean Edwards packer）
+
+91porna 的换源接口（`/index/detail_play`、`/index/melon_detail_play.js`）返回的不是明文地址，
+而是 `eval(function(p,a,c,k,e,d){…}('…',a,c,'k1|k2|…'.split('|'),0,{}))` 这种**打包 JS**：
+m3u8 被拆成字典碎片。`api.dart` 里 `_unpackJs()`（模拟器里是同名 `unpackPacker()`）自己做解包：
+还原 p 文本的字符串转义 → 按 base-a 生成 token → 从高位到低位替换字典。
+明文响应直接正则抠 m3u8，打包响应先解包再抠（`_playUrlFromScript` 两条路都走）。
+
 ### 5.2 播放器（`player_widget.dart`）
 
 | 组件 | 作用 |
@@ -254,6 +277,21 @@ KpPlayer() : _p = Player(...), super(const KpState()) {
 7. **域名会轮换**：站点常换域名、图床也会换。域名挂了改 `sites.dart` 的 `hosts`；
    图片不按图床域名过滤（只按魔数），图床换了一般不用改代码。
 8. **本机没有 Flutter**：改完只能靠 CI 编译验证，**无法本地运行 / 真机调试**。
+9. **新站的搜索/分区限制（2026-09-30 实测）**：
+   - 51fans1：搜索走 `/search/{kw}/`（**可用**，实测"吃瓜"出 20 条）。
+     ⚠️ 2026-09-30 曾误判为"搜索不可用"——当时是站点/代理抽风返回空，后来复测正常。
+     它的搜索结果卡片标题是 `<div>`（分类页是 `<h3>`），都带 `xqbj-list-rows-image-title` 类，选择器通用。
+   - 黄果短剧：只接了 4 个视频频道（AI成人短剧/漫剧、AI换脸、AI魔改）+ 搜索 + 标签；
+     `/topics/`、`/ranks/hot/`、`/chigua/` 是另一套页面结构，暂未接入
+   - 91porna：接了 6 个顶层分类（91视频 / 91短视频 / 黑料吃瓜 / AI成人 / 日本AV / 91动漫）。
+     还差 3 个：`/moviesets`（精选合集，列表是 JS 渲染，卡片链接抓不到）、
+     `/novels`（色情小说，纯文字内容）、`/comic/index/links?key=ppxx`（91品牌，外链导航）。
+     91视频是**三级结构**：一级子 = 站点下拉菜单那 14 个；其中「热门排行榜」再带 12 个二级子（那排排序）。
+     `SiteTab` 的第三参可以再套 `SiteTab`，UI 会多渲染一行小胶囊（App/sim 都支持三级）。
+     91porna 的播放地址有个额外步骤：请求 `/index/detail_play?img=封面路径&u=页面内嵌160位hex&t=时间戳/2100`
+     才换回带签名的 m3u8（前端 JS 就是这么拼的，照抄）。
+10. **新站图片加密同一套 AES**（key/iv 与 51吃瓜 相同，实测 `pic.wirqed.cn`、`pic.ndhixj.cn` 都能解）
+   → `fetched_image.dart` 不用改。
 
 ---
 
@@ -265,3 +303,57 @@ KpPlayer() : _p = Player(...), super(const KpState()) {
 - **域名是否可用**：浏览器打开 `https://<域名>/category/<slug>/`，看是否 404
   （跳转入口域名会 404）。
 - **视频地址是否有效**：把 m3u8 的 `auth_key` 改坏再访问，返回 `400 Bad Request` 即符合预期。
+
+---
+
+## 8. 列表卡片 / 详情页 必备元素（从 Forward 模块规范提取，按本 App 形态落地）
+
+> 来源：Forward 模块开发规范的「铁律 A / A2」。已剔除 Forward 专有协议
+> （WidgetMetadata、link 夹带封面、cover_type 参数、**封面代理** —— 这些我们都不用）。
+> **原则：站点页面上有的元素，一个都不能少；站点没有的落空，不能显示成空白。**
+> 图片一律由 App 自己下载 + 解密（`fetched_image.dart`），数据里存**原始 URL**。
+
+### 8.1 列表卡片（每站都要）
+
+| # | 元素 | 取值规则 | 现状 |
+|---|------|---------|------|
+| 1 | 详情链接 | 卡片内指向详情的链接，id 唯一（去重用） | ✅ 已有 |
+| 2 | 封面 | 懒加载属性优先级 `data-src` → `data-original` → `data-bg` → `srcset` → `src`；`data:` 占位图丢弃 | ⚠️ 只认各站实际用的（`data-src` / `data-xkrkllgl` / `z-image-loader-url`），其余属性未遇到 |
+| 3 | 标题 | 卡片标题元素；取不到就整卡跳过 | ✅ 已有 |
+| 4 | **视频时长** | 卡片上有就取，**显示在封面右下角** | ✅ 已有（黄果=接口 duration 秒数，91porna=封面角标文字；51系站没有→不显示） |
+| 5 | 发布时间 | 卡片时间元素；"28分钟前"这类相对时间原样显示 | ✅ 已有（`Article.meta`，卡片标题下面居中一行） |
+| 6 | 封面方向 | 默认横屏；**站点可配竖屏**（`SiteEntry.portraitCovers`，黄果=3:4） | ✅ 已有 |
+
+### 8.2 详情页（站点有就必须有，一个都不能少）
+
+| # | 元素 | 落地要求 | 现状 |
+|---|------|---------|------|
+| 1 | 标题 | | ✅ 已有 |
+| 2 | 简介 | 正文描述优先，退化 `meta[name=description]` | ✅ 已有 |
+| 3 | 发布时间 · 时长 | 合成一行显示（日期 · 集数 · 时长） | ✅ 已有（站点带时分秒就一起显示） |
+| 4 | **视频时长** | 详情页同样显示 | ✅ 已有（91porna 的 `PT1H39S`、黄果的 3:34） |
+| 5 | **标签 / 分类** | 全部提取，且**点击可跳转**到该标签的列表 | ✅ 已有（横向单行，放在「剧照」下方） |
+| 6 | **演员 / 人物** | 有则提取，可点击跳转 | ⚠️ 站点都把作者做成了"主页/合集"（不是标签体系），暂不做 |
+| 7 | **推荐 / 相关视频** | **必须显示在「剧照」下方** | ✅ 已有（51系站=尾部「热门新闻」文字链；黄果=「猜你喜欢」卡片；91porna=相关卡片） |
+| 8 | 剧照 | 有则全部提取（横滑 + 点开大图）；没有则用封面兜底，不留空白 | ✅ 已有（黄果/91porna 站点本身没有剧照 → 不显示该区块） |
+| 9 | 海报 | **用列表封面**（列表已加载，零等待；不重新扫详情页找图） | ⚠️ 现在用的是正文首图，暂未改（列表封面要跨页传参） |
+| 10 | **子分类** | 分类 tab 下若有子分类，**全部显示出来** | ✅ 已有（黄果=4 个排序；91porna=11/6/4/5 个子频道） |
+| 11 | 视频源 | m3u8 / mp4，多源兜底 + 过期重取 | ✅ 已有（91porna 额外走 `/index/detail_play` 换播放地址，过期同样重取） |
+
+### 8.3 明确不做（Forward 专有，我们没有）
+
+- ❌ 封面代理（App/sim 自己解密）
+- ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
+- ❌ 在客户端猜密钥（密钥从站点前端 JS 核对）
+
+### 8.4 站点与结构（2026-09-30 实测）
+
+| 站点 | 入口 | 模板 | 封面 | 列表 / 搜索 / 详情 | 备注 |
+|---|---|---|---|---|---|
+| 51吃瓜 | 51cg1.com | wordpress | 横屏 | `/category/{slug}/`、`/search/{kw}/`、`.dplayer` | 域名只有 `51cg1.com` 能出内容；**27 个分类按站点导航原序**（2026-09-30 补全，之前只收了 12 个还排错） |
+| 每日大赛 | www.mrds66.com | wordpress | 横屏 | 同上 | |
+| 91吃瓜 | 91cg1.com | wordpress | 横屏 | 同上 | 搜索页链接是**绝对地址**，需归一化 |
+| 911爆料网 | 911bl.com + CloudFront | wordpress | 横屏 | 同上 | 两个域名都会 302 到 CloudFront |
+| 51fans | 51fans1.com | wordpress（兼容分支）| 横屏 | `/category/{slug}/`、**`/order/hot/`、`/order/today/`**；详情 `.novel-title` + `.tags-group2` + `.defaultimg` | 卡片是 `div.xqbj-list-rows`（另一套主题 `haijiao3`）；搜索 `/search/{kw}/` 可用（结果页标题是 div，分类页是 h3，选择器按类名取即可） |
+| 黄果短剧 | huangguoai.com | huangguo | **竖屏 3:4** | 三种列表：① 频道走 JSON 接口 `/api/videos/category/{slug}?sort=&page=&size=`；② 路径型 `/recommend`、`/newest`、`/topics/xxx/`（`hg-drama-card`，翻页 `/xxx/2/`）；③ `/ranks/hot/`（`hg-rank-item` TOP20）、`/chigua/`（`hg-post-card`，翻页 `/chigua/page/N/`）。详情：视频页内嵌 `<script id="videoInitialData">`（含全部剧集 m3u8）；吃瓜帖 `/archives/N/` 是图文帖（`.hg-post-detail__body` 图片，无视频）；标签 `/tag/{slug}/` | 9 个 tab 按站点导航原序：精选推荐 / 最近上新 / AI成人短剧 / AI成人漫剧 / AI换脸 / AI魔改（各带 4 个排序）/ 专题 / 排行榜 / 吃瓜黑料。**专题卡点开的是「该专题下的视频列表」**（不是详情，App/sim 都做了这个路由） |
+| 91porna | 91porna.com | porna | 横屏 | 三种列表页：`div.video-item`（视频）/ `article.video-card`（91短视频）/ `post-item`（黑料吃瓜）；详情：LD+JSON + **`/index/detail_play` 换 m3u8**（视频；日本AV 的详情是 `/comic/index/avdetail?video_key=`，token 长度不固定——普通视频 160 位、AV 页 352 位，要按候选逐个试）、`script#ms-bootstrap` 内嵌 JSON（91短视频，signed m3u8 + 相关推荐）、`article.ql-editor`（黑料帖：图文 + 正文里的 **`ql-video-mse` 视频**，走 `/index/melon_detail_play.js` 换源） | 9 个顶层导航里接了 6 个（91视频 / 91短视频 / 黑料吃瓜 / AI成人 / 日本AV / 91动漫）；**支持三级**：91视频 → 一级子 14 个（热门排行榜/国产原创/…三级片）→ 「热门排行榜」自己还有二级子 12 个（正在播放/当前最热/…收藏最多） |

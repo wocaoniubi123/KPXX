@@ -1,8 +1,9 @@
 // KPXX 数据/界面模拟器 —— 本地小服务
 //
-// 只干两件事：
+// 只干三件事：
 //   1. 托管 sim/index.html（手机界面模拟页）
 //   2. /proxy?url=...  转发站点请求（浏览器直连会被 CORS 拦，站点 HTML 不给跨域头）
+//   3. 本文件被改动时自动重启自己（改服务端逻辑不用手动重开模拟器）
 //
 // 零依赖：只用 Node 内置模块。启动：
 //     node sim/server.mjs
@@ -11,12 +12,13 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { watch } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const PORT = 8787;
+const PORT = Number(process.env.KPXX_PORT || 8787);
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SITES_DART = join(DIR, '..', 'lib', 'sites.dart');
 
@@ -24,6 +26,61 @@ const SITES_DART = join(DIR, '..', 'lib', 'sites.dart');
 const UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
   'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+/** 文件里 `const List<SiteTab> _xxx = [ ... ]` 形式的具名子分类表（供下面的引用解析） */
+function parseNamedTabLists(src) {
+  const map = new Map();
+  const re = /const\s+List<SiteTab>\s+(\w+)\s*=\s*\[/g;
+  let m;
+  while ((m = re.exec(src))) {
+    let depth = 0;
+    let j = m.index + m[0].length - 1;
+    for (; j < src.length; j++) {
+      if (src[j] === '[') depth++;
+      else if (src[j] === ']') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    map.set(m[1], parseTabs(src.slice(m.index + m[0].length, j + 1), map));
+  }
+  return map;
+}
+
+/** 把 `categories: [ SiteTab('k','n',[SiteTab(...)]) ]` 解析成 tab 树。
+ *  第三个参数可以是内联数组，也可以是文件里定义的常量名（如 _hgSorts）。 */
+function parseTabs(block, named = new Map()) {
+  const out = [];
+  let i = 0;
+  while (true) {
+    const at = block.indexOf('SiteTab(', i);
+    if (at < 0) break;
+    let depth = 0;
+    let j = at + 'SiteTab('.length - 1;
+    for (; j < block.length; j++) {
+      if (block[j] === '(') depth++;
+      else if (block[j] === ')') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    const raw = block.slice(at + 'SiteTab('.length, j);
+    const km = /^\s*'([^']*)'\s*,\s*'([^']*)'/.exec(raw);
+    let subs = [];
+    const s0 = raw.indexOf('[');
+    if (s0 >= 0) {
+      const s1 = raw.lastIndexOf(']');
+      subs = parseTabs(raw.slice(s0, s1 + 1), named);
+    } else {
+      // 引用常量：SiteTab('k','n', _hgSorts)
+      const ref = /^\s*'[^']*'\s*,\s*'[^']*'\s*,\s*(\w+)/.exec(raw);
+      if (ref && named.has(ref[1])) subs = named.get(ref[1]);
+    }
+    if (km) out.push({ key: km[1], name: km[2], subs });
+    i = j + 1;
+  }
+  return out;
+}
 
 /** 把 lib/sites.dart 解析成 JSON。
  *  站点清单只有这一份来源（改 Dart 文件这里自动跟着变，不会两边写两遍）。
@@ -33,6 +90,9 @@ async function loadSites() {
   const start = src.indexOf('const List<SiteEntry> kSites');
   if (start < 0) return { error: '没在 lib/sites.dart 里找到 kSites' };
   const body = src.slice(start);
+
+  // 具名子分类表（const List<SiteTab> _xxx = [...]），SiteTab 第三参可以引用它
+  const namedTabs = parseNamedTabLists(src);
 
   // 按括号配对切出每个 SiteEntry(...)
   const blocks = [];
@@ -66,15 +126,12 @@ async function loadSites() {
       return {
         name: pick(b, /name:\s*'([^']*)'/),
         kind: /kind:\s*SiteKind\.web/.test(b) ? 'web' : 'native',
+        template: pick(b, /template:\s*SiteTemplate\.(\w+)/) || 'wordpress',
+        portraitCovers: /portraitCovers:\s*true/.test(b),
         iconUrl: pick(b, /iconUrl:\s*'([^']*)'/),
         url: pick(b, /\burl:\s*'([^']*)'/),
         hosts: hostsBlock ? listOf(hostsBlock[1], /'([^']+)'/g) : [],
-        categories: catsBlock
-          ? [...catsBlock[1].matchAll(/MapEntry\('([^']+)',\s*'([^']+)'\)/g)].map((m) => ({
-              slug: m[1],
-              name: m[2],
-            }))
-          : [],
+        categories: catsBlock ? parseTabs(catsBlock[1], namedTabs) : [],
         color: pick(b, /color:\s*Color\(0x([0-9A-Fa-f]+)\)/) || 'FF7043',
       };
     })
@@ -274,22 +331,29 @@ async function fetchSite(name, path) {
   const order = [...new Set([preferred.get(name), ...site.hosts].filter(Boolean))];
   const tried = [];
   for (const h of order) {
-    try {
-      const r = await fetchUrl('https://' + h + path, 0, 6000);
-      if (r.status === 200) {
-        if (preferred.get(name) !== h) console.log(`[站点] ${name} 用 ${h}${path}`);
-        preferred.set(name, h);
-        return { ...r, host: h };
+    // 5xx 是站点偶发（51fans1 实测会间歇性 500），同一个域名再试一次
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        // 超时给宽一点：51fans1 这类站冷启动要 3s+，加上浏览器同时拉一堆封面图，
+        // 6s 会偶发"代理连接超时"（App 侧是 8s，站点点慢就会一直加载失败）
+        const r = await fetchUrl('https://' + h + path, 0, 12000);
+        if (r.status === 200) {
+          if (preferred.get(name) !== h) console.log(`[站点] ${name} 用 ${h}${path}`);
+          preferred.set(name, h);
+          return { ...r, host: h };
+        }
+        tried.push(`${h} HTTP ${r.status}`);
+        if (r.status < 500) break; // 4xx 重试没用
+      } catch (e) {
+        tried.push(`${h} ${e.message}`);
+        break; // 超时/连接失败：换下一个域名
       }
-      tried.push(`${h} HTTP ${r.status}`);
-    } catch (e) {
-      tried.push(`${h} ${e.message}`);
     }
   }
   throw new Error(`所有域名均无法访问：${tried.join('；')}`);
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   const me = new URL(req.url, `http://localhost:${PORT}`);
   const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -366,11 +430,59 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8', ...cors });
     res.end(String(e && e.message ? e.message : e));
   }
-});
+}
 
-server.listen(PORT, () => {
-  console.log(PROXY ? `出站代理：${PROXY.host}:${PROXY.port}` : '出站代理：未检测到（直连）');
-  console.log(`KPXX 模拟器已启动： http://localhost:${PORT}`);
-  console.log(`（站点清单直接读 lib/sites.dart，改完刷新页面即可）`);
-  console.log(`停止：Ctrl+C`);
-});
+/** 监听端口；被占用就等一会儿再试（热重载时新旧进程会短暂抢同一个端口） */
+function listen(attempt = 0) {
+  const server = http.createServer(handleRequest);
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE' && attempt < 20) {
+      setTimeout(() => listen(attempt + 1), 300);
+    } else {
+      console.error(`启动失败：${err.message}`);
+      process.exit(1);
+    }
+  });
+  server.listen(PORT, () => {
+    console.log(PROXY ? `出站代理：${PROXY.host}:${PROXY.port}` : '出站代理：未检测到（直连）');
+    console.log(`KPXX 模拟器已启动： http://localhost:${PORT}`);
+    console.log(`（index.html 与 lib/sites.dart 每次请求现读，改完刷新页面即可）`);
+    console.log(`（本文件 server.mjs 改动会自动重启，不用手动重开）`);
+    console.log(`停止：Ctrl+C`);
+  });
+}
+listen();
+
+/* ---- 自热重载：server.mjs 变了就自动重启自己 ----
+   index.html 每次请求现读、lib/sites.dart 每次请求现解析，都不需要重启；
+   只有本文件是服务端逻辑，改了不重启不生效 —— 所以这里盯着自己重起。
+   想关掉：KPXX_NO_RELOAD=1 node sim/server.mjs */
+if (!process.env.KPXX_NO_RELOAD) {
+  let reloading = false;
+  const reload = () => {
+    if (reloading) return;
+    reloading = true;
+    console.log('[热重载] server.mjs 变了，自动重启…');
+    try {
+      const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+        detached: true,
+        stdio: 'inherit',
+        env: process.env,
+      });
+      child.unref();
+    } catch (e) {
+      console.error('[热重载] 启动新进程失败：' + e.message);
+      reloading = false;
+      return;
+    }
+    setTimeout(() => process.exit(0), 150);
+  };
+  try {
+    // 盯目录而不是盯文件：编辑器保存常是"替换文件"，盯文件会跟丢
+    watch(DIR, (_ev, fname) => {
+      if (fname && String(fname).toLowerCase().endsWith('server.mjs')) reload();
+    });
+  } catch (e) {
+    console.log('热重载不可用（不影响使用）：' + e.message);
+  }
+}

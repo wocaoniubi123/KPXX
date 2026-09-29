@@ -74,16 +74,34 @@
     cursor: pointer; border-bottom: 3px solid transparent;
   }
   .tabs .tab.on { color: #8d4b2a; border-color: #8d4b2a; font-weight: 600; }
-  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+  /* 子分类行（黄果的排序 / 91porna 的子频道） */
+  .subbar { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: #fff;
+    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none; }
+  .subbar::-webkit-scrollbar { display: none; }
+  .subbar .sub { flex: 0 0 auto; padding: 5px 12px; border-radius: 15px; font-size: 12px;
+    background: #f0f0f2; color: #444; cursor: pointer; white-space: nowrap; }
+  .subbar .sub.on { background: #e8590c; color: #fff; }
+  /* 二级子分类行：小一号、底色浅，跟一级区分 */
+  .subbar.l2 { background: #fafafa; padding: 5px 12px; gap: 6px; }
+  .subbar.l2 .sub { padding: 4px 10px; font-size: 11px; border-radius: 13px; }
+  /* align-items:start：卡片按自身内容高低排，别被拉伸到整行高度
+     （拉伸时，标题/时间少的卡片底下会空出一块） */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px;
+    align-items: start; }
+  /* 竖屏封面站（黄果短剧）：封面按 3:4 显示 */
+  .cards.portrait .card .cover { aspect-ratio: 3/4; }
   .card { background: #fff; border-radius: 12px; overflow: hidden; cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   .card .cover { position: relative; width: 100%; aspect-ratio: 16/9; background: #eee; }
   .card .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* 封面右下角的时长角标（站点有视频时长才显示） */
+  .card .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.6);
+    color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 4px; }
   .card .txt { padding: 6px 8px 8px; }
   .card .ttl { font-size: 13px; font-weight: 600; line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .card .meta { margin-top: 4px; font-size: 10px; color: #999; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; }
+    overflow: hidden; text-overflow: ellipsis; text-align: center; }
   /* ---------- 详情页 ---------- */
   .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; }
   .player video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
@@ -116,6 +134,13 @@
   .stills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
   .stills img { width: 120px; height: 84px; object-fit: cover; border-radius: 6px;
     background: #eee; cursor: zoom-in; flex: 0 0 auto; }
+  /* 相关推荐：有封面显示缩略图；没有（如 51/每日大赛 的热闻区）显示个占位图标 */
+  .relrow { display: flex; gap: 8px; align-items: center; padding: 6px 0; cursor: pointer; }
+  .relrow img { width: 96px; height: 54px; object-fit: cover; border-radius: 6px;
+    background: #eee; flex: 0 0 auto; }
+  .relrow .noimg { width: 96px; height: 54px; border-radius: 6px; background: #f3f3f3;
+    display: grid; place-items: center; font-size: 20px; flex: 0 0 auto; }
+  .relrow .t { font-size: 13px; line-height: 1.4; }
   /* ---------- 大图 ---------- */
   .lightbox { position: absolute; inset: 0; background: #000; display: none;
     align-items: center; justify-content: center; z-index: 20; }
@@ -132,6 +157,10 @@
   .strow .t { font-size: 15px; }
   .strow .s { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.5; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 16px; }
+  /* 标签：横向单行滚动（在剧照下方） */
+  .tagrow { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: none; }
+  .tagrow::-webkit-scrollbar { display: none; }
+  .tagrow .chip { flex: 0 0 auto; cursor: pointer; }
   .chip { padding: 6px 14px; border-radius: 18px; border: 1px solid #ddd; font-size: 13px; }
   .chip.on { background: #e8590c; color: #fff; border-color: #e8590c; }
   /* ---------- 侧栏日志 ---------- */
@@ -155,6 +184,8 @@
     </div>
     <div class="appbar" id="appbar"></div>
     <div class="tabs" id="tabs" style="display:none"></div>
+    <div class="subbar" id="subbar" style="display:none"></div>
+    <div class="subbar l2" id="subbar2" style="display:none"></div>
     <div class="body" id="body"></div>
     <div class="nav" id="nav">
       <div class="item on" data-nav="grid">
@@ -252,9 +283,38 @@ async function getHtml(site, path) {
   return text;
 }
 
-/** 与 api.dart 的 _parseArticles 对应 */
-function parseArticles(html) {
+/** 卡片信息行只取时间（与 api.dart 的 _metaDate 对应） */
+function metaDate(raw) {
+  const t = String(raw || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  let m = /\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?/.exec(t);
+  if (m) return m[0];
+  m = /\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?/.exec(t);
+  if (m) return m[0];
+  // 51fans1 的列表卡片只有 09-23
+  m = /\d{1,2}\s*月\s*\d{1,2}\s*日/.exec(t);
+  if (m) return m[0];
+  m = /^\d{1,2}-\d{1,2}$/.exec(t);
+  if (m) return m[0];
+  m = /\d{1,2}\s*(?:分钟|小时|天)前/.exec(t);
+  if (m) return m[0];
+  return '';
+}
+
+/** 详情页时间显示（与 api.dart 侧的 _fmtTime 对齐）：站点自带时分秒就原样显示 */
+function fmtTime(t) {
+  const s = String(t || '');
+  if (!s) return '';
+  if (s.length >= 19 && s[10] === ' ') return s;
+  return s.slice(0, 10);
+}
+
+/** 与 api.dart 的 _parseArticles 对应（按站点模板分派） */
+function parseArticles(html, site) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  const tpl = (site && site.template) || 'wordpress';
+  if (tpl === 'huangguo') return hgCards(doc);
+  if (tpl === 'porna') return pornaCards(doc);
   const out = [];
   for (const el of doc.querySelectorAll('article[itemscope]')) {
     const cls = el.className || '';
@@ -269,33 +329,170 @@ function parseArticles(html) {
       if (m) { cover = m[1]; break; }
     }
     if (!cover) cover = el.querySelector('img[data-src]')?.getAttribute('data-src') || '';
-    const meta = (el.querySelector('.post-card-info')?.textContent || '')
-      .replace(/\s+/g, ' ').trim();
+    // 卡片只显示时间（原来是"作者 • 日期 • 分类"）
+    const meta = metaDate(el.querySelector('.post-card-info')?.textContent || '');
     let href = a.getAttribute('href') || '';
     if (href.startsWith('http')) {
       const i = href.indexOf('/archives/');
       if (i >= 0) href = href.slice(i);
     }
-    out.push({ title, url: href, cover, meta });
+    out.push({ title, url: href, cover, meta, duration: '' });
+  }
+  // 51fans1：div.xqbj-list-rows（封面在 z-image-loader-url，值偶尔带反引号）
+  if (!out.length) {
+    for (const el of doc.querySelectorAll('div.xqbj-list-rows')) {
+      const a = el.querySelector('a[href*="/archives/"]');
+      if (!a) continue;
+      const title = (el.querySelector('.xqbj-list-rows-image-title')?.textContent || '')
+        .replace(/\s+/g, ' ').trim();
+      if (!title) continue;
+      const img = el.querySelector('img[z-image-loader-url]');
+      const cover = (img?.getAttribute('z-image-loader-url') || '').replace(/`/g, '').trim();
+      // 移动端文案更全（"9月29日"），桌面端只有时刻（"19:00"）→ 优先移动端
+      let meta = (el.querySelector('.xqbj-list-rows-bottom-tags-text.is-mobile')?.textContent || '').trim();
+      if (!meta || !metaDate(meta)) {
+        const desk = (el.querySelector('.xqbj-list-rows-bottom-tags-text.is-desktop')?.textContent || '').trim();
+        if (desk) meta = desk;
+      }
+      out.push({ title, url: a.getAttribute('href') || '', cover, meta: metaDate(meta), duration: '' });
+    }
   }
   const seen = new Set();
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
 }
 
-/** 与 api.dart 的 detail() 对应 */
-function parseDetail(html) {
+/** 黄果短剧的卡片（相关推荐/标签页/搜索页都是这套结构） */
+function hgCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('div.hg-drama-card')) {
+    const a = el.querySelector('a.hg-drama-card__cover-link') || el.querySelector('a[href^="/video/"]');
+    if (!a) continue;
+    // 标题取链接里的文本节点，排掉 <span class="sr-only">全集在线观看</span>
+    const titleEl = el.querySelector('.hg-drama-card__title a') || a;
+    let title = '';
+    for (const n of titleEl.childNodes) if (n.nodeType === 3) title += n.textContent;
+    title = title.replace(/\s+/g, ' ').trim() || (titleEl.textContent || '').replace('全集在线观看', '').trim();
+    if (!title) continue;
+    const img = el.querySelector('img[data-src]') || el.querySelector('img');
+    const epRaw = (el.querySelector('.hg-drama-card__episode')?.textContent || '')
+      .replace(/\s+/g, ' ').trim();
+    const ep = /(更新至\s*\d+\s*集|全\s*\d+\s*集|完结)/.exec(epRaw);
+    out.push({
+      title,
+      url: a.getAttribute('href') || '',
+      cover: img?.getAttribute('data-src') || '',
+      meta: ep ? ep[0] : '',
+      duration: '',
+    });
+    if (out.length >= 60) break;
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 黄果短剧接口里的一条 → 卡片（时长单位是秒） */
+function hgItem(v) {
+  const ep = parseInt(v.episode_count, 10) || 0;
+  const total = parseInt(v.total_episodes, 10) || 0;
+  const epText = v.is_finished && total > 0 ? `全集${total}集` : (ep > 0 ? `更新至${ep}集` : '');
+  return {
+    title: String(v.title || '').trim(),
+    url: `/video/${v.id}/`,
+    cover: v.cover || '',
+    meta: epText,
+    duration: hgDuration(v.duration),
+  };
+}
+
+/** 秒 → 3:27 / 1:00:39 */
+function hgDuration(raw) {
+  const sec = parseInt(String(raw || '').trim(), 10);
+  if (!sec || sec <= 0) return '';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** 91porna 的卡片：div.video-item（时长角标在封面右下角） */
+function pornaCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('div.video-item')) {
+    // 普通视频 /comic/index/detail?video_key=xxx；日本AV /comic/index/avdetail?video_key=xxx
+    const a = el.querySelector('a[href*="/comic/index/detail"]')
+      || el.querySelector('a[href*="/comic/index/avdetail"]');
+    if (!a) continue;
+    const img = el.querySelector('img[data-src]') || el.querySelector('img');
+    let title = '';
+    for (const d of el.querySelectorAll('div')) {
+      if ((d.className || '').includes('line-clamp-2')) {
+        title = (d.textContent || '').replace(/\s+/g, ' ').trim();
+        break;
+      }
+    }
+    if (!title) title = (img?.getAttribute('alt') || '').trim();
+    if (!title) continue;
+    let duration = '';
+    for (const d of el.querySelectorAll('div')) {
+      const t = (d.textContent || '').trim();
+      if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(t)) { duration = t; break; }
+    }
+    out.push({
+      title,
+      url: a.getAttribute('href') || '',
+      cover: img?.getAttribute('data-src') || '',
+      meta: '',
+      duration,
+    });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 与 api.dart 的 detail() 对应（按站点模板分派；黄果/91porna 还要额外请求） */
+async function parseDetail(html, site, url) {
+  const tpl = (site && site.template) || 'wordpress';
+  if (tpl === 'huangguo') {
+    // 吃瓜社区的帖子（/archives/N/）是图文帖，跟视频详情不是一套
+    if (url && url.startsWith('/archives/')) return hgPostDetail(html);
+    return hgDetail(html);
+  }
+  if (tpl === 'porna') {
+    // 三种详情页：短视频 / 黑料图文 / 普通视频（靠 URL 区分）
+    if (url && url.startsWith('/melonshort/video/')) return melonDetail(html, url);
+    if (url && url.startsWith('/heiliao-chigua/')) return await heiliaoDetail(html, site);
+    return await pornaDetail(html, site);
+  }
+  return wpDetail(html);
+}
+
+/** WordPress 系详情（含 51fans1 的兜底分支） */
+function wpDetail(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const title = (doc.querySelector('.post-title')?.textContent || '').trim();
+  let title = (doc.querySelector('.post-title')?.textContent || '').trim();
+  if (!title) title = (doc.querySelector('.novel-title h1')?.textContent || '').trim();
   const intro = (doc.querySelector('meta[name="description"]')?.getAttribute('content') || '')
     .replace(/\s+/g, ' ').trim();
-  const time = doc.querySelector('meta[itemprop="datePublished"]')?.getAttribute('content') || '';
+  let time = doc.querySelector('meta[itemprop="datePublished"]')?.getAttribute('content') || '';
+  if (!time) time = metaDate(doc.querySelector('.novel-info')?.textContent || '');
 
   const images = [];
   for (const img of doc.querySelectorAll('.post-content img')) {
-    let src = img.getAttribute('data-xkrkllgl') || '';
-    if (!src) src = img.getAttribute('data-src') || '';
-    if (!src) src = img.getAttribute('src') || '';
-    if (src.startsWith('http') && !src.includes('/hc237/') && !images.includes(src)) images.push(src);
+    const src = img.getAttribute('data-xkrkllgl') || '';
+    if (src.startsWith('http') && !images.includes(src)) images.push(src);
+  }
+  if (!images.length) {
+    // 51fans1：.defaultimg 里 img[data-image-preview][z-image-loader-url]
+    for (const img of doc.querySelectorAll('img[data-image-preview]')) {
+      const src = (img.getAttribute('z-image-loader-url') || '').replace(/`/g, '').trim();
+      if (src.startsWith('http') && !images.includes(src)) images.push(src);
+    }
+  }
+  if (!images.length) {
+    for (const img of doc.querySelectorAll('.post-content img')) {
+      let src = img.getAttribute('data-src') || img.getAttribute('src') || '';
+      if (src.startsWith('http') && !src.includes('/hc237/') && !images.includes(src)) images.push(src);
+    }
   }
 
   const videos = [];
@@ -320,7 +517,280 @@ function parseDetail(html) {
     videos.push({ ordinal: n, label: ord > 0 && texts.length ? texts[0] : '视频 ' + n, sources });
   }
   videos.sort((a, b) => a.ordinal - b.ordinal);
-  return { title, intro, time, images, videos };
+
+  // 标签（/tag/xxx/），可点击跳转
+  const tags = [];
+  for (const a of doc.querySelectorAll('a[href*="/tag/"]')) {
+    const href = a.getAttribute("href") || "";
+    const t = (a.textContent || "").trim();
+    if (!href || !t || t.length > 20) continue;
+    const slug = href.split("/tag/").pop().replace(/\/$/, "");
+    if (!slug) continue;
+    if (!tags.some((x) => x.slug === slug)) tags.push({ slug, name: t });
+    if (tags.length >= 30) break;
+  }
+
+  // 相关推荐（尾部「热门新闻」区 .hot-news-section/.hot-news-box/.hot-news-content，
+  // 没有单独的 .hot-news 元素——原选择器匹配不到，区块不显示），显示在剧照下方
+  const related = [];
+  for (const el of doc.querySelectorAll('.hot-news-content')) {
+    const a = el.querySelector('a[href*="/archives/"]');
+    if (!a) continue;
+    let href = a.getAttribute("href") || "";
+    const t = ((el.querySelector('p') || {}).textContent || "").replace(/\s+/g, " ").trim();
+    if (!href || !t) continue;
+    if (href.startsWith("http")) {
+      const i = href.indexOf("/archives/");
+      if (i >= 0) href = href.slice(i);
+    }
+    if (related.some((x) => x.url === href)) continue;
+    related.push({ title: t, url: href, cover: "" });
+    if (related.length >= 12) break;
+  }
+
+  return { title, intro, time, images, videos, tags, related, duration: '' };
+}
+
+/** 黄果短剧：详情页内嵌 <script id="videoInitialData">，
+ *  epPlaySrcs = {"1": m3u8, ...} 一次拿到整部剧所有集。 */
+function hgDetail(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  let data = null;
+  const raw = doc.querySelector('script#videoInitialData')?.textContent || '';
+  if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
+  const videos = [];
+  if (data && data.epPlaySrcs) {
+    const keys = Object.keys(data.epPlaySrcs).map((k) => parseInt(k, 10) || 0).sort((a, b) => a - b);
+    for (const k of keys) {
+      const src = data.epPlaySrcs[String(k)];
+      if (!src) continue;
+      videos.push({ ordinal: k > 0 ? k : videos.length + 1, label: `第 ${k} 集`, sources: [src] });
+    }
+  }
+  const tags = [];
+  if (data && Array.isArray(data.tagLinks)) {
+    for (const t of data.tagLinks) {
+      const slug = String(t.url || '').split('/tag/').pop().replace(/\/$/, '');
+      if (t.name && slug) tags.push({ slug, name: t.name });
+    }
+  }
+  // 相关推荐 = 「猜你喜欢」区的卡片（广告 aside 里没有 hg-drama-card，天然排除）
+  const related = hgCards(doc).slice(0, 12);
+  return {
+    title: (data && data.title) || (doc.querySelector('h1')?.textContent || '').trim(),
+    intro: ((data && data.description) || '').replace(/\s+/g, ' ').trim(),
+    time: (data && data.time) || '',
+    images: [],           // 这站没有剧照
+    videos,
+    tags,
+    related,
+    duration: '',
+  };
+}
+
+/** 黄果吃瓜社区的帖子详情：图文帖（正文 .hg-post-detail__body 的图），没有视频 */
+function hgPostDetail(html) {
+  const doc = parseHtml(html);
+  const title = (doc.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim();
+  const intro = (doc.querySelector('meta[name="description"]')?.getAttribute('content') || '')
+    .replace(/\s+/g, ' ').trim();
+  const images = [];
+  for (const img of doc.querySelectorAll('.hg-post-detail__body img[data-src]')) {
+    const src = img.getAttribute('data-src') || '';
+    if (src.startsWith('http') && !images.includes(src)) images.push(src);
+  }
+  const time = metaDate(doc.querySelector('.hg-post-detail')?.textContent || '');
+  const tags = [];
+  for (const a of doc.querySelectorAll('.hg-post-detail a[href*="/tag/"]')) {
+    const href = a.getAttribute('href') || '';
+    const name = (a.textContent || '').trim();
+    if (!href || !name || name.length > 20) continue;
+    const slug = href.split('/tag/').pop().replace(/\/$/, '');
+    if (!slug) continue;
+    if (!tags.some((x) => x.slug === slug)) tags.push({ slug, name });
+  }
+  return {
+    title, intro, time, images,
+    videos: [],   // 吃瓜帖是图文
+    tags,
+    related: hgCards(doc).slice(0, 12),
+    duration: '',
+  };
+}
+
+/** 91porna：标题/简介/时长/标签来自 LD+JSON；
+ *  播放地址要再请求 /index/detail_play（img=封面路径、u=页面内嵌 hex token、t=时间戳/2100）。 */
+async function pornaDetail(html, site) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  let obj = null;
+  for (const s of doc.querySelectorAll('script[type="application/ld+json"]')) {
+    try {
+      const j = JSON.parse(s.textContent);
+      for (const n of (j['@graph'] || [])) if (n['@type'] === 'VideoObject') obj = n;
+    } catch (e) { /* 坏 JSON 忽略 */ }
+  }
+  const title = (obj && obj.name) ||
+    (doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || '').trim();
+  const duration = pornaDuration((obj && obj.duration) || '');
+  let cover = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
+  if (!cover && obj && Array.isArray(obj.thumbnailUrl) && obj.thumbnailUrl.length) cover = obj.thumbnailUrl[0];
+  const tags = [];
+  if (obj && Array.isArray(obj.keywords)) for (const k of obj.keywords) if (k) tags.push({ slug: k, name: k });
+
+  // 播放地址
+  const videos = [];
+  let img = '';
+  try { img = new URL(cover).pathname; } catch (e) { img = ''; }
+  if (!img) {
+    const m = /(?:upload_01|md-\d+)\/[^"'\s]+\.(?:jpe?g|png|webp)/.exec(html);
+    img = m ? '/' + m[0] : '';
+  }
+  // token 长度不固定（视频页 160 位、日本AV 页 352 位），候选逐个试
+  const toks = [...new Set([
+    ...html.matchAll(/parseInt\|([0-9a-f]{60,400})\|/g),
+    ...html.matchAll(/\|([0-9a-f]{120,400})\|/g),
+    ...html.matchAll(/\b([0-9a-f]{120,400})\b/g),
+  ].map((m) => m[1]))].slice(0, 6);
+  if (img) {
+    for (const token of toks) {
+      const t = Math.floor(Date.now() / 1000 / 2100);
+      const path = '/index/detail_play?img=' + encodeURIComponent(img) + '&ads=&u=' + token + '&h=&t=' + t;
+      const src = await pornaPlayFromScript(site, path);
+      if (src) { videos.push({ ordinal: 1, label: '视频 1', sources: [src] }); break; }
+    }
+  }
+
+  return {
+    title: title || '',
+    intro: ((obj && obj.description) || '').replace(/\s+/g, ' ').trim(),
+    time: (obj && (obj.uploadDate || obj.datePublished)) || '',
+    images: [],  // 这站没有剧照
+    videos,
+    tags,
+    related: pornaCards(doc).slice(0, 12),
+    duration,
+  };
+}
+
+/** 解开站点前端用的 JS 打包格式（Dean Edwards packer）—— 换源响应里 m3u8 被拆成字典碎片。 */
+/** 解开站点前端用的 JS 打包格式（Dean Edwards packer）—— 换源响应里 m3u8 被拆成字典碎片。 */
+function unpackPacker(src) {
+  const head = /eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\}\('([\s\S]*?)',(\d+),(\d+),'([\s\S]*?)'\.split\('\|'\)/.exec(src);
+  if (!head) return null;
+  const p0 = head[1], a = parseInt(head[2], 10), c = parseInt(head[3], 10);
+  const dict = head[4].split('|');
+  // 还原 JS 字符串字面量里的转义（扫描式，避免正则被反斜杠绕晕）
+  const ESC = { n: '\n', t: '\t', r: '\r', "'": "'", '\u005c': '\u005c', '"': '"' };
+  let p = '';
+  for (let i = 0; i < p0.length; i++) {
+    const ch = p0[i];
+    if (ch === '\u005c' && i + 1 < p0.length) {
+      const nxt = p0[i + 1];
+      if (ESC[nxt] !== undefined) { p += ESC[nxt]; i++; continue; }
+    }
+    p += ch;
+  }
+  const enc = (n) => (n < a ? '' : enc(Math.floor(n / a))) +
+    ((n % a) > 35 ? String.fromCharCode((n % a) + 29) : (n % a).toString(36));
+  for (let i = c - 1; i >= 0; i--) {
+    if (i >= dict.length || !dict[i]) continue;
+    p = p.replace(new RegExp('\u005cb' + enc(i) + '\u005cb', 'g'), dict[i]);
+  }
+  return p;
+}
+
+/** 请求换源脚本（detail_play / melon_detail_play）并抠出 m3u8 */
+async function pornaPlayFromScript(site, path) {
+  let js;
+  try { js = await getHtml(site, path); } catch (e) { return ''; }
+  const RE = /https?:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/;
+  let m = RE.exec(js);
+  if (m) return m[0];
+  const plain = unpackPacker(js);
+  if (!plain) return '';
+  m = RE.exec(plain);
+  return m ? m[0] : '';
+}
+
+/** PT1H39S → 1:00:39 */
+function pornaDuration(iso) {
+  const m = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/.exec(String(iso || ''));
+  if (!m) return '';
+  const h = parseInt(m[1] || '0', 10), mi = parseInt(m[2] || '0', 10), s = parseInt(m[3] || '0', 10);
+  if (!h && !mi && !s) return '';
+  const mm = String(mi).padStart(h > 0 ? 2 : 1, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** 91短视频详情：<script id="ms-bootstrap"> 的 first_screen.list（带 signed video_url、
+ *  cover、video_duration 秒、publish_time），当前视频按 URL 里的 id 找，其余当相关推荐。 */
+function melonDetail(html, url) {
+  const doc = parseHtml(html);
+  let boot = null;
+  const raw = doc.querySelector('script#ms-bootstrap')?.textContent || '';
+  if (raw) { try { boot = JSON.parse(raw); } catch (e) { boot = null; } }
+  const items = (boot && boot.first_screen && boot.first_screen.list) || [];
+  const m = /\/melonshort\/video\/(\d+)/.exec(url || '');
+  const id = m ? parseInt(m[1], 10) : 0;
+  const cur = items.find((v) => Number(v.id) === id) || items[0] || null;
+  const videos = [];
+  if (cur && cur.video_url) videos.push({ ordinal: 1, label: '视频 1', sources: [cur.video_url] });
+  const related = items.filter((v) => v !== cur).slice(0, 12).map((v) => ({
+    title: String(v.title || ''), url: '/melonshort/video/' + v.id, cover: v.cover || '',
+    meta: '', duration: hgDuration(v.video_duration),
+  }));
+  return {
+    title: String((cur && cur.title) || '').trim(),
+    intro: String((cur && cur.desc) || '').replace(/\s+/g, ' ').trim(),
+    time: String((cur && cur.publish_time) || '').trim(),
+    images: [],
+    videos,
+    tags: [],
+    related,
+    duration: cur ? hgDuration(cur.video_duration) : '',
+  };
+}
+
+/** 黑料吃瓜详情：图文帖（正文 article.ql-editor；图片 data-src；标签是 /黑料吃瓜/xxx 分类链接） */
+async function heiliaoDetail(html, site) {
+  const doc = parseHtml(html);
+  const title = (doc.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim();
+  const intro = (doc.querySelector('meta[name="description"]')?.getAttribute('content') || '')
+    .replace(/\s+/g, ' ').trim();
+  let time = doc.querySelector('time')?.getAttribute('datetime') || '';
+  if (!time) time = metaDate(doc.querySelector('.dx-text')?.textContent || '');
+  const images = [];
+  for (const img of doc.querySelectorAll('article.ql-editor img[data-src]')) {
+    const src = img.getAttribute('data-src') || '';
+    if (src.startsWith('http') && !images.includes(src)) images.push(src);
+  }
+  const tags = [];
+  for (const a of doc.querySelectorAll('a.border-link')) {
+    const href = a.getAttribute('href') || '';
+    const name = (a.textContent || '').trim();
+    if (!href || !name || name.length > 20) continue;
+    if (!href.includes('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) continue;
+    if (!tags.some((x) => x.slug === href)) tags.push({ slug: href, name });
+  }
+  // 正文里的视频：一块 ql-video-mse，地址要拿页面内嵌 token 去 melon_detail_play 换
+  const videos = [];
+  const toks = [...html.matchAll(/parseInt\|([0-9a-f]{60,400})\|/g)].map((m) => m[1]);
+  let ord = 0;
+  for (const tok of toks) {
+    ord++;
+    const t = Math.floor(Date.now() / 1000 / 2100);
+    const src = await pornaPlayFromScript(site,
+      '/index/melon_detail_play.js?img=&u=' + tok + '&t=' + t);
+    if (src) videos.push({ ordinal: ord, label: '视频 ' + ord, sources: [src] });
+  }
+  return {
+    title, intro, time, images,
+    videos,
+    tags,
+    related: heiliaoCards(doc).slice(0, 12),
+    duration: '',
+  };
 }
 
 function videoOrdinal(s) {
@@ -351,26 +821,66 @@ function looksLikeImage(b) {
 }
 const isIco = (b) => b.length > 6 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0;
 
-async function imageUrl(url) {
+const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
+
+/** 下载 + 解密一张图。
+ *  ⚠️ 封面偶发"解密失败"多半不是密钥问题，而是**请求层**：一次拉几十张图时
+ *  本地代理会偶发超时/被限流，回来的不是密文（错误页/空包）→ 解密当然失败。
+ *  所以这里：非 200 或解密失败都**重试一次**，并且**失败结果不进缓存**
+ *  （原来把失败的 Promise 缓存住了，那张图就一直空白到刷新为止）。 */
+async function imageUrl(url, retries = 1) {
   if (!url) return '';
   if (imgCache.has(url)) return imgCache.get(url);
   const task = (async () => {
-    const r = await fetch(px(url));
-    let b = new Uint8Array(await r.arrayBuffer());
-    if (isIco(b)) return URL.createObjectURL(new Blob([b]));   // 浏览器自己能显示 ICO
-    if (!looksLikeImage(b)) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (attempt) await sleep(400);   // 给代理/图床喘口气
+      let b;
       try {
-        const key = await crypto.subtle.importKey('raw',
-          new TextEncoder().encode(AES_KEY), { name: 'AES-CBC' }, false, ['decrypt']);
-        b = new Uint8Array(await crypto.subtle.decrypt(
-          { name: 'AES-CBC', iv: new TextEncoder().encode(AES_IV) }, key, b));
-      } catch (e) { log('图片解密失败：' + url.slice(0, 60), 'err'); return ''; }
-      if (!looksLikeImage(b)) { log('解密后仍不是图片：' + url.slice(0, 60), 'err'); return ''; }
+        const r = await fetch(px(url));
+        if (!r.ok) {
+          if (attempt < retries) continue;
+          log(`封面请求失败 HTTP ${r.status}：` + url.slice(0, 50), 'err');
+          return '';
+        }
+        b = new Uint8Array(await r.arrayBuffer());
+        if (b.length < 12) {
+          if (attempt < retries) continue;
+          log('封面响应是空的（重试后仍然）：' + url.slice(0, 50), 'err');
+          return '';
+        }
+      } catch (e) {
+        if (attempt < retries) continue;
+        log('封面下载失败：' + url.slice(0, 50) + '（' + (e && e.message ? e.message : e) + '）', 'err');
+        return '';
+      }
+      if (isIco(b)) return URL.createObjectURL(new Blob([b]));   // 浏览器自己能显示 ICO
+      if (!looksLikeImage(b)) {
+        let ok = false;
+        try {
+          const key = await crypto.subtle.importKey('raw',
+            new TextEncoder().encode(AES_KEY), { name: 'AES-CBC' }, false, ['decrypt']);
+          b = new Uint8Array(await crypto.subtle.decrypt(
+            { name: 'AES-CBC', iv: new TextEncoder().encode(AES_IV) }, key, b));
+          ok = true;
+        } catch (e) {
+          if (attempt < retries) continue;   // 偶发坏响应，再试一次
+          log(`图片解密失败（密钥/密文对不上，重试过）：` + url.slice(0, 50), 'err');
+          return '';
+        }
+        if (!looksLikeImage(b)) {
+          if (attempt < retries) continue;
+          log('解密后仍不是图片：' + url.slice(0, 50), 'err');
+          return '';
+        }
+      }
+      return URL.createObjectURL(new Blob([b]));
     }
-    return URL.createObjectURL(new Blob([b]));
+    return '';
   })();
   imgCache.set(url, task);
-  return task;
+  const out = await task;
+  if (!out) imgCache.delete(url);   // 失败不缓存，下次还能重试
+  return out;
 }
 async function fillImages(root) {
   for (const img of root.querySelectorAll('img[data-src]')) {
@@ -403,6 +913,8 @@ function back() { stack.pop(); (stack[stack.length - 1] || viewGrid)(); }
 function viewGrid() {
   showNav(true);
   $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
   setAppbar(`<div class="spacer"></div><h1>KPXX</h1><div class="spacer"></div>`);
   $('body').className = 'body';
   $('body').innerHTML = `<div class="grid">${SITES.map((s, i) => `
@@ -425,33 +937,251 @@ function openSite(site) {
 }
 
 /* -------- 列表页 -------- */
-const listState = new Map();   // site.name + slug -> { items, page, done }
+const listState = new Map();   // site.name + key -> { items, page, done }
+const subSel = new Map();      // site.name + '/' + 分类key -> 子分类 key（默认第一个）
+
+const subSel2 = new Map();     // site.name + '/' + 分类key + '|' + 一级子key -> 二级子 key
+
+/** 一级子分类（选中项；没子分类返回 null），返回 SiteTab 对象 */
+function subTabOf(site, cat) {
+  if (!cat.subs || !cat.subs.length) return null;
+  const want = subSel.get(site.name + '/' + cat.key) || cat.subs[0].key;
+  return cat.subs.find((s) => s.key === want) || cat.subs[0];
+}
+
+/** 二级子分类（选中项；一级子没有再下一级就返回 null） */
+function subTabOf2(site, cat) {
+  const l1 = subTabOf(site, cat);
+  if (!l1 || !l1.subs || !l1.subs.length) return null;
+  const k2 = site.name + '/' + cat.key + '|' + l1.key;
+  const want = subSel2.get(k2) || l1.subs[0].key;
+  return l1.subs.find((s) => s.key === want) || l1.subs[0];
+}
+
+function subOf(site, cat) { return subTabOf(site, cat)?.key || null; }
+
+/** 黄果的"路径型"列表页（与 api.dart 的 _hgPageList 对应）：
+ *  /recommend、/newest、/topics/xxx/ → hg-drama-card（翻页 /xxx/2/）
+ *  /ranks/hot/                       → hg-rank-item（TOP20）
+ *  /chigua/                          → hg-post-card（翻页 /chigua/page/N/） */
+async function hgPageList(site, path, page) {
+  const p0 = path.endsWith('/') ? path : path + '/';
+  const url = page <= 1 ? p0 : (p0.startsWith('/chigua') ? p0 + 'page/' + page + '/' : p0 + page + '/');
+  const doc = parseHtml(await getHtml(site, url));
+  if (p0.startsWith('/chigua')) return hgPostCards(doc);
+  if (p0.startsWith('/ranks')) return hgRankCards(doc);
+  // 专题列表页（/topics/）上是"专题卡"，专题自己的页面（/topics/xxx/）才是视频网格
+  if (p0 === '/topics/') return hgTopicCards(doc);
+  return hgCards(doc);
+}
+
+/** 专题卡（a.hg-topic-card → /topics/xxx/）：点开是该专题下的视频列表 */
+function hgTopicCards(doc) {
+  const out = [];
+  for (const a of doc.querySelectorAll('a.hg-topic-card')) {
+    const href = a.getAttribute('href') || '';
+    const tt = a.querySelector('.hg-topic-card__title');
+    const title = ((tt ? tt.textContent : '') || '').replace(/\s+/g, ' ').trim();
+    if (!href || !title) continue;
+    const img = a.querySelector('img[data-src]') || a.querySelector('img');
+    const mt = a.querySelector('.hg-topic-card__meta');
+    const meta = ((mt ? mt.textContent : '') || '').replace(/\s+/g, ' ').trim();
+    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta, duration: '' });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 吃瓜社区的图文卡（a.hg-post-card → /archives/N/） */
+function hgPostCards(doc) {
+  const out = [];
+  for (const a of doc.querySelectorAll('a.hg-post-card')) {
+    const href = a.getAttribute('href') || '';
+    const t = a.querySelector('.hg-post-card__body h3');
+    const title = (t ? t.textContent : '').replace(/\s+/g, ' ').trim();
+    if (!href || !title) continue;
+    const img = a.querySelector('img[data-src]') || a.querySelector('img');
+    const date = (a.querySelector('.hg-post-card__date')?.textContent || '').trim();
+    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta: metaDate(date), duration: '' });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 排行榜（TOP20）：每项一个视频，名次写进 meta */
+function hgRankCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('div.hg-rank-item')) {
+    const a = el.querySelector('a[href^="/video/"]');
+    if (!a) continue;
+    const tt = el.querySelector('.hg-rank-item__title');
+    const title = ((tt ? tt.textContent : a.textContent) || '').replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    const img = el.querySelector('img[data-src]') || el.querySelector('img');
+    const num = (el.querySelector('.hg-rank-num')?.textContent || '').trim();
+    out.push({ title, url: a.getAttribute('href') || '', cover: img?.getAttribute('data-src') || '',
+      meta: num ? '第 ' + num + ' 名' : '', duration: '' });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 按模板取一页列表（与 api.dart 的 category() 对应） */
+async function fetchList(site, cat, subKey, page) {
+  const tpl = site.template || 'wordpress';
+  if (tpl === 'huangguo') {
+    // 路径型（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
+    const k = subKey || cat.key;
+    if (k.startsWith('/')) return hgPageList(site, k, page);
+    const sort = subKey || 'latest';
+    const sortParam = sort === 'hot' ? 'hot_window'
+      : sort === 'original' ? 'hot_window&is_original=1' : sort;
+    const path = `/api/videos/category/${cat.key}?sort=${sortParam}&page=${page}&size=20`;
+    const j = JSON.parse(await getHtml(site, path));
+    const items = (j && j.data && j.data.items) || [];
+    return items.map(hgItem);
+  }
+  if (tpl === 'porna') {
+    return pornaFetch(site, subKey || cat.key, page);
+  }
+  // wordpress 系（含 51fans1）
+  const k = subKey || cat.key;
+  const path = k.startsWith('/')
+    ? (page <= 1 ? k : k + page + '/')
+    : (page <= 1 ? `/category/${k}/` : `/category/${k}/${page}/`);
+  return parseArticles(await getHtml(site, path), site);
+}
+
+/** 91porna 的列表：按路径分三种页面类型（与 api.dart 的 _pornaList 一致）
+ *  - /melonshort*        → 短视频卡片 article.video-card
+ *  - heiliao / 黑料吃瓜   → 图文卡 a[href^=/heiliao-chigua/]
+ *  - 其余                → div.video-item */
+async function pornaFetch(site, key, page) {
+  // 关键词里的空格站点用 + 分隔
+  const p = key.startsWith('search:')
+    ? '/comic/index/search?keyword=' + encodeURIComponent(key.slice(7)).replace(/%20/g, '+')
+    : key;
+  const path = page <= 1 ? p : p + (p.includes('?') ? '&' : '?') + 'page=' + page;
+  const doc = parseHtml(await getHtml(site, path));
+  if (path.startsWith('/melonshort')) return melonCards(doc);
+  // ⚠️ 只看路径部分（搜索关键词里也可能有"黑料"），并且用完整的"黑料吃瓜"编码
+  const p0 = path.split('?')[0];
+  if (p0.includes('heiliao') || p0.includes('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) return heiliaoCards(doc);
+  return pornaCards(doc);
+}
+
+/** 91短视频的卡片（封面右下角有时长角标） */
+function melonCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('article.video-card')) {
+    const a = el.querySelector('a.video-card-link') || el.querySelector('a');
+    if (!a) continue;
+    const title = (el.querySelector('h3.title')?.textContent || '').trim();
+    if (!title) continue;
+    const img = el.querySelector('img[data-src]') || el.querySelector('img');
+    const dur = (el.querySelector('span.badge-duration')?.textContent || '').trim();
+    const dm = /\d{1,2}:\d{2}(?::\d{2})?/.exec(dur);
+    out.push({
+      title,
+      url: a.getAttribute('href') || '',
+      cover: img?.getAttribute('data-src') || '',
+      meta: '',
+      duration: dm ? dm[0] : '',
+    });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 黑料吃瓜的图文卡（标题/封面/时间都在卡片里） */
+function heiliaoCards(doc) {
+  const out = [];
+  for (const a of doc.querySelectorAll('a[href^="/heiliao-chigua/"]')) {
+    const title = (a.querySelector('.post-item-title')?.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    const poster = a.querySelector('.post-item-poster');
+    const desc = a.querySelector('.post-item-desc')?.textContent || '';
+    out.push({
+      title,
+      url: a.getAttribute('href') || '',
+      cover: poster?.getAttribute('data-src') || '',
+      meta: metaDate(desc),
+      duration: '',
+    });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+function parseHtml(html) { return new DOMParser().parseFromString(html, 'text/html'); }
 
 function viewList(site, idx, scrollTop) {
   const cat = site.categories[idx];
   if (!cat) { log(site.name + ' 没有分类', 'err'); return; }
+  // 最深的一层子分类 key 就是实际要抓的路径/排序（与 api.dart 的 category() 一致）
+  const sub1 = subTabOf(site, cat);
+  const sub2 = subTabOf2(site, cat);
+  const sub = sub2 ? sub2.key : (sub1 ? sub1.key : null);
   showNav(false);
   setAppbar(`
     <div class="ic" onclick="back()">‹</div>
     <h1>${esc(site.name)}</h1>
     <div class="ic" onclick="openSearch(${SITES.indexOf(site)})">🔍</div>`);
   setTabs(site.categories, idx, (i) => viewList(site, i));
-  $('body').className = 'body';
+  setSubBar(site, cat);
+  setSubBar2(site, cat);
 
-  const key = site.name + '/' + cat.slug;
+  const key = site.name + '/' + cat.key + '|' + (sub || '');
   const st = listState.get(key) || { items: [], page: 1, done: false };
   listState.set(key, st);
 
-  $('body').innerHTML = `<div class="cards" id="cards"></div>
+  const portrait = site.portraitCovers ? ' portrait' : '';
+  $('body').className = 'body';
+  $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>
     <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
-  renderCards(cat, st);
+  renderCards({ name: cat.name, site }, st);
   if (scrollTop) $('body').scrollTop = scrollTop;
   $('body').onscroll = () => {
     if ($('body').scrollTop + $('body').clientHeight > $('body').scrollHeight - 300) {
-      loadMore(site, cat, st);
+      loadMore(site, cat, st, sub);
     }
   };
-  if (!st.items.length) loadMore(site, cat, st);
+  if (!st.items.length) loadMore(site, cat, st, sub);
+}
+
+/** 二级子分类行（如 91porna「热门排行榜」下面那 12 个排序） */
+function setSubBar2(site, cat) {
+  const el = $('subbar2');
+  if (!el) return;
+  const l1 = subTabOf(site, cat);
+  if (!l1 || !l1.subs || !l1.subs.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const sel2 = subTabOf2(site, cat);
+  el.style.display = 'flex';
+  el.innerHTML = l1.subs.map((s) =>
+    `<div class="sub ${s.key === (sel2 && sel2.key) ? 'on' : ''}" data-k="${esc(s.key)}">${esc(s.name)}</div>`).join('');
+  el.querySelectorAll('.sub').forEach((c) => {
+    c.onclick = () => {
+      subSel2.set(site.name + '/' + cat.key + '|' + l1.key, c.dataset.k);
+      viewList(site, site.categories.indexOf(cat));
+    };
+  });
+}
+
+/** 子分类行：点了就换一套列表（key 记在 subSel，回来后保持选中） */
+function setSubBar(site, cat) {
+  const el = $('subbar');
+  if (!el) return;
+  if (!cat.subs || !cat.subs.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const sel = subOf(site, cat);
+  el.style.display = 'flex';
+  el.innerHTML = cat.subs.map((s) =>
+    `<div class="sub ${s.key === sel ? 'on' : ''}" data-k="${esc(s.key)}">${esc(s.name)}</div>`).join('');
+  el.querySelectorAll('.sub').forEach((c) => {
+    c.onclick = () => {
+      subSel.set(site.name + '/' + cat.key, c.dataset.k);
+      viewList(site, site.categories.indexOf(cat));
+    };
+  });
 }
 
 function renderCards(cat, st) {
@@ -459,14 +1189,26 @@ function renderCards(cat, st) {
   if (!wrap) return;
   wrap.innerHTML = st.items.map((a, i) => `
     <div class="card" data-i="${i}">
-      <div class="cover"><img data-src="${esc(a.cover)}" alt="" /></div>
+      <div class="cover">
+        <img data-src="${esc(a.cover)}" alt="" />
+        ${a.duration ? `<span class="dur">${esc(a.duration)}</span>` : ''}
+      </div>
       <div class="txt">
         <div class="ttl">${esc(a.title)}</div>
         ${a.meta ? `<div class="meta">${esc(a.meta)}</div>` : ''}
       </div>
     </div>`).join('');
   wrap.querySelectorAll('.card').forEach((c) => {
-    c.onclick = () => openDetail(st.items[parseInt(c.dataset.i, 10)], cat, $('body').scrollTop);
+    const a = st.items[parseInt(c.dataset.i, 10)];
+    c.onclick = () => {
+      // 专题卡（/topics/xxx/）点开的是"该专题下的视频列表"，不是某一篇详情
+      if (a.url && a.url.startsWith('/topics/')) {
+        const site0 = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
+        openTagList(site0, a.title, a.url, false);
+        return;
+      }
+      openDetail(a, cat, $('body').scrollTop);
+    };
   });
   fillImages(wrap);
   // 搜索页没有 #more（只有列表页有），判空，否则会抛
@@ -480,12 +1222,11 @@ function renderCards(cat, st) {
   log(`${cat.name}：已加载 ${st.items.length} 篇`, 'dim');
 }
 
-async function loadMore(site, cat, st) {
+async function loadMore(site, cat, st, sub) {
   if (st.loading || st.done) return;
   st.loading = true;
-  const path = st.page <= 1 ? `/category/${cat.slug}/` : `/category/${cat.slug}/${st.page}/`;
   try {
-    const items = parseArticles(await getHtml(site, path));
+    const items = await fetchList(site, cat, sub, st.page);
     if (!items.length) { st.done = true; log(`${cat.name} 第 ${st.page} 页：0 篇（到底）`, 'dim'); }
     else {
       st.items.push(...items);
@@ -494,10 +1235,10 @@ async function loadMore(site, cat, st) {
     }
   } catch (e) {
     st.done = true;
-    log(`抓取失败 ${path}：${e.message}`, 'err');
+    log(`抓取失败 ${cat.name}：${e.message}`, 'err');
   } finally {
     st.loading = false;
-    renderCards(cat, st);
+    renderCards({ name: cat.name, site }, st);
   }
 }
 
@@ -510,19 +1251,23 @@ function openDetail(article, cat, scrollTop) {
 
 async function viewDetail(article, cat, scrollTop) {
   showNav(false);
-  const site = SITES.find((s) => cat && s.categories.includes(cat)) || SITES[0];
+  // 站点判定：cat.site 是列表页（标签/分类/搜索）带过来的真实站点对象。
+  // 少了它就会回落到 SITES[0]（51吃瓜），拿别的站的 article.url 去 51cg1.com 请求 → 404
+  const site = (cat && cat.site) || SITES.find((s) => cat && s.categories.includes(cat)) || SITES[0];
   setAppbar(`
     <div class="ic" onclick="back()">‹</div>
     <h1>${esc(site.name)}</h1>
     <div class="ic" title="用网页播放器打开（App 里的入口）" onclick="window.open('${esc(base(site) + article.url)}','_blank')">🌐</div>`);
   $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
   $('body').className = 'body white';
   $('body').onscroll = null;
   $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
 
   let d;
   try {
-    d = parseDetail(await getHtml(site, article.url));
+    d = await parseDetail(await getHtml(site, article.url), site, article.url);
     log(`详情：${d.videos.length} 个视频 / ${d.images.length} 张剧照 / 简介 ${d.intro ? d.intro.length : 0} 字`, 'ok');
   } catch (e) {
     $('body').innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
@@ -541,8 +1286,9 @@ async function viewDetail(article, cat, scrollTop) {
     </div>
     <div class="dwrap">
       <h2>${esc(d.title || article.title)}</h2>
-      <div class="dmeta">🔥 ${esc((d.time || '').slice(0, 10))}
-        <span>${d.videos.length} 集</span></div>
+      <div class="dmeta">🔥 ${esc(fmtTime(d.time))}
+        ${d.videos.length ? `<span>${d.videos.length} 集</span>` : ''}
+        ${d.duration ? `<span>时长 ${esc(d.duration)}</span>` : ''}</div>
       ${d.videos.length > 1 ? `
         <div class="sec"><h3>视频（${d.videos.length}）</h3><div class="vlist" id="vlist">
           ${d.videos.map((v, i) => `<div class="vrow ${i === 0 ? 'on' : ''}" data-i="${i}">
@@ -551,9 +1297,35 @@ async function viewDetail(article, cat, scrollTop) {
       ${d.intro ? `<div class="sec"><h3>简介</h3><div class="intro">${esc(d.intro)}</div></div>` : ''}
       ${d.images.length ? `<div class="sec"><h3>剧照</h3><div class="stills" id="stills">
           ${d.images.map((u) => `<img data-src="${esc(u)}" alt="" />`).join('')}</div></div>` : ''}
+      ${(d.tags.length || (cat && cat.key)) ? `<div class="tagrow" id="tagrow">
+          ${cat && cat.key ? `<div class="chip tagchip" data-slug="${esc(cat.key)}" data-tag="0">${esc(cat.name)}</div>` : ''}
+          ${d.tags.map((t) => `<div class="chip tagchip" data-slug="${esc(t.slug)}" data-tag="1">#${esc(t.name)}</div>`).join('')}
+        </div>` : ''}
+      ${d.related.length ? `<div class="sec"><h3>相关推荐</h3><div class="vlist" id="related">
+          ${d.related.map((a, i) => `<div class="relrow" data-i="${i}">
+            ${a.cover ? `<img data-src="${esc(a.cover)}" alt="" />` : '<div class="noimg">🔥</div>'}
+            <div class="t">${esc(a.title)}</div>
+          </div>`).join('')}
+        </div></div>` : ''}
     </div>`;
   fillImages($('body'));
   if (scrollTop) $('body').scrollTop = scrollTop;
+
+  // 标签 / 分类点击 → 对应列表
+  const tagrow = $('tagrow');
+  if (tagrow) {
+    tagrow.querySelectorAll('.tagchip').forEach((c) => {
+      c.onclick = () => openTagList(site, c.textContent.trim(),
+        c.dataset.slug, c.dataset.tag === '1');
+    });
+  }
+  // 相关推荐点击 → 进详情
+  const relatedBox = $('related');
+  if (relatedBox) {
+    relatedBox.querySelectorAll('.relrow').forEach((r) => {
+      r.onclick = () => openDetail(d.related[parseInt(r.dataset.i, 10)], cat, 0);
+    });
+  }
 
   // 剧照大图
   const stills = $('stills');
@@ -705,6 +1477,68 @@ function bindPlayerUi(video) {
   };
 }
 
+/* -------- 标签/分类列表页 -------- */
+function openTagList(site, title, slug, isTag) {
+  push(() => viewTagList(site, title, slug, isTag));
+}
+
+async function viewTagList(site, title, slug, isTag) {
+  showNav(false);
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>${esc(title)}</h1><div class="spacer"></div>`);
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  $('body').className = 'body' + (site.portraitCovers ? '' : '');
+  $('body').onscroll = null;
+  $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
+  listState.delete("@tag/" + slug);
+  const st = { items: [], page: 1, done: false };
+  listState.set("@tag/" + slug, st);
+  const portrait = site.portraitCovers ? ' portrait' : '';
+  $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>
+    <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
+  const load = async () => {
+    if (st.loading || st.done) return;
+    st.loading = true;
+    try {
+      // 按模板取：porna 的"标签"= 关键词搜索；huangguo 是 /tag/x/；
+      // wordpress 系（含 51fans1）是 /tag/x/ 或 /category/x/
+      const items = await tagListItems(site, slug, isTag, st.page);
+      if (!items.length) st.done = true; else { st.items.push(...items); st.page++; }
+      log(`${title} 第 ${st.page - 1} 页：${items.length} 篇`, items.length ? 'ok' : 'dim');
+    } catch (e) {
+      st.done = true;
+      log(`抓取失败 ${title}：${e.message}`, 'err');
+    } finally {
+      st.loading = false;
+      // 把站点一起传下去：详情页要靠它决定请求哪个域名（否则会误用 51吃瓜）
+      renderCards({ name: title, site }, st);
+    }
+  };
+  $('body').onscroll = () => {
+    if ($('body').scrollTop + $('body').clientHeight > $('body').scrollHeight - 300) load();
+  };
+  await load();
+}
+
+/** 标签/分类列表（按站点模板取，与 api.dart 的 tag()/category() 对应） */
+async function tagListItems(site, slug, isTag, page) {
+  const tpl = site.template || 'wordpress';
+  if (tpl === 'huangguo') {
+    if (slug.startsWith('/')) return hgPageList(site, slug, page);  // 专题等路径型
+    if (page > 1) return [];
+    return hgCards(parseHtml(await getHtml(site, `/tag/${slug}/`)));
+  }
+  if (tpl === 'porna') {
+    // 以 / 开头的是站内分类页（黑料吃瓜的标签），否则当搜索关键词
+    return pornaFetch(site, slug.startsWith('/') ? slug : 'search:' + slug, page);
+  }
+  const path = isTag
+    ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
+    : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
+  return parseArticles(await getHtml(site, path), site);
+}
+
 /* -------- 搜索页 -------- */
 function openSearch(siteIdx) { push(() => viewSearch(SITES[siteIdx])); }
 
@@ -716,6 +1550,8 @@ function viewSearch(site) {
     </div>
     <div style="padding:0 10px;color:#8d4b2a;cursor:pointer" id="doSearch">搜索</div>`);
   $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
   $('body').className = 'body';
   $('body').innerHTML = `<div class="hint">输入关键词即可搜索</div>`;
   $('doSearch').onclick = doSearch;
@@ -726,15 +1562,23 @@ function viewSearch(site) {
     if (!kw) return;
     $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
     try {
-      const items = parseArticles(await getHtml(site, '/search/' + encodeURIComponent(kw) + '/'));
+      const tpl = site.template || 'wordpress';
+      let items;
+      if (tpl === 'huangguo') {
+        items = hgCards(parseHtml(await getHtml(site, '/search/?keyword=' + encodeURIComponent(kw))));
+      } else if (tpl === 'porna') {
+        items = pornaCards(parseHtml(await getHtml(site,
+          '/comic/index/search?keyword=' + encodeURIComponent(kw))));
+      } else {
+        items = parseArticles(await getHtml(site, '/search/' + encodeURIComponent(kw) + '/'), site);
+      }
       log(`搜索「${kw}」：${items.length} 篇`, items.length ? 'ok' : 'err');
       if (!items.length) { $('body').innerHTML = `<div class="hint">无结果</div>`; return; }
-      $('body').innerHTML = `<div class="cards" id="cards"></div>`;
+      const portrait = site.portraitCovers ? ' portrait' : '';
+      $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>`;
       const st = { items, page: 1, done: true };
-      renderCards({ name: '搜索' }, st);
-      $('cards').querySelectorAll('.card').forEach((c) => {
-        c.onclick = () => openDetail(items[parseInt(c.dataset.i, 10)], null, 0);
-      });
+      // 传 site：详情页要靠它决定请求哪个域名（原先是 null → 回落 51吃瓜 → 404）
+      renderCards({ name: '搜索', site }, st);
     } catch (e) {
       $('body').innerHTML = `<div class="hint">搜索失败：${esc(e.message)}</div>`;
       log('搜索失败：' + e.message, 'err');

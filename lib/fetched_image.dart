@@ -87,44 +87,59 @@ class _FetchedImageState extends State<FetchedImage> {
     }
   }
 
+  /// 偶发失败（本地代理超时、图床限流、密文被截断）重试一次就好；
+  /// 失败结果不写缓存 → 下次进这个页面会自动再试。
   static Future<Uint8List?> _download(String url) async {
     try {
-      final r = await http
-          .get(Uri.parse(url), headers: {
-            'User-Agent':
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-            'Referer': 'https://51cg1.com/',
-            'Accept': 'image/*,*/*;q=0.8',
-          })
-          .timeout(const Duration(seconds: 15));
-      if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
-      final raw = r.bodyBytes;
-      Uint8List? img;
-      if (_looksLikeImage(raw)) {
-        img = raw; // 未加密（可能是站外图）
-      } else if (_isIco(raw)) {
-        img = _icoToPng(raw); // 站点 favicon：ICO 解成 PNG
-      } else {
-        // AES-CBC 解密是纯 Dart 计算，一张图几百 KB~几 MB。
-        // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
-        // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
-        img = await compute(_decryptInIsolate, raw);
-      }
-      if (img == null || !_looksLikeImage(img)) return null;
-      if (_cache.length >= _maxCache) {
-        // 只淘汰最早的一批（Map 迭代按插入序 ≈ FIFO）。整片 clear 会让
-        // 已经在屏幕上的图全部重新下载一遍，看起来就是"列表又变慢了"。
-        for (final k in _cache.keys.take(_maxCache ~/ 4).toList()) {
-          _cache.remove(k);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+        }
+        try {
+          final img = await _fetchAndDecode(url);
+          if (img != null) return img;
+        } catch (_) {
+          // 这次失败，循环里再试一次
         }
       }
-      _cache[url] = img;
-      return img;
-    } catch (_) {
       return null;
     } finally {
       _inflight.remove(url);
     }
+  }
+
+  static Future<Uint8List?> _fetchAndDecode(String url) async {
+    final r = await http
+        .get(Uri.parse(url), headers: {
+          'User-Agent':
+              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+          'Referer': 'https://51cg1.com/',
+          'Accept': 'image/*,*/*;q=0.8',
+        })
+        .timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+    final raw = r.bodyBytes;
+    Uint8List? img;
+    if (_looksLikeImage(raw)) {
+      img = raw; // 未加密（可能是站外图）
+    } else if (_isIco(raw)) {
+      img = _icoToPng(raw); // 站点 favicon：ICO 解成 PNG
+    } else {
+      // AES-CBC 解密是纯 Dart 计算，一张图几百 KB~几 MB。
+      // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
+      // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
+      img = await compute(_decryptInIsolate, raw);
+    }
+    if (img == null || !_looksLikeImage(img)) return null;
+    if (_cache.length >= _maxCache) {
+      // 只淘汰最早的一批（Map 迭代按插入序 ≈ FIFO）。整片 clear 会让
+      // 已经在屏幕上的图全部重新下载一遍，看起来就是"列表又变慢了"。
+      for (final k in _cache.keys.take(_maxCache ~/ 4).toList()) {
+        _cache.remove(k);
+      }
+    }
+    _cache[url] = img;
+    return img;
   }
 
   /// AES-128-CBC 解密（PKCS7 padding），兼容"密文"与"密文的 Base64 文本"两种形态。

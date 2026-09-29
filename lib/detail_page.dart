@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'api.dart';
 import 'fetched_image.dart';
+import 'home_page.dart';
 import 'models.dart';
 import 'player_widget.dart';
 import 'sites.dart';
@@ -18,7 +19,7 @@ class DetailPage extends StatefulWidget {
 }
 
 class DetailPageState extends State<DetailPage> {
-  late final Api _api = Api(hosts: widget.site.hosts);
+  late final Api _api = Api(site: widget.site);
   ArticleDetail? _detail;
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
@@ -112,6 +113,9 @@ class DetailPageState extends State<DetailPage> {
   }
 
   String _fmtTime(String iso) {
+    if (iso.isEmpty) return '';
+    // "2026-09-28 17:34:23"（站点自带时分秒）→ 原样显示
+    if (iso.length >= 19 && iso[10] == ' ') return iso;
     // 2026-09-01T14:57:00+00:00 -> 2026-09-01
     if (iso.length < 10) return iso;
     return iso.substring(0, 10);
@@ -182,10 +186,19 @@ class DetailPageState extends State<DetailPage> {
                               ),
                               const SizedBox(width: 12),
                               // 显示本篇的视频数（原来显示的是"同系列文章数"，
-                              // 一篇挂多个视频但没有"第N集"的文章会显示成 0）
-                              Text('${videos.length} 集',
-                                  style: const TextStyle(
-                                      fontSize: 12, color: Colors.grey)),
+                              // 一篇挂多个视频但没有"第N集"的文章会显示成 0）；
+                              // 图文帖（没有视频）就不显示这一段，别写"0 集"
+                              if (videos.isNotEmpty)
+                                Text('${videos.length} 集',
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey)),
+                              // 站点自带时长（如 91porna 的 1:00:39、黄果的 3:34）
+                              if (d.duration.isNotEmpty) ...[
+                                const SizedBox(width: 12),
+                                Text('时长 ${d.duration}',
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey)),
+                              ],
                             ],
                           ),
                           // 多视频文章：列出来可切换（按集数排序）
@@ -299,11 +312,116 @@ class DetailPageState extends State<DetailPage> {
                               ),
                             ),
                           ],
+                          // 分类 + 标签：横向单行滚动（点标签跳到对应列表）
+                          if (d.categories.isNotEmpty || d.tags.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            _buildTagsStrip(d),
+                          ],
+                          // 相关推荐（规范：必须显示在「剧照」下方）
+                          if (d.related.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            const Text('相关推荐',
+                                style: TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            for (final a in d.related)
+                              InkWell(
+                                onTap: () {
+                                  Navigator.of(context).push(MaterialPageRoute(
+                                    builder: (_) => DetailPage(
+                                        site: widget.site, baseUrl: a.url),
+                                  ));
+                                },
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 6),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: SizedBox(
+                                          width: 108,
+                                          height: 61,
+                                          child: a.cover.isEmpty
+                                              ? const ColoredBox(
+                                                  color: Color(0xFFEEEEEE))
+                                              : FetchedImage(
+                                                  url: a.cover,
+                                                  memWidth: 320),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          a.title,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     ),
                   ],
                 ),
+    );
+  }
+
+  /// 分类名（站点清单里有就用中文名，没有就显示 slug）
+  String _catName(String slug) {
+    for (final c in widget.site.categories) {
+      if (c.key == slug) return c.name;
+    }
+    return slug;
+  }
+
+  /// 标签/分类：横向单行滚动（放「剧照」下方）
+  Widget _buildTagsStrip(ArticleDetail d) {
+    final chips = <Widget>[
+      for (final c in d.categories)
+        _tagChip(_catName(c), () => _openList(_catName(c), c, false)),
+      for (final t in d.tags)
+        _tagChip('#${t.value}', () => _openList(t.value, t.key, true)),
+    ];
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: chips.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (_, i) => chips[i],
+      ),
+    );
+  }
+
+  Widget _tagChip(String text, VoidCallback onTap) {
+    return ActionChip(
+      label: Text(text, style: const TextStyle(fontSize: 12)),
+      onPressed: onTap,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  /// 点标签/分类 → 对应列表页
+  void _openList(String title, String slug, bool isTag) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TagListPage(
+          site: widget.site,
+          title: title,
+          slug: slug,
+          isTag: isTag,
+        ),
+      ),
     );
   }
 
@@ -413,6 +531,101 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 标签 / 分类的列表页（详情页点标签或分类跳这里）
+class TagListPage extends StatefulWidget {
+  final SiteEntry site;
+  final String title;
+  final String slug;
+  final bool isTag; // true = /tag/{slug}/，false = /category/{slug}/
+  const TagListPage({
+    super.key,
+    required this.site,
+    required this.title,
+    required this.slug,
+    required this.isTag,
+  });
+
+  @override
+  State<TagListPage> createState() => _TagListPageState();
+}
+
+class _TagListPageState extends State<TagListPage> {
+  late final Api _api = Api(site: widget.site);
+  final List<Article> _items = [];
+  int _page = 1;
+  bool _loading = false;
+  bool _done = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _more();
+  }
+
+  Future<void> _more() async {
+    if (_loading || _done) return;
+    _loading = true;
+    try {
+      final next = widget.isTag
+          ? await _api.tag(widget.slug, page: _page)
+          : await _api.category(widget.slug, page: _page);
+      if (!mounted) return;
+      setState(() {
+        if (next.isEmpty) {
+          _done = true;
+        } else {
+          _items.addAll(next);
+          _page++;
+        }
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = '$e';
+          _done = true;
+        });
+      }
+    } finally {
+      _loading = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F7),
+      appBar: AppBar(title: Text(widget.title), centerTitle: true),
+      body: _items.isEmpty
+          ? Center(
+              child: _error != null
+                  ? Text('加载失败：$_error')
+                  : const CircularProgressIndicator())
+          : GridView.builder(
+              padding: const EdgeInsets.all(8),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 1.05,
+              ),
+              itemCount: _items.length + 1,
+              itemBuilder: (ctx, i) {
+                if (i >= _items.length) {
+                  _more();
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                return ArticleCard(article: _items[i], site: widget.site);
+              },
+            ),
     );
   }
 }

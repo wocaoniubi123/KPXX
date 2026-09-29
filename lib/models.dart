@@ -3,13 +3,17 @@ class Article {
   final String title;
   final String url; // 站内相对路径如 /archives/273630/
   final String cover;
-  final String meta; // "瓜妹 • 2026 年 09 月 02 日 • 分类"
+  final String meta; // 卡片标题下面那行（本站只放时间）
+
+  /// 视频时长（如 1:00:39 / 3:34），站点有就显示在封面右下角，没有就空
+  final String duration;
 
   Article({
     required this.title,
     required this.url,
     required this.cover,
     required this.meta,
+    this.duration = '',
   });
 }
 
@@ -42,6 +46,15 @@ class ArticleDetail {
   /// 文章里的视频，按集数排序（可能为空 = 无视频）
   final List<ArticleVideo> videos;
 
+  /// 标签（站点 /tag/xxx/ 那类），可点击跳转到该标签的列表
+  final List<MapEntry<String, String>> tags; // slug => 名称
+
+  /// 相关推荐（详情页尾部推荐区），显示在「剧照」下方
+  final List<Article> related;
+
+  /// 视频时长（站点有就显示在详情页标题下面，如 3:34 / 1:00:39），没有就空
+  final String duration;
+
   final String seriesPrefix; // 系列前缀（如"良子重生绑定系统"），非系列文章为空
 
   ArticleDetail({
@@ -51,6 +64,9 @@ class ArticleDetail {
     required this.images,
     required this.intro,
     required this.videos,
+    this.tags = const [],
+    this.related = const [],
+    this.duration = '',
     required this.seriesPrefix,
   });
 }
