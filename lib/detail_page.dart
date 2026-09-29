@@ -137,26 +137,63 @@ class DetailPageState extends State<DetailPage> {
                                       fontSize: 12, color: Colors.grey)),
                             ],
                           ),
-                          const SizedBox(height: 12),
+                          // 简介
+                          if (d.intro.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            const Text('简介',
+                                style: TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            Text(
+                              d.intro,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.5,
+                                  color: Colors.black87),
+                            ),
+                          ],
                           // 选集横条（同系列文章）
-                          if (_series.isNotEmpty) _buildSeriesStrip(d),
-                          // 合集条目（合集文章正文里的子文章目录）
-                          if (d.linkedItems.isNotEmpty)
-                            _buildLinkedStrip(d),
-                          const SizedBox(height: 8),
-                          // 正文图片
-                          for (final img in d.images)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: AspectRatio(
-                                aspectRatio: 16 / 9,
-                                child: FetchedImage(
-                                  url: img,
-                                  fit: BoxFit.contain,
-                                  memWidth: 1280,
+                          if (_series.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            _buildSeriesStrip(),
+                          ],
+                          // 剧照：横向小图，点开看大图
+                          if (d.images.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            const Text('剧照',
+                                style: TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 84,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: d.images.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 6),
+                                itemBuilder: (_, i) => InkWell(
+                                  onTap: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => PhotoViewerPage(
+                                        urls: d.images,
+                                        initial: i,
+                                      ),
+                                    ),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: SizedBox(
+                                      width: 120,
+                                      child: FetchedImage(
+                                        url: d.images[i],
+                                        memWidth: 360,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
+                          ],
                         ],
                       ),
                     ),
@@ -165,62 +202,7 @@ class DetailPageState extends State<DetailPage> {
     );
   }
 
-  /// 合集条目列表：序号 + 标题，点击进入对应文章。
-  Widget _buildLinkedStrip(ArticleDetail d) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('合集条目（${d.linkedItems.length}）',
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 6),
-        for (final (i, item) in d.linkedItems.indexed)
-          InkWell(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      DetailPage(site: widget.site, baseUrl: item.url),
-                ),
-              );
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 22,
-                    height: 22,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.deepOrange.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text('${i + 1}',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepOrange)),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildSeriesStrip(ArticleDetail d) {
+  Widget _buildSeriesStrip() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -255,6 +237,77 @@ class DetailPageState extends State<DetailPage> {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// 剧照大图页：左右滑看同一篇的全部剧照，双指缩放，点一下退出。
+class PhotoViewerPage extends StatefulWidget {
+  final List<String> urls;
+  final int initial;
+  const PhotoViewerPage({super.key, required this.urls, this.initial = 0});
+
+  @override
+  State<PhotoViewerPage> createState() => _PhotoViewerPageState();
+}
+
+class _PhotoViewerPageState extends State<PhotoViewerPage> {
+  late final PageController _pc =
+      PageController(initialPage: widget.initial);
+  late int _index = widget.initial;
+
+  @override
+  void dispose() {
+    _pc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(context).pop(),
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pc,
+              itemCount: widget.urls.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (_, i) => InteractiveViewer(
+                maxScale: 5,
+                child: Center(
+                  child: FetchedImage(
+                    url: widget.urls[i],
+                    fit: BoxFit.contain,
+                    memWidth: 1600,
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${_index + 1} / ${widget.urls.length}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

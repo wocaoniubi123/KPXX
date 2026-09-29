@@ -2,8 +2,12 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:encrypt/encrypt.dart' as enc;
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
+/// 给 compute 用的解密入口（后台 isolate 只能调顶层/静态函数）
+Uint8List? _decryptInIsolate(Uint8List raw) => _FetchedImageState._decrypt(raw);
 
 /// 网络图片加载。
 /// 站点图片下载下来是 AES-CBC 加密的二进制密文（密钥/IV 与该站网页端一致的公开参数），
@@ -81,7 +85,10 @@ class _FetchedImageState extends State<FetchedImage> {
       if (_looksLikeImage(raw)) {
         img = raw; // 未加密（可能是站外图）
       } else {
-        img = _decrypt(raw); // 加密密文，AES-CBC 解密
+        // AES-CBC 解密是纯 Dart 计算，一张图几百 KB~几 MB。
+        // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
+        // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
+        img = await compute(_decryptInIsolate, raw);
       }
       if (img == null || !_looksLikeImage(img)) return null;
       if (_cache.length >= _maxCache) {

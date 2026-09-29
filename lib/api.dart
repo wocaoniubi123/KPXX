@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
-import 'package:html/dom.dart' as hd;
 import 'package:html/parser.dart' as hp;
 
 import 'config.dart';
@@ -132,6 +131,12 @@ class Api {
 
     final title = doc.querySelector('.post-title')?.text.trim() ?? '';
 
+    // 简介：文章页 meta description（实测就是本篇的剧情摘要）
+    final intro = (doc.querySelector('meta[name="description"]')?.attributes['content'] ??
+            '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
     String time = '';
     final timeMeta = doc.querySelector('meta[itemprop="datePublished"]');
     if (timeMeta != null) {
@@ -194,40 +199,16 @@ class Api {
       }
     }
 
-    // 合集文章：正文 .post-content 里的子文章链接（每个条目一篇独立文章）。
-    // 排除本文自身、上一篇/下一篇导航（post-near）、尾部相关推荐区（hot-news）。
-    final linked = <Article>[];
-    final seen = <String>{};
-    for (final a in doc.querySelectorAll('.post-content a[href^="/archives/"]')) {
-      final href = a.attributes['href'] ?? '';
-      if (href.isEmpty || href == url) continue;
-      final t = a.text.trim();
-      if (t.isEmpty) continue;
-      if (_inBadAncestor(a)) continue;
-      if (seen.add(href)) {
-        linked.add(Article(title: t, url: href, cover: '', meta: ''));
-      }
-    }
-
     return ArticleDetail(
       title: title,
       time: time,
       categories: categories,
       images: images,
+      intro: intro,
       videoUrl: videoUrl,
       videoUrlH265: videoUrlH265,
       seriesPrefix: _seriesPrefix(title),
-      linkedItems: linked,
     );
-  }
-
-  /// 链接祖先是否位于"上一篇/下一篇 / 相关推荐"区域（这些不是合集条目）
-  static bool _inBadAncestor(hd.Element e) {
-    for (hd.Element? p = e; p != null; p = p.parent) {
-      final c = p.className ?? '';
-      if (c.contains('post-near') || c.contains('hot-news')) return true;
-    }
-    return false;
   }
 
   /// 标题中含"第 N 集"则提取系列前缀，否则空串。

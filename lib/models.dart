@@ -17,20 +17,20 @@ class ArticleDetail {
   final String title;
   final String time; // 2026-09-01T14:57:00+00:00
   final List<String> categories; // 分类 slug
-  final List<String> images; // 正文图片
+  final List<String> images; // 正文图（详情页当"剧照"展示）
+  final String intro; // 简介（文章页 meta description），可能为空
   final String videoUrl; // 标准 hls（H264），可能为空字符串
   final String videoUrlH265; // H265 备选源，可能为空字符串
   final String seriesPrefix; // 系列前缀（如"良子重生绑定系统"），非系列文章为空
-  final List<Article> linkedItems; // 合集文章：正文里的子文章链接（目录条目）
 
   ArticleDetail({
     required this.title,
     required this.time,
     required this.categories,
     required this.images,
+    required this.intro,
     required this.videoUrl,
     required this.videoUrlH265,
     required this.seriesPrefix,
-    this.linkedItems = const [],
   });
 }
