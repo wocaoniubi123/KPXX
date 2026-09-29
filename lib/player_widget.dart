@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:screen_brightness/screen_brightness.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
@@ -314,28 +315,62 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
 
   bool _bvBrightness = false; // 本次调的是亮度？
   double _bvDy = 0; // 本次竖向累计位移
-  double _bvStart = 0.5; // 起点值（亮度 0~1 / 音量 0~100）
+  double _bvStart = 0.5; // 本次拖动的起点值（亮度/音量都是 0~1）
   double? _bvShow; // 指示条的值 0~1（null = 不显示）
   bool _bvApplied = false; // 本次是否真的调整过
   Timer? _bvTimer;
 
+  // 系统值缓存（-1 = 还没读到）。拖动开始立刻用缓存当起点，
+  // 避免"拖动那一刻才异步去读、第一帧用到旧值"。
+  double _bvBrightVal = -1;
+  double _bvVolVal = -1;
+  bool _bvPrimed = false;
+  StreamSubscription<double>? _bvBrightSub;
+
   /// 本次拖动是否实际调整过（供全屏判断"要不要当作下滑退出"）
   bool get bvApplied => _bvApplied;
+
+  /// 进入播放器时预热：读一次当前系统亮度/音量做缓存。
+  /// 亮度另有变化回调（系统里改了也能跟上）；音量没有回调，改为每次拖动开始时后台刷新。
+  Future<void> bvPrime() async {
+    if (_bvPrimed) return;
+    _bvPrimed = true;
+    try {
+      _bvBrightVal = await ScreenBrightness().current;
+      _bvBrightSub = ScreenBrightness()
+          .onCurrentBrightnessChanged
+          .listen((v) => _bvBrightVal = v);
+    } catch (_) {}
+    await _bvRefreshVolume();
+    try {
+      // 音量由本 app 调，别让系统再弹一个音量 HUD（我们有自己的指示条）
+      VolumeController.instance.showSystemUI = false;
+    } catch (_) {}
+  }
+
+  Future<void> _bvRefreshVolume() async {
+    try {
+      _bvVolVal = await VolumeController.instance.getVolume();
+    } catch (_) {}
+  }
 
   void bvStart(DragStartDetails d) {
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     _bvBrightness = d.localPosition.dx < w / 2;
     _bvDy = 0;
     _bvApplied = false;
+    // 起点立刻用缓存值（没有缓存才退回默认值），刷新留给下一次拖动
+    _bvStart = _bvBrightness
+        ? (_bvBrightVal >= 0 ? _bvBrightVal : 0.5)
+        : (_bvVolVal >= 0 ? _bvVolVal : 1.0);
     if (_bvBrightness) {
       () async {
         try {
-          final v = await ScreenBrightness().current;
-          if (mounted) _bvStart = v;
+          _bvBrightVal = await ScreenBrightness().current;
         } catch (_) {}
       }();
     } else {
-      _bvStart = gesturePlayer.value.volume;
+      _bvRefreshVolume();
     }
   }
 
@@ -347,6 +382,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     final delta = -_bvDy / h; // 向上滑为正
     if (_bvBrightness) {
       final v = (_bvStart + delta).clamp(0.02, 1.0).toDouble();
+      _bvBrightVal = v; // 自己改的，缓存同步跟上
       () async {
         try {
           await ScreenBrightness().setScreenBrightness(v);
@@ -354,9 +390,11 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
       }();
       _bvGauge(v);
     } else {
-      final v = (_bvStart + delta * 100).clamp(0.0, 100.0).toDouble();
-      gesturePlayer.setVolume(v);
-      _bvGauge(v / 100);
+      final v = (_bvStart + delta).clamp(0.0, 1.0).toDouble();
+      _bvVolVal = v;
+      // 系统音量（0~1）：和手机音量键是同一套，改动会留存
+      VolumeController.instance.setVolume(v);
+      _bvGauge(v);
     }
   }
 
@@ -372,7 +410,10 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     setState(() => _bvShow = v.clamp(0.0, 1.0).toDouble());
   }
 
-  void disposeBv() => _bvTimer?.cancel();
+  void disposeBv() {
+    _bvTimer?.cancel();
+    _bvBrightSub?.cancel();
+  }
 
   /// 指示条：图标 + 进度条（不显示数字）
   Widget buildGauge() {
@@ -494,6 +535,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     super.didChangeDependencies();
     if (!_init) {
       _init = true;
+      bvPrime(); // 预读系统亮度/音量做缓存
       // 微任务里再初始化：_initPlayer 结尾会 setState，不能在本元素 build 期间调用
       Future.microtask(_initPlayer);
     }
@@ -970,6 +1012,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   @override
   void initState() {
     super.initState();
+    bvPrime(); // 预读系统亮度/音量做缓存
     widget.player.play();
     widget.player.addListener(_onTick);
     if (widget.vertical) {
