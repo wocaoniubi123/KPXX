@@ -22,7 +22,8 @@ class DetailPageState extends State<DetailPage> {
   ArticleDetail? _detail;
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
-  int _videoIndex = 0; // 正在播第几个视频（多视频文章）
+  /// 篇内视频切换（多视频文章；详情页/内嵌播放器/全屏页共用同一份）
+  VideoSwitcher? _switcher;
 
   @override
   void initState() {
@@ -38,6 +39,9 @@ class DetailPageState extends State<DetailPage> {
     try {
       final d = await _api.detail(widget.baseUrl);
       if (!mounted) return;
+      _switcher?.dispose();
+      _switcher = VideoSwitcher(d.videos.length)
+        ..index.addListener(_onVideoIndexChanged);
       setState(() => _detail = d);
       // 系列聚合：异步填充，失败静默（无选集不影响主内容）
       if (d.seriesPrefix.isNotEmpty) {
@@ -68,10 +72,24 @@ class DetailPageState extends State<DetailPage> {
   Future<List<String>> _refreshSources() async {
     final fresh = await _api.detail(widget.baseUrl);
     if (!mounted || fresh.videos.isEmpty) return const [];
-    final i = _videoIndex.clamp(0, fresh.videos.length - 1).toInt();
+    final i = (_switcher?.index.value ?? 0)
+        .clamp(0, fresh.videos.length - 1)
+        .toInt();
     // 顺手整页刷新（简介/剧照也一起更新），当前视频序号保持不变
+    _switcher?.total = fresh.videos.length;
     setState(() => _detail = fresh);
     return fresh.videos[i].sources;
+  }
+
+  /// 篇内序号变了整页重建（播放器据此换源，列表高亮跟着变）
+  void _onVideoIndexChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _switcher?.dispose();
+    super.dispose();
   }
 
   Future<List<Article>> _fetchSeries(String prefix) async {
@@ -103,7 +121,9 @@ class DetailPageState extends State<DetailPage> {
   Widget build(BuildContext context) {
     final d = _detail;
     final videos = d?.videos ?? const <ArticleVideo>[];
-    final idx = videos.isEmpty ? 0 : _videoIndex.clamp(0, videos.length - 1).toInt();
+    final idx = videos.isEmpty
+        ? 0
+        : (_switcher?.index.value ?? 0).clamp(0, videos.length - 1).toInt();
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -133,14 +153,13 @@ class DetailPageState extends State<DetailPage> {
                   children: [
                     // 视频区（无视频时显示封面/占位；用正文首图做海报）
                     PlayerWidget(
-                      // key 跟着选中的视频变：换视频时要重建播放器实例
-                      key: ValueKey('video_${d.videos.isEmpty ? 0 : _videoIndex}'),
+                      // 不换 key：换片由播放器内部复用同一实例开新源
+                      // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
+                      switcher: _switcher,
                       sources: videos.isEmpty ? const [] : videos[idx].sources,
                       referer: _api.base,
                       poster: d.images.isNotEmpty ? d.images.first : '',
                       onRefreshSources: _refreshSources,
-                      hasNext: idx < videos.length - 1,
-                      onNext: () => setState(() => _videoIndex = idx + 1),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(12),
@@ -176,7 +195,7 @@ class DetailPageState extends State<DetailPage> {
                             const SizedBox(height: 6),
                             for (final (i, v) in videos.indexed)
                               InkWell(
-                                onTap: () => setState(() => _videoIndex = i),
+                                onTap: () => _switcher?.select(i),
                                 child: Padding(
                                   padding:
                                       const EdgeInsets.symmetric(vertical: 6),

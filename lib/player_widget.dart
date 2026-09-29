@@ -29,6 +29,29 @@ String _fmt(Duration d) {
   return '$m:$s';
 }
 
+/// 篇内视频切换状态：详情页持有，内嵌播放器与全屏页共用同一份。
+/// 共用一份是为了避免全屏页拿到"推送那一刻"的序号快照——
+/// 那样切到最后一个后按钮状态会不对，再点还可能跳错集。
+class VideoSwitcher {
+  VideoSwitcher(this.total) : index = ValueNotifier<int>(0);
+
+  /// 篇内视频总数（刷新后会变）
+  int total;
+  final ValueNotifier<int> index;
+
+  bool get hasNext => index.value < total - 1;
+
+  void next() {
+    if (hasNext) index.value++;
+  }
+
+  void select(int i) {
+    if (i >= 0 && i < total) index.value = i;
+  }
+
+  void dispose() => index.dispose();
+}
+
 /// 播放器状态快照：把引擎的若干条 stream 合成一个整体状态，UI 只认它。
 class KpState {
   final Duration position;
@@ -287,11 +310,8 @@ class PlayerWidget extends StatefulWidget {
   /// 全部源都失败时调用：重新抓详情页拿新地址
   final Future<List<String>> Function()? onRefreshSources;
 
-  /// 是否有下一个视频（多视频文章）；false 时"下一集"按钮置灰
-  final bool hasNext;
-
-  /// 切到下一个视频
-  final VoidCallback? onNext;
+  /// 篇内视频切换状态（多视频文章才有；null = 单视频，没有"下一集"）
+  final VideoSwitcher? switcher;
 
   const PlayerWidget({
     super.key,
@@ -299,8 +319,7 @@ class PlayerWidget extends StatefulWidget {
     required this.referer,
     this.poster = '',
     this.onRefreshSources,
-    this.hasNext = false,
-    this.onNext,
+    this.switcher,
   });
 
   @override
@@ -319,6 +338,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
   String? _error;
   bool _busy = false;
   bool _init = false;
+  int _curIndex = 0; // 当前已打开的篇内序号（判断是否换片）
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
   bool _controlsVisible = true;
@@ -334,6 +354,21 @@ class _PlayerWidgetState extends State<PlayerWidget>
   /// 不保活的话 ListView 会把它整个销毁，翻回来就从头重新加载/播放。
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void didUpdateWidget(covariant PlayerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((widget.switcher?.index.value ?? 0) != _curIndex) {
+      _curIndex = widget.switcher?.index.value ?? 0;
+      // 换片（点"下一集"或自动下一集）：复用同一个播放器实例去开新源。
+      // 不能销毁重建——全屏页手里拿的是这个实例，销毁掉它就黑屏了。
+      _sources = widget.sources.where((s) => s.isNotEmpty).toList();
+      _nextFired = false;
+      _errShown = false;
+      _error = null;
+      _initPlayer();
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -451,7 +486,9 @@ class _PlayerWidgetState extends State<PlayerWidget>
     // 播完 → 按设置决定是否自动切下一个（每次播放只触发一次）
     if ((_kp?.value.completed ?? false) && !_nextFired) {
       _nextFired = true;
-      if (AppSettings.i.autoNext && widget.hasNext) widget.onNext?.call();
+      if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
+        widget.switcher?.next();
+      }
     }
     if ((err != _errShown || started != _started) && mounted) {
       setState(() {
@@ -505,8 +542,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
         builder: (_) => FullscreenPlayer(
           player: kp,
           vertical: vertical,
-          hasNext: widget.hasNext,
-          onNext: widget.onNext,
+          switcher: widget.switcher,
         ),
       ),
     );
@@ -599,8 +635,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
                           child: _ControlBar(
                             player: kp,
                             preview: swipePreview,
-                            hasNext: widget.hasNext,
-                            onNext: widget.onNext,
+                            hasNext: widget.switcher?.hasNext ?? false,
+                            onNext: widget.switcher?.next,
                             showButtons: _controlsVisible && !dragging,
                             onVerticalFullscreen: () =>
                                 _openFullscreen(vertical: true),
@@ -777,14 +813,14 @@ class _ControlBarState extends State<_ControlBar> {
 class FullscreenPlayer extends StatefulWidget {
   final KpPlayer player;
   final bool vertical;
-  final bool hasNext;
-  final VoidCallback? onNext;
+
+  /// 篇内切换状态（与内嵌播放器共用同一份，取实时值）
+  final VideoSwitcher? switcher;
   const FullscreenPlayer({
     super.key,
     required this.player,
     this.vertical = false,
-    this.hasNext = false,
-    this.onNext,
+    this.switcher,
   });
 
   @override
@@ -918,16 +954,34 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
               builder: (_, preview, __) {
                 final dragging = preview != null;
                 if (!_controls && !dragging) return const SizedBox.shrink();
-                return Align(
-                  alignment: Alignment.bottomCenter,
-                  child: SafeArea(
-                    top: false,
-                    child: _ControlBar(
-                      player: kp,
-                      preview: swipePreview,
-                      hasNext: widget.hasNext,
-                      onNext: widget.onNext,
-                      showButtons: _controls && !dragging,
+                final sw = widget.switcher;
+                if (sw == null) {
+                  return Align(
+                    alignment: Alignment.bottomCenter,
+                    child: SafeArea(
+                      top: false,
+                      child: _ControlBar(
+                        player: kp,
+                        preview: swipePreview,
+                        showButtons: _controls && !dragging,
+                      ),
+                    ),
+                  );
+                }
+                // 序号变化要重建控制条，否则"下一集"按钮状态是旧的
+                return ValueListenableBuilder<int>(
+                  valueListenable: sw.index,
+                  builder: (_, i, __) => Align(
+                    alignment: Alignment.bottomCenter,
+                    child: SafeArea(
+                      top: false,
+                      child: _ControlBar(
+                        player: kp,
+                        preview: swipePreview,
+                        hasNext: i < sw.total - 1,
+                        onNext: sw.next,
+                        showButtons: _controls && !dragging,
+                      ),
                     ),
                   ),
                 );
