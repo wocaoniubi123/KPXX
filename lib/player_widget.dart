@@ -326,6 +326,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
   double _bvVolVal = -1;
   bool _bvPrimed = false;
   StreamSubscription<double>? _bvBrightSub;
+  StreamSubscription<double>? _bvVolSub;
 
   /// 本次拖动是否实际调整过（供全屏判断"要不要当作下滑退出"）
   bool get bvApplied => _bvApplied;
@@ -344,13 +345,15 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     await _bvRefreshVolume();
     try {
       // 音量由本 app 调，别让系统再弹一个音量 HUD（我们有自己的指示条）
-      VolumeController.instance.showSystemUI = false;
+      VolumeController().showSystemUI = false;
+      // 跟随系统音量变化（含用手机音量键改的情况）
+      _bvVolSub = VolumeController().listener((v) => _bvVolVal = v);
     } catch (_) {}
   }
 
   Future<void> _bvRefreshVolume() async {
     try {
-      _bvVolVal = await VolumeController.instance.getVolume();
+      _bvVolVal = await VolumeController().getVolume();
     } catch (_) {}
   }
 
@@ -393,7 +396,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
       final v = (_bvStart + delta).clamp(0.0, 1.0).toDouble();
       _bvVolVal = v;
       // 系统音量（0~1）：和手机音量键是同一套，改动会留存
-      VolumeController.instance.setVolume(v);
+      VolumeController().setVolume(v);
       _bvGauge(v);
     }
   }
@@ -413,6 +416,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
   void disposeBv() {
     _bvTimer?.cancel();
     _bvBrightSub?.cancel();
+    _bvVolSub?.cancel();
   }
 
   /// 指示条：图标 + 进度条（不显示数字）
