@@ -27,7 +27,8 @@ class SiteEntry {
   /// kind=web：目标地址
   final String url;
 
-  /// 可选图标地址；留空 = 用名字首字画色块
+  /// 可选图标地址；以 / 开头 = 用该站第一个域名拼（例：'/favicon.ico'）；
+  /// 留空 = 用名字首字画色块。站点 favicon 是 ICO，app 内解码（见 fetched_image.dart）
   final String iconUrl;
 
   /// 首字色块底色（有 iconUrl 时不用）
@@ -51,7 +52,6 @@ const List<SiteEntry> kSites = [
     iconUrl: '/favicon.ico',
     // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
     hosts: ['51cg1.com'],
-    // 站点自身 logo（主题自带的 png，390x105）；以 / 开头 = 用该站第一个域名拼
     categories: [
       MapEntry('wpcz', '今日吃瓜'),
       MapEntry('rdsj', '热门大瓜'),
