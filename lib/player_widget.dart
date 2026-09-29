@@ -93,13 +93,26 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 表现就是只有声音、画面全黑（media-kit issue #1192）。
     _vc = VideoController(_p);
     _subs = [
-      _p.stream.position.listen((v) => value = value.copyWith(position: v)),
+      _p.stream.position.listen((v) {
+        value = value.copyWith(position: v);
+        if (v > Duration.zero) _everStarted = true;
+      }),
       _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
       _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
       _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
-      _p.stream.error.listen((e) => value = value.copyWith(error: true, errorText: e)),
+      // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
+      // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
+      // 所以：还没播起来时才当失败（用于换源）；已经在播就不弹提示，
+      // 真卡住由看门狗负责判断。
+      _p.stream.error.listen((e) {
+        if (_everStarted) {
+          _lastFatal = e;
+        } else {
+          value = value.copyWith(error: true, errorText: e);
+        }
+      }),
       // 引擎日志只静默留存最后一条 fatal：不再当错误弹提示
       // （网络类日志如 "tcp: ffurl_read returned ..." 是偶发的，ffmpeg 会自己重试，
       //   拿它当错误会误报；只有真的卡住时才把它作为附注带出来）
@@ -137,7 +150,8 @@ class KpPlayer extends ValueNotifier<KpState> {
   late final VideoController _vc;
   late final List<StreamSubscription> _subs;
 
-  String _lastFatal = ''; // 最后一条 fatal 日志（仅作卡住时的附注）
+  String _lastFatal = ''; // 最后一条 error/fatal 文本（仅作卡住时的附注）
+  bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
@@ -152,6 +166,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
     value = value.copyWith(error: false, errorText: '');
+    _everStarted = false; // 新源重新算"还没播起来"
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
