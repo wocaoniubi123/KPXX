@@ -48,6 +48,9 @@ class KpState {
 
   bool get ready => duration > Duration.zero;
 
+  /// 已经开始播（位置走过 0），用于撤掉 poster
+  bool get started => position > Duration.zero;
+
   KpState copyWith({
     Duration? position,
     Duration? duration,
@@ -105,8 +108,12 @@ class KpPlayer extends ValueNotifier<KpState> {
   VideoController get videoController => _vc;
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
-  Future<void> open(String url, {Map<String, String>? httpHeaders}) =>
-      _p.open(Media(url, httpHeaders: httpHeaders), play: true);
+  Future<void> open(String url, {Map<String, String>? httpHeaders}) {
+    // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
+    // 会让下一个源一挂上就被判失败，整条兜底链直接失效
+    value = value.copyWith(error: false, errorText: '');
+    return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
+  }
 
   Future<void> play() => _p.play();
   Future<void> pause() => _p.pause();
@@ -241,8 +248,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
   String? _error;
   bool _busy = false;
   bool _init = false;
-  bool _refreshed = false; // 已重取过一次链接，避免失败时死循环
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
+  bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
   bool _controlsVisible = true;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero; // 双击落点（判断左半/右半）
@@ -277,6 +284,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
   }
 
   /// 依次尝试各视频源；全失败时刷新时效链接再试一轮。
+  /// 注意顺序：先把播放器挂到界面上（画面/声音一有就出），
+  /// 再等"就绪"——就绪只用来判断要不要换下一个源，不该拦住显示。
   Future<void> _initPlayer() async {
     if (_sources.isEmpty) {
       setState(() => _error = '该文章暂无视频');
@@ -287,29 +296,37 @@ class _PlayerWidgetState extends State<PlayerWidget>
       _error = null;
     });
 
-    for (var i = 0; i < _sources.length; i++) {
-      final kp = await _tryOpen(_sources[i]);
-      if (!mounted) {
-        kp?.shutdown();
-        return;
-      }
-      if (kp != null) return; // 成功，_tryOpen 内部已接管
+    var kp = _kp;
+    if (kp == null) {
+      kp = KpPlayer();
+      _attach(kp); // 立刻上屏
+      setState(() => _busy = false);
     }
 
-    // 所有源都失败：重取链接（签名过期）再试一轮
-    if (!_refreshed && widget.onRefreshSources != null) {
-      _refreshed = true;
-      try {
-        final fresh = (await widget.onRefreshSources!())
-            .where((s) => s.isNotEmpty)
-            .toList();
-        if (fresh.isNotEmpty) {
-          _sources = fresh;
-          return _initPlayer(); // _refreshed 已置位，只会再来这一轮
+    for (var round = 0; round < 2; round++) {
+      for (var i = 0; i < _sources.length; i++) {
+        final ok = await _openAndWait(kp, _sources[i]);
+        if (!mounted) return;
+        if (ok) {
+          _scheduleHide();
+          return;
         }
-      } catch (_) {
-        // 刷新失败，走下面的错误提示
       }
+      // 本轮全失败：刷新一次时效链接再来一轮
+      if (round == 0 && widget.onRefreshSources != null) {
+        try {
+          final fresh = (await widget.onRefreshSources!())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (fresh.isNotEmpty) {
+            _sources = fresh;
+            continue;
+          }
+        } catch (_) {
+          // 刷新失败就走错误提示
+        }
+      }
+      break;
     }
     if (mounted) {
       setState(() {
@@ -319,12 +336,9 @@ class _PlayerWidgetState extends State<PlayerWidget>
     }
   }
 
-  /// 试开一个源：等到拿到时长（= 真的能播）或报错/超时。
-  /// 成功则返回播放器实例并完成接管。
-  Future<KpPlayer?> _tryOpen(String url) async {
-    final kp = KpPlayer();
+  /// 打开某个源并等它"能播了"（拿到时长）或明确失败
+  Future<bool> _openAndWait(KpPlayer kp, String url) async {
     final done = Completer<bool>();
-    // 监听状态变化：拿到 duration 视为成功，error 视为失败
     void listener() {
       if (done.isCompleted) return;
       if (kp.value.error) {
@@ -340,21 +354,12 @@ class _PlayerWidgetState extends State<PlayerWidget>
         'User-Agent': _ua,
         'Referer': '${widget.referer}/',
       });
-      final ok = await done.future
+      return await done.future
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
-      kp.removeListener(listener);
-      if (!ok || !mounted) {
-        await kp.shutdown();
-        return null;
-      }
-      _attach(kp);
-      setState(() => _busy = false);
-      _scheduleHide();
-      return kp;
     } catch (_) {
+      return false;
+    } finally {
       kp.removeListener(listener);
-      await kp.shutdown();
-      return null;
     }
   }
 
@@ -365,11 +370,17 @@ class _PlayerWidgetState extends State<PlayerWidget>
     kp.addListener(_onTick);
   }
 
-  /// 只在「出错」这个状态翻转时重建：位置/缓冲的变化由控制条和缓冲提示
-  /// 自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
+  /// 只在「出错 / 已开播」这两个状态翻转时重建：位置/缓冲的变化由控制条和
+  /// 缓冲提示自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
   void _onTick() {
     final err = _kp?.value.error ?? false;
-    if (err != _errShown && mounted) setState(() => _errShown = err);
+    final started = _kp?.value.started ?? false;
+    if ((err != _errShown || started != _started) && mounted) {
+      setState(() {
+        _errShown = err;
+        _started = started;
+      });
+    }
   }
 
   /// 双击左半屏后退、右半屏快进（步长来自设置，默认 10 秒）
@@ -393,10 +404,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     });
   }
 
-  void _retry() {
-    _refreshed = false; // 手动重试允许再刷新一次链接
-    _initPlayer();
-  }
+  void _retry() => _initPlayer();
 
   /// 控制条显示数秒后自动隐藏
   void _scheduleHide() {
@@ -444,6 +452,15 @@ class _PlayerWidgetState extends State<PlayerWidget>
                     onHorizontalDragEnd: swipeEnd,
                     child: _videoSurface(kp),
                   ),
+                  // 出画面前盖着 poster（首帧一到就撤，不放着不动）
+                  if (widget.poster.isNotEmpty && !_started)
+                    IgnorePointer(
+                      child: FetchedImage(
+                        url: widget.poster,
+                        fit: BoxFit.cover,
+                        memWidth: 1280,
+                      ),
+                    ),
                   // 双击左/右的提示图标
                   if (_tapHintBack != null)
                     Align(
@@ -459,7 +476,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
                   // 跳转后重新拉流时的缓冲提示
                   _bufferingHint(kp),
                   // 播放中途出错：给个重试入口
-                  if (_errShown)
+                  if (_errShown || _error != null)
                     Center(
                       child: TextButton.icon(
                         onPressed: _retry,
