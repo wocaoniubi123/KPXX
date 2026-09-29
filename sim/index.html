@@ -258,7 +258,8 @@ function parseArticles(html) {
   const out = [];
   for (const el of doc.querySelectorAll('article[itemscope]')) {
     const cls = el.className || '';
-    const a = el.querySelector('a[href^="/archives/"]');
+    // 分类页链接是相对的，搜索页是绝对地址（只认相对会把搜索结果全丢掉）
+    const a = el.querySelector('a[href*="/archives/"]');
     if (!a || cls.includes('ad-item')) continue;
     const title = (el.querySelector('.post-card-title')?.textContent || '').trim();
     if (!title) continue;
@@ -270,7 +271,12 @@ function parseArticles(html) {
     if (!cover) cover = el.querySelector('img[data-src]')?.getAttribute('data-src') || '';
     const meta = (el.querySelector('.post-card-info')?.textContent || '')
       .replace(/\s+/g, ' ').trim();
-    out.push({ title, url: a.getAttribute('href'), cover, meta });
+    let href = a.getAttribute('href') || '';
+    if (href.startsWith('http')) {
+      const i = href.indexOf('/archives/');
+      if (i >= 0) href = href.slice(i);
+    }
+    out.push({ title, url: href, cover, meta });
   }
   const seen = new Set();
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));

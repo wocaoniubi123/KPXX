@@ -56,6 +56,13 @@ class Api {
     throw Exception('所有域名均无法访问');
   }
 
+  /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
+  static String _toRelPath(String href) {
+    if (!href.startsWith('http')) return href;
+    final i = href.indexOf('/archives/');
+    return i >= 0 ? href.substring(i) : href;
+  }
+
   /// 列表页 / 搜索页通用的文章卡片解析。
   List<Article> _parseArticles(String html) {
     final doc = hp.parse(html);
@@ -63,7 +70,9 @@ class Api {
     for (final el in doc.querySelectorAll('article[itemscope]')) {
       final cls = el.className ?? '';
       // 广告卡与站外推广卡
-      final a = el.querySelector('a[href^="/archives/"]');
+      // 注意：分类页的链接是相对路径（/archives/xxx/），但**搜索页是绝对地址**
+      // （https://host/archives/xxx/）——只认相对路径会把搜索结果全丢掉。
+      final a = el.querySelector('a[href*="/archives/"]');
       if (a == null || cls.contains('ad-item')) continue;
       final titleEl = el.querySelector('.post-card-title');
       final title = titleEl?.text.trim() ?? '';
@@ -84,7 +93,7 @@ class Api {
       final info = el.querySelector('.post-card-info');
       out.add(Article(
         title: title,
-        url: a.attributes['href'] ?? '',
+        url: _toRelPath(a.attributes['href'] ?? ''),
         cover: cover,
         meta: (info?.text ?? '').replaceAll(RegExp(r'\s+'), ' ').trim(),
       ));
