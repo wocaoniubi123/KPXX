@@ -1,5 +1,7 @@
 import 'dart:async';
 
+// ValueListenable 不在 material.dart 的导出里，要单独引
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
