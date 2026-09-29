@@ -175,27 +175,51 @@ class Api {
       }
     }
 
-    // 视频：div.dplayer[data-config] JSON
-    // 注意：video_h265 可能是对象（有 H265 源）也可能是空数组（无），
-    // 必须类型容错，否则一篇无 H265 的文章整体解析失败导致"无视频"。
-    String videoUrl = '';
-    String videoUrlH265 = '';
+    // 视频：正文里可能有多块 div.dplayer[data-config]（合集类文章一篇挂多个视频），
+    // 全部收下来，按集数排序。每块前面通常先是一行 "视频一："、再是标题（blockquote），
+    // 就近往上取最多两条短文本，用它们做序号和展示名。
+    // 注意：video_h265 可能是对象（有 H265 源）也可能是空数组（无），必须类型容错。
+    final videos = <ArticleVideo>[];
+    var order = 0;
     for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {
+      order++;
+      final sources = <String>[];
       try {
         final cfg = jsonDecode(dp.attributes['data-config']!) as Map<String, dynamic>;
         final video = cfg['video'];
         final h265 = cfg['video_h265'];
         if (video is Map<String, dynamic>) {
-          videoUrl = (video['url'] as String?) ?? '';
+          final u = (video['url'] as String?) ?? '';
+          if (u.isNotEmpty) sources.add(u);
         }
         if (h265 is Map<String, dynamic>) {
-          videoUrlH265 = (h265['url'] as String?) ?? '';
+          final u = (h265['url'] as String?) ?? '';
+          if (u.isNotEmpty) sources.add(u);
         }
-        break;
       } catch (_) {
-        // 配置坏则该篇视为无视频继续
+        // 这一个视频配置坏，视为无源，继续后面的
       }
+      // 就近往上找最多两条短文本（空行跳过，长正文不算）
+      final texts = <String>[];
+      for (var e = dp.previousElementSibling;
+          e != null && texts.length < 2;
+          e = e.previousElementSibling) {
+        final t = e.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+        if (t.isEmpty || t.length > 60) continue;
+        texts.add(t);
+      }
+      final parsed = texts.map(_videoOrdinal).firstWhere((v) => v > 0, orElse: () => 0);
+      final ordinal = parsed > 0 ? parsed : order;
+      // 只有确实出现了"视频X："编号，才把邻近文字当标题，
+      // 否则（普通单视频文章）附近的短段落会被误当标题
+      final label = parsed > 0 && texts.isNotEmpty ? texts.first : '';
+      videos.add(ArticleVideo(
+        label: label.isEmpty ? '视频 $ordinal' : label,
+        ordinal: ordinal,
+        sources: sources,
+      ));
     }
+    videos.sort((a, b) => a.ordinal.compareTo(b.ordinal));
 
     return ArticleDetail(
       title: title,
@@ -203,10 +227,29 @@ class Api {
       categories: categories,
       images: images,
       intro: intro,
-      videoUrl: videoUrl,
-      videoUrlH265: videoUrlH265,
+      videos: videos,
       seriesPrefix: _seriesPrefix(title),
     );
+  }
+
+  /// "视频一：" → 1；"视频12：" → 12；没有编号返回 0
+  static int _videoOrdinal(String s) {
+    final m = RegExp(r'视频\s*([0-9一二三四五六七八九十百]+)').firstMatch(s);
+    if (m == null) return 0;
+    final t = m.group(1)!;
+    if (RegExp(r'^[0-9]+$').hasMatch(t)) return int.parse(t);
+    const cn = {
+      '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+      '六': 6, '七': 7, '八': 8, '九': 9,
+    };
+    if (t == '十') return 10;
+    if (t.startsWith('十')) return 10 + (cn[t.substring(1)] ?? 0);
+    if (t.contains('十')) {
+      final parts = t.split('十');
+      return (cn[parts[0]] ?? 0) * 10 +
+          (parts.length > 1 ? (cn[parts[1]] ?? 0) : 0);
+    }
+    return cn[t] ?? 0;
   }
 
   /// 标题中含"第 N 集"则提取系列前缀，否则空串。

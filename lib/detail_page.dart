@@ -22,6 +22,7 @@ class DetailPageState extends State<DetailPage> {
   ArticleDetail? _detail;
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
+  int _videoIndex = 0; // 正在播第几个视频（多视频文章）
 
   @override
   void initState() {
@@ -66,10 +67,11 @@ class DetailPageState extends State<DetailPage> {
   /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
   Future<List<String>> _refreshSources() async {
     final fresh = await _api.detail(widget.baseUrl);
-    return [
-      if (fresh.videoUrl.isNotEmpty) fresh.videoUrl,
-      if (fresh.videoUrlH265.isNotEmpty) fresh.videoUrlH265,
-    ];
+    if (!mounted || fresh.videos.isEmpty) return const [];
+    final i = _videoIndex.clamp(0, fresh.videos.length - 1).toInt();
+    // 顺手整页刷新（简介/剧照也一起更新），当前视频序号保持不变
+    setState(() => _detail = fresh);
+    return fresh.videos[i].sources;
   }
 
   Future<List<Article>> _fetchSeries(String prefix) async {
@@ -100,6 +102,8 @@ class DetailPageState extends State<DetailPage> {
   @override
   Widget build(BuildContext context) {
     final d = _detail;
+    final videos = d?.videos ?? const <ArticleVideo>[];
+    final idx = videos.isEmpty ? 0 : _videoIndex.clamp(0, videos.length - 1).toInt();
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -129,10 +133,9 @@ class DetailPageState extends State<DetailPage> {
                   children: [
                     // 视频区（无视频时显示封面/占位；用正文首图做海报）
                     PlayerWidget(
-                      sources: [
-                        if (d.videoUrl.isNotEmpty) d.videoUrl,
-                        if (d.videoUrlH265.isNotEmpty) d.videoUrlH265,
-                      ],
+                      // key 跟着选中的视频变：换视频时要重建播放器实例
+                      key: ValueKey('video_${d.videos.isEmpty ? 0 : _videoIndex}'),
+                      sources: videos.isEmpty ? const [] : videos[idx].sources,
                       referer: _api.base,
                       poster: d.images.isNotEmpty ? d.images.first : '',
                       onRefreshSources: _refreshSources,
@@ -162,6 +165,60 @@ class DetailPageState extends State<DetailPage> {
                                       fontSize: 12, color: Colors.grey)),
                             ],
                           ),
+                          // 多视频文章：列出来可切换（按集数排序）
+                          if (videos.length > 1) ...[
+                            const SizedBox(height: 14),
+                            Text('视频（${videos.length}）',
+                                style: const TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            for (final (i, v) in videos.indexed)
+                              InkWell(
+                                onTap: () => setState(() => _videoIndex = i),
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 6),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Container(
+                                        width: 22,
+                                        height: 22,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: i == idx
+                                              ? Colors.deepOrange
+                                              : const Color(0x1F000000),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: Text('${v.ordinal}',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: i == idx
+                                                    ? Colors.white
+                                                    : Colors.black54)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          v.label,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: i == idx
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
                           // 简介
                           if (d.intro.isNotEmpty) ...[
                             const SizedBox(height: 14),
