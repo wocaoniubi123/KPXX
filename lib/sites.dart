@@ -16,7 +16,9 @@ class SiteEntry {
   final SiteKind kind;
 
   /// kind=native：域名列表，抓取时逐个试，跑通的那个会被记住并优先使用。
-  /// 第一个域名当主域名，按当前实测可用顺序排列（挂掉的别放前面，否则每次白等超时）。
+  /// ⚠️ 这站的很多"域名"只是跳转入口：只有根路径 / 会跳到真站，
+  /// /category/... /archives/... 这类内容路径直接 404（cgwz1/cgwz2/51cgo13 实测都是
+  /// 404 或跳到死域名）。所以只放能直接出内容的真站域名，否则每个都要白等一轮。
   final List<String> hosts;
 
   /// kind=native：顶部 tab（slug => 显示名），顺序即 tab 顺序
@@ -46,14 +48,8 @@ const List<SiteEntry> kSites = [
   SiteEntry(
     name: '51吃瓜',
     kind: SiteKind.native,
-    hosts: [
-      'cgwz2.com',
-      'cgwz1.com',
-      '51cgo13.com',
-      '51cg1.com',
-      'cg51.com',
-      'chigua.com',
-    ],
+    // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
+    hosts: ['51cg1.com'],
     categories: [
       MapEntry('wpcz', '今日吃瓜'),
       MapEntry('rdsj', '热门大瓜'),

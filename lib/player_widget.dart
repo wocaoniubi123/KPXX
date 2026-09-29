@@ -25,13 +25,38 @@ String _fmt(Duration d) {
   return '$m:$s';
 }
 
-/// 左右滑动快进/快退：拖动时跟手显示目标位置，松手才真正跳转。
+/// 缓冲提示：滑动跳转跨度大时要重新拉流，没提示看着像卡死。
+/// 放偏上位置，不和中间的滑动提示气泡重叠。
+Widget _bufferingHint(VideoPlayerController ctl) {
+  return Align(
+    alignment: const Alignment(0, -0.45),
+    child: ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: ctl,
+      builder: (_, v, __) => v.isBuffering
+          ? const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(
+                  color: Colors.white70, strokeWidth: 2),
+            )
+          : const SizedBox.shrink(),
+    ),
+  );
+}
+
+/// 左右滑动快进/快退：滑动距离线性映射成秒数（滑满一屏 120 秒），
+/// 拖动时只有最底下那条进度条跟着手指走（不弹文字提示），松手才真正跳转。
 /// 内嵌播放器和全屏播放器共用。
 mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   VideoPlayerController get swipeCtl;
 
-  Timer? _swipeToastTimer;
-  String? swipeToast;
+  Timer? _swipeHoldTimer;
+
+  /// 拖动预览位置：非 null = 正在滑动（底部进度条据此显示并跟手）。
+  /// 用 ValueNotifier 而不是 setState：拖动时只重建进度条，
+  /// 不重建整个播放器子树（长距离滑动=上百次重建，会顿一下）。
+  final ValueNotifier<Duration?> swipePreview = ValueNotifier<Duration?>(null);
+
   bool _dragging = false;
   double _dragDx = 0;
   Duration _dragFrom = Duration.zero;
@@ -51,57 +76,33 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     _dragTarget = _clampDur(
         _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
-    _showSwipeToast(total, preview: true);
+    swipePreview.value = _dragTarget;
   }
 
   void swipeEnd(DragEndDetails d) {
     if (!_dragging) return;
     _dragging = false;
     if (_dragTarget != _dragFrom) swipeCtl.seekTo(_dragTarget);
-    _showSwipeToast(swipeCtl.value.duration, preview: false);
-  }
-
-  void _showSwipeToast(Duration total, {required bool preview}) {
-    final secs = (_dragTarget - _dragFrom).inSeconds;
-    _swipeToastTimer?.cancel();
-    setState(() {
-      swipeToast = secs == 0
-          ? null
-          : '${secs > 0 ? '快进' : '快退'} ${secs.abs()} 秒\n'
-              '${_fmt(_dragTarget)} / ${_fmt(total)}';
+    if (swipePreview.value == null) return;
+    // seek 生效前先保持预览值，避免进度条往回跳一下
+    _swipeHoldTimer?.cancel();
+    _swipeHoldTimer = Timer(const Duration(milliseconds: 600), () {
+      if (swipePreview.value != null) swipePreview.value = null;
     });
-    if (!preview && swipeToast != null) {
-      _swipeToastTimer = Timer(const Duration(milliseconds: 900), () {
-        if (mounted) setState(() => swipeToast = null);
-      });
-    }
   }
 
-  void disposeSwipe() => _swipeToastTimer?.cancel();
-
-  /// 拖动提示气泡
-  Widget buildSwipeToast() {
-    if (swipeToast == null) return const SizedBox.shrink();
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(swipeToast!,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontSize: 15)),
-      ),
-    );
+  void disposeSwipe() {
+    _swipeHoldTimer?.cancel(); // 先停定时器，再销毁 notifier
+    swipePreview.dispose();
   }
 }
 
 /// 视频播放器组件。
-/// - 内嵌模式：详情页顶部 16:9，常驻控制条（播放/暂停 + 可拖动进度条 + 时间 + 全屏）。
-///   视频初始化前显示 poster 封面（正文首图）。
+/// - 内嵌模式：详情页顶部 16:9，初始化前显示 poster 封面（正文首图）。
 /// - 全屏模式：黑底沉浸，横屏/竖屏全屏，下滑返回。
-/// - 左右滑动快进快退：滑动距离决定秒数（滑满一屏 120 秒），拖动跟手预览、松手跳转。
+/// - 控制条压在最底部：最下面是进度条（可直接拖），上面一排是播放/暂停 + 时间 + 全屏。
+/// - 左右滑动快进快退：滑动距离决定秒数（滑满一屏 120 秒）；拖动时只让最底下那条
+///   进度条跟着手指走（不弹秒数/时间文字），松手才真正跳转。
 /// - 多个视频源按顺序尝试，全失败则用 onRefreshSources 重取时效链接再试一轮
 ///   （视频地址带 auth_key 签名，放久了会过期）。
 class PlayerWidget extends StatefulWidget {
@@ -299,8 +300,8 @@ class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
                       ),
                     ),
                   ),
-                  // 滑动快进/快退提示
-                  if (swipeToast != null) buildSwipeToast(),
+                  // 跳转后重新拉流时的缓冲提示
+                  _bufferingHint(ctl),
                   // 播放中途出错：给个重试入口（否则画面卡住没有任何提示）
                   if (_playError)
                     Center(
@@ -311,31 +312,43 @@ class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
                             style: TextStyle(color: Colors.white)),
                       ),
                     ),
-                  // 底部控制条（未操作时隐藏，单击视频显示）
-                  if (_controlsVisible)
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Colors.black.withOpacity(0.6),
-                            ],
+                  // 底部：进度条在最底；单击视频显示整条控制条，
+                  // 左右滑动时只留进度条跟手（按钮和时间文字都隐藏）
+                  ValueListenableBuilder<Duration?>(
+                    valueListenable: swipePreview,
+                    builder: (_, preview, __) {
+                      final dragging = preview != null;
+                      if (!_controlsVisible && !dragging) {
+                        return const SizedBox.shrink();
+                      }
+                      return Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withOpacity(0.6),
+                              ],
+                            ),
+                          ),
+                          child: _ControlBar(
+                            controller: ctl,
+                            preview: swipePreview,
+                            showButtons: _controlsVisible && !dragging,
+                            onVerticalFullscreen: () =>
+                                _openFullscreen(vertical: true),
+                            onFullscreen: () =>
+                                _openFullscreen(vertical: false),
+                            showFullscreen: true,
                           ),
                         ),
-                        child: _ControlBar(
-                          controller: ctl,
-                          onVerticalFullscreen: () =>
-                              _openFullscreen(vertical: true),
-                          onFullscreen: () => _openFullscreen(vertical: false),
-                          showFullscreen: true,
-                        ),
-                      ),
-                    ),
+                      );
+                    },
+                  ),
                 ],
               ),
       ),
@@ -373,15 +386,22 @@ class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
   }
 }
 
-/// 底部控制条：播放/暂停 + 可拖进度条 + 时间 + 全屏。
-/// 拖动时的预览值由本组件内部状态持有，松手才 seek。
+/// 底部控制条：最底下是进度条（拖动时可拖），上面一排是播放/暂停 + 时间 + 全屏。
+/// 视频区左右滑动时 showButtons=false：那排按钮（含时间文字）隐藏，
+/// 只留最底下的进度条跟着手指走。
 class _ControlBar extends StatefulWidget {
   final VideoPlayerController controller;
+
+  /// 视频区滑动的预览位置（非 null = 正在滑动）
+  final ValueListenable<Duration?> preview;
+  final bool showButtons;
   final VoidCallback? onFullscreen;
   final VoidCallback? onVerticalFullscreen;
   final bool showFullscreen;
   const _ControlBar({
     required this.controller,
+    required this.preview,
+    this.showButtons = true,
     this.onFullscreen,
     this.onVerticalFullscreen,
     this.showFullscreen = false,
@@ -392,82 +412,94 @@ class _ControlBar extends StatefulWidget {
 }
 
 class _ControlBarState extends State<_ControlBar> {
-  double? _dragMs;
+  double? _dragMs; // 直接拖进度条时的预览值
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: widget.controller,
-      builder: (_, v, __) {
-        final totalMs = v.duration.inMilliseconds.toDouble()
-            .clamp(1.0, double.infinity)
-            .toDouble();
-        final posMs = v.position.inMilliseconds.toDouble();
-        final shownMs = (_dragMs ?? posMs).clamp(0.0, totalMs).toDouble();
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 12),
-              ),
-              child: Slider(
-                value: shownMs,
-                max: totalMs,
-                activeColor: Colors.white,
-                inactiveColor: Colors.white24,
-                onChanged: (val) => setState(() => _dragMs = val),
-                onChangeEnd: (val) {
-                  widget.controller
-                      .seekTo(Duration(milliseconds: val.toInt()));
-                  setState(() => _dragMs = null);
-                },
-              ),
-            ),
-            Row(
-              children: [
-                IconButton(
-                  iconSize: 20,
-                  color: Colors.white,
-                  icon: Icon(
-                    v.isPlaying ? Icons.pause : Icons.play_arrow,
-                  ),
-                  onPressed: () => v.isPlaying
-                      ? widget.controller.pause()
-                      : widget.controller.play(),
+    return ValueListenableBuilder<Duration?>(
+      valueListenable: widget.preview,
+      builder: (_, preview, __) => ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: widget.controller,
+        builder: (_, v, __) {
+          final totalMs = v.duration.inMilliseconds.toDouble()
+              .clamp(1.0, double.infinity)
+              .toDouble();
+          final posMs = v.position.inMilliseconds.toDouble();
+          final shownMs = (_dragMs ??
+                  preview?.inMilliseconds.toDouble() ??
+                  posMs)
+              .clamp(0.0, totalMs)
+              .toDouble();
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.showButtons)
+                Row(
+                  children: [
+                    IconButton(
+                      iconSize: 20,
+                      color: Colors.white,
+                      icon: Icon(
+                        v.isPlaying ? Icons.pause : Icons.play_arrow,
+                      ),
+                      onPressed: () => v.isPlaying
+                          ? widget.controller.pause()
+                          : widget.controller.play(),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${_fmt(Duration(milliseconds: shownMs.round()))} / '
+                        '${_fmt(v.duration)}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 11),
+                      ),
+                    ),
+                    if (widget.showFullscreen) ...[
+                      // 竖屏全屏（全屏按钮左边）
+                      IconButton(
+                        iconSize: 20,
+                        color: Colors.white,
+                        icon: const Icon(Icons.crop_portrait),
+                        onPressed: widget.onVerticalFullscreen,
+                      ),
+                      IconButton(
+                        iconSize: 20,
+                        color: Colors.white,
+                        icon: const Icon(Icons.fullscreen),
+                        onPressed: widget.onFullscreen,
+                      ),
+                    ],
+                  ],
                 ),
-                Expanded(
-                  child: Text(
-                    '${_fmt(Duration(milliseconds: shownMs.round()))} / '
-                    '${_fmt(v.duration)}',
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 11),
+              // 进度条压到最底下（留边距，不贴死）
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape:
+                        const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    overlayShape:
+                        const RoundSliderOverlayShape(overlayRadius: 12),
+                  ),
+                  child: Slider(
+                    value: shownMs,
+                    max: totalMs,
+                    activeColor: Colors.white,
+                    inactiveColor: Colors.white24,
+                    onChanged: (val) => setState(() => _dragMs = val),
+                    onChangeEnd: (val) {
+                      widget.controller
+                          .seekTo(Duration(milliseconds: val.toInt()));
+                      setState(() => _dragMs = null);
+                    },
                   ),
                 ),
-                if (widget.showFullscreen) ...[
-                  // 竖屏全屏（全屏按钮左边）
-                  IconButton(
-                    iconSize: 20,
-                    color: Colors.white,
-                    icon: const Icon(Icons.crop_portrait),
-                    onPressed: widget.onVerticalFullscreen,
-                  ),
-                  IconButton(
-                    iconSize: 20,
-                    color: Colors.white,
-                    icon: const Icon(Icons.fullscreen),
-                    onPressed: widget.onFullscreen,
-                  ),
-                ],
-              ],
-            ),
-          ],
-        );
-      },
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -583,26 +615,33 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                   ],
                 ),
               ),
-            // 中间：滑动快进/快退提示
-            if (swipeToast != null) buildSwipeToast(),
+            // 跳转后重新拉流时的缓冲提示
+            _bufferingHint(ctl),
             // 播放出错提示
             if (_playError)
               const Center(
                 child: Text('播放出错，请返回重试',
                     style: TextStyle(color: Colors.white70, fontSize: 14)),
               ),
-            // 底部：控制条
-            if (_controls)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _ControlBar(controller: ctl),
+            // 底部：进度条在最底；点一下出整条控制条，左右滑动时只留进度条
+            ValueListenableBuilder<Duration?>(
+              valueListenable: swipePreview,
+              builder: (_, preview, __) {
+                final dragging = preview != null;
+                if (!_controls && !dragging) return const SizedBox.shrink();
+                return Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SafeArea(
+                    top: false,
+                    child: _ControlBar(
+                      controller: ctl,
+                      preview: swipePreview,
+                      showButtons: _controls && !dragging,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
+            ),
           ],
         ),
       ),
