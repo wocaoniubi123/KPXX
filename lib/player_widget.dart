@@ -4,7 +4,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
 
@@ -27,14 +28,90 @@ String _fmt(Duration d) {
   return '$m:$s';
 }
 
-/// 缓冲提示：滑动跳转跨度大时要重新拉流，没提示看着像卡死。
-/// 放偏上位置，不和中间的滑动提示气泡重叠。
-Widget _bufferingHint(VideoPlayerController ctl) {
+/// 播放器状态快照：把引擎的若干条 stream 合成一个整体状态，UI 只认它。
+class KpState {
+  final Duration position;
+  final Duration duration;
+  final bool playing;
+  final bool buffering;
+  final bool error;
+  const KpState({
+    this.position = Duration.zero,
+    this.duration = Duration.zero,
+    this.playing = false,
+    this.buffering = false,
+    this.error = false,
+  });
+
+  bool get ready => duration > Duration.zero;
+
+  KpState copyWith({
+    Duration? position,
+    Duration? duration,
+    bool? playing,
+    bool? buffering,
+    bool? error,
+  }) =>
+      KpState(
+        position: position ?? this.position,
+        duration: duration ?? this.duration,
+        playing: playing ?? this.playing,
+        buffering: buffering ?? this.buffering,
+        error: error ?? this.error,
+      );
+}
+
+/// 播放器引擎封装（media_kit / libmpv）。
+/// 选它而不是 iOS 原生 AVPlayer：AVPlayer 的缓冲与 seek 容差在 iOS 上无法配置，
+/// 长视频/加密 HLS 跳转容易长时间卡加载；libmpv 由 FFmpeg 层面处理 HLS，
+/// 且 bufferSize 可调（就是网页播放器那种缓冲控制）。
+class KpPlayer extends ValueNotifier<KpState> {
+  KpPlayer({int bufferMb = 48})
+      : _p = Player(
+          configuration: PlayerConfiguration(
+            bufferSize: bufferMb * 1024 * 1024,
+            logLevel: MPVLogLevel.error,
+          ),
+        ),
+        super(const KpState()) {
+    _subs = [
+      _p.stream.position.listen((v) => value = value.copyWith(position: v)),
+      _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
+      _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
+      _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
+      _p.stream.error.listen((_) => value = value.copyWith(error: true)),
+    ];
+  }
+
+  final Player _p;
+  late final List<StreamSubscription> _subs;
+  late final VideoController videoController = VideoController(_p);
+
+  /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
+  Future<void> open(String url, {Map<String, String>? httpHeaders}) =>
+      _p.open(Media(url, httpHeaders: httpHeaders), play: true);
+
+  Future<void> play() => _p.play();
+  Future<void> pause() => _p.pause();
+
+  Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
+
+  Future<void> shutdown() async {
+    for (final s in _subs) {
+      await s.cancel();
+    }
+    await _p.dispose();
+    dispose();
+  }
+}
+
+/// 缓冲提示：跳转跨度大时要重新拉流，没提示看着像卡死。
+Widget _bufferingHint(KpPlayer kp) {
   return Align(
     alignment: const Alignment(0, -0.45),
-    child: ValueListenableBuilder<VideoPlayerValue>(
-      valueListenable: ctl,
-      builder: (_, v, __) => v.isBuffering
+    child: ValueListenableBuilder<KpState>(
+      valueListenable: kp,
+      builder: (_, s, __) => s.buffering
           ? const SizedBox(
               width: 26,
               height: 26,
@@ -46,17 +123,23 @@ Widget _bufferingHint(VideoPlayerController ctl) {
   );
 }
 
+/// 视频画面（引擎自带纹理，等比缩放不拉伸）
+Widget _videoSurface(KpPlayer kp) => Video(
+      controller: kp.videoController,
+      fit: BoxFit.contain,
+      fill: Colors.black,
+      controls: NoVideoControls,
+    );
+
 /// 左右滑动快进/快退：滑动距离线性映射成秒数（滑满一屏 120 秒），
 /// 拖动时只有最底下那条进度条跟着手指走（不弹文字提示），松手才真正跳转。
 /// 内嵌播放器和全屏播放器共用。
 mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
-  VideoPlayerController get swipeCtl;
+  KpPlayer get swipePlayer;
 
   Timer? _swipeHoldTimer;
 
-  /// 拖动预览位置：非 null = 正在滑动（底部进度条据此显示并跟手）。
-  /// 用 ValueNotifier 而不是 setState：拖动时只重建进度条，
-  /// 不重建整个播放器子树（长距离滑动=上百次重建，会顿一下）。
+  /// 拖动预览位置：非 null = 正在滑动（底部进度条据此显示并跟手）
   final ValueNotifier<Duration?> swipePreview = ValueNotifier<Duration?>(null);
 
   bool _dragging = false;
@@ -67,14 +150,14 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   void swipeStart(DragStartDetails d) {
     _dragging = true;
     _dragDx = 0;
-    _dragFrom = swipeCtl.value.position;
+    _dragFrom = swipePlayer.value.position;
     _dragTarget = _dragFrom;
   }
 
   void swipeUpdate(DragUpdateDetails d) {
     if (!_dragging) return;
     _dragDx += d.delta.dx;
-    final total = swipeCtl.value.duration;
+    final total = swipePlayer.value.duration;
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     _dragTarget = _clampDur(
         _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
@@ -84,7 +167,9 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   void swipeEnd(DragEndDetails d) {
     if (!_dragging) return;
     _dragging = false;
-    if (_dragTarget != _dragFrom) swipeCtl.seekTo(_dragTarget);
+    if (_dragTarget != _dragFrom) {
+      swipePlayer.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）
+    }
     if (swipePreview.value == null) return;
     // seek 生效前先保持预览值，避免进度条往回跳一下
     _swipeHoldTimer?.cancel();
@@ -94,7 +179,7 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   }
 
   void disposeSwipe() {
-    _swipeHoldTimer?.cancel(); // 先停定时器，再销毁 notifier
+    _swipeHoldTimer?.cancel();
     swipePreview.dispose();
   }
 }
@@ -103,8 +188,7 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
 /// - 内嵌模式：详情页顶部 16:9，初始化前显示 poster 封面（正文首图）。
 /// - 全屏模式：黑底沉浸，横屏/竖屏全屏，下滑返回。
 /// - 控制条压在最底部：最下面是进度条（可直接拖），上面一排是播放/暂停 + 时间 + 全屏。
-/// - 左右滑动快进快退：滑动距离决定秒数（滑满一屏 120 秒）；拖动时只让最底下那条
-///   进度条跟着手指走（不弹秒数/时间文字），松手才真正跳转。
+/// - 左右滑动快进快退：滑动距离决定秒数（滑满一屏 120 秒）；松手才真正跳转。
 /// - 多个视频源按顺序尝试，全失败则用 onRefreshSources 重取时效链接再试一轮
 ///   （视频地址带 auth_key 签名，放久了会过期）。
 class PlayerWidget extends StatefulWidget {
@@ -134,19 +218,19 @@ class _PlayerWidgetState extends State<PlayerWidget>
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
-  VideoPlayerController? _ctl;
+  KpPlayer? _kp;
   late List<String> _sources =
       widget.sources.where((s) => s.isNotEmpty).toList();
   String? _error;
   bool _busy = false;
   bool _init = false;
   bool _refreshed = false; // 已重取过一次链接，避免失败时死循环
-  bool _playError = false; // 播放中途出错
+  bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
   bool _controlsVisible = true;
   Timer? _hideTimer;
 
   @override
-  VideoPlayerController get swipeCtl => _ctl!;
+  KpPlayer get swipePlayer => _kp!;
 
   /// 详情页往下翻看剧照时，播放器会滑出可视区。
   /// 不保活的话 ListView 会把它整个销毁，翻回来就从头重新加载/播放。
@@ -158,7 +242,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     super.didChangeDependencies();
     if (!_init) {
       _init = true;
-      // 微任务里再初始化：_initPlayer 开头会 setState，不能在本元素 build 期间调用
+      // 微任务里再初始化：_initPlayer 结尾会 setState，不能在本元素 build 期间调用
       Future.microtask(_initPlayer);
     }
   }
@@ -167,14 +251,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
   void dispose() {
     _hideTimer?.cancel();
     disposeSwipe();
-    _ctl?.removeListener(_onTick);
-    _ctl?.dispose(); // 退出页面立即停止播放，不在后台继续
+    _kp?.shutdown();
     super.dispose();
-  }
-
-  void _onTick() {
-    final err = _ctl?.value.hasError ?? false;
-    if (err != _playError && mounted) setState(() => _playError = err);
   }
 
   /// 依次尝试各视频源；全失败时刷新时效链接再试一轮。
@@ -186,28 +264,15 @@ class _PlayerWidgetState extends State<PlayerWidget>
     setState(() {
       _busy = true;
       _error = null;
-      _playError = false;
     });
 
     for (var i = 0; i < _sources.length; i++) {
-      final ctl = VideoPlayerController.networkUrl(
-        Uri.parse(_sources[i]),
-        httpHeaders: {'User-Agent': _ua, 'Referer': '${widget.referer}/'},
-      );
-      try {
-        await ctl.initialize();
-        await ctl.play();
-        if (!mounted) {
-          await ctl.dispose();
-          return;
-        }
-        _attach(ctl);
-        setState(() => _busy = false);
-        _scheduleHide();
+      final kp = await _tryOpen(_sources[i]);
+      if (!mounted) {
+        kp?.shutdown();
         return;
-      } catch (_) {
-        await ctl.dispose(); // 该源不行，试下一个
       }
+      if (kp != null) return; // 成功，_tryOpen 内部已接管
     }
 
     // 所有源都失败：重取链接（签名过期）再试一轮
@@ -233,14 +298,57 @@ class _PlayerWidgetState extends State<PlayerWidget>
     }
   }
 
-  void _attach(VideoPlayerController ctl) {
-    final old = _ctl;
-    if (old != null) {
-      old.removeListener(_onTick);
-      old.dispose();
+  /// 试开一个源：等到拿到时长（= 真的能播）或报错/超时。
+  /// 成功则返回播放器实例并完成接管。
+  Future<KpPlayer?> _tryOpen(String url) async {
+    final kp = KpPlayer();
+    final done = Completer<bool>();
+    // 监听状态变化：拿到 duration 视为成功，error 视为失败
+    void listener() {
+      if (done.isCompleted) return;
+      if (kp.value.error) {
+        done.complete(false);
+      } else if (kp.value.ready) {
+        done.complete(true);
+      }
     }
-    _ctl = ctl;
-    ctl.addListener(_onTick);
+
+    kp.addListener(listener);
+    try {
+      await kp.open(url, httpHeaders: {
+        'User-Agent': _ua,
+        'Referer': '${widget.referer}/',
+      });
+      final ok = await done.future
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
+      kp.removeListener(listener);
+      if (!ok || !mounted) {
+        await kp.shutdown();
+        return null;
+      }
+      _attach(kp);
+      setState(() => _busy = false);
+      _scheduleHide();
+      return kp;
+    } catch (_) {
+      kp.removeListener(listener);
+      await kp.shutdown();
+      return null;
+    }
+  }
+
+  void _attach(KpPlayer kp) {
+    final old = _kp;
+    if (old != null) old.shutdown();
+    _kp = kp;
+    kp.addListener(_onTick);
+  }
+
+  /// 只在「出错」这个状态翻转时重建：位置/缓冲的变化由控制条和缓冲提示
+  /// 自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
+  void _onTick() {
+    final err = _kp?.value.error ?? false;
+    if (err != _errShown && mounted) setState(() => _errShown = err);
   }
 
   void _retry() {
@@ -262,14 +370,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
   }
 
   void _openFullscreen({required bool vertical}) {
-    final ctl = _ctl;
-    if (ctl == null) return;
+    final kp = _kp;
+    if (kp == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FullscreenPlayer(
-          controller: ctl,
-          vertical: vertical,
-        ),
+        builder: (_) => FullscreenPlayer(player: kp, vertical: vertical),
       ),
     );
   }
@@ -277,12 +382,12 @@ class _PlayerWidgetState extends State<PlayerWidget>
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin 必须调用
-    final ctl = _ctl;
+    final kp = _kp;
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: ColoredBox(
         color: Colors.black,
-        child: ctl == null
+        child: kp == null
             ? _coverArea()
             : Stack(
                 fit: StackFit.expand,
@@ -293,26 +398,12 @@ class _PlayerWidgetState extends State<PlayerWidget>
                     onHorizontalDragStart: swipeStart,
                     onHorizontalDragUpdate: swipeUpdate,
                     onHorizontalDragEnd: swipeEnd,
-                    child: Center(
-                      // FittedBox contain：等比缩放，绝不拉伸
-                      child: FittedBox(
-                        fit: BoxFit.contain,
-                        child: SizedBox(
-                          width: ctl.value.size.width > 0
-                              ? ctl.value.size.width
-                              : 16,
-                          height: ctl.value.size.height > 0
-                              ? ctl.value.size.height
-                              : 9,
-                          child: VideoPlayer(ctl),
-                        ),
-                      ),
-                    ),
+                    child: _videoSurface(kp),
                   ),
                   // 跳转后重新拉流时的缓冲提示
-                  _bufferingHint(ctl),
-                  // 播放中途出错：给个重试入口（否则画面卡住没有任何提示）
-                  if (_playError)
+                  _bufferingHint(kp),
+                  // 播放中途出错：给个重试入口
+                  if (_errShown)
                     Center(
                       child: TextButton.icon(
                         onPressed: _retry,
@@ -345,7 +436,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
                             ),
                           ),
                           child: _ControlBar(
-                            controller: ctl,
+                            player: kp,
                             preview: swipePreview,
                             showButtons: _controlsVisible && !dragging,
                             onVerticalFullscreen: () =>
@@ -364,7 +455,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     );
   }
 
-  /// 未初始化完成前的区域：poster 封面 + 加载指示；失败则错误 + 重试
+  /// 未就绪前的区域：poster 封面 + 加载指示；失败则错误 + 重试
   Widget _coverArea() {
     if (_error != null) {
       return Center(
@@ -395,11 +486,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
   }
 }
 
-/// 底部控制条：最底下是进度条（拖动时可拖），上面一排是播放/暂停 + 时间 + 全屏。
+/// 底部控制条：最底下是进度条（可拖），上面一排是播放/暂停 + 时间 + 全屏。
 /// 视频区左右滑动时 showButtons=false：那排按钮（含时间文字）隐藏，
 /// 只留最底下的进度条跟着手指走。
 class _ControlBar extends StatefulWidget {
-  final VideoPlayerController controller;
+  final KpPlayer player;
 
   /// 视频区滑动的预览位置（非 null = 正在滑动）
   final ValueListenable<Duration?> preview;
@@ -408,7 +499,7 @@ class _ControlBar extends StatefulWidget {
   final VoidCallback? onVerticalFullscreen;
   final bool showFullscreen;
   const _ControlBar({
-    required this.controller,
+    required this.player,
     required this.preview,
     this.showButtons = true,
     this.onFullscreen,
@@ -421,7 +512,7 @@ class _ControlBar extends StatefulWidget {
 }
 
 class _ControlBarState extends State<_ControlBar> {
-  double? _dragMs; // 直接拖进度条时的预览值
+  Duration? _drag; // 直接拖进度条时的预览值
 
   /// 底部那排小按钮：做紧凑些，别和进度条离太远
   Widget _barBtn({required IconData icon, VoidCallback? onPressed}) {
@@ -439,18 +530,16 @@ class _ControlBarState extends State<_ControlBar> {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<Duration?>(
       valueListenable: widget.preview,
-      builder: (_, preview, __) => ValueListenableBuilder<VideoPlayerValue>(
-        valueListenable: widget.controller,
-        builder: (_, v, __) {
-          final totalMs = v.duration.inMilliseconds.toDouble()
+      builder: (_, preview, __) => ValueListenableBuilder<KpState>(
+        valueListenable: widget.player,
+        builder: (_, s, __) {
+          final total = s.duration;
+          final totalMs = total.inMilliseconds
+              .toDouble()
               .clamp(1.0, double.infinity)
               .toDouble();
-          final posMs = v.position.inMilliseconds.toDouble();
-          final shownMs = (_dragMs ??
-                  preview?.inMilliseconds.toDouble() ??
-                  posMs)
-              .clamp(0.0, totalMs)
-              .toDouble();
+          final shown = _drag ?? preview ?? s.position;
+          final shownMs = shown.inMilliseconds.toDouble().clamp(0.0, totalMs);
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -458,15 +547,13 @@ class _ControlBarState extends State<_ControlBar> {
                 Row(
                   children: [
                     _barBtn(
-                      icon: v.isPlaying ? Icons.pause : Icons.play_arrow,
-                      onPressed: () => v.isPlaying
-                          ? widget.controller.pause()
-                          : widget.controller.play(),
+                      icon: s.playing ? Icons.pause : Icons.play_arrow,
+                      onPressed: () =>
+                          s.playing ? widget.player.pause() : widget.player.play(),
                     ),
                     Expanded(
                       child: Text(
-                        '${_fmt(Duration(milliseconds: shownMs.round()))} / '
-                        '${_fmt(v.duration)}',
+                        '${_fmt(Duration(milliseconds: shownMs.round()))} / ${_fmt(total)}',
                         style: const TextStyle(
                             color: Colors.white, fontSize: 11),
                       ),
@@ -500,11 +587,11 @@ class _ControlBarState extends State<_ControlBar> {
                     max: totalMs,
                     activeColor: Colors.white,
                     inactiveColor: Colors.white24,
-                    onChanged: (val) => setState(() => _dragMs = val),
+                    onChanged: (val) => setState(
+                        () => _drag = Duration(milliseconds: val.toInt())),
                     onChangeEnd: (val) {
-                      widget.controller
-                          .seekTo(Duration(milliseconds: val.toInt()));
-                      setState(() => _dragMs = null);
+                      widget.player.seek(Duration(milliseconds: val.toInt()));
+                      setState(() => _drag = null);
                     },
                   ),
                 ),
@@ -520,11 +607,11 @@ class _ControlBarState extends State<_ControlBar> {
 /// 全屏播放页：黑底 + 左右滑动快进快退 + 下滑返回。
 /// vertical=true 竖屏全屏（视频 contain 居中不拉伸），false 横屏全屏。
 class FullscreenPlayer extends StatefulWidget {
-  final VideoPlayerController controller;
+  final KpPlayer player;
   final bool vertical;
   const FullscreenPlayer({
     super.key,
-    required this.controller,
+    required this.player,
     this.vertical = false,
   });
 
@@ -534,17 +621,16 @@ class FullscreenPlayer extends StatefulWidget {
 
 class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   bool _controls = true;
-  bool _playError = false;
   Timer? _hideTimer;
 
   @override
-  VideoPlayerController get swipeCtl => widget.controller;
+  KpPlayer get swipePlayer => widget.player;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.play();
-    widget.controller.addListener(_onTick);
+    widget.player.play();
+    widget.player.addListener(_onTick);
     if (widget.vertical) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
@@ -560,15 +646,17 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void dispose() {
     _hideTimer?.cancel();
     disposeSwipe();
-    widget.controller.removeListener(_onTick);
+    widget.player.removeListener(_onTick);
     // 退出全屏恢复竖屏
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
+  bool _errShown = false;
+
   void _onTick() {
-    final err = widget.controller.value.hasError;
-    if (err != _playError && mounted) setState(() => _playError = err);
+    final err = widget.player.value.error;
+    if (err != _errShown && mounted) setState(() => _errShown = err);
   }
 
   void _scheduleHide() {
@@ -585,7 +673,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
 
   @override
   Widget build(BuildContext context) {
-    final ctl = widget.controller;
+    final kp = widget.player;
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -600,21 +688,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
         onHorizontalDragEnd: swipeEnd,
         child: Stack(
           children: [
-            // 全屏视频（FittedBox contain 等比缩放，绝不拉伸）
-            Center(
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: SizedBox(
-                  width: ctl.value.size.width > 0
-                      ? ctl.value.size.width
-                      : 16,
-                  height: ctl.value.size.height > 0
-                      ? ctl.value.size.height
-                      : 9,
-                  child: VideoPlayer(ctl),
-                ),
-              ),
-            ),
+            Center(child: _videoSurface(kp)),
             // 顶部：返回
             if (_controls)
               SafeArea(
@@ -629,9 +703,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                 ),
               ),
             // 跳转后重新拉流时的缓冲提示
-            _bufferingHint(ctl),
+            _bufferingHint(kp),
             // 播放出错提示
-            if (_playError)
+            if (_errShown)
               const Center(
                 child: Text('播放出错，请返回重试',
                     style: TextStyle(color: Colors.white70, fontSize: 14)),
@@ -647,7 +721,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                   child: SafeArea(
                     top: false,
                     child: _ControlBar(
-                      controller: ctl,
+                      player: kp,
                       preview: swipePreview,
                       showButtons: _controls && !dragging,
                     ),

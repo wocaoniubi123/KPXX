@@ -64,6 +64,7 @@ jobs:
           # 用 python3 做全局替换（BSD sed 多行插入不可靠）
           python3 - << 'PYEOF'
           import os
+          import re
           p = 'Runner.xcodeproj/project.pbxproj'
           s = open(p, encoding='utf-8').read()
           s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;',
@@ -76,8 +77,22 @@ jobs:
           s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;',
                         'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = Z8J7VYHQZF;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
                         + os.environ.get('PROFILE_NAME', '') + '";')
+          # media_kit(libmpv) 需要 iOS 13+，部署目标一并提到 13.0
+          s = re.sub(r'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;',
+                     'IPHONEOS_DEPLOYMENT_TARGET = 13.0;', s)
           open(p, 'w', encoding='utf-8').write(s)
           PYEOF
+          # Podfile 的平台版本也提到 13.0（模板里这行默认是注释掉的）
+          python3 - << 'PYEOF'
+          import re
+          p = 'Podfile'
+          s = open(p, encoding='utf-8').read()
+          s2 = re.sub(r"#?\s*platform :ios, '[0-9.]+'", "platform :ios, '13.0'", s, count=1)
+          if s2 == s:
+              s2 = "platform :ios, '13.0'\n" + s
+          open(p, 'w', encoding='utf-8').write(s2)
+          PYEOF
+          grep -n "platform :ios" Podfile
           # 应用显示名
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${{ env.APP_NAME }}" Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${{ env.APP_NAME }}" Runner/Info.plist || true

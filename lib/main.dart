@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'fetched_image.dart';
 import 'home_page.dart';
 import 'sites.dart';
 import 'web_page.dart';
 
-void main() => runApp(const KpxxApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 播放器引擎 media_kit(libmpv) 必须在 runApp 之前初始化
+  MediaKit.ensureInitialized();
+  runApp(const KpxxApp());
+}
 
 class KpxxApp extends StatelessWidget {
   const KpxxApp({super.key});
