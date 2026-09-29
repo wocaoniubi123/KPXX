@@ -955,15 +955,22 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                 final dragging = preview != null;
                 if (!_controls && !dragging) return const SizedBox.shrink();
                 final sw = widget.switcher;
+                // 竖屏全屏：整条控制条（含进度条）再上移 3px
+                final bottomPad = widget.vertical
+                    ? const EdgeInsets.only(bottom: 3)
+                    : EdgeInsets.zero;
                 if (sw == null) {
                   return Align(
                     alignment: Alignment.bottomCenter,
                     child: SafeArea(
                       top: false,
-                      child: _ControlBar(
-                        player: kp,
-                        preview: swipePreview,
-                        showButtons: _controls && !dragging,
+                      child: Padding(
+                        padding: bottomPad,
+                        child: _ControlBar(
+                          player: kp,
+                          preview: swipePreview,
+                          showButtons: _controls && !dragging,
+                        ),
                       ),
                     ),
                   );
@@ -975,12 +982,15 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                     alignment: Alignment.bottomCenter,
                     child: SafeArea(
                       top: false,
-                      child: _ControlBar(
-                        player: kp,
-                        preview: swipePreview,
-                        hasNext: i < sw.total - 1,
-                        onNext: sw.next,
-                        showButtons: _controls && !dragging,
+                      child: Padding(
+                        padding: bottomPad,
+                        child: _ControlBar(
+                          player: kp,
+                          preview: swipePreview,
+                          hasNext: i < sw.total - 1,
+                          onNext: sw.next,
+                          showButtons: _controls && !dragging,
+                        ),
                       ),
                     ),
                   ),
