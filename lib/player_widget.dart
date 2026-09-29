@@ -427,8 +427,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
                         label: Text(
                           kp.value.errorText.isEmpty
                               ? '播放出错，点此重试'
-                              : '播放出错：${kp.value.errorText}
-点此重试',
+                              : '播放出错：${kp.value.errorText}（点此重试）',
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white),
                         ),
