@@ -23,6 +23,8 @@ dependencies:
   # 区间放开：让 pub 自动挑与当前 Flutter SDK 兼容的最新版
   #（写 ^4.8.0 可能解析到要求更高 SDK 的版本导致 pub get 失败）
   webview_flutter: '>=4.7.0 <5.0.0'
+  # 设置持久化：2.5.4+ 需要 Flutter 3.35，钉在 3.24 能用的范围
+  shared_preferences: '>=2.3.5 <2.5.4'
 
 dev_dependencies:
   flutter_lints: ^4.0.0

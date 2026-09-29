@@ -3,6 +3,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'fetched_image.dart';
 import 'home_page.dart';
+import 'settings.dart';
 import 'sites.dart';
 import 'web_page.dart';
 
@@ -10,6 +11,7 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // 播放器引擎 media_kit(libmpv) 必须在 runApp 之前初始化
   MediaKit.ensureInitialized();
+  AppSettings.i.load(); // 读设置（双击快进秒数）
   runApp(const KpxxApp());
 }
 
@@ -41,25 +43,14 @@ class RootPage extends StatefulWidget {
 class _RootPageState extends State<RootPage> {
   int _index = 0;
 
-  /// 推荐 tab 用清单里第一个原生站点（想换就调 sites.dart 里的顺序/kind）
-  static SiteEntry? _feedSite() {
-    for (final s in kSites) {
-      if (s.kind == SiteKind.native) return s;
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final feed = _feedSite();
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: [
-          const ModuleGridPage(),
-          feed == null
-              ? const Center(child: Text('还没有可用的原生站点'))
-              : HomePage(site: feed),
+        children: const [
+          ModuleGridPage(),
+          SettingsPage(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -74,8 +65,8 @@ class _RootPageState extends State<RootPage> {
             label: '模块',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.play_circle_outline),
-            label: '推荐',
+            icon: Icon(Icons.settings_outlined),
+            label: '设置',
           ),
         ],
       ),
@@ -174,6 +165,48 @@ class _SiteTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 设置页
+class SettingsPage extends StatelessWidget {
+  const SettingsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置'), centerTitle: true),
+      body: ListenableBuilder(
+        listenable: AppSettings.i,
+        builder: (context, _) => ListView(
+          children: [
+            const ListTile(
+              title: Text('快进/快退秒数'),
+              subtitle: Text('播放器里双击画面左侧后退、右侧快进，一次跳转的时长'),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  for (final s in AppSettings.stepOptions)
+                    ChoiceChip(
+                      label: Text('$s 秒'),
+                      selected: AppSettings.i.step == s,
+                      onSelected: (_) => AppSettings.i.setStep(s),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 32),
+            const ListTile(
+              title: Text('左右滑动'),
+              subtitle: Text('按滑动距离快进/快退：滑满一屏 = 120 秒，松手才跳转'),
+            ),
+          ],
+        ),
       ),
     );
   }

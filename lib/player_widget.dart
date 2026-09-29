@@ -8,6 +8,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
+import 'settings.dart';
 
 /// 滑满一屏宽度对应的快进/快退秒数（滑动距离线性映射：滑多少快进多少）
 const int _kSwipeSecondsPerScreen = 120;
@@ -244,6 +245,9 @@ class _PlayerWidgetState extends State<PlayerWidget>
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
   bool _controlsVisible = true;
   Timer? _hideTimer;
+  Offset _lastTapPos = Offset.zero; // 双击落点（判断左半/右半）
+  bool? _tapHintBack; // 双击提示：true=后退 false=快进
+  Timer? _tapHintTimer;
 
   @override
   KpPlayer get swipePlayer => _kp!;
@@ -266,6 +270,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _tapHintTimer?.cancel();
     disposeSwipe();
     _kp?.shutdown();
     super.dispose();
@@ -367,6 +372,27 @@ class _PlayerWidgetState extends State<PlayerWidget>
     if (err != _errShown && mounted) setState(() => _errShown = err);
   }
 
+  /// 双击左半屏后退、右半屏快进（步长来自设置，默认 10 秒）
+  void _onDoubleTapDown(TapDownDetails d) => _lastTapPos = d.localPosition;
+
+  void _onDoubleTap() {
+    final kp = _kp;
+    if (kp == null) return;
+    final w = context.size?.width ?? MediaQuery.of(context).size.width;
+    final back = _lastTapPos.dx < w / 2;
+    final secs = AppSettings.i.step;
+    kp.seek(kp.value.position + Duration(seconds: back ? -secs : secs));
+    _flashTapHint(back);
+  }
+
+  void _flashTapHint(bool back) {
+    _tapHintTimer?.cancel();
+    setState(() => _tapHintBack = back);
+    _tapHintTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _tapHintBack = null);
+    });
+  }
+
   void _retry() {
     _refreshed = false; // 手动重试允许再刷新一次链接
     _initPlayer();
@@ -411,11 +437,25 @@ class _PlayerWidgetState extends State<PlayerWidget>
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _toggleControls, // 单击显示/隐藏控制条
+                    onDoubleTapDown: _onDoubleTapDown,
+                    onDoubleTap: _onDoubleTap, // 双击左半后退/右半快进
                     onHorizontalDragStart: swipeStart,
                     onHorizontalDragUpdate: swipeUpdate,
                     onHorizontalDragEnd: swipeEnd,
                     child: _videoSurface(kp),
                   ),
+                  // 双击左/右的提示图标
+                  if (_tapHintBack != null)
+                    Align(
+                      alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
+                      child: Icon(
+                        _tapHintBack!
+                            ? Icons.fast_rewind
+                            : Icons.fast_forward,
+                        color: Colors.white70,
+                        size: 34,
+                      ),
+                    ),
                   // 跳转后重新拉流时的缓冲提示
                   _bufferingHint(kp),
                   // 播放中途出错：给个重试入口
@@ -538,10 +578,10 @@ class _ControlBarState extends State<_ControlBar> {
   /// 底部那排小按钮：做紧凑些，别和进度条离太远
   Widget _barBtn({required IconData icon, VoidCallback? onPressed}) {
     return IconButton(
-      iconSize: 20,
+      iconSize: 18,
       color: Colors.white,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
+      constraints: const BoxConstraints(minWidth: 34, minHeight: 28),
       icon: Icon(icon),
       onPressed: onPressed,
     );
@@ -592,29 +632,14 @@ class _ControlBarState extends State<_ControlBar> {
                     ],
                   ],
                 ),
-              // 进度条压到最底下（只留一点点边距），整条高度收窄贴近上面那排按钮
+              // 进度条：自绘（Material Slider 自带上下留白，压不到最底、也贴不紧按钮）
               SizedBox(
-                height: 22,
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3,
-                    thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 5),
-                    overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 10),
-                  ),
-                  child: Slider(
-                    value: shownMs,
-                    max: totalMs,
-                    activeColor: Colors.white,
-                    inactiveColor: Colors.white24,
-                    onChanged: (val) => setState(
-                        () => _drag = Duration(milliseconds: val.toInt())),
-                    onChangeEnd: (val) {
-                      widget.player.seek(Duration(milliseconds: val.toInt()));
-                      setState(() => _drag = null);
-                    },
-                  ),
+                height: 14,
+                child: _SeekBar(
+                  position: shown,
+                  duration: total,
+                  onPreview: (d) => setState(() => _drag = d),
+                  onSeek: widget.player.seek,
                 ),
               ),
             ],
@@ -643,6 +668,9 @@ class FullscreenPlayer extends StatefulWidget {
 class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   bool _controls = true;
   Timer? _hideTimer;
+  Offset _lastTapPos = Offset.zero;
+  bool? _tapHintBack;
+  Timer? _tapHintTimer;
 
   @override
   KpPlayer get swipePlayer => widget.player;
@@ -666,6 +694,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _tapHintTimer?.cancel();
     disposeSwipe();
     widget.player.removeListener(_onTick);
     // 退出全屏恢复竖屏
@@ -678,6 +707,20 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void _onTick() {
     final err = widget.player.value.error;
     if (err != _errShown && mounted) setState(() => _errShown = err);
+  }
+
+  /// 双击左半屏后退、右半屏快进（步长来自设置）
+  void _onDoubleTap() {
+    final w = context.size?.width ?? MediaQuery.of(context).size.width;
+    final back = _lastTapPos.dx < w / 2;
+    final secs = AppSettings.i.step;
+    widget.player
+        .seek(widget.player.value.position + Duration(seconds: back ? -secs : secs));
+    _tapHintTimer?.cancel();
+    setState(() => _tapHintBack = back);
+    _tapHintTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _tapHintBack = null);
+    });
   }
 
   void _scheduleHide() {
@@ -700,6 +743,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
+        onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
+        onDoubleTap: _onDoubleTap,
         // 下滑返回
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 200) Navigator.pop(context);
@@ -721,6 +766,16 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                     ),
                     const Expanded(child: SizedBox()),
                   ],
+                ),
+              ),
+            // 双击左/右的提示图标
+            if (_tapHintBack != null)
+              Align(
+                alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
+                child: Icon(
+                  _tapHintBack! ? Icons.fast_rewind : Icons.fast_forward,
+                  color: Colors.white70,
+                  size: 40,
                 ),
               ),
             // 跳转后重新拉流时的缓冲提示
@@ -753,6 +808,109 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 底部进度条（自绘）。
+/// 用 Material Slider 时它有固定的上下留白，压不到最底、也很难贴近上面那排按钮，
+/// 这里自己画：轨道 3px、离底边 4px，拖到哪就在哪松手跳转。
+class _SeekBar extends StatefulWidget {
+  final Duration position;
+  final Duration duration;
+
+  /// 拖动中的预览（null = 松手了）
+  final ValueChanged<Duration?> onPreview;
+  final ValueChanged<Duration> onSeek;
+
+  const _SeekBar({
+    required this.position,
+    required this.duration,
+    required this.onPreview,
+    required this.onSeek,
+  });
+
+  @override
+  State<_SeekBar> createState() => _SeekBarState();
+}
+
+class _SeekBarState extends State<_SeekBar> {
+  Duration? _drag;
+
+  void _moveTo(double dx, double width) {
+    if (width <= 0) return;
+    final ms = (dx / width).clamp(0.0, 1.0) * widget.duration.inMilliseconds;
+    final d = Duration(milliseconds: ms.round());
+    setState(() => _drag = d);
+    widget.onPreview(d);
+  }
+
+  void _release() {
+    final d = _drag;
+    setState(() => _drag = null);
+    widget.onPreview(null);
+    if (d != null) widget.onSeek(d);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalMs = widget.duration.inMilliseconds.toDouble();
+    final shownMs = (_drag ?? widget.position).inMilliseconds.toDouble();
+    final frac =
+        (totalMs <= 0 ? 0.0 : (shownMs / totalMs).clamp(0.0, 1.0)).toDouble();
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        final w = c.maxWidth;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _moveTo(d.localPosition.dx, w),
+          onTapUp: (_) => _release(),
+          onHorizontalDragStart: (d) => _moveTo(d.localPosition.dx, w),
+          onHorizontalDragUpdate: (d) => _moveTo(d.localPosition.dx, w),
+          onHorizontalDragEnd: (_) => _release(),
+          child: Stack(
+            children: [
+              // 底轨
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 4,
+                height: 3,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // 已播部分
+              Positioned(
+                left: 0,
+                bottom: 4,
+                height: 3,
+                width: (w * frac).clamp(0.0, w).toDouble(),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // 圆点
+              Positioned(
+                left: (w * frac - 5).clamp(0.0, (w - 10).clamp(0.0, w)).toDouble(),
+                bottom: 0,
+                width: 10,
+                height: 10,
+                child: const DecoratedBox(
+                  decoration:
+                      BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
