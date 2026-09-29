@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
@@ -66,6 +67,9 @@ class KpState {
 
   /// 本段是否已播完
   final bool completed;
+
+  /// 音量 0~100
+  final double volume;
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -75,6 +79,7 @@ class KpState {
     this.errorText = '',
     this.buffer = Duration.zero,
     this.completed = false,
+    this.volume = 100,
   });
 
   bool get ready => duration > Duration.zero;
@@ -91,6 +96,7 @@ class KpState {
     String? errorText,
     Duration? buffer,
     bool? completed,
+    double? volume,
   }) =>
       KpState(
         position: position ?? this.position,
@@ -101,6 +107,7 @@ class KpState {
         errorText: errorText ?? this.errorText,
         buffer: buffer ?? this.buffer,
         completed: completed ?? this.completed,
+        volume: volume ?? this.volume,
       );
 }
 
@@ -132,6 +139,7 @@ class KpPlayer extends ValueNotifier<KpState> {
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
       _p.stream.completed.listen((v) => value = value.copyWith(completed: v)),
+      _p.stream.volume.listen((v) => value = value.copyWith(volume: v)),
       // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
       // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
       // 所以：还没播起来时才当失败（用于换源）；已经在播就不弹提示，
@@ -202,6 +210,10 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   Future<void> play() => _p.play();
   Future<void> pause() => _p.pause();
+
+  /// 音量 0~100（竖向滑动调节用）
+  Future<void> setVolume(double v) =>
+      _p.setVolume(v.clamp(0.0, 100.0).toDouble());
 
   Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
 
@@ -833,6 +845,13 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   Offset _lastTapPos = Offset.zero;
   bool? _tapHintBack;
   Timer? _tapHintTimer;
+  // 竖向手势：左半屏调亮度、右半屏调音量
+  bool _gBrightness = false; // 本次调的是亮度？
+  double _dyTotal = 0; // 本次竖向累计位移
+  double _startValue = 0.5; // 起点值（亮度 0~1 / 音量 0~100）
+  double? _gShow; // 指示条的值 0~1（null = 不显示）
+  bool _gApplied = false; // 本次是否真的调整过
+  Timer? _gTimer;
 
   @override
   KpPlayer get swipePlayer => widget.player;
@@ -857,6 +876,13 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void dispose() {
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
+    _gTimer?.cancel();
+    // 退出全屏把窗口亮度还原（否则系统亮度被这次播放改掉了）
+    () async {
+      try {
+        await ScreenBrightness().resetScreenBrightness();
+      } catch (_) {}
+    }();
     disposeSwipe();
     widget.player.removeListener(_onTick);
     // 退出全屏恢复竖屏
@@ -869,6 +895,62 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   void _onTick() {
     final err = widget.player.value.error;
     if (err != _errShown && mounted) setState(() => _errShown = err);
+  }
+
+  /// 竖向拖动开始：按落点在左半/右半决定调亮度还是音量
+  void _onVStart(DragStartDetails d) {
+    final w = context.size?.width ?? MediaQuery.of(context).size.width;
+    _gBrightness = d.localPosition.dx < w / 2;
+    _dyTotal = 0;
+    _gApplied = false;
+    if (_gBrightness) {
+      () async {
+        try {
+          final v = await ScreenBrightness().current;
+          if (mounted) _startValue = v;
+        } catch (_) {}
+      }();
+    } else {
+      _startValue = widget.player.value.volume;
+    }
+  }
+
+  void _onVUpdate(DragUpdateDetails d) {
+    final h = context.size?.height ?? MediaQuery.of(context).size.height;
+    if (h <= 0) return;
+    _dyTotal += d.delta.dy;
+    if (_dyTotal.abs() > 8) _gApplied = true;
+    final delta = -_dyTotal / h; // 向上滑为正
+    if (_gBrightness) {
+      final v = (_startValue + delta).clamp(0.02, 1.0).toDouble();
+      () async {
+        try {
+          await ScreenBrightness().setScreenBrightness(v);
+        } catch (_) {}
+      }();
+      _showGauge(v);
+    } else {
+      final v = (_startValue + delta * 100).clamp(0.0, 100.0).toDouble();
+      widget.player.setVolume(v);
+      _showGauge(v / 100);
+    }
+  }
+
+  void _onVEnd(DragEndDetails d) {
+    // 没真的调整过、并且是快速下滑 → 仍然当作"下滑退出"
+    if (!_gApplied && (d.primaryVelocity ?? 0) > 900) {
+      Navigator.pop(context);
+      return;
+    }
+    _gTimer?.cancel();
+    _gTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _gShow = null);
+    });
+  }
+
+  void _showGauge(double v) {
+    _gTimer?.cancel();
+    setState(() => _gShow = v.clamp(0.0, 1.0).toDouble());
   }
 
   /// 双击左半屏后退、右半屏快进（步长来自设置）
@@ -907,10 +989,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
         onTap: _toggleControls,
         onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
         onDoubleTap: _onDoubleTap,
-        // 下滑返回
-        onVerticalDragEnd: (d) {
-          if ((d.primaryVelocity ?? 0) > 200) Navigator.pop(context);
-        },
+        // 竖向：左半屏调亮度、右半屏调音量；没调整时的快速下滑仍退出
+        onVerticalDragStart: _onVStart,
+        onVerticalDragUpdate: _onVUpdate,
+        onVerticalDragEnd: _onVEnd,
         onHorizontalDragStart: swipeStart,
         onHorizontalDragUpdate: swipeUpdate,
         onHorizontalDragEnd: swipeEnd,
@@ -930,8 +1012,40 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                   ],
                 ),
               ),
+            // 亮度/音量指示（图标 + 条，不显示数字）
+            if (_gShow != null)
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _gBrightness ? Icons.brightness_6 : Icons.volume_up,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 110,
+                        height: 4,
+                        child: LinearProgressIndicator(
+                          value: _gShow,
+                          backgroundColor: Colors.white24,
+                          valueColor:
+                              const AlwaysStoppedAnimation(Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             // 双击左/右的提示图标
-            if (_tapHintBack != null)
               Align(
                 alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
                 child: Icon(

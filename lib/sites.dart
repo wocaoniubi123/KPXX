@@ -48,8 +48,10 @@ const List<SiteEntry> kSites = [
   SiteEntry(
     name: '51吃瓜',
     kind: SiteKind.native,
+    iconUrl: '/usr/themes/Mirages/images/logo-2.png',
     // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
     hosts: ['51cg1.com'],
+    // 站点自身 logo（主题自带的 png，390x105）；以 / 开头 = 用该站第一个域名拼
     categories: [
       MapEntry('wpcz', '今日吃瓜'),
       MapEntry('rdsj', '热门大瓜'),
@@ -69,6 +71,7 @@ const List<SiteEntry> kSites = [
   SiteEntry(
     name: '每日大赛',
     kind: SiteKind.native,
+    iconUrl: '/usr/themes/Mirages/images/logo-2.png',
     hosts: ['www.mrds66.com'],
     categories: [
       MapEntry('mrds', '每日大赛'),

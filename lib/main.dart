@@ -137,8 +137,10 @@ class _SiteTile extends StatelessWidget {
             height: 50,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: entry.color,
+              // 有 logo 时用浅底 + contain（避免宽 logo 被裁掉），没 logo 时用首字色块
+              color: entry.iconUrl.isEmpty ? entry.color : Colors.white,
               borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: const Color(0x14000000)),
             ),
             child: entry.iconUrl.isEmpty
                 ? Center(
@@ -151,7 +153,16 @@ class _SiteTile extends StatelessWidget {
                       ),
                     ),
                   )
-                : FetchedImage(url: entry.iconUrl, fit: BoxFit.cover),
+                : Padding(
+                    padding: const EdgeInsets.all(5),
+                    child: FetchedImage(
+                      url: entry.iconUrl.startsWith('/')
+                          ? 'https://${entry.hosts.isNotEmpty ? entry.hosts.first : ''}${entry.iconUrl}'
+                          : entry.iconUrl,
+                      fit: BoxFit.contain,
+                      memWidth: 160,
+                    ),
+                  ),
           ),
           const SizedBox(height: 6),
           // Flexible：系统字体放大时让名字收缩，不至于把格子撑爆
