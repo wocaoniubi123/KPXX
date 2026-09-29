@@ -100,18 +100,50 @@ class KpPlayer extends ValueNotifier<KpState> {
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
       _p.stream.error.listen((e) => value = value.copyWith(error: true, errorText: e)),
-      // 引擎致命日志（例如 vo 打不开）也当错误暴露出来，便于定位黑屏
+      // 引擎日志只静默留存最后一条 fatal：不再当错误弹提示
+      // （网络类日志如 "tcp: ffurl_read returned ..." 是偶发的，ffmpeg 会自己重试，
+      //   拿它当错误会误报；只有真的卡住时才把它作为附注带出来）
       _p.stream.log.listen((log) {
-        if (log.level == 'fatal') {
-          value = value.copyWith(error: true, errorText: '${log.prefix}: ${log.text}');
-        }
+        if (log.level == 'fatal') _lastFatal = '${log.prefix}: ${log.text}';
       }),
     ];
+    // 卡住看门狗：播放中位置连续 9 秒不前进 → 判为卡住（真卡住才提示）
+    _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final s = value;
+      if (!s.playing || s.error) {
+        _stuckMs = 0;
+        _lastPos = s.position;
+        return;
+      }
+      if ((s.position - _lastPos).abs().inMilliseconds < 500) {
+        _stuckMs += 1000;
+        if (_stuckMs >= _stuckLimitMs) {
+          _stuckMs = 0;
+          value = value.copyWith(
+            error: true,
+            errorText: _lastFatal.isEmpty
+                ? '缓冲超时（网络或片源无响应）'
+                : '缓冲超时；引擎日志：$_lastFatal',
+          );
+        }
+      } else {
+        _stuckMs = 0;
+      }
+      _lastPos = s.position;
+    });
   }
 
   final Player _p;
   late final VideoController _vc;
   late final List<StreamSubscription> _subs;
+
+  String _lastFatal = ''; // 最后一条 fatal 日志（仅作卡住时的附注）
+  Timer? _stallTimer;
+  Duration _lastPos = Duration.zero;
+  int _stuckMs = 0;
+
+  /// 位置连续多久不前进就判为卡住（毫秒）
+  static const int _stuckLimitMs = 9000;
 
   VideoController get videoController => _vc;
 
@@ -129,6 +161,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
 
   Future<void> shutdown() async {
+    _stallTimer?.cancel();
     for (final s in _subs) {
       await s.cancel();
     }
