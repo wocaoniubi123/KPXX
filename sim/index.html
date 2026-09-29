@@ -463,7 +463,14 @@ function renderCards(cat, st) {
     c.onclick = () => openDetail(st.items[parseInt(c.dataset.i, 10)], cat, $('body').scrollTop);
   });
   fillImages(wrap);
-  $('more').innerHTML = st.done ? '<span class="dim">没有更多了</span>' : '<span class="spin"></span>';
+  // 搜索页没有 #more（只有列表页有），判空，否则会抛
+  // "Cannot set properties of null (setting 'innerHTML')" 并被误报成"搜索失败"
+  const more = $('more');
+  if (more) {
+    more.innerHTML = st.done
+      ? '<span class="dim">没有更多了</span>'
+      : '<span class="spin"></span>';
+  }
   log(`${cat.name}：已加载 ${st.items.length} 篇`, 'dim');
 }
 
