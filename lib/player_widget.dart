@@ -37,6 +37,7 @@ class KpState {
   final bool buffering;
   final bool error;
   final String errorText; // 引擎的致命日志（便于把黑屏/加载失败的原因显示出来）
+  final Duration buffer; // 当前播放位置之后已缓冲多久（mpv demuxer-cache-time）
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -44,6 +45,7 @@ class KpState {
     this.buffering = false,
     this.error = false,
     this.errorText = '',
+    this.buffer = Duration.zero,
   });
 
   bool get ready => duration > Duration.zero;
@@ -58,6 +60,7 @@ class KpState {
     bool? buffering,
     bool? error,
     String? errorText,
+    Duration? buffer,
   }) =>
       KpState(
         position: position ?? this.position,
@@ -66,6 +69,7 @@ class KpState {
         buffering: buffering ?? this.buffering,
         error: error ?? this.error,
         errorText: errorText ?? this.errorText,
+        buffer: buffer ?? this.buffer,
       );
 }
 
@@ -91,6 +95,7 @@ class KpPlayer extends ValueNotifier<KpState> {
       _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
       _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
       _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
+      _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
       _p.stream.error.listen((e) => value = value.copyWith(error: true, errorText: e)),
       // 引擎致命日志（例如 vo 打不开）也当错误暴露出来，便于定位黑屏
       _p.stream.log.listen((log) {
@@ -659,6 +664,7 @@ class _ControlBarState extends State<_ControlBar> {
                 child: _SeekBar(
                   position: shown,
                   duration: total,
+                  buffer: s.buffer,
                   onPreview: (d) => setState(() => _drag = d),
                   onSeek: widget.player.seek,
                 ),
@@ -840,6 +846,9 @@ class _SeekBar extends StatefulWidget {
   final Duration position;
   final Duration duration;
 
+  /// 当前位置之后已缓冲多久（画成浅色一段）
+  final Duration buffer;
+
   /// 拖动中的预览（null = 松手了）
   final ValueChanged<Duration?> onPreview;
   final ValueChanged<Duration> onSeek;
@@ -847,6 +856,7 @@ class _SeekBar extends StatefulWidget {
   const _SeekBar({
     required this.position,
     required this.duration,
+    required this.buffer,
     required this.onPreview,
     required this.onSeek,
   });
@@ -879,6 +889,10 @@ class _SeekBarState extends State<_SeekBar> {
     final shownMs = (_drag ?? widget.position).inMilliseconds.toDouble();
     final frac =
         (totalMs <= 0 ? 0.0 : (shownMs / totalMs).clamp(0.0, 1.0)).toDouble();
+    // 缓冲段 = 当前位置 + 已缓冲量
+    final bufMs = (widget.position + widget.buffer).inMilliseconds.toDouble();
+    final bufFrac =
+        (totalMs <= 0 ? 0.0 : (bufMs / totalMs).clamp(0.0, 1.0)).toDouble();
     return LayoutBuilder(
       builder: (ctx, c) {
         final w = c.maxWidth;
@@ -900,6 +914,19 @@ class _SeekBarState extends State<_SeekBar> {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // 已缓冲（浅色一段，压在已播下面）
+              Positioned(
+                left: 0,
+                bottom: 3,
+                height: 3,
+                width: (w * bufFrac).clamp(0.0, w).toDouble(),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white38,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
