@@ -79,20 +79,6 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     _dragTarget = _clampDur(
         _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
     swipePreview.value = _dragTarget;
-    liveSeek(swipeCtl, _dragTarget, _dragFrom);
-  }
-
-  /// 拖动过程中就提前 seek（节流 250ms）。
-  /// 这是网页那套"指哪打哪"的关键：目标位置的数据在松手前就开始拉，
-  /// 松手后不用再等一整个缓冲周期。
-  static DateTime _lastLiveSeek = DateTime.fromMillisecondsSinceEpoch(0);
-  static void liveSeek(
-      VideoPlayerController ctl, Duration target, Duration from) {
-    if (target == from) return;
-    final now = DateTime.now();
-    if (now.difference(_lastLiveSeek).inMilliseconds < 250) return;
-    _lastLiveSeek = now;
-    ctl.seekTo(target);
   }
 
   void swipeEnd(DragEndDetails d) {
@@ -514,15 +500,7 @@ class _ControlBarState extends State<_ControlBar> {
                     max: totalMs,
                     activeColor: Colors.white,
                     inactiveColor: Colors.white24,
-                    onChanged: (val) {
-                      setState(() => _dragMs = val);
-                      // 拖进度条时也提前 seek（节流），松手前先把数据拉起来
-                      _SwipeSeek.liveSeek(
-                        widget.controller,
-                        Duration(milliseconds: val.toInt()),
-                        Duration(milliseconds: v.position.inMilliseconds),
-                      );
-                    },
+                    onChanged: (val) => setState(() => _dragMs = val),
                     onChangeEnd: (val) {
                       widget.controller
                           .seekTo(Duration(milliseconds: val.toInt()));
