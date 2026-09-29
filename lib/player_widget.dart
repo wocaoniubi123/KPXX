@@ -443,7 +443,7 @@ class _ControlBarState extends State<_ControlBar> {
       iconSize: 20,
       color: Colors.white,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 32),
       icon: Icon(icon),
       onPressed: onPressed,
     );
@@ -500,14 +500,14 @@ class _ControlBarState extends State<_ControlBar> {
                 ),
               // 进度条压到最底下（只留一点点边距），整条高度收窄贴近上面那排按钮
               SizedBox(
-                height: 30,
+                height: 22,
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 3,
                     thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        const RoundSliderThumbShape(enabledThumbRadius: 5),
                     overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 12),
+                        const RoundSliderOverlayShape(overlayRadius: 10),
                   ),
                   child: Slider(
                     value: shownMs,

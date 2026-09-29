@@ -20,5 +20,12 @@ dependencies:
 dev_dependencies:
   flutter_lints: ^4.0.0
 
+# 本地内置的 video_player_avfoundation：打了 2 处原生补丁
+# （跳转不等缓冲、seek 给 1 秒容差），见 third_party/.../FVPVideoPlayer.m 里的 [KPXX 本地补丁]。
+# 之所以内置：video_player 的公开 API 没有任何缓冲/seek 容差开关，只能改原生。
+dependency_overrides:
+  video_player_avfoundation:
+    path: third_party/video_player_avfoundation
+
 flutter:
   uses-material-design: true
