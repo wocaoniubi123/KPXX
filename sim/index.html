@@ -177,7 +177,7 @@
   <h3>模拟器日志（数据抓取 / 解密 / 播放）</h3>
   <div style="margin-bottom:8px">
     <button onclick="document.getElementById('log').innerHTML=''">清空</button>
-    <button onclick="reloadSites()">重读站点清单</button>
+    <button onclick="loadSitesWithRetry()">重读站点清单</button>
     <span class="dim">站点清单来自 lib/sites.dart</span>
   </div>
   <div id="log"></div>
@@ -216,11 +216,27 @@ let SITES = [];
 
 async function reloadSites() {
   const r = await fetch('/sites');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
   const j = await r.json();
-  if (j.error) { log('站点清单解析失败：' + j.error, 'err'); return; }
-  SITES = j.sites;
+  if (j.error) throw new Error('解析 lib/sites.dart 失败：' + j.error);
+  SITES = j.sites || [];
   log(`站点清单：${SITES.map((s) => s.name).join('、')}`, 'ok');
-  renderGrid();
+  viewGrid();
+}
+
+/** 首次打开时服务可能还没监听 → 失败要重试几次，别留一屏空白 */
+async function loadSitesWithRetry() {
+  for (let i = 1; i <= 6; i++) {
+    try {
+      await reloadSites();
+      if (SITES.length) return;
+    } catch (e) {
+      log(`读取站点清单失败（第 ${i} 次）：${e.message}`, 'err');
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  $('body').innerHTML = `<div class="hint">读不到站点清单。<br>
+    服务端可能没起来 —— 关掉服务窗口，重新双击「启动模拟器.bat」。</div>`;
 }
 
 const base = (site) => 'https://' + (site.hosts[0] || '');
@@ -749,8 +765,10 @@ $('nav').querySelectorAll('.item').forEach((it) => {
     if (it.dataset.nav === 'grid') viewGrid(); else viewSettings();
   };
 });
+// 先把外壳渲染出来（否则第一屏是空白，要等 /sites 回来才有东西）
+viewGrid();
 log('模拟器已就绪；站点清单来自 lib/sites.dart', 'ok');
-reloadSites();
+loadSitesWithRetry();
 </script>
 </body>
 </html>

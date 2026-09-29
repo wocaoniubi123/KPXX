@@ -18,7 +18,7 @@ cd /d "%~dp0sim"
 start "KPXX 模拟器服务（关掉此窗口即停止）" cmd /k ""%NODE%" server.mjs"
 
 rem 用绝对路径调用 timeout.exe，避免被其它 PATH 里的同名程序顶掉
-%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul
+%SystemRoot%\System32\timeout.exe /t 3 /nobreak >nul
 start "" http://localhost:8787
 
 echo   浏览器已打开：http://localhost:8787
