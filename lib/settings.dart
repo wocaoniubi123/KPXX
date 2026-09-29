@@ -13,7 +13,7 @@ class AppSettings extends ChangeNotifier {
   static const String _kStep = 'seek_step';
 
   /// 播放缓冲档位（MB，默认 200）
-  static const List<int> bufferOptions = [100, 200, 500, 1024];
+  static const List<int> bufferOptions = [100, 200, 300, 500, 1024];
   static const int defaultBufferMb = 200;
   static const String _kBuffer = 'buffer_mb';
 
