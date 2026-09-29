@@ -156,24 +156,22 @@ class Api {
       }
     }
 
-    // 正文图片：post-content 内 img，图源属性优先级 data-src -> data-xkrkllgl -> src。
-    // 该站真实图地址放在 data-xkrkllgl（懒加载占位是站内 zw.png），只收图床的图。
+    // 正文剧照：只认 data-xkrkllgl（实测 51吃瓜 / 每日大赛 两站的真实图地址都在这）。
+    // 同一个 img 的 data-src / src 位置常被站内 APP 推广图、主题占位图占用：
+    //   btn-app / flash 容器里的推广图（图床路径含 /hc237/、src 是 base64 data:）、
+    //   /usr/themes/... 主题图 —— 收进来就会混进"剧照"里。
     final images = <String>[];
     for (final img in doc.querySelectorAll('.post-content img')) {
-      var src = img.attributes['data-src'] ?? '';
-      if (src.isEmpty) src = img.attributes['data-xkrkllgl'] ?? '';
-      if (src.isEmpty) src = img.attributes['src'] ?? '';
-      // 绝对地址即真图（占位图是站内相对路径 zw.png / /usr/... 的图）。
-      // 不按图床域名过滤：图床会换（实测同一站既用 pic.ndhixj.cn 也用 pic.sbhioa.cn）。
-      if (src.startsWith('http')) {
-        if (!images.contains(src)) images.add(src);
-      }
+      final src = img.attributes['data-xkrkllgl'] ?? '';
+      if (src.startsWith('http') && !images.contains(src)) images.add(src);
     }
-    // 无 .post-content 容器的旧结构兜底
+    // 结构变化兜底：整篇都没有 data-xkrkllgl 时才退回 data-src/src（排除推广图）
     if (images.isEmpty) {
-      for (final img in doc.querySelectorAll('article img[data-src]')) {
-        final src = img.attributes['data-src'] ?? '';
-        if (src.startsWith('http') && !images.contains(src)) images.add(src);
+      for (final img in doc.querySelectorAll('.post-content img')) {
+        final src =
+            img.attributes['data-src'] ?? (img.attributes['src'] ?? '');
+        if (!src.startsWith('http') || src.contains('/hc237/')) continue;
+        if (!images.contains(src)) images.add(src);
       }
     }
 

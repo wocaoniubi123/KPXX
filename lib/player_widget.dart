@@ -79,6 +79,20 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     _dragTarget = _clampDur(
         _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
     swipePreview.value = _dragTarget;
+    liveSeek(swipeCtl, _dragTarget, _dragFrom);
+  }
+
+  /// 拖动过程中就提前 seek（节流 250ms）。
+  /// 这是网页那套"指哪打哪"的关键：目标位置的数据在松手前就开始拉，
+  /// 松手后不用再等一整个缓冲周期。
+  static DateTime _lastLiveSeek = DateTime.fromMillisecondsSinceEpoch(0);
+  static void liveSeek(
+      VideoPlayerController ctl, Duration target, Duration from) {
+    if (target == from) return;
+    final now = DateTime.now();
+    if (now.difference(_lastLiveSeek).inMilliseconds < 250) return;
+    _lastLiveSeek = now;
+    ctl.seekTo(target);
   }
 
   void swipeEnd(DragEndDetails d) {
@@ -423,6 +437,18 @@ class _ControlBar extends StatefulWidget {
 class _ControlBarState extends State<_ControlBar> {
   double? _dragMs; // 直接拖进度条时的预览值
 
+  /// 底部那排小按钮：做紧凑些，别和进度条离太远
+  Widget _barBtn({required IconData icon, VoidCallback? onPressed}) {
+    return IconButton(
+      iconSize: 20,
+      color: Colors.white,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+      icon: Icon(icon),
+      onPressed: onPressed,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<Duration?>(
@@ -445,12 +471,8 @@ class _ControlBarState extends State<_ControlBar> {
               if (widget.showButtons)
                 Row(
                   children: [
-                    IconButton(
-                      iconSize: 20,
-                      color: Colors.white,
-                      icon: Icon(
-                        v.isPlaying ? Icons.pause : Icons.play_arrow,
-                      ),
+                    _barBtn(
+                      icon: v.isPlaying ? Icons.pause : Icons.play_arrow,
                       onPressed: () => v.isPlaying
                           ? widget.controller.pause()
                           : widget.controller.play(),
@@ -465,24 +487,20 @@ class _ControlBarState extends State<_ControlBar> {
                     ),
                     if (widget.showFullscreen) ...[
                       // 竖屏全屏（全屏按钮左边）
-                      IconButton(
-                        iconSize: 20,
-                        color: Colors.white,
-                        icon: const Icon(Icons.crop_portrait),
+                      _barBtn(
+                        icon: Icons.crop_portrait,
                         onPressed: widget.onVerticalFullscreen,
                       ),
-                      IconButton(
-                        iconSize: 20,
-                        color: Colors.white,
-                        icon: const Icon(Icons.fullscreen),
+                      _barBtn(
+                        icon: Icons.fullscreen,
                         onPressed: widget.onFullscreen,
                       ),
                     ],
                   ],
                 ),
-              // 进度条压到最底下（留边距，不贴死）
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+              // 进度条压到最底下（只留一点点边距），整条高度收窄贴近上面那排按钮
+              SizedBox(
+                height: 30,
                 child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 3,
@@ -496,7 +514,15 @@ class _ControlBarState extends State<_ControlBar> {
                     max: totalMs,
                     activeColor: Colors.white,
                     inactiveColor: Colors.white24,
-                    onChanged: (val) => setState(() => _dragMs = val),
+                    onChanged: (val) {
+                      setState(() => _dragMs = val);
+                      // 拖进度条时也提前 seek（节流），松手前先把数据拉起来
+                      _SwipeSeek.liveSeek(
+                        widget.controller,
+                        Duration(milliseconds: val.toInt()),
+                        Duration(milliseconds: v.position.inMilliseconds),
+                      );
+                    },
                     onChangeEnd: (val) {
                       widget.controller
                           .seekTo(Duration(milliseconds: val.toInt()));
