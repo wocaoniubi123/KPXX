@@ -181,7 +181,9 @@ class DetailPageState extends State<DetailPage> {
                                     fontSize: 12, color: Colors.grey),
                               ),
                               const SizedBox(width: 12),
-                              Text('${_series.length} 集',
+                              // 显示本篇的视频数（原来显示的是"同系列文章数"，
+                              // 一篇挂多个视频但没有"第N集"的文章会显示成 0）
+                              Text('${videos.length} 集',
                                   style: const TextStyle(
                                       fontSize: 12, color: Colors.grey)),
                             ],
