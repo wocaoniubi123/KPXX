@@ -35,12 +35,14 @@ class KpState {
   final bool playing;
   final bool buffering;
   final bool error;
+  final String errorText; // 引擎的致命日志（便于把黑屏/加载失败的原因显示出来）
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
     this.playing = false,
     this.buffering = false,
     this.error = false,
+    this.errorText = '',
   });
 
   bool get ready => duration > Duration.zero;
@@ -51,6 +53,7 @@ class KpState {
     bool? playing,
     bool? buffering,
     bool? error,
+    String? errorText,
   }) =>
       KpState(
         position: position ?? this.position,
@@ -58,6 +61,7 @@ class KpState {
         playing: playing ?? this.playing,
         buffering: buffering ?? this.buffering,
         error: error ?? this.error,
+        errorText: errorText ?? this.errorText,
       );
 }
 
@@ -74,18 +78,30 @@ class KpPlayer extends ValueNotifier<KpState> {
           ),
         ),
         super(const KpState()) {
+    // 关键顺序：渲染上下文（VideoController）必须在 player.open() 之前建好。
+    // 否则 iOS 上 mpv 打开 vo/libmpv 时会报 "No render context set"，
+    // 表现就是只有声音、画面全黑（media-kit issue #1192）。
+    _vc = VideoController(_p);
     _subs = [
       _p.stream.position.listen((v) => value = value.copyWith(position: v)),
       _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
       _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
       _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
-      _p.stream.error.listen((_) => value = value.copyWith(error: true)),
+      _p.stream.error.listen((e) => value = value.copyWith(error: true, errorText: e)),
+      // 引擎致命日志（例如 vo 打不开）也当错误暴露出来，便于定位黑屏
+      _p.stream.log.listen((log) {
+        if (log.level == 'fatal') {
+          value = value.copyWith(error: true, errorText: '${log.prefix}: ${log.text}');
+        }
+      }),
     ];
   }
 
   final Player _p;
+  late final VideoController _vc;
   late final List<StreamSubscription> _subs;
-  late final VideoController videoController = VideoController(_p);
+
+  VideoController get videoController => _vc;
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) =>
@@ -408,8 +424,14 @@ class _PlayerWidgetState extends State<PlayerWidget>
                       child: TextButton.icon(
                         onPressed: _retry,
                         icon: const Icon(Icons.refresh, color: Colors.white),
-                        label: const Text('播放出错，点此重试',
-                            style: TextStyle(color: Colors.white)),
+                        label: Text(
+                          kp.value.errorText.isEmpty
+                              ? '播放出错，点此重试'
+                              : '播放出错：${kp.value.errorText}
+点此重试',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white),
+                        ),
                       ),
                     ),
                   // 底部：进度条在最底；单击视频显示整条控制条，
