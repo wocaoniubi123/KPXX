@@ -403,7 +403,7 @@ function viewGrid() {
     <div class="tile" data-i="${i}">
       <div class="box">
         ${s.iconUrl
-          ? `<img src="${px(s.iconUrl.startsWith('/') ? base(s) + s.iconUrl : s.iconUrl)}" />`
+          ? `<img src="/icon?name=${encodeURIComponent(s.name)}" />`
           : `<div class="noimg" style="background:#${s.color}">${esc(s.name[0] || '?')}</div>`}
       </div>
       <span>${esc(s.name)}</span>

@@ -311,6 +311,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (me.pathname === '/icon') {
+      const name = me.searchParams.get('name') || '';
+      const data = await loadSites();
+      const site = (data.sites || []).find((s) => s.name === name);
+      if (!site || !site.iconUrl) {
+        res.writeHead(404, { ...cors });
+        res.end();
+        return;
+      }
+      const p = site.iconUrl.startsWith('/') ? site.iconUrl : '/' + site.iconUrl;
+      const r = await fetchSite(name, p);   // 复用"逐域名试 + 记住"的逻辑
+      res.writeHead(200, {
+        'Content-Type': r.headers['content-type'] || 'image/x-icon',
+        'X-Sim-Host': r.host,
+        ...cors,
+      });
+      res.end(r.body);
+      return;
+    }
+
     if (me.pathname === '/site') {
       const name = me.searchParams.get('name') || '';
       const path = me.searchParams.get('path') || '/';
