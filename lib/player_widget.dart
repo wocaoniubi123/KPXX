@@ -575,15 +575,19 @@ class _ControlBar extends StatefulWidget {
 class _ControlBarState extends State<_ControlBar> {
   Duration? _drag; // 直接拖进度条时的预览值
 
-  /// 底部那排小按钮：做紧凑些，别和进度条离太远
+  /// 底部那排小按钮。
+  /// 不用 IconButton：Material 3 的 IconButton 有 48px 最小点击区
+  /// （tapTargetSize 机制），constraints 压不下去，整排就一直是 48 高、
+  /// 和进度条之间空一大截。这里自己定尺寸。
   Widget _barBtn({required IconData icon, VoidCallback? onPressed}) {
-    return IconButton(
-      iconSize: 18,
-      color: Colors.white,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 34, minHeight: 28),
-      icon: Icon(icon),
-      onPressed: onPressed,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onPressed,
+      child: SizedBox(
+        width: 40,
+        height: 26,
+        child: Icon(icon, size: 20, color: Colors.white),
+      ),
     );
   }
 
@@ -634,7 +638,7 @@ class _ControlBarState extends State<_ControlBar> {
                 ),
               // 进度条：自绘（Material Slider 自带上下留白，压不到最底、也贴不紧按钮）
               SizedBox(
-                height: 14,
+                height: 12,
                 child: _SeekBar(
                   position: shown,
                   duration: total,
@@ -874,7 +878,7 @@ class _SeekBarState extends State<_SeekBar> {
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: 4,
+                bottom: 3,
                 height: 3,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -886,7 +890,7 @@ class _SeekBarState extends State<_SeekBar> {
               // 已播部分
               Positioned(
                 left: 0,
-                bottom: 4,
+                bottom: 3,
                 height: 3,
                 width: (w * frac).clamp(0.0, w).toDouble(),
                 child: DecoratedBox(
@@ -898,10 +902,10 @@ class _SeekBarState extends State<_SeekBar> {
               ),
               // 圆点
               Positioned(
-                left: (w * frac - 5).clamp(0.0, (w - 10).clamp(0.0, w)).toDouble(),
-                bottom: 0,
-                width: 10,
-                height: 10,
+                left: (w * frac - 4).clamp(0.0, (w - 8).clamp(0.0, w)).toDouble(),
+                bottom: 0.5,
+                width: 8,
+                height: 8,
                 child: const DecoratedBox(
                   decoration:
                       BoxDecoration(color: Colors.white, shape: BoxShape.circle),
