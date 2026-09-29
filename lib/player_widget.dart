@@ -40,6 +40,9 @@ class KpState {
   /// 已缓存数据的最后时间戳（绝对值，来自 mpv demuxer-cache-time）。
   /// 注意：它不是"当前位置往后缓冲了多少秒"，别拿它加当前位置。
   final Duration buffer;
+
+  /// 本段是否已播完
+  final bool completed;
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -48,6 +51,7 @@ class KpState {
     this.error = false,
     this.errorText = '',
     this.buffer = Duration.zero,
+    this.completed = false,
   });
 
   bool get ready => duration > Duration.zero;
@@ -63,6 +67,7 @@ class KpState {
     bool? error,
     String? errorText,
     Duration? buffer,
+    bool? completed,
   }) =>
       KpState(
         position: position ?? this.position,
@@ -72,6 +77,7 @@ class KpState {
         error: error ?? this.error,
         errorText: errorText ?? this.errorText,
         buffer: buffer ?? this.buffer,
+        completed: completed ?? this.completed,
       );
 }
 
@@ -102,6 +108,7 @@ class KpPlayer extends ValueNotifier<KpState> {
       _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
+      _p.stream.completed.listen((v) => value = value.copyWith(completed: v)),
       // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
       // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
       // 所以：还没播起来时才当失败（用于换源）；已经在播就不弹提示，
@@ -165,7 +172,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
-    value = value.copyWith(error: false, errorText: '');
+    value = value.copyWith(error: false, errorText: '', completed: false);
     _everStarted = false; // 新源重新算"还没播起来"
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
@@ -280,12 +287,20 @@ class PlayerWidget extends StatefulWidget {
   /// 全部源都失败时调用：重新抓详情页拿新地址
   final Future<List<String>> Function()? onRefreshSources;
 
+  /// 是否有下一个视频（多视频文章）；false 时"下一集"按钮置灰
+  final bool hasNext;
+
+  /// 切到下一个视频
+  final VoidCallback? onNext;
+
   const PlayerWidget({
     super.key,
     required this.sources,
     required this.referer,
     this.poster = '',
     this.onRefreshSources,
+    this.hasNext = false,
+    this.onNext,
   });
 
   @override
@@ -428,9 +443,16 @@ class _PlayerWidgetState extends State<PlayerWidget>
 
   /// 只在「出错 / 已开播」这两个状态翻转时重建：位置/缓冲的变化由控制条和
   /// 缓冲提示自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
+  bool _nextFired = false; // 本次播放是否已触发过自动下一集
+
   void _onTick() {
     final err = _kp?.value.error ?? false;
     final started = _kp?.value.started ?? false;
+    // 播完 → 按设置决定是否自动切下一个（每次播放只触发一次）
+    if ((_kp?.value.completed ?? false) && !_nextFired) {
+      _nextFired = true;
+      if (AppSettings.i.autoNext && widget.hasNext) widget.onNext?.call();
+    }
     if ((err != _errShown || started != _started) && mounted) {
       setState(() {
         _errShown = err;
@@ -480,7 +502,12 @@ class _PlayerWidgetState extends State<PlayerWidget>
     if (kp == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => FullscreenPlayer(player: kp, vertical: vertical),
+        builder: (_) => FullscreenPlayer(
+          player: kp,
+          vertical: vertical,
+          hasNext: widget.hasNext,
+          onNext: widget.onNext,
+        ),
       ),
     );
   }
@@ -572,6 +599,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
                           child: _ControlBar(
                             player: kp,
                             preview: swipePreview,
+                            hasNext: widget.hasNext,
+                            onNext: widget.onNext,
                             showButtons: _controlsVisible && !dragging,
                             onVerticalFullscreen: () =>
                                 _openFullscreen(vertical: true),
@@ -628,6 +657,8 @@ class _ControlBar extends StatefulWidget {
 
   /// 视频区滑动的预览位置（非 null = 正在滑动）
   final ValueListenable<Duration?> preview;
+  final bool hasNext;
+  final VoidCallback? onNext;
   final bool showButtons;
   final VoidCallback? onFullscreen;
   final VoidCallback? onVerticalFullscreen;
@@ -635,6 +666,8 @@ class _ControlBar extends StatefulWidget {
   const _ControlBar({
     required this.player,
     required this.preview,
+    this.hasNext = false,
+    this.onNext,
     this.showButtons = true,
     this.onFullscreen,
     this.onVerticalFullscreen,
@@ -652,14 +685,19 @@ class _ControlBarState extends State<_ControlBar> {
   /// 不用 IconButton：Material 3 的 IconButton 有 48px 最小点击区
   /// （tapTargetSize 机制），constraints 压不下去，整排就一直是 48 高、
   /// 和进度条之间空一大截。这里自己定尺寸。
-  Widget _barBtn({required IconData icon, VoidCallback? onPressed}) {
+  Widget _barBtn({
+    required IconData icon,
+    VoidCallback? onPressed,
+    bool enabled = true,
+  }) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onPressed,
+      onTap: enabled ? onPressed : null,
       child: SizedBox(
         width: 40,
         height: 26,
-        child: Icon(icon, size: 20, color: Colors.white),
+        child: Icon(icon,
+            size: 20, color: enabled ? Colors.white : Colors.white24),
       ),
     );
   }
@@ -688,6 +726,12 @@ class _ControlBarState extends State<_ControlBar> {
                       icon: s.playing ? Icons.pause : Icons.play_arrow,
                       onPressed: () =>
                           s.playing ? widget.player.pause() : widget.player.play(),
+                    ),
+                    // 下一集：篇内没有下一个视频时置灰禁用
+                    _barBtn(
+                      icon: Icons.skip_next,
+                      enabled: widget.hasNext,
+                      onPressed: widget.onNext,
                     ),
                     Expanded(
                       child: Text(
@@ -733,10 +777,14 @@ class _ControlBarState extends State<_ControlBar> {
 class FullscreenPlayer extends StatefulWidget {
   final KpPlayer player;
   final bool vertical;
+  final bool hasNext;
+  final VoidCallback? onNext;
   const FullscreenPlayer({
     super.key,
     required this.player,
     this.vertical = false,
+    this.hasNext = false,
+    this.onNext,
   });
 
   @override
@@ -877,6 +925,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
                     child: _ControlBar(
                       player: kp,
                       preview: swipePreview,
+                      hasNext: widget.hasNext,
+                      onNext: widget.onNext,
                       showButtons: _controls && !dragging,
                     ),
                   ),

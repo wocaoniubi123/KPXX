@@ -201,6 +201,13 @@ class SettingsPage extends StatelessWidget {
               ),
             ),
             const Divider(height: 32),
+            SwitchListTile(
+              title: const Text('自动播放下一集'),
+              subtitle: const Text('一篇里有多个视频时，播完自动切下一个（默认关）'),
+              value: AppSettings.i.autoNext,
+              onChanged: (v) => AppSettings.i.setAutoNext(v),
+            ),
+            const Divider(height: 32),
             const ListTile(
               title: Text('播放缓冲大小'),
               subtitle: Text('越大越抗卡、拖动越顺，但更吃内存（1G 在低内存机型上可能被杀进程）；改完重进视频生效'),

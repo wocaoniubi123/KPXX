@@ -23,6 +23,11 @@ class AppSettings extends ChangeNotifier {
   int _bufferMb = defaultBufferMb;
   int get bufferMb => _bufferMb;
 
+  /// 播完是否自动播下一篇里的下一个视频（默认关）
+  static const String _kAutoNext = 'auto_next';
+  bool _autoNext = false;
+  bool get autoNext => _autoNext;
+
   /// 档位显示名：1024 显示成 1G
   static String bufferLabel(int mb) => mb >= 1024 ? '1G' : '${mb}MB';
 
@@ -41,6 +46,11 @@ class AppSettings extends ChangeNotifier {
         _bufferMb = b;
         changed = true;
       }
+      final an = sp.getBool(_kAutoNext);
+      if (an != null && an != _autoNext) {
+        _autoNext = an;
+        changed = true;
+      }
       if (changed) notifyListeners();
     } catch (_) {
       // 读失败保持默认值
@@ -54,6 +64,18 @@ class AppSettings extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setInt(_kStep, v);
+    } catch (_) {
+      // 存失败也不影响本次会话使用
+    }
+  }
+
+  Future<void> setAutoNext(bool v) async {
+    if (v == _autoNext) return;
+    _autoNext = v;
+    notifyListeners();
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setBool(_kAutoNext, v);
     } catch (_) {
       // 存失败也不影响本次会话使用
     }

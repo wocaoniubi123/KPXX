@@ -139,6 +139,8 @@ class DetailPageState extends State<DetailPage> {
                       referer: _api.base,
                       poster: d.images.isNotEmpty ? d.images.first : '',
                       onRefreshSources: _refreshSources,
+                      hasNext: idx < videos.length - 1,
+                      onNext: () => setState(() => _videoIndex = idx + 1),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(12),
