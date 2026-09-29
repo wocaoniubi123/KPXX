@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
-import 'config.dart';
 import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
+import 'sites.dart';
 
-/// 51吃瓜主界面：顶部分类 tab + 双列瀑布流卡片列表。
+/// 单个站点的内容页：顶部分类 tab + 双列卡片列表。
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final SiteEntry site;
+  const HomePage({super.key, required this.site});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -17,15 +18,17 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
-  final Api _api = Api();
+  late final Api _api = Api(hosts: widget.site.hosts);
 
   /// 每 tab 一页列表状态
   final Map<String, _CategoryFeed> _feeds = {};
 
+  List<MapEntry<String, String>> get _cats => widget.site.categories;
+
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: Site.categories.length, vsync: this);
+    _tab = TabController(length: _cats.length, vsync: this);
   }
 
   @override
@@ -43,7 +46,7 @@ class _HomePageState extends State<HomePage>
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F7),
       appBar: AppBar(
-        title: const Text('51吃瓜'),
+        title: Text(widget.site.name),
         centerTitle: true,
         actions: [
           IconButton(
@@ -56,15 +59,15 @@ class _HomePageState extends State<HomePage>
           isScrollable: true,
           tabAlignment: TabAlignment.start,
           tabs: [
-            for (final c in Site.categories) Tab(text: c.value),
+            for (final c in _cats) Tab(text: c.value),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tab,
         children: [
-          for (final c in Site.categories)
-            _FeedView(feed: _feedFor(c.key)),
+          for (final c in _cats)
+            _FeedView(feed: _feedFor(c.key), site: widget.site),
         ],
       ),
     );
@@ -72,7 +75,7 @@ class _HomePageState extends State<HomePage>
 
   void _openSearch(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SearchPage()),
+      MaterialPageRoute(builder: (_) => SearchPage(site: widget.site)),
     );
   }
 }
@@ -116,7 +119,8 @@ class _CategoryFeed extends ChangeNotifier {
 
 class _FeedView extends StatefulWidget {
   final _CategoryFeed feed;
-  const _FeedView({required this.feed});
+  final SiteEntry site;
+  const _FeedView({required this.feed, required this.site});
 
   @override
   State<_FeedView> createState() => _FeedViewState();
@@ -200,7 +204,10 @@ class _FeedViewState extends State<_FeedView>
                         child: CircularProgressIndicator()),
                   );
                 }
-                return _ArticleCard(article: feed.items[i]);
+                return _ArticleCard(
+                  article: feed.items[i],
+                  site: widget.site,
+                );
               },
             ),
     );
@@ -209,7 +216,8 @@ class _FeedViewState extends State<_FeedView>
 
 class _ArticleCard extends StatelessWidget {
   final Article article;
-  const _ArticleCard({required this.article});
+  final SiteEntry site;
+  const _ArticleCard({required this.article, required this.site});
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +228,7 @@ class _ArticleCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => DetailPage(baseUrl: article.url),
+              builder: (_) => DetailPage(site: site, baseUrl: article.url),
             ),
           );
         },
@@ -270,7 +278,8 @@ class _ArticleCard extends StatelessWidget {
 
 /// 搜索页，复用列表卡片。
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  final SiteEntry site;
+  const SearchPage({super.key, required this.site});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -279,7 +288,7 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _ctl = TextEditingController();
   final List<Article> _results = [];
-  final Api _api = Api();
+  late final Api _api = Api(hosts: widget.site.hosts);
   int _page = 1;
   bool _loading = false;
   bool _searched = false;
@@ -355,7 +364,7 @@ class _SearchPageState extends State<SearchPage> {
                       if (!_done) _search(more: true);
                       return const Center(child: CircularProgressIndicator());
                     }
-                    return _ArticleCard(article: _results[i]);
+                    return _ArticleCard(article: _results[i], site: widget.site);
                   },
                 ),
     );

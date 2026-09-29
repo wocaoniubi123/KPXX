@@ -6,70 +6,237 @@ import 'package:video_player/video_player.dart';
 
 import 'fetched_image.dart';
 
+/// 滑满一屏宽度对应的快进/快退秒数（滑动距离线性映射：滑多少快进多少）
+const int _kSwipeSecondsPerScreen = 120;
+
+/// 横向滑动位移 → 秒数（右滑为正，左滑为负）
+int _swipeSeconds(double dx, double width) =>
+    width <= 0 ? 0 : (dx / width * _kSwipeSecondsPerScreen).round();
+
+Duration _clampDur(Duration d, Duration total) {
+  if (d < Duration.zero) return Duration.zero;
+  if (total > Duration.zero && d > total) return total;
+  return d;
+}
+
+String _fmt(Duration d) {
+  final m = d.inMinutes.toString().padLeft(2, '0');
+  final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return '$m:$s';
+}
+
+/// 左右滑动快进/快退：拖动时跟手显示目标位置，松手才真正跳转。
+/// 内嵌播放器和全屏播放器共用。
+mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
+  VideoPlayerController get swipeCtl;
+
+  Timer? _swipeToastTimer;
+  String? swipeToast;
+  bool _dragging = false;
+  double _dragDx = 0;
+  Duration _dragFrom = Duration.zero;
+  Duration _dragTarget = Duration.zero;
+
+  void swipeStart(DragStartDetails d) {
+    _dragging = true;
+    _dragDx = 0;
+    _dragFrom = swipeCtl.value.position;
+    _dragTarget = _dragFrom;
+  }
+
+  void swipeUpdate(DragUpdateDetails d) {
+    if (!_dragging) return;
+    _dragDx += d.delta.dx;
+    final total = swipeCtl.value.duration;
+    final w = context.size?.width ?? MediaQuery.of(context).size.width;
+    _dragTarget = _clampDur(
+        _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
+    _showSwipeToast(total, preview: true);
+  }
+
+  void swipeEnd(DragEndDetails d) {
+    if (!_dragging) return;
+    _dragging = false;
+    if (_dragTarget != _dragFrom) swipeCtl.seekTo(_dragTarget);
+    _showSwipeToast(swipeCtl.value.duration, preview: false);
+  }
+
+  void _showSwipeToast(Duration total, {required bool preview}) {
+    final secs = (_dragTarget - _dragFrom).inSeconds;
+    _swipeToastTimer?.cancel();
+    setState(() {
+      swipeToast = secs == 0
+          ? null
+          : '${secs > 0 ? '快进' : '快退'} ${secs.abs()} 秒\n'
+              '${_fmt(_dragTarget)} / ${_fmt(total)}';
+    });
+    if (!preview && swipeToast != null) {
+      _swipeToastTimer = Timer(const Duration(milliseconds: 900), () {
+        if (mounted) setState(() => swipeToast = null);
+      });
+    }
+  }
+
+  void disposeSwipe() => _swipeToastTimer?.cancel();
+
+  /// 拖动提示气泡
+  Widget buildSwipeToast() {
+    if (swipeToast == null) return const SizedBox.shrink();
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(swipeToast!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 15)),
+      ),
+    );
+  }
+}
+
 /// 视频播放器组件。
 /// - 内嵌模式：详情页顶部 16:9，常驻控制条（播放/暂停 + 可拖动进度条 + 时间 + 全屏）。
 ///   视频初始化前显示 poster 封面（正文首图）。
-/// - 全屏模式：黑底沉浸，左右滑动快进/快退 ±10 秒（右滑快进），进度条可直接拖动。
+/// - 全屏模式：黑底沉浸，横屏/竖屏全屏，下滑返回。
+/// - 左右滑动快进快退：滑动距离决定秒数（滑满一屏 120 秒），拖动跟手预览、松手跳转。
+/// - 多个视频源按顺序尝试，全失败则用 onRefreshSources 重取时效链接再试一轮
+///   （视频地址带 auth_key 签名，放久了会过期）。
 class PlayerWidget extends StatefulWidget {
-  final String videoUrl;
+  /// 按优先级排列的视频地址（h264 主源在前，h265 兜底）
+  final List<String> sources;
   final String referer;
   final String poster; // 视频封面，可为空
+
+  /// 全部源都失败时调用：重新抓详情页拿新地址
+  final Future<List<String>> Function()? onRefreshSources;
+
   const PlayerWidget({
     super.key,
-    required this.videoUrl,
+    required this.sources,
     required this.referer,
     this.poster = '',
+    this.onRefreshSources,
   });
 
   @override
   State<PlayerWidget> createState() => _PlayerWidgetState();
 }
 
-class _PlayerWidgetState extends State<PlayerWidget> {
+class _PlayerWidgetState extends State<PlayerWidget> with _SwipeSeek {
+  static const _ua =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
   VideoPlayerController? _ctl;
+  late List<String> _sources =
+      widget.sources.where((s) => s.isNotEmpty).toList();
   String? _error;
-  String? _toast;
+  bool _busy = false;
   bool _init = false;
+  bool _refreshed = false; // 已重取过一次链接，避免失败时死循环
+  bool _playError = false; // 播放中途出错
   bool _controlsVisible = true;
   Timer? _hideTimer;
+
+  @override
+  VideoPlayerController get swipeCtl => _ctl!;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_init) {
       _init = true;
-      _initPlayer();
+      // 微任务里再初始化：_initPlayer 开头会 setState，不能在本元素 build 期间调用
+      Future.microtask(_initPlayer);
     }
   }
 
   @override
   void dispose() {
     _hideTimer?.cancel();
+    disposeSwipe();
+    _ctl?.removeListener(_onTick);
     _ctl?.dispose(); // 退出页面立即停止播放，不在后台继续
     super.dispose();
   }
 
+  void _onTick() {
+    final err = _ctl?.value.hasError ?? false;
+    if (err != _playError && mounted) setState(() => _playError = err);
+  }
+
+  /// 依次尝试各视频源；全失败时刷新时效链接再试一轮。
   Future<void> _initPlayer() async {
-    if (widget.videoUrl.isEmpty) {
+    if (_sources.isEmpty) {
       setState(() => _error = '该文章暂无视频');
       return;
     }
-    final ctl = VideoPlayerController.networkUrl(
-      Uri.parse(widget.videoUrl),
-      httpHeaders: {
-        'User-Agent':
-            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-        'Referer': '${widget.referer}/',
-      },
-    );
-    try {
-      await ctl.initialize();
-      await ctl.play();
-      if (mounted) setState(() => _ctl = ctl);
-      _scheduleHide();
-    } catch (e) {
-      if (mounted) setState(() => _error = '视频加载失败：$e');
+    setState(() {
+      _busy = true;
+      _error = null;
+      _playError = false;
+    });
+
+    for (var i = 0; i < _sources.length; i++) {
+      final ctl = VideoPlayerController.networkUrl(
+        Uri.parse(_sources[i]),
+        httpHeaders: {'User-Agent': _ua, 'Referer': '${widget.referer}/'},
+      );
+      try {
+        await ctl.initialize();
+        await ctl.play();
+        if (!mounted) {
+          await ctl.dispose();
+          return;
+        }
+        _attach(ctl);
+        setState(() => _busy = false);
+        _scheduleHide();
+        return;
+      } catch (_) {
+        await ctl.dispose(); // 该源不行，试下一个
+      }
     }
+
+    // 所有源都失败：重取链接（签名过期）再试一轮
+    if (!_refreshed && widget.onRefreshSources != null) {
+      _refreshed = true;
+      try {
+        final fresh = (await widget.onRefreshSources!())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (fresh.isNotEmpty) {
+          _sources = fresh;
+          return _initPlayer(); // _refreshed 已置位，只会再来这一轮
+        }
+      } catch (_) {
+        // 刷新失败，走下面的错误提示
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _error = '视频加载失败';
+      });
+    }
+  }
+
+  void _attach(VideoPlayerController ctl) {
+    final old = _ctl;
+    if (old != null) {
+      old.removeListener(_onTick);
+      old.dispose();
+    }
+    _ctl = ctl;
+    ctl.addListener(_onTick);
+  }
+
+  void _retry() {
+    _refreshed = false; // 手动重试允许再刷新一次链接
+    _initPlayer();
   }
 
   /// 控制条显示数秒后自动隐藏
@@ -98,28 +265,6 @@ class _PlayerWidgetState extends State<PlayerWidget> {
     );
   }
 
-  /// 内嵌模式也支持左右滑快进快退（右滑快进）
-  void _seekBy(int seconds) {
-    final ctl = _ctl;
-    if (ctl == null) return;
-    final pos = ctl.value.position + Duration(seconds: seconds);
-    final Duration target;
-    if (pos < Duration.zero) {
-      target = Duration.zero;
-    } else if (pos > ctl.value.duration) {
-      target = ctl.value.duration;
-    } else {
-      target = pos;
-    }
-    ctl.seekTo(target);
-    setState(() {
-      _toast = '${seconds > 0 ? '快进' : '快退'} ${seconds.abs()} 秒';
-    });
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) setState(() => _toast = null);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final ctl = _ctl;
@@ -135,12 +280,9 @@ class _PlayerWidgetState extends State<PlayerWidget> {
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: _toggleControls, // 单击显示/隐藏控制条
-                    // 左右滑：快进快退 10 秒（不弹出控制条）
-                    onHorizontalDragEnd: (d) {
-                      final v = d.primaryVelocity ?? 0;
-                      if (v.abs() < 150) return;
-                      _seekBy(v > 0 ? 10 : -10);
-                    },
+                    onHorizontalDragStart: swipeStart,
+                    onHorizontalDragUpdate: swipeUpdate,
+                    onHorizontalDragEnd: swipeEnd,
                     child: Center(
                       // FittedBox contain：等比缩放，绝不拉伸
                       child: FittedBox(
@@ -157,19 +299,16 @@ class _PlayerWidgetState extends State<PlayerWidget> {
                       ),
                     ),
                   ),
-                  // 快进快退提示
-                  if (_toast != null)
+                  // 滑动快进/快退提示
+                  if (swipeToast != null) buildSwipeToast(),
+                  // 播放中途出错：给个重试入口（否则画面卡住没有任何提示）
+                  if (_playError)
                     Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(_toast!,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 15)),
+                      child: TextButton.icon(
+                        onPressed: _retry,
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        label: const Text('播放出错，点此重试',
+                            style: TextStyle(color: Colors.white)),
                       ),
                     ),
                   // 底部控制条（未操作时隐藏，单击视频显示）
@@ -203,15 +342,22 @@ class _PlayerWidgetState extends State<PlayerWidget> {
     );
   }
 
-  /// 未初始化完成前的区域：poster 封面 + 加载指示
+  /// 未初始化完成前的区域：poster 封面 + 加载指示；失败则错误 + 重试
   Widget _coverArea() {
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(_error!,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-              textAlign: TextAlign.center),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: _busy ? null : _retry,
+              child: const Text('重试'),
+            ),
+          ],
         ),
       );
     }
@@ -326,13 +472,7 @@ class _ControlBarState extends State<_ControlBar> {
   }
 }
 
-String _fmt(Duration d) {
-  final m = d.inMinutes.toString().padLeft(2, '0');
-  final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-  return '$m:$s';
-}
-
-/// 全屏播放页：黑底 + 左右滑动快进快退。
+/// 全屏播放页：黑底 + 左右滑动快进快退 + 下滑返回。
 /// vertical=true 竖屏全屏（视频 contain 居中不拉伸），false 横屏全屏。
 class FullscreenPlayer extends StatefulWidget {
   final VideoPlayerController controller;
@@ -347,15 +487,19 @@ class FullscreenPlayer extends StatefulWidget {
   State<FullscreenPlayer> createState() => _FullscreenPlayerState();
 }
 
-class _FullscreenPlayerState extends State<FullscreenPlayer> {
-  String? _toast;
+class _FullscreenPlayerState extends State<FullscreenPlayer> with _SwipeSeek {
   bool _controls = true;
+  bool _playError = false;
   Timer? _hideTimer;
+
+  @override
+  VideoPlayerController get swipeCtl => widget.controller;
 
   @override
   void initState() {
     super.initState();
     widget.controller.play();
+    widget.controller.addListener(_onTick);
     if (widget.vertical) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
@@ -370,9 +514,16 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    disposeSwipe();
+    widget.controller.removeListener(_onTick);
     // 退出全屏恢复竖屏
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
+  }
+
+  void _onTick() {
+    final err = widget.controller.value.hasError;
+    if (err != _playError && mounted) setState(() => _playError = err);
   }
 
   void _scheduleHide() {
@@ -387,27 +538,6 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
     if (_controls) _scheduleHide();
   }
 
-  /// 快进快退（秒），右滑 +
-  void _seekBy(int seconds) {
-    final ctl = widget.controller;
-    final pos = ctl.value.position + Duration(seconds: seconds);
-    final Duration target;
-    if (pos < Duration.zero) {
-      target = Duration.zero;
-    } else if (pos > ctl.value.duration) {
-      target = ctl.value.duration;
-    } else {
-      target = pos;
-    }
-    ctl.seekTo(target);
-    setState(() {
-      _toast = '${seconds > 0 ? '快进' : '快退'} ${seconds.abs()} 秒';
-    });
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) setState(() => _toast = null);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final ctl = widget.controller;
@@ -420,12 +550,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
         onVerticalDragEnd: (d) {
           if ((d.primaryVelocity ?? 0) > 200) Navigator.pop(context);
         },
-        // 左右滑动：快进快退 10 秒（右滑快进，不弹控制条）
-        onHorizontalDragEnd: (d) {
-          final v = d.primaryVelocity ?? 0;
-          if (v.abs() < 150) return;
-          _seekBy(v > 0 ? 10 : -10);
-        },
+        onHorizontalDragStart: swipeStart,
+        onHorizontalDragUpdate: swipeUpdate,
+        onHorizontalDragEnd: swipeEnd,
         child: Stack(
           children: [
             // 全屏视频（FittedBox contain 等比缩放，绝不拉伸）
@@ -456,20 +583,13 @@ class _FullscreenPlayerState extends State<FullscreenPlayer> {
                   ],
                 ),
               ),
-            // 中间：快进快退提示
-            if (_toast != null)
-              Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_toast!,
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 15)),
-                ),
+            // 中间：滑动快进/快退提示
+            if (swipeToast != null) buildSwipeToast(),
+            // 播放出错提示
+            if (_playError)
+              const Center(
+                child: Text('播放出错，请返回重试',
+                    style: TextStyle(color: Colors.white70, fontSize: 14)),
               ),
             // 底部：控制条
             if (_controls)

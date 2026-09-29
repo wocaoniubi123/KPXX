@@ -84,7 +84,13 @@ class _FetchedImageState extends State<FetchedImage> {
         img = _decrypt(raw); // 加密密文，AES-CBC 解密
       }
       if (img == null || !_looksLikeImage(img)) return null;
-      if (_cache.length >= _maxCache) _cache.clear();
+      if (_cache.length >= _maxCache) {
+        // 只淘汰最早的一批（Map 迭代按插入序 ≈ FIFO）。整片 clear 会让
+        // 已经在屏幕上的图全部重新下载一遍，看起来就是"列表又变慢了"。
+        for (final k in _cache.keys.take(_maxCache ~/ 4).toList()) {
+          _cache.remove(k);
+        }
+      }
       _cache[url] = img;
       return img;
     } catch (_) {

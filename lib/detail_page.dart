@@ -4,18 +4,20 @@ import 'api.dart';
 import 'fetched_image.dart';
 import 'models.dart';
 import 'player_widget.dart';
+import 'sites.dart';
 
 /// 文章详情：顶部视频 + 标题/标签 + 选集 + 正文图片。
 class DetailPage extends StatefulWidget {
+  final SiteEntry site;
   final String baseUrl; // /archives/xxx/
-  const DetailPage({super.key, required this.baseUrl});
+  const DetailPage({super.key, required this.site, required this.baseUrl});
 
   @override
   State<DetailPage> createState() => DetailPageState();
 }
 
 class DetailPageState extends State<DetailPage> {
-  final Api _api = Api();
+  late final Api _api = Api(hosts: widget.site.hosts);
   ArticleDetail? _detail;
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
@@ -44,6 +46,15 @@ class DetailPageState extends State<DetailPage> {
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
+  Future<List<String>> _refreshSources() async {
+    final fresh = await _api.detail(widget.baseUrl);
+    return [
+      if (fresh.videoUrl.isNotEmpty) fresh.videoUrl,
+      if (fresh.videoUrlH265.isNotEmpty) fresh.videoUrlH265,
+    ];
   }
 
   Future<List<Article>> _fetchSeries(String prefix) async {
@@ -76,7 +87,7 @@ class DetailPageState extends State<DetailPage> {
     final d = _detail;
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text('详情')),
+      appBar: AppBar(title: Text(widget.site.name)),
       body: _error != null
           ? Center(
               child: Column(
@@ -93,11 +104,13 @@ class DetailPageState extends State<DetailPage> {
                   children: [
                     // 视频区（无视频时显示封面/占位；用正文首图做海报）
                     PlayerWidget(
-                      videoUrl: d.videoUrl.isNotEmpty
-                          ? d.videoUrl
-                          : d.videoUrlH265,
+                      sources: [
+                        if (d.videoUrl.isNotEmpty) d.videoUrl,
+                        if (d.videoUrlH265.isNotEmpty) d.videoUrlH265,
+                      ],
                       referer: _api.base,
                       poster: d.images.isNotEmpty ? d.images.first : '',
+                      onRefreshSources: _refreshSources,
                     ),
                     Padding(
                       padding: const EdgeInsets.all(12),
@@ -165,7 +178,8 @@ class DetailPageState extends State<DetailPage> {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => DetailPage(baseUrl: item.url),
+                  builder: (_) =>
+                      DetailPage(site: widget.site, baseUrl: item.url),
                 ),
               );
             },
@@ -232,7 +246,8 @@ class DetailPageState extends State<DetailPage> {
                   // 切集：replace 当前页，避免栈无限加深
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
-                      builder: (_) => DetailPage(baseUrl: a.url),
+                      builder: (_) =>
+                          DetailPage(site: widget.site, baseUrl: a.url),
                     ),
                   );
                 },
