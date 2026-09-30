@@ -24,6 +24,11 @@ enum SiteTemplate {
   /// Pektino（X/Twitter 视频保存排行）：列表/搜索走 /api/media JSON，
   /// 视频源是推文原 mp4（video.twimg.com 直链）
   pektino,
+
+  /// Hanime1.me（H動漫）：分类列表=网格卡（/search?genre=），
+  /// 搜索=横排卡（/search?query=）；详情页 watch?v= 里是多档直链 mp4
+  /// （vdownload.hembed.com，secure 签名约 12 小时有效，过期自动重取详情）
+  hanime1,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -515,5 +520,29 @@ const List<SiteEntry> kSites = [
       sorts: _pkSorts,
     ),
     color: Color(0xFF1DA1F2),
+  ),
+  SiteEntry(
+    name: 'Hanime1',
+    template: SiteTemplate.hanime1,
+    iconUrl: '/favicon.ico',
+    hosts: ['hanime1.me'],
+    // 主分类 = 首页分类 tabs（照站点原序，10 个）。
+    // 「H漫畫」是站外链接（hanimeone.me，未接）；「新番預告」桌面上另有 /previews
+    // 月表页，这里用与首页 tabs 一致的 search?genre= 形态（同一套列表卡片）。
+    categories: [
+      SiteTab('裏番', '裏番'),
+      SiteTab('泡麵番', '泡麵番'),
+      SiteTab('Motion Anime', 'Motion Anime'),
+      SiteTab('3DCG', '3DCG'),
+      SiteTab('2.5D', '2.5D'),
+      SiteTab('2D動畫', '2D動畫'),
+      SiteTab('AI生成', 'AI生成'),
+      SiteTab('MMD', 'MMD'),
+      SiteTab('Cosplay', 'Cosplay'),
+      SiteTab('新番預告', '新番預告'),
+    ],
+    // 相关推荐走 AJAX POST（/video/load-playlist-chunk + _token），v1 未接
+    showRelated: false,
+    color: Color(0xFF5B2A86),
   ),
 ];

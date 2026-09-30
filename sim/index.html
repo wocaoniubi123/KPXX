@@ -556,6 +556,7 @@ async function parseDetail(html, site, url) {
     return await pornaDetail(html, site);
   }
   if (tpl === 'pektino') return pektinoDetail(html, url);
+  if (tpl === 'hanime1') return hanimeDetail(html, url);
   return await wpDetail(html, site, url);
 }
 
@@ -1298,6 +1299,9 @@ async function fetchList(site, cat, subKey, page) {
       : k.endsWith('/all') ? 'all' : 'timely';
     return pektinoFetch(site, range, '', page);
   }
+  if (tpl === 'hanime1') {
+    return hanimeFetch(site, cat.key, page);
+  }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
   const path = k.startsWith('/')
@@ -1329,6 +1333,80 @@ async function pornaFetch(site, key, page) {
   if (p0 === '/novels' || p0.startsWith('/novels/')) return novelCards(doc);
   if (p0.includes('heiliao') || p0.includes('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) return heiliaoCards(doc);
   return pornaCards(doc);
+}
+
+/* -------- Hanime1.me（H動漫）：分类=网格卡、搜索=横排卡、详情=多档直链 mp4 -------- */
+
+/** 相对化：绝对链接 → 站内路径（/watch?v=N 带查询串） */
+function hanimeRel(href) {
+  if (!/^https?:/.test(href)) return href;
+  try { const u = new URL(href); return u.pathname + u.search; } catch (e) { return href; }
+}
+
+/** 分类列表：/search?genre=X&page=N（网格卡：a > div.video-card-inner > img + 标题） */
+async function hanimeFetch(site, genre, page) {
+  const path = '/search?genre=' + encodeURIComponent(genre) + (page > 1 ? '&page=' + page : '');
+  const doc = parseHtml(await getHtml(site, path));
+  const out = [];
+  for (const a of doc.querySelectorAll('a[href*="/watch?v="]')) {
+    const inner = a.querySelector('div.video-card-inner');
+    if (!inner) continue; // 广告卡
+    const img = inner.querySelector('img');
+    const t = (inner.querySelector('div.home-rows-videos-title')?.textContent || '').trim();
+    const src = img ? (img.getAttribute('src') || '') : '';
+    if (!t || !src.includes('/image/cover/')) continue; // 只认真卡片（广告卡是 image/icon/）
+    out.push({ title: t, url: hanimeRel(a.getAttribute('href') || ''), cover: src, meta: '' });
+  }
+  return out;
+}
+
+/** 搜索 / 站内标签（?query= 与 ?tags[]=）共用的横排卡解析（含时长/上传者/时间） */
+async function hanimeSearchAt(site, basePath, page) {
+  const path = basePath + (page > 1 ? (basePath.includes('?') ? '&' : '?') + 'page=' + page : '');
+  const doc = parseHtml(await getHtml(site, path));
+  const out = [];
+  for (const el of doc.querySelectorAll('div.video-item-container')) {
+    const a = el.querySelector('a.video-link');
+    const href = a ? (a.getAttribute('href') || '') : '';
+    if (!href.includes('/watch?v=')) continue; // 广告卡（外链）
+    const img = el.querySelector('img.main-thumb');
+    const t = ((el.querySelector('div.title')?.textContent || '') || (el.getAttribute('title') || '')).trim();
+    if (!t) continue;
+    const dur = (el.querySelector('div.duration')?.textContent || '').trim();
+    const sub = (el.querySelector('div.subtitle')?.textContent || '').replace(/\s+/g, ' ').trim();
+    out.push({ title: t, url: hanimeRel(href), cover: img ? (img.getAttribute('src') || '') : '', meta: sub, badge: dur });
+  }
+  return out;
+}
+
+/** 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低） */
+function hanimeDetail(html, url) {
+  const doc = parseHtml(html);
+  const title = (doc.querySelector('h3#shareBtn-title')?.textContent || '').trim() || url;
+  let intro = '';
+  // ⚠️ 页面有简/繁两种变体（同一 UA 也可能拿到不同版本）：两种都认
+  for (const d of doc.querySelectorAll('div.video-details-wrapper')) {
+    const t = (d.textContent || '').replace(/\s+/g, ' ').trim();
+    if (t.includes('觀看次數') || t.includes('观看次数')) { intro = t; break; }
+  }
+  const og = doc.querySelector('meta[property="og:image"]');
+  const poster = og ? (og.getAttribute('content') || '') : '';
+  const srcs = [];
+  for (const s of doc.querySelectorAll('video source')) {
+    const u = s.getAttribute('src') || '';
+    if (u) srcs.push([parseInt(s.getAttribute('size') || '0', 10) || 0, u]);
+  }
+  srcs.sort((x, y) => y[0] - x[0]);
+  const videos = [];
+  if (srcs.length) videos.push({ ordinal: 1, label: '视频', sources: srcs.map((e) => e[1]) });
+  const tags = [];
+  for (const a of doc.querySelectorAll('.video-tags-wrapper .single-video-tag a')) {
+    const href = a.getAttribute('href') || '';
+    if (!href.includes('/search?')) continue; // 排除 +/-（登录按钮）
+    const t = (a.textContent || '').replace(/\s+/g, ' ').replace(/\s*\(\d+\)\s*$/, '').replace(/#/g, '').trim();
+    if (t) tags.push({ slug: hanimeRel(href), name: t });
+  }
+  return { title, time: '', images: poster ? [poster] : [], intro, videos, tags, related: [], duration: '' };
 }
 
 /* -------- Pektino（X/Twitter 视频保存排行站：/api/media + 推文原 mp4） -------- */
@@ -1987,7 +2065,9 @@ async function playVideo(v, site) {
       // Pektino 的视频是推文原 mp4（video.twimg.com 直链）：连不上那个 CDN 时
       // 报"格式不支持"会误导——它就是网络到推特视频 CDN 不通（挂代理再试）
       $('pstate').textContent = /\.mp4/i.test(url)
-        ? '视频源打不开（video.twimg.com）——多为网络到推特视频 CDN 不通，挂代理再试'
+        ? (url.includes('twimg')
+          ? '视频源打不开（video.twimg.com）——多为网络到推特视频 CDN 不通，挂代理再试'
+          : '视频源打不开——多为网络到视频 CDN 不通，挂代理再试')
         : '播放出错（浏览器不支持该格式，且 hls.js 没加载上）';
       log('video 元素报错', 'err');
     };
@@ -2167,6 +2247,10 @@ async function tagListItems(site, slug, isTag, page) {
     // 以 / 开头的是站内分类页（黑料吃瓜的标签），否则当搜索关键词
     return pornaFetch(site, slug.startsWith('/') ? slug : 'search:' + slug, page);
   }
+  if (tpl === 'hanime1') {
+    // 详情页标签是 /search?query= 或 /search?tags[]= 的路径；其余当搜索词
+    return hanimeSearchAt(site, slug.startsWith('/search') ? slug : '/search?query=' + encodeURIComponent(slug), page);
+  }
   const path = isTag
     ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
     : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
@@ -2187,6 +2271,7 @@ async function searchItems(site, kw, page) {
   if (tpl === 'porna') return pornaFetch(site, 'search:' + kw, page);
   // Pektino：搜索 = 把输入当分类名传同一个接口（与站点一致；搜索独立、不受列表筛选影响）
   if (tpl === 'pektino') return pektinoFetch(site, 'all', kw, page, true);
+  if (tpl === 'hanime1') return hanimeSearchAt(site, '/search?query=' + encodeURIComponent(kw), page);
   const enc = encodeURIComponent(kw);
   const path = page <= 1 ? `/search/${enc}/` : `/search/${enc}/${page}/`;
   return parseArticles(await getHtml(site, path), site);
