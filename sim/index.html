@@ -1702,7 +1702,8 @@ function xvDetail(html, url) {
   title = title.trim() || (doc.querySelector('h2.page-title')?.textContent || '').trim() || url;
   const dur = (doc.querySelector('h2.page-title span.duration')?.textContent || '').trim();
   const srcs = [];
-  for (const re of [/setVideoUrlHigh\('([^']+)'\)/, /setVideoUrlLow\('([^']+)'\)/, /setVideoHLS\('([^']+)'\)/]) {
+  // HLS 优先（master 含 1080p）；免费片的 High/Low 实测都是 mp4_sd 最低画质 → mp4 兜底
+  for (const re of [/setVideoHLS\('([^']+)'\)/, /setVideoUrlHigh\('([^']+)'\)/, /setVideoUrlLow\('([^']+)'\)/]) {
     const m = html.match(re);
     if (m && m[1] && !srcs.includes(m[1])) srcs.push(m[1]);
   }

@@ -1,7 +1,28 @@
+import 'dart:io' show Platform;
+
+import 'package:cupertino_http/cupertino_http.dart';
+import 'package:http/http.dart' as http;
+
 /// 通用网络配置。
 /// 站点清单（域名、分类）已挪到 lib/sites.dart，这里只留各站点共用的请求头。
 class Site {
   static const String ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+  /// 全 App 共用的 HTTP 客户端：**iOS 用 NSURLSession**（cupertino_http）——
+  /// 与 Safari 同一条系统网络栈：读系统的 Wi-Fi 代理 / VPN 配置、支持 HTTP/2。
+  /// dart:io 的 HttpClient 默认 "DIRECT"、**不读系统代理**：手机上挂着代理才
+  /// 能打开的站（如 hanime1.me），浏览器能开、App 却直连被墙——2026-10-01 实锤
+  /// （同一套请求头：走代理 200 / 直连 000）。其它平台/异常时退回默认客户端。
+  static final http.Client httpClient = _makeClient();
+
+  static http.Client _makeClient() {
+    if (Platform.isIOS) {
+      try {
+        return CupertinoClient.defaultSessionConfiguration();
+      } catch (_) {}
+    }
+    return http.Client();
+  }
 }

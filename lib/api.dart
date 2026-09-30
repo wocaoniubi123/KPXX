@@ -33,7 +33,8 @@ class Api {
   String _host;
 
   /// 共享连接池：多处 Api 实例复用同一条 client
-  static final http.Client _client = http.Client();
+  /// 共享客户端（iOS = NSURLSession，见 config.dart 的 Site.httpClient）
+  static final http.Client _client = Site.httpClient;
 
   String get base => 'https://$_host';
 
@@ -2195,9 +2196,10 @@ class Api {
     // 播放源：mp4 优先（单文件、模拟器可经 /vproxy 验证），HLS 兜底
     final srcs = <String>[];
     for (final re in [
+      // HLS 优先：master 含 1080p；免费片的 High/Low 两条实测都是 mp4_sd（最低画质）
+      RegExp(r"setVideoHLS\('([^']+)'\)"),
       RegExp(r"setVideoUrlHigh\('([^']+)'\)"),
       RegExp(r"setVideoUrlLow\('([^']+)'\)"),
-      RegExp(r"setVideoHLS\('([^']+)'\)"),
     ]) {
       final u = re.firstMatch(html)?.group(1) ?? '';
       if (u.isNotEmpty && !srcs.contains(u)) srcs.add(u);

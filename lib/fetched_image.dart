@@ -5,7 +5,8 @@ import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as im;
-import 'package:http/http.dart' as http;
+
+import 'config.dart';
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
 bool _isIco(Uint8List b) =>
@@ -120,7 +121,7 @@ class _FetchedImageState extends State<FetchedImage> {
   }
 
   static Future<Uint8List?> _fetchAndDecode(String url) async {
-    final r = await http
+    final r = await Site.httpClient
         .get(Uri.parse(url), headers: {
           'User-Agent':
               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',

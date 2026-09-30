@@ -14,6 +14,10 @@ dependencies:
   encrypt: ^5.0.3
   # 快猫 API 的 md5 签名（纯 Dart，无原生代码）
   crypto: ^3.0.3
+  # iOS 网络栈换成 NSURLSession（cupertino_http）：读系统 Wi-Fi 代理/VPN 配置、
+  # HTTP/2——浏览器能打开的站 App 也能开（dart:io 默认直连、不读系统代理）。
+  # 1.x 线兼容 Flutter 3.24（2.x 迁到 objective_c，保守起见不上）。
+  cupertino_http: '>=1.5.0 <2.0.0'
   # 播放器引擎换成 libmpv（FFmpeg）：缓冲区大小可配、HLS 跳转由 FFmpeg 处理，
   # 替代 iOS 原生 AVPlayer（其缓冲/seek 容差在 iOS 上无法配置，长视频跳转会卡死）
   # 版本要钉住：media_kit_video 1.3.x 会拉 volume_controller 3.x，
