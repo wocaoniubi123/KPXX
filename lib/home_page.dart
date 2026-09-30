@@ -206,7 +206,7 @@ class _HomePageState extends State<HomePage>
   }
 
   /// 筛选弹窗里的一组标签胶囊（主题区 / 语言区共用）。
-  /// after：弹窗内容靠 StatefulBuilder 刷新，页面 setState 不会重建弹窗。
+  /// after：选完后的收尾动作（弹窗场景 = 关闭弹窗）。
   Widget _filterChips(List<SiteTab> items, [VoidCallback? after]) {
     return Wrap(
       spacing: 6,
@@ -246,38 +246,36 @@ class _HomePageState extends State<HomePage>
   }
 
   /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」的形态；2026-10-01 用户要求
-  /// 从"页面里展开一行"改成弹窗）。选标签即时生效；点关闭或遮罩收起。
+  /// 从"页面里展开一行"改成弹窗）。选标签即时生效并关闭弹窗；点关闭或遮罩收起。
   void _openFilterDialog(SiteFilters f) {
     showDialog<void>(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setDlgState) => AlertDialog(
-          title: const Text('按标签筛选', style: TextStyle(fontSize: 16)),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 420),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 主题区（40 个，照站点弹窗原顺序）
-                    _filterChips(f.themes, () => setDlgState(() {})),
-                    const SizedBox(height: 8),
-                    // 语言区（10 个，照站点弹窗下半区）
-                    _filterChips(f.languages, () => setDlgState(() {})),
-                  ],
-                ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('按标签筛选', style: TextStyle(fontSize: 16)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 主题区（40 个，照站点弹窗原顺序）
+                  _filterChips(f.themes, () => Navigator.pop(ctx)),
+                  const SizedBox(height: 8),
+                  // 语言区（10 个，照站点弹窗下半区）
+                  _filterChips(f.languages, () => Navigator.pop(ctx)),
+                ],
               ),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('关闭'),
-            ),
-          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('关闭'),
+          ),
+        ],
       ),
     );
   }

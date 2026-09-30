@@ -1376,18 +1376,19 @@ function pkFilterBarHtml() {
   </div>`;
 }
 
-/** 标签筛选弹窗（挂在 document.body 上，不随页面重渲染关闭）。
- *  选标签即时生效并重拉列表；点遮罩或 ✕ 关闭。 */
+/** 标签筛选弹窗（挂在手机壳屏幕 .screen 内：只覆盖手机屏，不溢出到网页）。
+ *  选标签即时生效、重拉列表并关闭弹窗；点遮罩或 ✕ 关闭。 */
 let pkReload = null; // pkBindBar 赋的重拉函数（弹窗里选完标签用）
 function pkOpenFilterDlg() {
+  const screen = document.querySelector('.screen'); // 手机壳屏幕（relative + overflow:hidden）
   let dlg = document.getElementById('pkdlg');
   if (!dlg) {
     dlg = document.createElement('div');
     dlg.id = 'pkdlg';
     dlg.style.cssText =
-      'display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
+      'display:none;position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
     dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.style.display = 'none'; });
-    document.body.appendChild(dlg);
+    screen.appendChild(dlg);
   }
   const tags = (items) => items.map(([k, n]) =>
     `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('');
@@ -1406,10 +1407,8 @@ function pkOpenFilterDlg() {
   dlg.querySelectorAll('.pktag').forEach((el) => {
     el.onclick = () => {
       pkFilter.theme = pkFilter.theme === el.dataset.k ? null : el.dataset.k;
-      // 弹窗内高亮即时刷新（列表在后台重拉）
-      dlg.querySelectorAll('.pktag').forEach((t) =>
-        t.classList.toggle('on', t.dataset.k === pkFilter.theme));
       if (pkReload) pkReload();
+      dlg.style.display = 'none'; // 选完标签关掉弹窗（用户要求）
     };
   });
 }
