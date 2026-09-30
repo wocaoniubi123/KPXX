@@ -88,6 +88,15 @@ class DetailPageState extends State<DetailPage> {
     if (mounted) setState(() {});
   }
 
+  /// 点击选集就**立即**开始取源（合集 / 黄果选集）——不等播放器重建那几帧；
+  /// 播放器随后调 videoSourcesAt 会共享同一个请求（Api 里做了去重）。
+  /// 用户要求："点击就立马执行提取播放"。
+  void _prefetchLazy(ArticleVideo v) {
+    final lz = v.lazyUrl;
+    if (lz == null) return;
+    _api.videoSourcesAt(lz).then<void>((_) {}, onError: (_) {});
+  }
+
   @override
   void dispose() {
     _switcher?.dispose();
@@ -217,8 +226,10 @@ class DetailPageState extends State<DetailPage> {
                             const SizedBox(height: 6),
                             // 竖屏封面站（黄果短剧）：选集**横向排、按宽度自动换行**
                             // 的胶囊（这站是"第 N 集"这种短标签，竖排太占地方）；
-                            // 其它站保持原来的竖排（标题可能很长）
-                            if (widget.site.portraitCovers)
+                            // 其它站保持竖排（标题可能很长）——吃瓜社区的帖子视频
+                            // （/archives/）label 是长标题，也走竖排
+                            if (widget.site.portraitCovers &&
+                                !widget.baseUrl.startsWith('/archives/'))
                               Wrap(
                                 spacing: 6,
                                 runSpacing: 6,
@@ -226,7 +237,10 @@ class DetailPageState extends State<DetailPage> {
                                   for (final (i, v) in videos.indexed)
                                     InkWell(
                                       borderRadius: BorderRadius.circular(8),
-                                      onTap: () => _switcher?.select(i),
+                                      onTap: () {
+                                        _prefetchLazy(v); // 点击立即开抓
+                                        _switcher?.select(i);
+                                      },
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 10, vertical: 5),
@@ -255,7 +269,10 @@ class DetailPageState extends State<DetailPage> {
                             else
                               for (final (i, v) in videos.indexed)
                                 InkWell(
-                                  onTap: () => _switcher?.select(i),
+                                  onTap: () {
+                                    _prefetchLazy(v); // 点击立即开抓
+                                    _switcher?.select(i);
+                                  },
                                   child: Padding(
                                     padding:
                                         const EdgeInsets.symmetric(vertical: 6),
@@ -659,6 +676,8 @@ class _TagListPageState extends State<TagListPage> {
           : RowsGrid(
               // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
               cols: widget.site.portraitCovers ? 3 : 2,
+              // Pektino：瀑布流（横竖混排按顺序填充，不留空档；照站点）
+              masonry: widget.site.template == SiteTemplate.pektino,
               count: _items.length,
               // 滚动到尾部才构造 → 在那时触发翻页（懒加载）；
               // 到底后显示"没有更多了"，不再空转圈（同列表/搜索页）

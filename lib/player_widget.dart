@@ -48,9 +48,14 @@ class VideoSwitcher {
   void pause() => pauseTick.value++;
 
   bool get hasNext => index.value < total - 1;
+  bool get hasPrev => index.value > 0;
 
   void next() {
     if (hasNext) index.value++;
+  }
+
+  void prev() {
+    if (hasPrev) index.value--;
   }
 
   void select(int i) {
@@ -224,6 +229,9 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// 音量 0~100（竖向滑动调节用）
   Future<void> setVolume(double v) =>
       _p.setVolume(v.clamp(0.0, 100.0).toDouble());
+
+  /// 播放倍速——长按快进用：按住时 2.0、松手回 1.0
+  Future<void> setRate(double r) => _p.setRate(r);
 
   Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
 
@@ -517,14 +525,18 @@ class _PlayerWidgetState extends State<PlayerWidget>
   String? _error;
   bool _busy = false;
   bool _init = false;
+  /// 正在按需取源（合集/黄果选集）：点击那一刻就亮提示，别等网络回来才弹
+  bool _fetchingLazy = false;
   int _curIndex = 0; // 当前已打开的篇内序号（判断是否换片）
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
   bool _controlsVisible = true;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero; // 双击落点（判断左半/右半）
-  bool? _tapHintBack; // 双击提示：true=后退 false=快进
+  IconData? _tapHint; // 双击提示图标（快退/快进/暂停/播放）
+  double _tapHintX = 0; // 提示位置：-0.6 左 / 0 中 / 0.6 右
   Timer? _tapHintTimer;
+  bool _longPressing = false; // 长按快进中（按住 2 倍速）
 
   @override
   KpPlayer get swipePlayer => _kp!;
@@ -566,6 +578,10 @@ class _PlayerWidgetState extends State<PlayerWidget>
       _nextFired = false;
       _errShown = false;
       _error = null;
+      // 点击就要"立刻"有反应（用户要求）：旧视频先停住，别等新源就绪；
+      // 这一集要按需取源的话，"正在取视频…"提示也立即亮（不用等网络）。
+      _kp?.pause();
+      _fetchingLazy = widget.lazyUrl != null && _sources.isEmpty;
       _initPlayer();
     }
   }
@@ -603,6 +619,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
         widget.onFetchSources != null) {
       setState(() {
         _busy = true;
+        _fetchingLazy = true; // 立即亮"正在取视频…"（点击那一下就该看到）
         _error = null;
       });
       try {
@@ -615,6 +632,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
         // 下面统一误提示
       }
       if (!mounted) return;
+      _fetchingLazy = false; // 源到手（或失败）：提示要么转播放、要么转错误
       if (_sources.isEmpty) {
         setState(() {
           _busy = false;
@@ -731,21 +749,37 @@ class _PlayerWidgetState extends State<PlayerWidget>
   /// 双击左半屏后退、右半屏快进（步长来自设置，默认 10 秒）
   void _onDoubleTapDown(TapDownDetails d) => _lastTapPos = d.localPosition;
 
+  /// 双击：左三成退、右三成进（步长来自设置）、**中间暂停/播放**
   void _onDoubleTap() {
     final kp = _kp;
     if (kp == null) return;
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
-    final back = _lastTapPos.dx < w / 2;
+    final dx = _lastTapPos.dx;
+    if (dx > w * 0.35 && dx < w * 0.65) {
+      if (kp.value.playing) {
+        kp.pause();
+        _flashTapHint(Icons.pause, 0);
+      } else {
+        kp.play();
+        _flashTapHint(Icons.play_arrow, 0);
+      }
+      return;
+    }
+    final back = dx < w / 2;
     final secs = AppSettings.i.step;
     kp.seek(kp.value.position + Duration(seconds: back ? -secs : secs));
-    _flashTapHint(back);
+    _flashTapHint(back ? Icons.fast_rewind : Icons.fast_forward,
+        back ? -0.6 : 0.6);
   }
 
-  void _flashTapHint(bool back) {
+  void _flashTapHint(IconData icon, double x) {
     _tapHintTimer?.cancel();
-    setState(() => _tapHintBack = back);
+    setState(() {
+      _tapHint = icon;
+      _tapHintX = x;
+    });
     _tapHintTimer = Timer(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _tapHintBack = null);
+      if (mounted) setState(() => _tapHint = null);
     });
   }
 
@@ -804,6 +838,19 @@ class _PlayerWidgetState extends State<PlayerWidget>
                     onHorizontalDragStart: swipeStart,
                     onHorizontalDragUpdate: swipeUpdate,
                     onHorizontalDragEnd: swipeEnd,
+                    // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
+                    onLongPressStart: (_) {
+                      _kp?.setRate(2.0);
+                      setState(() => _longPressing = true);
+                    },
+                    onLongPressEnd: (_) {
+                      _kp?.setRate(1.0);
+                      if (_longPressing) setState(() => _longPressing = false);
+                    },
+                    onLongPressCancel: () {
+                      _kp?.setRate(1.0);
+                      if (_longPressing) setState(() => _longPressing = false);
+                    },
                     child: _videoSurface(kp),
                   ),
                   // 出画面前盖着 poster（首帧一到就撤，不放着不动）
@@ -815,20 +862,32 @@ class _PlayerWidgetState extends State<PlayerWidget>
                         memWidth: 1280,
                       ),
                     ),
-                  // 双击左/右的提示图标
-                  if (_tapHintBack != null)
+                  // 双击左/中/右的提示图标（退 / 暂停播放 / 进）
+                  if (_tapHint != null)
                     Align(
-                      alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
-                      child: Icon(
-                        _tapHintBack!
-                            ? Icons.fast_rewind
-                            : Icons.fast_forward,
-                        color: Colors.white70,
-                        size: 34,
+                      alignment: Alignment(_tapHintX, 0),
+                      child: Icon(_tapHint!, color: Colors.white70, size: 34),
+                    ),
+                  // 长按快进中（2 倍速）提示
+                  if (_longPressing)
+                    Align(
+                      alignment: const Alignment(0, -0.45),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Text('2× 快进中',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 12)),
                       ),
                     ),
                   // 跳转后重新拉流时的缓冲提示
                   _bufferingHint(kp),
+                  // 正在按需取源（合集/黄果选集）：点击那一刻起亮着
+                  if (_fetchingLazy) _lazyHint(),
                   // 播放中途出错：给个重试入口
                   // 亮度/音量指示条
                   buildGauge(),
@@ -858,7 +917,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
                       return Align(
                         alignment: Alignment.bottomCenter,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
@@ -872,6 +931,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
                           child: _ControlBar(
                             player: kp,
                             preview: swipePreview,
+                            hasPrev: widget.switcher?.hasPrev ?? false,
+                            onPrev: widget.switcher?.prev,
                             hasNext: widget.switcher?.hasNext ?? false,
                             onNext: widget.switcher?.next,
                             showButtons: _controlsVisible && !dragging,
@@ -915,9 +976,41 @@ class _PlayerWidgetState extends State<PlayerWidget>
       children: [
         if (widget.poster.isNotEmpty)
           FetchedImage(url: widget.poster, fit: BoxFit.cover, memWidth: 1280),
-        const Center(
-            child: CircularProgressIndicator(color: Colors.white70)),
+        if (_fetchingLazy)
+          _lazyHint()
+        else
+          const Center(
+              child: CircularProgressIndicator(color: Colors.white70)),
       ],
+    );
+  }
+
+  /// "正在取视频…"提示（合集 / 黄果选集按需取源期间）。
+  /// 点击那一刻就显示、不等网络——之前这段屏幕毫无反应（旧视频继续播），
+  /// 看着就像"点了没动静、过 1 秒才弹出提示"（用户实报）。
+  Widget _lazyHint() {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                  color: Colors.white70, strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text('正在取视频…',
+                style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -932,6 +1025,10 @@ class _ControlBar extends StatefulWidget {
   final ValueListenable<Duration?> preview;
   final bool hasNext;
   final VoidCallback? onNext;
+
+  /// 上一集（已在第一集时置灰禁用）
+  final bool hasPrev;
+  final VoidCallback? onPrev;
   final bool showButtons;
   final VoidCallback? onFullscreen;
   final VoidCallback? onVerticalFullscreen;
@@ -941,6 +1038,8 @@ class _ControlBar extends StatefulWidget {
     required this.preview,
     this.hasNext = false,
     this.onNext,
+    this.hasPrev = false,
+    this.onPrev,
     this.showButtons = true,
     this.onFullscreen,
     this.onVerticalFullscreen,
@@ -966,11 +1065,12 @@ class _ControlBarState extends State<_ControlBar> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: enabled ? onPressed : null,
+      // 控件放大一倍（用户要求）：图标 20→40、点击区 40×26→56×44
       child: SizedBox(
-        width: 40,
-        height: 26,
+        width: 56,
+        height: 44,
         child: Icon(icon,
-            size: 20, color: enabled ? Colors.white : Colors.white24),
+            size: 40, color: enabled ? Colors.white : Colors.white24),
       ),
     );
   }
@@ -995,6 +1095,12 @@ class _ControlBarState extends State<_ControlBar> {
               if (widget.showButtons)
                 Row(
                   children: [
+                    // 上一集：已是第一集时置灰禁用
+                    _barBtn(
+                      icon: Icons.skip_previous,
+                      enabled: widget.hasPrev,
+                      onPressed: widget.onPrev,
+                    ),
                     _barBtn(
                       icon: s.playing ? Icons.pause : Icons.play_arrow,
                       onPressed: () =>
@@ -1009,6 +1115,8 @@ class _ControlBarState extends State<_ControlBar> {
                     Expanded(
                       child: Text(
                         '${_fmt(Duration(milliseconds: shownMs.round()))} / ${_fmt(total)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             color: Colors.white, fontSize: 11),
                       ),
@@ -1069,8 +1177,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   bool _controls = true;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero;
-  bool? _tapHintBack;
+  IconData? _tapHint; // 双击提示图标（快退/快进/暂停/播放）
+  double _tapHintX = 0; // 提示位置：-0.6 左 / 0 中 / 0.6 右
   Timer? _tapHintTimer;
+  bool _longPressing = false; // 长按快进中（按住 2 倍速）
   @override
   KpPlayer get gesturePlayer => widget.player;
 
@@ -1119,17 +1229,36 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     if (err != _errShown && mounted) setState(() => _errShown = err);
   }
 
-  /// 双击左半屏后退、右半屏快进（步长来自设置）
+  /// 双击：左三成退、右三成进（步长来自设置）、**中间暂停/播放**
   void _onDoubleTap() {
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
-    final back = _lastTapPos.dx < w / 2;
+    final dx = _lastTapPos.dx;
+    if (dx > w * 0.35 && dx < w * 0.65) {
+      if (widget.player.value.playing) {
+        widget.player.pause();
+        _flashTapHint(Icons.pause, 0);
+      } else {
+        widget.player.play();
+        _flashTapHint(Icons.play_arrow, 0);
+      }
+      return;
+    }
+    final back = dx < w / 2;
     final secs = AppSettings.i.step;
-    widget.player
-        .seek(widget.player.value.position + Duration(seconds: back ? -secs : secs));
+    widget.player.seek(
+        widget.player.value.position + Duration(seconds: back ? -secs : secs));
+    _flashTapHint(back ? Icons.fast_rewind : Icons.fast_forward,
+        back ? -0.6 : 0.6);
+  }
+
+  void _flashTapHint(IconData icon, double x) {
     _tapHintTimer?.cancel();
-    setState(() => _tapHintBack = back);
+    setState(() {
+      _tapHint = icon;
+      _tapHintX = x;
+    });
     _tapHintTimer = Timer(const Duration(milliseconds: 700), () {
-      if (mounted) setState(() => _tapHintBack = null);
+      if (mounted) setState(() => _tapHint = null);
     });
   }
 
@@ -1167,6 +1296,19 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         onHorizontalDragStart: swipeStart,
         onHorizontalDragUpdate: swipeUpdate,
         onHorizontalDragEnd: swipeEnd,
+        // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
+        onLongPressStart: (_) {
+          widget.player.setRate(2.0);
+          setState(() => _longPressing = true);
+        },
+        onLongPressEnd: (_) {
+          widget.player.setRate(1.0);
+          if (_longPressing) setState(() => _longPressing = false);
+        },
+        onLongPressCancel: () {
+          widget.player.setRate(1.0);
+          if (_longPressing) setState(() => _longPressing = false);
+        },
         child: Stack(
           children: [
             Center(child: _videoSurface(kp)),
@@ -1184,15 +1326,30 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                 ),
               ),
             // 亮度/音量指示条（图标 + 条，不显示数字）
-            buildGauge(),            // 双击左/右的提示图标（必须判空：_tapHintBack 为 null 时
+            buildGauge(),            // 双击左/中/右的提示图标（必须判空：
             // 少了这层判断会直接 null! 崩溃，整页灰屏）
-            if (_tapHintBack != null)
+            if (_tapHint != null)
               Align(
-                alignment: Alignment(_tapHintBack! ? -0.6 : 0.6, 0),
+                alignment: Alignment(_tapHintX, 0),
                 child: Icon(
-                  _tapHintBack! ? Icons.fast_rewind : Icons.fast_forward,
+                  _tapHint!,
                   color: Colors.white70,
                   size: 40,
+                ),
+              ),
+            // 长按快进中（2 倍速）提示
+            if (_longPressing)
+              Align(
+                alignment: const Alignment(0, -0.45),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Text('2× 快进中',
+                      style: TextStyle(color: Colors.white, fontSize: 12)),
                 ),
               ),
             // 跳转后重新拉流时的缓冲提示
@@ -1210,10 +1367,11 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                 final dragging = preview != null;
                 if (!_controls && !dragging) return const SizedBox.shrink();
                 final sw = widget.switcher;
-                // 竖屏全屏：整条控制条（含进度条）再上移 3px
+                // 控制条整体上移（用户要求"适当上移"，控件放大后再多留一点）：
+                // 横屏全屏 18、竖屏全屏 14
                 final bottomPad = widget.vertical
-                    ? const EdgeInsets.only(bottom: 3)
-                    : EdgeInsets.zero;
+                    ? const EdgeInsets.only(bottom: 14)
+                    : const EdgeInsets.only(bottom: 18);
                 if (sw == null) {
                   return Align(
                     alignment: Alignment.bottomCenter,
@@ -1242,6 +1400,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                         child: _ControlBar(
                           player: kp,
                           preview: swipePreview,
+                          hasPrev: i > 0,
+                          onPrev: sw.prev,
                           hasNext: i < sw.total - 1,
                           onNext: sw.next,
                           showButtons: _controls && !dragging,

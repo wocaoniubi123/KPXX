@@ -32,6 +32,9 @@ dependencies:
   image: ^4.2.0
   # 系统音量（和手机音量键同一套）；media_kit_video 本来就依赖它，版本区间保持一致
   volume_controller: '>=2.0.7 <3.0.0'
+  # 瀑布流卡片布局（Pektino：横竖混排、按顺序填充两列不留空档）——
+  # Flutter 没有原生瀑布流；这个库的 SliverMasonryGrid 是懒加载的，0.7.0 兼容 3.24
+  flutter_staggered_grid_view: ^0.7.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0

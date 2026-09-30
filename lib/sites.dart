@@ -20,6 +20,10 @@ enum SiteTemplate {
 
   /// 91porna：video-item 卡片 + /index/detail_play 换播放地址
   porna,
+
+  /// Pektino（X/Twitter 视频保存排行）：列表/搜索走 /api/media JSON，
+  /// 视频源是推文原 mp4（video.twimg.com 直链）
+  pektino,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -61,6 +65,9 @@ class SiteEntry {
   /// 详情页要不要显示「相关推荐」（默认显示；51吃瓜 按用户要求关掉）
   final bool showRelated;
 
+  /// 列表页的"筛选器"（多级分类：主题/时长/排序，如 Pektino）。null = 没有
+  final SiteFilters? filters;
+
   /// 可选图标地址；以 / 开头 = 用该站第一个域名拼（例：'/favicon.ico'）；
   /// 留空 = 用名字首字画色块。站点 favicon 是 ICO，app 内解码（见 fetched_image.dart）
   final String iconUrl;
@@ -77,6 +84,7 @@ class SiteEntry {
     this.url = '',
     this.portraitCovers = false,
     this.showRelated = true,
+    this.filters,
     this.iconUrl = '',
     this.color = const Color(0xFFFF7043),
   });
@@ -90,6 +98,101 @@ const List<SiteTab> _hgSorts = [
   SiteTab('hot', '当前热播'),
   SiteTab('original', '独家原创'),
   SiteTab('random', '随机推荐'),
+];
+
+/// Pektino 主分类页面里的"筛选器"——这是站点的**多级分类**：
+/// 主题（40 个标签）/ 语言（10 个）/ 时长（6 档）/ 排序（4 档）。
+/// 主分类（每日/每周/每月/所有时间）是平级的 4 个 tab，筛选挂在页面里。
+/// 主题和语言照站点"按标签筛选"弹窗分两区（数据显示名不带 #）。
+class SiteFilters {
+  final List<SiteTab> themes;
+  final List<SiteTab> languages;
+  final List<MapEntry<String, String>> durations;
+  final List<MapEntry<String, String>> sorts;
+  const SiteFilters({
+    required this.themes,
+    required this.languages,
+    required this.durations,
+    required this.sorts,
+  });
+}
+
+/// Pektino 的 40 个主题标签（照站点"按标签筛选"弹窗原顺序、原名；
+/// 数据源 = 站点 /api/tags，is_language=false 的那批）。
+/// ⚠️ 模拟器（sim/server.mjs）用正则解析本文件——具名常量可以，函数不行。
+const List<SiteTab> _pkThemes = [
+  SiteTab('shirouto', '业余'),
+  SiteTab('kyonyu', '丰胸'),
+  SiteTab('masturbation', '自我表达'),
+  SiteTab('jk', '女高中生'),
+  SiteTab('anime', '动漫 / 二次元'),
+  SiteTab('female-teacher', '女教师'),
+  SiteTab('nurse', '护士'),
+  SiteTab('female-pervert', '大胆女性'),
+  SiteTab('married-woman', '已婚女性'),
+  SiteTab('beautiful-girl', '美少女'),
+  SiteTab('big-sister', '姐姐'),
+  SiteTab('gal', '时尚女孩'),
+  SiteTab('shaved', '光滑风格'),
+  SiteTab('small-breasts', '小胸'),
+  SiteTab('lolita', '少女系'),
+  SiteTab('swimsuit', '泳装'),
+  SiteTab('sm', 'SM 题材'),
+  SiteTab('special-feature', '企划'),
+  SiteTab('incest', '家庭主题'),
+  SiteTab('rape', '冲突主题'),
+  SiteTab('molestation', '骚扰主题'),
+  SiteTab('voyeur', '隐藏拍摄'),
+  SiteTab('pickup', '邂逅'),
+  SiteTab('massage', '按摩'),
+  SiteTab('outdoor', '户外场景'),
+  SiteTab('orgy', '群体场景'),
+  SiteTab('anal', '背面主题'),
+  SiteTab('deep-throat', '深层表达'),
+  SiteTab('facial', '面部艺术'),
+  SiteTab('cum-swallowing', '吞咽主题'),
+  SiteTab('handjob', '手部表演'),
+  SiteTab('creampie', '内部主题'),
+  SiteTab('titjob', '胸部表演'),
+  SiteTab('fellatio', '口部艺术'),
+  SiteTab('bukkake', '泼洒艺术'),
+  SiteTab('hamedori', '自摄'),
+  SiteTab('personal-filming', '私人拍摄'),
+  SiteTab('uncensored', '未修饰'),
+  SiteTab('gay', '男同性恋・男娘'),
+  SiteTab('cosplay', '角色扮演'),
+];
+
+/// Pektino 的 10 个语言标签（/api/tags 里 is_language=true 的那批）
+const List<SiteTab> _pkLangs = [
+  SiteTab('ja', '日本'),
+  SiteTab('zh-CN', '中国'),
+  SiteTab('th', '泰国'),
+  SiteTab('en', '英语'),
+  SiteTab('zh-TW', '繁体中文'),
+  SiteTab('ko', '韩语'),
+  SiteTab('id', '印尼语'),
+  SiteTab('pt', '葡萄牙语'),
+  SiteTab('fr', '法语'),
+  SiteTab('de', '德语'),
+];
+
+/// Pektino 时长档：value = 接口的 "min,max"（秒；"0,0" = 全部，不带参数）
+const List<MapEntry<String, String>> _pkDurations = [
+  MapEntry('0,0', '全部'),
+  MapEntry('0,300', '0-5分钟'),
+  MapEntry('300,900', '5-15分钟'),
+  MapEntry('900,1800', '15-30分钟'),
+  MapEntry('1800,3600', '30分钟-1小时'),
+  MapEntry('3600,0', '1小时以上'),
+];
+
+/// Pektino 排序档（接口的 sort 值；默认按点赞）
+const List<MapEntry<String, String>> _pkSorts = [
+  MapEntry('favorite', '按点赞'),
+  MapEntry('pv', '按观看数'),
+  MapEntry('time', '按时长'),
+  MapEntry('created', '最近添加'),
 ];
 
 const List<SiteEntry> kSites = [
@@ -278,7 +381,14 @@ const List<SiteEntry> kSites = [
       SiteTab('ai-mogai', 'AI魔改', _hgSorts),
       SiteTab('/topics/', '专题'),
       SiteTab('/ranks/hot/', '排行榜'),
-      SiteTab('/chigua/', '吃瓜黑料'),
+      // 吃瓜社区：站名就叫「黄果吃瓜」（不是"吃瓜黑料"——之前起错了），
+      // 且下面带 3 个子分类，照站点导航原样。帖子卡是**横版大图**
+      // （站点桌面就是 2 列网格）→ 列表页按 key 前缀走 2 列横版
+      SiteTab('/chigua/', '黄果吃瓜', [
+        SiteTab('/chigua/', '全部'),
+        SiteTab('/chigua/remen/', '热门吃瓜'),
+        SiteTab('/chigua/yuanchuang/', 'AI原创'),
+      ]),
     ],
     color: Color(0xFFFFB300),
   ),
@@ -382,5 +492,28 @@ const List<SiteEntry> kSites = [
       ]),
     ],
     color: Color(0xFF3B5998),
+  ),
+  SiteEntry(
+    name: 'Pektino',
+    template: SiteTemplate.pektino,
+    iconUrl: '/favicon.ico',
+    hosts: ['pektino.com'],
+    // 主分类（顶部导航）**只有 4 个**：每日 / 每周 / 每月 / 所有时间
+    //（站点还有个"收藏"页，要登录，未接）。
+    // 20 个主题标签 + 时长 + 排序是**主分类页面里的筛选器**（多级分类），
+    // 全部放进 filters，由列表页的筛选行渲染（照站点：筛选按钮 + 两个下拉）。
+    categories: [
+      SiteTab('/zh-CN/', '每日'),
+      SiteTab('/zh-CN/weekly', '每周'),
+      SiteTab('/zh-CN/monthly', '每月'),
+      SiteTab('/zh-CN/all', '所有时间'),
+    ],
+    filters: SiteFilters(
+      themes: _pkThemes,
+      languages: _pkLangs,
+      durations: _pkDurations,
+      sorts: _pkSorts,
+    ),
+    color: Color(0xFF1DA1F2),
   ),
 ];

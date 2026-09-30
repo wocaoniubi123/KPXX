@@ -77,7 +77,12 @@ class Api {
   /// 路径型模板（wordpress/porna）取**最深的那个 key** 当站内路径；
   /// 黄果（huangguo）只有一层排序（latest/hot/original/random）。
   Future<List<Article>> category(String key,
-      {int page = 1, String? sub, String? sub2}) async {
+      {int page = 1,
+      String? sub,
+      String? sub2,
+      String? theme,
+      String? duration,
+      String? sort}) async {
     final l1 = (sub == null || sub.isEmpty) ? null : sub;
     final l2 = (sub2 == null || sub2.isEmpty) ? null : sub2;
     final k = l2 ?? l1 ?? key;
@@ -95,6 +100,18 @@ class Api {
         return _huangguoList(key, sort: k == key ? 'latest' : k, page: page);
       case SiteTemplate.porna:
         return _pornaList(k, page: page);
+      case SiteTemplate.pektino:
+        // 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range；
+        // 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入
+        final r = key.endsWith('/weekly')
+            ? 'weekly'
+            : key.endsWith('/monthly')
+                ? 'monthly'
+                : key.endsWith('/all')
+                    ? 'all'
+                    : 'timely';
+        return _pektinoList(r, theme ?? '',
+            page: page, duration: duration, sort: sort);
     }
   }
 
@@ -150,6 +167,9 @@ class Api {
         return _parseHuangguoCards(hp.parse(html));
       case SiteTemplate.porna:
         return _pornaList('search:$keyword', page: page);
+      case SiteTemplate.pektino:
+        // 站点搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条）
+        return _pektinoList('all', keyword, page: page);
     }
   }
 
@@ -172,6 +192,8 @@ class Api {
         if (url.startsWith('/heiliao-chigua/')) return _heiliaoDetail(url);
         if (url.startsWith('/novels/')) return _novelDetail(url);
         return _pornaDetail(url);
+      case SiteTemplate.pektino:
+        return _pektinoDetail(url);
     }
   }
 
@@ -482,7 +504,9 @@ class Api {
   /// 黄果的"路径型"列表页（不是 JSON 接口那套）：
   /// - `/recommend`、`/newest`、`/topics/xxx/` → `hg-drama-card` 网格，翻页 `/xxx/2/`
   /// - `/ranks/hot/`                          → `hg-rank-item`（TOP20，无翻页）
-  /// - `/chigua/`                             → `hg-post-card` 图文卡，翻页 `/chigua/page/2/`
+  /// - `/chigua/`（及其子分类 remen/yuanchuang） → `hg-post-card` 帖子卡
+  ///   （横版大图、列表 2 列）；翻页两形态：全部 → `/chigua/page/2/`、
+  ///   子分类 → `/chigua/remen/2/`（都按页面实际链接，别猜）
   Future<List<Article>> _hgPageList(String path, {int page = 1}) async {
     final p = path.endsWith('/') ? path : '$path/';
     // ⚠️ 精选推荐 / 最近上新 要走 **JSON 接口**：页面 HTML 里那份是站点没更新的静态版
@@ -502,9 +526,14 @@ class Api {
           if (it is Map<String, dynamic>) _hgArticle(it),
       ];
     }
+    // 翻页形态按站点实际链接来（不猜）：
+    //   "全部"（/chigua/）→ /chigua/page/2/；子分类（/chigua/remen/ 等）→ /chigua/remen/2/；
+    //   其余路径型（/topics/xxx/ 等）→ /xxx/2/
     final url = page <= 1
         ? p
-        : (p.startsWith('/chigua') ? '${p}page/$page/' : '$p$page/');
+        : ((p == '/chigua/' || p == '/chigua')
+            ? '${p}page/$page/'
+            : '$p$page/');
     final doc = hp.parse(await _fetchText(url));
     if (p.startsWith('/chigua')) return _hgPostCards(doc);
     if (p.startsWith('/ranks')) return _hgRankCards(doc);
@@ -591,7 +620,12 @@ class Api {
     ];
   }
 
-  /// 吃瓜社区的帖子详情：图文帖（正文在 .hg-post-detail__body，图片走 data-src），没有视频
+  /// 吃瓜社区的帖子详情：图文帖（正文在 .hg-post-detail__body，图片走 data-src）
+  /// + **可选的多个视频**：正文里嵌 `div.post-video-player`，`data-src` 就是
+  /// 现成的 m3u8（站点 xgplayer 播的就是它）；每个视频上面一般有个 `<h2>`
+  /// 小标题，拿来当作选集 label。
+  /// ⚠️ 2026-09-30 修正：之前写死"吃瓜帖是图文、无视频"是**探测不到位**
+  /// （只扫了几篇就下结论）——实测 606/605/604/602 都有视频，612/611/610 是纯图文。
   Future<ArticleDetail> _hgPostDetail(String url) async {
     final doc = hp.parse(await _fetchText(url));
     final title = (doc.querySelector('h1')?.text ?? '').trim();
@@ -603,6 +637,30 @@ class Api {
     for (final img in doc.querySelectorAll('.hg-post-detail__body img[data-src]')) {
       final src = img.attributes['data-src'] ?? '';
       if (src.startsWith('http') && !images.contains(src)) images.add(src);
+    }
+    // 正文里的视频（可以多个）：取 data-src；label 用视频前面最近的 <h2> 小标题
+    final videos = <ArticleVideo>[];
+    final body = doc.querySelector('.hg-post-detail__body');
+    var ordinal = 0;
+    for (final p
+        in body?.querySelectorAll('div.post-video-player') ?? const <Element>[]) {
+      final src = p.attributes['data-src'] ?? '';
+      if (!src.startsWith('http')) continue;
+      ordinal++;
+      var label = '';
+      var prev = p.previousElementSibling;
+      while (prev != null) {
+        if (prev.localName == 'h2') {
+          label = prev.text.trim();
+          break;
+        }
+        prev = prev.previousElementSibling;
+      }
+      videos.add(ArticleVideo(
+        label: label.isEmpty ? '视频 $ordinal' : label,
+        ordinal: ordinal,
+        sources: [src],
+      ));
     }
     final time = _metaDate(doc.querySelector('.hg-post-detail')?.text ?? '');
     final tags = <MapEntry<String, String>>[];
@@ -620,10 +678,154 @@ class Api {
       categories: const [],
       images: images,
       intro: intro,
-      videos: const [], // 吃瓜帖是图文
+      videos: videos, // ← 之前是 const []（"吃瓜帖是图文"探测不到位）
       tags: tags,
       related: _parseHuangguoCards(doc).where((x) => x.url != url).take(12).toList(),
       seriesPrefix: _seriesPrefix(title),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pektino（X/Twitter 视频保存排行站：Next.js）
+  //
+  // 列表/搜索共用接口：/api/media?range=..&page=..&per_page=50
+  //   &category=..&ids=&isFilteredOnly=0&sort=favorite
+  // 视频源 = 推文原 mp4（video.twimg.com 直链，列表字段 url 里就带）；
+  // 详情页 HTML 的 Next.js payload 里也有完整数据块（转义 JSON），正则抽取。
+
+  /// 列表（主分类 / 搜索共用）。[category] 空串 = 全站（= 不选主题）。
+  /// [duration] = 时长档 "min,max"（秒，"0,0"=全部）；[sort] = favorite/pv/time/created
+  Future<List<Article>> _pektinoList(String range, String category,
+      {required int page, String? duration, String? sort}) async {
+    final d = (duration ?? '').split(',');
+    final min = d.length == 2 ? (int.tryParse(d[0]) ?? 0) : 0;
+    final max = d.length == 2 ? (int.tryParse(d[1]) ?? 0) : 0;
+    final path = '/api/media?range=$range&page=$page&per_page=50'
+        '&category=${Uri.encodeComponent(category)}'
+        '&ids=&isFilteredOnly=0&sort=${sort ?? 'favorite'}'
+        '${min > 0 ? '&min_time=$min' : ''}'
+        '${max > 0 ? '&max_time=$max' : ''}';
+    final data = jsonDecode(await _fetchText(path));
+    final items =
+        data is Map<String, dynamic> ? (data['items'] ?? const []) : const [];
+    return [
+      for (final it in items)
+        if (it is Map<String, dynamic>) _pektinoArticle(it),
+    ];
+  }
+
+  /// 一条视频 → 卡片。站点卡片就三样：Twitter 封面（横竖混排）+ 右下角时长
+  /// + 播放/评论/收藏数，**没有标题**（照站点，title 留空、卡片端不渲染标题）。
+  Article _pektinoArticle(Map<String, dynamic> v) {
+    final urlCd = '${v['url_cd'] ?? ''}';
+    final pv = '${v['pv'] ?? ''}';
+    final fav = '${v['favorite'] ?? ''}';
+    final cc = v['commentCount'];
+    final parts = <String>[
+      if (pv.isNotEmpty) '播放 $pv',
+      if (cc is num) '评论 $cc',
+      if (fav.isNotEmpty) '收藏 $fav',
+    ];
+    return Article(
+      title: '',
+      url: '/zh-CN/movie/$urlCd',
+      cover: '${v['thumbnail'] ?? ''}',
+      meta: '',
+      badge: _secClock('${v['time'] ?? ''}'),
+      desc: parts.join(' · '),
+      coverAspect: _pektinoAspect('${v['url'] ?? ''}'),
+    );
+  }
+
+  /// 从 mp4 直链解分辨率算宽高比（/vid/avc1/1920x1080/ → 16:9）。
+  /// 拿不到返回 null → 卡片退回站点默认比例。
+  static double? _pektinoAspect(String mp4) {
+    final m = RegExp(r'/(\d{2,5})x(\d{2,5})/').firstMatch(mp4);
+    if (m == null) return null;
+    final w = int.tryParse(m.group(1)!);
+    final h = int.tryParse(m.group(2)!);
+    if (w == null || h == null || w <= 0 || h <= 0) return null;
+    return w / h;
+  }
+
+  /// 详情：页面 HTML 的 Next.js payload 里就有完整数据块，
+  /// 把 `\"` 反转义后按 `"url_cd"` 切块、正则抽字段（整段 JSON 解析不划算）。
+  /// 相关推荐 = payload 里的其它视频（各条都带 url_cd/thumbnail/time/url）。
+  Future<ArticleDetail> _pektinoDetail(String url) async {
+    final html = await _fetchText(url);
+    final urlCd = url.split('/movie/').last.replaceAll('/', '');
+    final plain = html.replaceAll(r'\"', '"').replaceAll(r'\\', r'\');
+    final starts = <int>[];
+    var at = -1;
+    while ((at = plain.indexOf('"url_cd"', at + 1)) >= 0) starts.add(at);
+    final entries = <Map<String, String>>[];
+    for (var i = 0; i < starts.length; i++) {
+      final end = i + 1 < starts.length ? starts[i + 1] : plain.length;
+      final cap = starts[i] + 2000;
+      final chunk = plain.substring(starts[i], end > cap ? cap : end);
+      String grab(String key) {
+        final m =
+            RegExp('"' + key + r'":\s*("(?:[^"]*)"|[0-9.]+|null)').firstMatch(chunk);
+        if (m == null) return '';
+        final v = m.group(1)!;
+        return v == 'null' ? '' : (v.startsWith('"') ? v.substring(1, v.length - 1) : v);
+      }
+
+      final e = {
+        'url_cd': grab('url_cd'),
+        'url': grab('url'),
+        'time': grab('time'),
+        'thumbnail': grab('thumbnail'),
+        'pv': grab('pv'),
+        'favorite': grab('favorite'),
+        'tweet_account': grab('tweet_account'),
+      };
+      // 只收"真视频条目"（有 mp4 有封面），挡掉 tags 表之类的噪音
+      if (e['url']!.isNotEmpty && e['thumbnail']!.isNotEmpty) entries.add(e);
+    }
+    Map<String, String>? main;
+    final rel = <Map<String, String>>[];
+    for (final e in entries) {
+      if (e['url_cd'] == urlCd && main == null) {
+        main = e;
+      } else {
+        rel.add(e);
+      }
+    }
+    main ??= entries.isNotEmpty ? entries.first : null;
+    final mp4 = main?['url'] ?? '';
+    final pv = main?['pv'] ?? '';
+    final fav = main?['favorite'] ?? '';
+    final acc = main?['tweet_account'] ?? '';
+    return ArticleDetail(
+      title: urlCd.isEmpty ? url : urlCd,
+      time: '',
+      categories: const [],
+      images: const [],
+      intro: [
+        if (acc.isNotEmpty) '@$acc',
+        if (pv.isNotEmpty) '$pv 次播放',
+        if (fav.isNotEmpty) '$fav 收藏',
+      ].join(' · '),
+      duration: _secClock(main?['time'] ?? ''),
+      videos: [
+        if (mp4.isNotEmpty)
+          ArticleVideo(label: '视频', ordinal: 1, sources: [mp4]),
+      ],
+      tags: const [],
+      related: [
+        for (final e in rel.take(12))
+          if (e['url_cd']!.isNotEmpty)
+            Article(
+              title: '',
+              url: '/zh-CN/movie/${e['url_cd']}',
+              cover: e['thumbnail']!,
+              meta: '',
+              badge: _secClock(e['time'] ?? ''),
+              coverAspect: _pektinoAspect(e['url'] ?? ''),
+            ),
+      ],
+      seriesPrefix: '',
     );
   }
 
@@ -1393,9 +1595,20 @@ class Api {
 
   /// 合集里某一集的视频源 —— **按需取**：播放器切到那一集才调这里。
   /// 取过的记住（同一集来回切不重复抓），最多缓存 60 篇。
-  Future<List<String>> videoSourcesAt(String url) async {
+  /// 同一个地址被"同时"要（详情页点击预取 + 播放器换片各调一次）时
+  /// **共享同一个请求**，不重复抓。
+  Future<List<String>> videoSourcesAt(String url) {
     final hit = _lazyCache[url];
-    if (hit != null) return hit;
+    if (hit != null) return Future.value(hit);
+    final pending = _lazyInflight[url];
+    if (pending != null) return pending;
+    final task = _fetchSourcesAt(url);
+    _lazyInflight[url] = task;
+    return task.whenComplete(() => _lazyInflight.remove(url));
+  }
+
+  /// 真去抓某一集的源（去重与缓存入口见 [videoSourcesAt]）
+  Future<List<String>> _fetchSourcesAt(String url) async {
     final html = await _fetchText(url);
     final out = <String>[];
     if (site.template == SiteTemplate.huangguo) {
@@ -1420,8 +1633,9 @@ class Api {
     return out;
   }
 
-  /// 合集按需取源的缓存（url -> 播放源）
+  /// 合集按需取源的缓存（url -> 播放源）与"进行中"的请求（同一集去重）
   static final Map<String, List<String>> _lazyCache = {};
+  static final Map<String, Future<List<String>>> _lazyInflight = {};
 
   /// 一块 dplayer 的播放源（h264 主源在前，h265 兜底）；配置坏就返回空
   static List<String> _dplayerSources(Element dp) {

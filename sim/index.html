@@ -115,9 +115,16 @@
     padding: 2px 6px; cursor: pointer; }
   .card .ctag:hover { background: #e4e4e8; }
   /* ---------- 详情页 ---------- */
-  .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; }
+  .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; overflow: hidden; }
   .player video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
   .pbar { position: absolute; left: 10px; right: 10px; bottom: 6px; height: 14px; cursor: pointer; }
+  /* 播放器控件行（与 App 的控件条对齐：上一集/播放/下一集/放大一倍/全屏） */
+  .pbtns { position: absolute; left: 10px; right: 10px; bottom: 40px; display: flex;
+    align-items: center; gap: 6px; }
+  .pbtn { color: #fff; background: rgba(0,0,0,.45); border-radius: 6px;
+    padding: 2px 10px; font-size: 15px; cursor: pointer; user-select: none; }
+  .pbtn.dis { opacity: .3; }
+  .pbtn.on { background: rgba(232,89,12,.8); }
   .pbar .track { position: absolute; left: 0; right: 0; bottom: 3px; height: 3px;
     background: rgba(255,255,255,.25); border-radius: 2px; }
   .pbar .buf { position: absolute; left: 0; bottom: 3px; height: 3px; width: 0;
@@ -145,6 +152,17 @@
   .vrow .t { font-size: 13px; line-height: 1.4; }
   /* 黄果短剧的选集：横向排，按宽度自动换行（用户要求，仅这站这么显示） */
   .vchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* Pektino 的筛选行（多级分类：主题/时长/排序） */
+  .pkbar button { border: 1px solid #ddd; background: #fff; border-radius: 8px;
+    padding: 5px 10px; font-size: 13px; cursor: pointer; }
+  .pkbar select { border: 1px solid #ddd; border-radius: 8px; padding: 4px 6px;
+    font-size: 13px; background: #fff; }
+  .pktag { font-size: 12px; padding: 5px 10px; border-radius: 8px; background: #f0f0f2;
+    color: #444; cursor: pointer; }
+  .pktag.on { background: #e8590c; color: #fff; font-weight: 600; }
+  /* Pektino：瀑布流两列（卡片按顺序轮流放、列内连续；照站点，不留空档） */
+  .cards.pk { display: flex; gap: 10px; align-items: flex-start; }
+  .cards.pk .pkcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
   .vchip { padding: 5px 10px; border-radius: 8px; background: #f0f0f2; color: #444;
     font-size: 12px; line-height: 1.2; cursor: pointer; }
   .vchip.on { background: #e8590c; color: #fff; font-weight: 600; }
@@ -522,6 +540,7 @@ async function parseDetail(html, site, url) {
     if (url && url.startsWith('/novels/')) return await novelDetail(html);
     return await pornaDetail(html, site);
   }
+  if (tpl === 'pektino') return pektinoDetail(html, url);
   return await wpDetail(html, site, url);
 }
 
@@ -706,7 +725,10 @@ function hgDetail(html) {
   };
 }
 
-/** 黄果吃瓜社区的帖子详情：图文帖（正文 .hg-post-detail__body 的图），没有视频 */
+/** 黄果吃瓜社区的帖子详情：图文（正文 .hg-post-detail__body 的图）
+ *  + 可选的多个视频（div.post-video-player 的 data-src 就是现成 m3u8，
+ *    每个视频上面一般有个 <h2> 小标题当 label）。
+ *  ⚠️ 2026-09-30 修正：之前写死"没有视频"是探测不到位（实测 606/605/604/602 都有） */
 function hgPostDetail(html) {
   const doc = parseHtml(html);
   const title = (doc.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim();
@@ -727,9 +749,27 @@ function hgPostDetail(html) {
     if (!slug) continue;
     if (!tags.some((x) => x.slug === slug)) tags.push({ slug, name });
   }
+  // 正文里的视频（可以多个）：data-src 即 m3u8；label 取视频前面最近的 <h2>
+  const videos = [];
+  const vbody = doc.querySelector('.hg-post-detail__body');
+  if (vbody) {
+    let o = 0;
+    for (const p of vbody.querySelectorAll('div.post-video-player')) {
+      const src = p.getAttribute('data-src') || '';
+      if (!src.startsWith('http')) continue;
+      o++;
+      let label = '';
+      let prev = p.previousElementSibling;
+      while (prev) {
+        if (prev.localName === 'h2') { label = (prev.textContent || '').trim(); break; }
+        prev = prev.previousElementSibling;
+      }
+      videos.push({ ordinal: o, label: label || ('视频 ' + o), sources: [src] });
+    }
+  }
   return {
     title, intro, time, images,
-    videos: [],   // 吃瓜帖是图文
+    videos,
     tags,
     related: hgCards(doc).slice(0, 12),
     duration: '',
@@ -1153,7 +1193,10 @@ async function hgPageList(site, path, page) {
     const items = (j && j.data && j.data.items) || [];
     return items.map(hgItem);
   }
-  const url = page <= 1 ? p0 : (p0.startsWith('/chigua') ? p0 + 'page/' + page + '/' : p0 + page + '/');
+  // 翻页形态按站点实际链接来（不猜）："全部"（/chigua/）→ /chigua/page/2/；
+  // 子分类（/chigua/remen/ 等）→ /chigua/remen/2/；其余路径型 → /xxx/2/
+  const url = page <= 1 ? p0
+    : ((p0 === '/chigua/' || p0 === '/chigua') ? p0 + 'page/' + page + '/' : p0 + page + '/');
   const doc = parseHtml(await getHtml(site, url));
   if (p0.startsWith('/chigua')) return hgPostCards(doc);
   if (p0.startsWith('/ranks')) return hgRankCards(doc);
@@ -1179,7 +1222,7 @@ function hgTopicCards(doc) {
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
 }
 
-/** 吃瓜社区的图文卡（a.hg-post-card → /archives/N/） */
+/** 吃瓜社区的帖子卡（a.hg-post-card → /archives/N/；横版大图，站点桌面 2 列网格） */
 function hgPostCards(doc) {
   const out = [];
   for (const a of doc.querySelectorAll('a.hg-post-card')) {
@@ -1231,6 +1274,15 @@ async function fetchList(site, cat, subKey, page) {
   if (tpl === 'porna') {
     return pornaFetch(site, subKey || cat.key, page);
   }
+  if (tpl === 'pektino') {
+    // 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 解出 range；
+    // 主题/时长/排序是页面里的筛选器（pkFilter，多级分类）
+    const k = cat.key || '';
+    const range = k.endsWith('/weekly') ? 'weekly'
+      : k.endsWith('/monthly') ? 'monthly'
+      : k.endsWith('/all') ? 'all' : 'timely';
+    return pektinoFetch(site, range, '', page);
+  }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
   const path = k.startsWith('/')
@@ -1262,6 +1314,182 @@ async function pornaFetch(site, key, page) {
   if (p0 === '/novels' || p0.startsWith('/novels/')) return novelCards(doc);
   if (p0.includes('heiliao') || p0.includes('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) return heiliaoCards(doc);
   return pornaCards(doc);
+}
+
+/* -------- Pektino（X/Twitter 视频保存排行站：/api/media + 推文原 mp4） -------- */
+
+/* 筛选器数据与 lib/sites.dart 对齐（模拟器侧硬编码，站点不常改）；
+   主分类只有 4 个（每日/每周/每月/所有时间），主题/语言/时长/排序是页面里的筛选器；
+   主题 40 个 + 语言 10 个照站点「按标签筛选」弹窗（数据源 = 站点 /api/tags） */
+const PK_THEMES = [
+  ['shirouto', '业余'], ['kyonyu', '丰胸'], ['masturbation', '自我表达'],
+  ['jk', '女高中生'], ['anime', '动漫 / 二次元'], ['female-teacher', '女教师'],
+  ['nurse', '护士'], ['female-pervert', '大胆女性'], ['married-woman', '已婚女性'],
+  ['beautiful-girl', '美少女'], ['big-sister', '姐姐'], ['gal', '时尚女孩'],
+  ['shaved', '光滑风格'], ['small-breasts', '小胸'], ['lolita', '少女系'],
+  ['swimsuit', '泳装'], ['sm', 'SM 题材'], ['special-feature', '企划'],
+  ['incest', '家庭主题'], ['rape', '冲突主题'], ['molestation', '骚扰主题'],
+  ['voyeur', '隐藏拍摄'], ['pickup', '邂逅'], ['massage', '按摩'],
+  ['outdoor', '户外场景'], ['orgy', '群体场景'], ['anal', '背面主题'],
+  ['deep-throat', '深层表达'], ['facial', '面部艺术'], ['cum-swallowing', '吞咽主题'],
+  ['handjob', '手部表演'], ['creampie', '内部主题'], ['titjob', '胸部表演'],
+  ['fellatio', '口部艺术'], ['bukkake', '泼洒艺术'], ['hamedori', '自摄'],
+  ['personal-filming', '私人拍摄'], ['uncensored', '未修饰'], ['gay', '男同性恋・男娘'],
+  ['cosplay', '角色扮演'],
+];
+const PK_LANGS = [
+  ['ja', '日本'], ['zh-CN', '中国'], ['th', '泰国'], ['en', '英语'], ['zh-TW', '繁体中文'],
+  ['ko', '韩语'], ['id', '印尼语'], ['pt', '葡萄牙语'], ['fr', '法语'], ['de', '德语'],
+];
+const PK_DURS = [['0,0', '全部'], ['0,300', '0-5分钟'], ['300,900', '5-15分钟'],
+  ['900,1800', '15-30分钟'], ['1800,3600', '30分钟-1小时'], ['3600,0', '1小时以上']];
+const PK_SORTS = [['favorite', '按点赞'], ['pv', '按观看数'], ['time', '按时长'], ['created', '最近添加']];
+let pkFilter = { theme: null, dur: '0,0', sort: 'favorite' };
+
+/** 筛选行 HTML（主分类页面顶部，照站点：筛选按钮 + 时长/排序下拉） */
+function pkFilterBarHtml() {
+  return `<div class="pkbar" id="pkbar" style="padding:8px 10px 0">
+    <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
+      <button id="pkThemeBtn" style="flex:none">筛选${pkFilter.theme ? ' ●' : ''}</button>
+      ${(pkFilter.theme || pkFilter.dur !== '0,0' || pkFilter.sort !== 'favorite') ? '<button id="pkReset" style="flex:none">重置</button>' : ''}
+      <span style="font-size:12px;color:#888">时长</span>
+      <select id="pkDur" style="width:100px;flex:none">${PK_DURS.map(([v, n]) => `<option value="${v}"${v === pkFilter.dur ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <span style="font-size:12px;color:#888">排序</span>
+      <select id="pkSort" style="width:100px;flex:none">${PK_SORTS.map(([v, n]) => `<option value="${v}"${v === pkFilter.sort ? ' selected' : ''}>${n}</option>`).join('')}</select>
+    </div></div>
+    <div id="pkThemes" style="display:none;flex-wrap:wrap;gap:6px;margin-top:6px">
+      ${PK_THEMES.map(([k, n]) => `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('')}
+    </div>
+    <div id="pkLangs" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px">
+      ${PK_LANGS.map(([k, n]) => `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('')}
+    </div>
+  </div>`;
+}
+
+/** 绑定筛选行交互；reload = 重拉当前列表 */
+function pkBindBar(reload) {
+  $('pkThemeBtn').onclick = () => {
+    const el = $('pkThemes'), el2 = $('pkLangs');
+    const show = el.style.display === 'none';
+    el.style.display = show ? 'flex' : 'none';
+    if (el2) el2.style.display = show ? 'flex' : 'none';
+  };
+  $('pkDur').onchange = (e) => { pkFilter.dur = e.target.value; reload(); };
+  $('pkSort').onchange = (e) => { pkFilter.sort = e.target.value; reload(); };
+  const rb = $('pkReset');
+  if (rb) {
+    // 一键重置：主题/时长/排序全回默认（有筛选生效时才会渲染这个按钮）
+    rb.onclick = () => {
+      pkFilter = { theme: null, dur: '0,0', sort: 'favorite' };
+      reload();
+    };
+  }
+  ['pkThemes', 'pkLangs'].forEach((id) => {
+    $(id).querySelectorAll('.pktag').forEach((el) => {
+      el.onclick = () => {
+        pkFilter.theme = pkFilter.theme === el.dataset.k ? null : el.dataset.k;
+        reload();
+      };
+    });
+  });
+}
+
+/** 秒 → 时长（207 → 3:27；6228 → 1:43:48），拿不到返回空 */
+function secClock(raw) {
+  const sec = parseInt(String(raw ?? '').trim(), 10);
+  if (!sec || sec <= 0) return '';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** 从 mp4 直链解分辨率算宽高比（/vid/avc1/1920x1080/ → 16:9）；拿不到 null */
+function pektinoAspect(mp4) {
+  const m = /\/(\d{2,5})x(\d{2,5})\//.exec(mp4 || '');
+  if (!m) return null;
+  const w = parseInt(m[1], 10), h = parseInt(m[2], 10);
+  return w > 0 && h > 0 ? w / h : null;
+}
+
+/** 列表（分类/顶部榜/搜索共用接口）。slug 空串 = 全站 */
+async function pektinoFetch(site, range, slug, page, bare) {
+  // 主题从筛选器来（slug 非空 = 搜索词，优先）；时长带 min/max；排序带 sort。
+  // bare=true（搜索用）：不受列表页筛选状态影响（搜索是独立的）
+  const cat = slug || (bare ? '' : (pkFilter.theme || ''));
+  const d = (bare ? '0,0' : (pkFilter.dur || '0,0')).split(',');
+  const min = parseInt(d[0], 10) || 0, max = parseInt(d[1], 10) || 0;
+  const path = `/api/media?range=${range}&page=${page}&per_page=50`
+    + `&category=${encodeURIComponent(cat)}&ids=&isFilteredOnly=0&sort=${bare ? 'favorite' : pkFilter.sort}`
+    + (min > 0 ? `&min_time=${min}` : '') + (max > 0 ? `&max_time=${max}` : '');
+  const j = JSON.parse(await getHtml(site, path));
+  return ((j && j.items) || []).map(pektinoItem);
+}
+
+/** 一条视频 → 卡片：封面（横竖混排）+ 右下角时长 + 播放/评论/收藏数，没有标题 */
+function pektinoItem(v) {
+  const parts = [];
+  if (v.pv) parts.push('播放 ' + v.pv);
+  if (typeof v.commentCount === 'number') parts.push('评论 ' + v.commentCount);
+  if (v.favorite) parts.push('收藏 ' + v.favorite);
+  return {
+    title: '',
+    url: '/zh-CN/movie/' + (v.url_cd || ''),
+    cover: v.thumbnail || '',
+    meta: '',
+    badge: secClock(v.time),
+    desc: parts.join(' · '),
+    tags: [],
+    aspect: pektinoAspect(v.url || ''),
+  };
+}
+
+/** 详情：Next.js payload 里数据块按 "url_cd" 切块、正则抽字段（同 App 的 _pektinoDetail） */
+function pektinoDetail(html, url) {
+  const urlCd = (url || '').split('/movie/').pop().replace(/\/$/, '');
+  const plain = html.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  const starts = [];
+  let at = -1;
+  while ((at = plain.indexOf('"url_cd"', at + 1)) >= 0) starts.push(at);
+  const grab = (chunk, key) => {
+    const m = new RegExp('"' + key + '":\\s*("(?:[^"]*)"|[0-9.]+|null)').exec(chunk);
+    if (!m) return '';
+    const v = m[1];
+    return v === 'null' ? '' : (v[0] === '"' ? v.slice(1, -1) : v);
+  };
+  const entries = [];
+  for (let i = 0; i < starts.length; i++) {
+    const end = i + 1 < starts.length ? starts[i + 1] : plain.length;
+    const chunk = plain.slice(starts[i], Math.min(starts[i] + 2000, end));
+    const e = {
+      url_cd: grab(chunk, 'url_cd'), url: grab(chunk, 'url'), time: grab(chunk, 'time'),
+      thumbnail: grab(chunk, 'thumbnail'), pv: grab(chunk, 'pv'),
+      favorite: grab(chunk, 'favorite'), tweet_account: grab(chunk, 'tweet_account'),
+    };
+    if (e.url && e.thumbnail) entries.push(e); // 只收真视频条目（挡 tags 表噪音）
+  }
+  let main = null; const rel = [];
+  for (const e of entries) { if (!main && e.url_cd === urlCd) main = e; else rel.push(e); }
+  if (!main) main = entries[0] || null;
+  const videos = [];
+  if (main && main.url) videos.push({ ordinal: 1, label: '视频', sources: [main.url] });
+  const introParts = [];
+  if (main && main.tweet_account) introParts.push('@' + main.tweet_account);
+  if (main && main.pv) introParts.push(main.pv + ' 次播放');
+  if (main && main.favorite) introParts.push(main.favorite + ' 收藏');
+  return {
+    title: urlCd || url,
+    intro: introParts.join(' · '),
+    time: '',
+    images: [],
+    videos,
+    tags: [],
+    related: rel.slice(0, 12).map((e) => ({
+      title: '', url: '/zh-CN/movie/' + e.url_cd, cover: e.thumbnail, meta: '',
+      badge: secClock(e.time), desc: '', tags: [], aspect: pektinoAspect(e.url),
+    })),
+    duration: secClock(main ? main.time : ''),
+  };
 }
 
 /** 91短视频的卡片（封面右下角有时长角标） */
@@ -1333,10 +1561,23 @@ function viewList(site, idx, scrollTop) {
   const st = listState.get(key) || { items: [], page: 1, done: false };
   listState.set(key, st);
 
-  const portrait = site.portraitCovers ? ' portrait' : '';
+  // 吃瓜社区（/chigua*）的帖子卡是横版大图（站点桌面就是 2 列网格）→
+  // 不吃竖屏站的 3 列/3:4，走默认的 2 列 + 16:9
+  const widePost = String(cat.key || '').startsWith('/chigua');
+  const portrait = (site.portraitCovers && !widePost) ? ' portrait' : '';
   $('body').className = 'body';
-  $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>
+  // Pektino：主分类页面顶部有筛选行（多级分类：主题/语言/时长/排序）；
+  // 卡片不拉平（横竖混排，照站点）
+  const pkBar = site.template === 'pektino' ? pkFilterBarHtml() : '';
+  const pkCls = site.template === 'pektino' ? ' pk' : '';
+  $('body').innerHTML = `${pkBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
     <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
+  if (site.template === 'pektino') {
+    pkBindBar(() => {
+      listState.delete(key); // 筛选变了：清了缓存重拉
+      viewList(site, site.categories.indexOf(cat));
+    });
+  }
   renderCards({ name: cat.name, site }, st);
   if (scrollTop) $('body').scrollTop = scrollTop;
   $('body').onscroll = () => {
@@ -1386,20 +1627,29 @@ function renderCards(cat, st) {
   const wrap = $('cards');
   if (!wrap) return;
   const centerTitle = !!(cat.site && cat.site.portraitCovers);
-  wrap.innerHTML = st.items.map((a, i) => `
+  const cardHtml = (a, i) => `
     <div class="card" data-i="${i}">
-      ${a.cover ? `<div class="cover">
+      ${a.cover ? `<div class="cover"${a.aspect ? ` style="aspect-ratio:${a.aspect}"` : ''}>
         <img data-src="${esc(a.cover)}" alt="" />
         ${a.badge ? `<span class="dur">${esc(a.badge)}</span>` : ''}
       </div>` : ''}
       <div class="txt">
-        <div class="ttl${centerTitle ? ' center' : ''}">${esc(a.title)}</div>
+        ${a.title ? `<div class="ttl${centerTitle ? ' center' : ''}">${esc(a.title)}</div>` : ''}
         ${a.desc ? `<div class="desc">${esc(a.desc)}</div>` : ''}
         ${(a.tags && a.tags.length) ? `<div class="ctags">${a.tags.slice(0, 4).map((t) =>
           `<span class="ctag" data-slug="${esc(t.slug)}" data-name="${esc(t.name)}">${esc(t.name)}</span>`).join('')}</div>` : ''}
         ${a.meta ? `<div class="meta">${esc(a.meta)}</div>` : ''}
       </div>
-    </div>`).join('');
+    </div>`;
+  // Pektino：瀑布流两列（按顺序轮流放、列内连续；照站点，横竖混排不留空档）
+  const pk = !!(cat.site && cat.site.template === 'pektino');
+  if (pk) {
+    wrap.innerHTML =
+      `<div class="pkcol">${st.items.filter((_, i) => i % 2 === 0).map((a, i) => cardHtml(a, i * 2)).join('')}</div>` +
+      `<div class="pkcol">${st.items.filter((_, i) => i % 2 === 1).map((a, i) => cardHtml(a, i * 2 + 1)).join('')}</div>`;
+  } else {
+    wrap.innerHTML = st.items.map((a, i) => cardHtml(a, i)).join('');
+  }
   // 卡片上的分类标签：能点就进该标签的列表（slug 为空 = 只展示）
   wrap.querySelectorAll('.ctag').forEach((el) => {
     if (!el.dataset.slug) return;
@@ -1490,6 +1740,11 @@ async function viewDetail(article, cat, scrollTop) {
       <video id="v" playsinline></video>
       <div class="pstate" id="pstate">加载中…</div>
       <div class="ptime" id="ptime">00:00 / 00:00</div>
+      <div class="pbtns">
+        <span class="pbtn" id="bPrev">⏮</span><span class="pbtn" id="bPlay">▶</span><span class="pbtn" id="bNext">⏭</span>
+        <span style="flex:1"></span>
+        <span class="pbtn" id="bZoom">放大</span><span class="pbtn" id="bFull">⛶</span>
+      </div>
       <div class="pbar" id="pbar">
         <div class="track"></div><div class="buf" id="pbuf"></div>
         <div class="play" id="pplay"></div><div class="knob" id="pknob"></div>
@@ -1502,7 +1757,7 @@ async function viewDetail(article, cat, scrollTop) {
         ${d.duration ? `<span>时长 ${esc(d.duration)}</span>` : ''}</div>
       ${d.videos.length > 1 ? `
         <div class="sec"><h3>视频（${d.videos.length}）</h3>
-        ${site.portraitCovers ? `<div class="vchips" id="vlist">
+        ${(site.portraitCovers && !(article.url || '').startsWith('/archives/')) ? `<div class="vchips" id="vlist">
           ${d.videos.map((v, i) => `<div class="vchip ${i === 0 ? 'on' : ''}" data-i="${i}">${esc(v.label)}</div>`).join('')}
         </div>` : `<div class="vlist" id="vlist">
           ${d.videos.map((v, i) => `<div class="vrow ${i === 0 ? 'on' : ''}" data-i="${i}">
@@ -1566,10 +1821,15 @@ async function viewDetail(article, cat, scrollTop) {
         const i = parseInt(row.dataset.i, 10);
         vlist.querySelectorAll('.vrow, .vchip').forEach((r) => r.classList.remove('on'));
         row.classList.add('on');
+        window.__curVi = i; // 播放器控件条的"上一集/下一集"要对得上
         playVideo(d.videos[i], site);
       };
     });
   }
+  // 播放器控件条（上一集/下一集）要用：记住当前篇内的视频列表与序号
+  window.__curDetail = d;
+  window.__curSite = site;
+  window.__curVi = 0;
   if (d.videos.length) playVideo(d.videos[0], site);
   else $('pstate').textContent = '';   // 纯文字页（小说/图文）不报"无源"
 }
@@ -1658,7 +1918,8 @@ async function playVideo(v, site) {
   $('pstate').textContent = '加载中…';
   log('播放：' + src.slice(0, 90), 'dim');
   const url = video.canPlayType('application/vnd.apple.mpegurl') ? src : src;
-  if (await ensureHls() && window.Hls.isSupported()) {
+  // mp4（Pektino 的推文原视频）直接给 video 元素；只有 m3u8 才走 hls.js
+  if (!/\.mp4(\?|$)/i.test(url) && await ensureHls() && window.Hls.isSupported()) {
     const hls = new window.Hls({ maxBufferLength: 30, maxMaxBufferLength: 120 });
     curPlayer = hls;
     hls.loadSource(url);
@@ -1676,15 +1937,45 @@ async function playVideo(v, site) {
       }
     });
   } else {
-    video.src = url;
+    // mp4（Pektino 的推文原视频）走**服务端中转**：内置浏览器直连 video.twimg.com
+    // 被墙；Node 服务器跟随系统代理能拉，把流转发给播放器（支持 Range 拖动）
+    video.src = /\.mp4(\?|$)/i.test(url)
+      ? '/vproxy?url=' + encodeURIComponent(url)
+      : url;
     video.onloadeddata = () => { $('pstate').textContent = ''; };
     video.onerror = () => {
-      $('pstate').textContent = '播放出错（浏览器不支持该格式，且 hls.js 没加载上）';
+      // Pektino 的视频是推文原 mp4（video.twimg.com 直链）：连不上那个 CDN 时
+      // 报"格式不支持"会误导——它就是网络到推特视频 CDN 不通（挂代理再试）
+      $('pstate').textContent = /\.mp4/i.test(url)
+        ? '视频源打不开（video.twimg.com）——多为网络到推特视频 CDN 不通，挂代理再试'
+        : '播放出错（浏览器不支持该格式，且 hls.js 没加载上）';
       log('video 元素报错', 'err');
     };
     video.play().catch(() => {});
   }
   bindPlayerUi(video);
+}
+
+/** 播放器控件状态：播放/暂停图标；上一集/下一集禁用态（与 App 对齐） */
+function simUpdPlayBtn() {
+  const v = $('v'), b = $('bPlay');
+  if (v && b) b.textContent = v.paused ? '▶' : '⏸';
+}
+function simUpdNavBtns() {
+  const n = (window.__curDetail && window.__curDetail.videos.length) || 0;
+  const i = window.__curVi || 0;
+  if ($('bPrev')) $('bPrev').classList.toggle('dis', i <= 0);
+  if ($('bNext')) $('bNext').classList.toggle('dis', i >= n - 1);
+}
+/** 播放器"上一集/下一集"：与点选集同一套（高亮 + playVideo） */
+function simSwitchTo(i) {
+  const d = window.__curDetail, site = window.__curSite;
+  if (!d || !d.videos.length || i < 0 || i > d.videos.length - 1) return;
+  window.__curVi = i;
+  document.querySelectorAll('#vlist .vrow, #vlist .vchip').forEach((r) => {
+    r.classList.toggle('on', parseInt(r.dataset.i, 10) === i);
+  });
+  playVideo(d.videos[i], site);
 }
 
 function bindPlayerUi(video) {
@@ -1711,10 +2002,44 @@ function bindPlayerUi(video) {
   video.ondurationchange = upd;
   upd();
 
-  // 双击左右 = 后退/快进 10 秒（与 App 的设置项一致，这里固定 10）
+  // 控件行（与 App 对齐）：上一集 / 播放暂停 / 下一集 / 放大一倍 / 全屏
+  if ($('bPrev')) {
+    $('bPrev').onclick = () => simSwitchTo((window.__curVi || 0) - 1);
+    $('bNext').onclick = () => simSwitchTo((window.__curVi || 0) + 1);
+    $('bPlay').onclick = () => {
+      if (video.paused) video.play().catch(() => {});
+      else video.pause();
+      simUpdPlayBtn();
+    };
+    $('bZoom').onclick = () => {
+      const on = !video.dataset.zoom;
+      video.dataset.zoom = on ? '1' : '';
+      video.style.transform = on ? 'scale(2)' : '';
+      $('bZoom').classList.toggle('on', on);
+      $('bZoom').textContent = on ? '还原' : '放大';
+    };
+    $('bFull').onclick = () => {
+      const p = $('player');
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (p.requestFullscreen) p.requestFullscreen();
+    };
+    video.onplay = simUpdPlayBtn;
+    video.onpause = simUpdPlayBtn;
+  }
+  simUpdPlayBtn();
+  simUpdNavBtns();
+
+  // 双击：左三成退 / 右三成进 10 秒（与 App 设置项一致）；**中间三成 = 暂停/播放**
   $('player').ondblclick = (ev) => {
     const r = $('player').getBoundingClientRect();
-    const back = (ev.clientX - r.left) < r.width / 2;
+    const x = ev.clientX - r.left;
+    if (x > r.width * 0.35 && x < r.width * 0.65) {
+      if (video.paused) video.play().catch(() => {});
+      else video.pause();
+      simUpdPlayBtn();
+      return;
+    }
+    const back = x < r.width / 2;
     video.currentTime = Math.max(0, Math.min(video.duration || 0,
       video.currentTime + (back ? -10 : 10)));
     upd();
@@ -1820,6 +2145,8 @@ async function searchItems(site, kw, page) {
     return hgCards(parseHtml(await getHtml(site, '/search/?keyword=' + encodeURIComponent(kw))));
   }
   if (tpl === 'porna') return pornaFetch(site, 'search:' + kw, page);
+  // Pektino：搜索 = 把输入当分类名传同一个接口（与站点一致；搜索独立、不受列表筛选影响）
+  if (tpl === 'pektino') return pektinoFetch(site, 'all', kw, page, true);
   const enc = encodeURIComponent(kw);
   const path = page <= 1 ? `/search/${enc}/` : `/search/${enc}/${page}/`;
   return parseArticles(await getHtml(site, path), site);

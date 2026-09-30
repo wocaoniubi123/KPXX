@@ -122,7 +122,23 @@ async function loadSites() {
   const sites = blocks
     .map((b) => {
       const hostsBlock = /hosts:\s*\[([^\]]*)\]/.exec(b);
-      const catsBlock = /categories:\s*\[([\s\S]*?)\]\s*,\s*color:/.exec(b);
+      // categories 块用括号配对提取：不能要求后面紧跟 "color:"——
+      // Pektino 这类条目在 categories 和 color 之间还有 filters:
+      const catsBlock = (() => {
+        const at = b.indexOf('categories:');
+        if (at < 0) return null;
+        const s0 = b.indexOf('[', at);
+        if (s0 < 0 || s0 - at > 40) return null;
+        let depth = 0;
+        for (let k = s0; k < b.length; k++) {
+          if (b[k] === '[') depth++;
+          else if (b[k] === ']') {
+            depth--;
+            if (depth === 0) return [null, b.slice(s0 + 1, k)];
+          }
+        }
+        return null;
+      })();
       return {
         name: pick(b, /name:\s*'([^']*)'/),
         kind: /kind:\s*SiteKind\.web/.test(b) ? 'web' : 'native',
@@ -180,6 +196,12 @@ function detectProxy() {
   }
   return null;
 }
+
+/** 列表/图标/代理/vproxy 共用（CORS 头）——模块级，handleRequest 和 streamVideo 都要用 */
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Cache-Control': 'no-store',
+};
 
 const PROXY = detectProxy();
 
@@ -258,6 +280,121 @@ function viaProxy(u, headers, timeoutMs) {
       tlsSock.on('error', fail);
     };
     sock.on('data', onHs);
+  });
+}
+
+/** /vproxy：**视频中转（流式）**。
+ *  内置浏览器直连被墙的视频 CDN（如 video.twimg.com）时，由 Node（跟随系统代理）
+ *  去拉、边收边转给播放器；转发 Range 头、回传 206/Content-Range（拖进度条能用）。
+ *  仅模拟器用——App 是直连架构，不经过这里。 */
+function streamVideo(req, res, targetUrl) {
+  let u;
+  try {
+    u = new URL(targetUrl);
+  } catch (e) {
+    res.writeHead(400, { ...cors, 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('URL 不合法');
+    return;
+  }
+  const hdrs = {
+    'User-Agent': UA,
+    Referer: `${u.protocol}//${u.host}/`,
+    'Accept-Encoding': 'identity',
+    Accept: '*/*',
+    ...(req.headers.range ? { Range: req.headers.range } : {}),
+  };
+  let settled = false; // 头一旦发出，后面的错误只能断流（不能再改状态码）
+  const fail = (e) => {
+    if (settled) return;
+    settled = true;
+    try {
+      res.writeHead(502, { ...cors, 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('中转失败：' + ((e && e.message) || e));
+    } catch (_) {}
+  };
+  const PASS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'last-modified', 'etag'];
+  const pickHeaders = (raw) => {
+    const out = {};
+    for (const [k, v] of raw) {
+      if (PASS.includes(k)) out[k] = v;
+    }
+    return out;
+  };
+
+  if (PROXY && u.protocol === 'https:') {
+    // CONNECT 隧道 + TLS，流式解析响应头后直接回传 body
+    const sock = net.connect(PROXY.port, PROXY.host);
+    const die = (e) => {
+      try { sock.destroy(); } catch (_) {}
+      fail(e);
+    };
+    sock.setTimeout(30000, () => die(new Error('代理连接超时')));
+    sock.on('error', die);
+    sock.on('connect', () => {
+      sock.write(
+        `CONNECT ${u.hostname}:443 HTTP/1.1\r\nHost: ${u.hostname}:443\r\n` +
+          `Proxy-Connection: keep-alive\r\n\r\n`
+      );
+    });
+    let hs = Buffer.alloc(0);
+    const onHs = (d) => {
+      hs = Buffer.concat([hs, d]);
+      const idx = hs.indexOf('\r\n\r\n');
+      if (idx < 0) return;
+      sock.removeListener('data', onHs);
+      const status = parseInt(hs.slice(0, idx).toString('latin1').split(' ')[1] || '0', 10);
+      if (status !== 200) return die(new Error('代理 CONNECT 返回 ' + status));
+      const tlsSock = tls.connect({ socket: sock, servername: u.hostname }, () => {
+        const lines = Object.entries(hdrs).map(([k, v]) => `${k}: ${v}\r\n`).join('');
+        tlsSock.write(
+          `GET ${u.pathname}${u.search} HTTP/1.1\r\nHost: ${u.host}\r\n${lines}Connection: close\r\n\r\n`
+        );
+      });
+      let head = Buffer.alloc(0);
+      let headDone = false;
+      tlsSock.on('data', (c) => {
+        if (headDone) {
+          res.write(c); // 已在流式回传，直接转发
+          return;
+        }
+        head = Buffer.concat([head, c]);
+        const cut = head.indexOf('\r\n\r\n');
+        if (cut < 0) return;
+        headDone = true;
+        const hLines = head.slice(0, cut).toString('latin1').split('\r\n');
+        const st = parseInt(hLines[0].split(' ')[1] || '0', 10) || 502;
+        const out = {};
+        for (const line of hLines.slice(1)) {
+          const k = line.indexOf(':');
+          if (k <= 0) continue;
+          const key = line.slice(0, k).trim().toLowerCase();
+          if (PASS.includes(key)) out[key] = line.slice(k + 1).trim();
+        }
+        settled = true;
+        res.writeHead(st, { ...cors, ...out });
+        const rest = head.slice(cut + 4);
+        if (rest.length) res.write(rest);
+      });
+      tlsSock.on('end', () => { try { res.end(); } catch (_) {} });
+      tlsSock.on('error', (e) => {
+        if (!settled) die(e);
+        else { try { res.destroy(); } catch (_) {} }
+      });
+    };
+    sock.on('data', onHs);
+    return;
+  }
+
+  // 直连兜底（没检测到代理 / http 地址）：Node 原生流式转发
+  const lib = u.protocol === 'https:' ? https : http;
+  const preq = lib.get(u, { headers: hdrs }, (pres) => {
+    settled = true;
+    res.writeHead(pres.statusCode || 502, { ...cors, ...pickHeaders(Object.entries(pres.headers)) });
+    pres.pipe(res);
+  });
+  preq.setTimeout(30000, () => { try { preq.destroy(); } catch (_) {} });
+  preq.on('error', (e) => {
+    if (!settled) fail(e);
   });
 }
 
@@ -356,10 +493,6 @@ async function fetchSite(name, path) {
 
 async function handleRequest(req, res) {
   const me = new URL(req.url, `http://localhost:${PORT}`);
-  const cors = {
-    'Access-Control-Allow-Origin': '*',
-    'Cache-Control': 'no-store',
-  };
 
   try {
     if (me.pathname === '/' || me.pathname === '/index.html') {
@@ -422,6 +555,18 @@ async function handleRequest(req, res) {
         ...cors,
       });
       res.end(r.body);
+      return;
+    }
+
+    if (me.pathname === '/vproxy') {
+      // 视频中转（流式，支持 Range）：见 streamVideo 注释
+      const target = me.searchParams.get('url');
+      if (!target) {
+        res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', ...cors });
+        res.end('缺少 url 参数');
+        return;
+      }
+      streamVideo(req, res, target);
       return;
     }
 

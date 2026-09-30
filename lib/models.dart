@@ -20,6 +20,11 @@ class Article {
   /// 卡片上的分类标签（可点 → 该标签的列表页）
   final List<ArticleTag> tags;
 
+  /// 封面宽高比（宽/高）。null = 按站点默认（竖屏站 3:4、横屏站 16:9）。
+  /// Pektino 这类**横竖混排**的站：每条视频按自己的比例显示
+  /// （从 mp4 直链的分辨率里拿到，如 /avc1/1920x1080/ → 16:9、2160x3840 → 9:16）。
+  final double? coverAspect;
+
   Article({
     required this.title,
     required this.url,
@@ -28,6 +33,7 @@ class Article {
     this.badge = '',
     this.desc = '',
     this.tags = const [],
+    this.coverAspect,
   });
 }
 

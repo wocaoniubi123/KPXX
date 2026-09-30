@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import 'api.dart';
 import 'detail_page.dart';
@@ -28,6 +29,12 @@ class _HomePageState extends State<HomePage>
 
   /// 二级子分类：key = "主分类|一级子" → 选中的二级子 key
   final Map<String, String> _sub2 = {};
+
+  // ---- 筛选器（多级分类：主题/时长/排序——目前只有 Pektino 有）----
+  String? _theme; // 选中的主题 slug（null = 不限）
+  String _duration = '0,0'; // 时长档（"0,0" = 全部）
+  String _sort = 'favorite'; // 排序
+  bool _themeOpen = false; // "筛选"按钮展开的主题面板
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -76,7 +83,176 @@ class _HomePageState extends State<HomePage>
     return _feeds.putIfAbsent(
         key,
         () => _CategoryFeed(
-            c.key, s1.isEmpty ? null : s1, s2.isEmpty ? null : s2, _api));
+            c.key, s1.isEmpty ? null : s1, s2.isEmpty ? null : s2, _api)
+          ..theme = _theme
+          ..duration = _duration
+          ..sort = _sort);
+  }
+
+  /// 切筛选：所有分类的列表都重拉（筛选是页面级状态，照站点）
+  void _applyFilters() {
+    setState(() {});
+    for (final f in _feeds.values) {
+      f.applyFilters(theme: _theme, duration: _duration, sort: _sort);
+    }
+  }
+
+  /// Pektino 的筛选行（照站点：筛选按钮 + 时长/排序下拉）；
+  /// 点"筛选"展开一排主题胶囊（多级分类的第二层）
+  Widget _filterRow(SiteFilters f) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal, // 兜底：极窄屏也不换行（可横滑）
+            child: Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => setState(() => _themeOpen = !_themeOpen),
+                  icon: const Icon(Icons.search, size: 16),
+                  // 选了主题时加个 ●，提示"标签正带着"
+                  label: Text(_theme == null ? '筛选' : '筛选 ●',
+                      style: const TextStyle(fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                  ),
+                ),
+                // 有筛选生效时给个一键重置（不然切来切去总带着老标签）
+                if (_theme != null ||
+                    _duration != '0,0' ||
+                    _sort != 'favorite') ...[
+                  const SizedBox(width: 6),
+                  OutlinedButton(
+                    onPressed: () {
+                      _theme = null;
+                      _duration = '0,0';
+                      _sort = 'favorite';
+                      _applyFilters();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    child: const Text('重置', style: TextStyle(fontSize: 13)),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                const Text('时长',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(width: 2),
+                SizedBox(
+                  width: 96,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _duration,
+                      isDense: true,
+                      isExpanded: true,
+                      style:
+                          const TextStyle(fontSize: 13, color: Colors.black87),
+                      items: [
+                        for (final d in f.durations)
+                          DropdownMenuItem(
+                              value: d.key,
+                              child: Text(d.value,
+                                  overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        _duration = v;
+                        _applyFilters();
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text('排序',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(width: 2),
+                SizedBox(
+                  width: 96,
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _sort,
+                      isDense: true,
+                      isExpanded: true,
+                      style:
+                          const TextStyle(fontSize: 13, color: Colors.black87),
+                      items: [
+                        for (final s in f.sorts)
+                          DropdownMenuItem(
+                              value: s.key,
+                              child: Text(s.value,
+                                  overflow: TextOverflow.ellipsis)),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        _sort = v;
+                        _applyFilters();
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_themeOpen)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 主题区（40 个，照站点弹窗原顺序）
+                _filterChips(f.themes),
+                const SizedBox(height: 8),
+                // 语言区（10 个，照站点弹窗下半区）
+                _filterChips(f.languages),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 筛选面板里的一组标签胶囊（主题区 / 语言区共用）
+  Widget _filterChips(List<SiteTab> items) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final t in items)
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              _theme = _theme == t.key ? null : t.key;
+              _applyFilters();
+            },
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: _theme == t.key
+                    ? const Color(0xFFE8590C)
+                    : const Color(0xFFF0F0F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                t.name,
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight:
+                        _theme == t.key ? FontWeight.w600 : FontWeight.w400,
+                    color: _theme == t.key
+                        ? Colors.white
+                        : const Color(0xFF444444)),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -123,6 +299,9 @@ class _HomePageState extends State<HomePage>
               onPick: (k) => setState(
                   () => _sub2['${cur!.key}|${l1.key}'] = k),
             ),
+          // 筛选器（多级分类：主题/时长/排序——站点把它们放在"每天/每周"这些
+          // 主分类页面里，照站点做一行筛选控件）
+          if (widget.site.filters != null) _filterRow(widget.site.filters!),
           Expanded(
             child: TabBarView(
               controller: _tab,
@@ -201,20 +380,50 @@ class _CategoryFeed extends ChangeNotifier {
   final String? sub; // 一级子分类 key：huangguo=排序值，porna=路径，wordpress 一般没有
   final String? sub2; // 二级子分类 key（目前只有 91porna 的「热门排行榜」有）
   final Api _api;
+
+  // ---- Pektino 类站点的"筛选器"状态（多级分类：主题/时长/排序）----
+  String? theme; // 选中的主题 slug（null = 不限）
+  String duration = '0,0'; // 时长档 "min,max" 秒（"0,0" = 全部）
+  String sort = 'favorite'; // 排序：favorite / pv / time / created
+
   final List<Article> items = [];
   int _page = 1;
   bool _loading = false;
   bool _done = false;
+  bool _started = false; // 拉过至少一次（切筛选时决定要不要马上重拉）
   bool error = false;
 
   _CategoryFeed(this.slug, this.sub, this.sub2, this._api);
 
+  /// 切筛选：清了重拉（对"已经加载过"的列表立即拉；没露过面的保持懒加载）
+  void applyFilters(
+      {String? theme, required String duration, required String sort}) {
+    if (this.theme == theme && this.duration == duration && this.sort == sort) {
+      return;
+    }
+    this.theme = theme;
+    this.duration = duration;
+    this.sort = sort;
+    items.clear();
+    _page = 1;
+    _done = false;
+    error = false;
+    notifyListeners();
+    if (_started) ensureMore();
+  }
+
   Future<void> ensureMore() async {
     if (_loading || _done) return;
     _loading = true;
+    _started = true;
     try {
-      final next =
-          await _api.category(slug, page: _page, sub: sub, sub2: sub2);
+      final next = await _api.category(slug,
+          page: _page,
+          sub: sub,
+          sub2: sub2,
+          theme: theme,
+          duration: duration,
+          sort: sort);
       if (next.isEmpty) {
         _done = true;
       } else {
@@ -302,9 +511,14 @@ class _FeedViewState extends State<_FeedView>
                   ],
                 ))
           : RowsGrid(
-              // 竖屏封面站（黄果）**一行 3 个**（用户要求：竖屏一格太占地方）；
-              // 横屏站保持一行 2 个
-              cols: widget.site.portraitCovers ? 3 : 2,
+              // 竖屏封面站（黄果）**一行 3 个**；但吃瓜社区（/chigua*）的帖子卡
+              // 是横版大图（站点桌面就是 2 列网格）→ 走 2 列；横屏站本来 2 列
+              cols: (widget.site.portraitCovers &&
+                      !widget.feed.slug.startsWith('/chigua'))
+                  ? 3
+                  : 2,
+              // Pektino：瀑布流（横竖混排按顺序填充两列，不留空档；照站点）
+              masonry: widget.site.template == SiteTemplate.pektino,
               physics: const AlwaysScrollableScrollPhysics(),
               count: feed.items.length,
               // 滚动到尾部才构造 → 在那时触发翻页（懒加载）
@@ -345,6 +559,12 @@ class RowsGrid extends StatelessWidget {
   final Widget Function(BuildContext, int) itemBuilder;
   final Widget Function()? tail;
   final ScrollPhysics? physics;
+
+  /// 瀑布流模式（仅 Pektino）：卡片**按顺序**轮流放进两列、**列内连续**——
+  /// 横竖混排时不会像"按行布局"那样在矮卡下面留空档（照站点）。
+  /// false = 默认"按行"布局：行高 = 该行最高卡、行内等高（用户要求）。
+  final bool masonry;
+
   const RowsGrid({
     super.key,
     required this.count,
@@ -352,15 +572,38 @@ class RowsGrid extends StatelessWidget {
     required this.itemBuilder,
     this.tail,
     this.physics,
+    this.masonry = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final tailCount = tail == null ? 0 : 1;
+    if (masonry) {
+      // 瀑布流（SliverMasonryGrid 懒加载）：按顺序把每张卡放进当前最矮的列
+      return CustomScrollView(
+        physics: physics,
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.all(8),
+            sliver: SliverMasonryGrid.count(
+              crossAxisCount: cols,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childCount: count + tailCount,
+              itemBuilder: (ctx, i) {
+                if (i >= count) return tail!();
+                return itemBuilder(ctx, i);
+              },
+            ),
+          ),
+        ],
+      );
+    }
     final rows = (count + cols - 1) ~/ cols;
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       physics: physics,
-      itemCount: rows + (tail == null ? 0 : 1),
+      itemCount: rows + tailCount,
       itemBuilder: (ctx, r) {
         if (r >= rows) return tail!();
         final start = r * cols;
@@ -437,7 +680,12 @@ class ArticleCard extends StatelessWidget {
             // 站点本来就没有封面（如 91porna 的小说）→ 整块不渲染，卡片变纯文字卡
             if (article.cover.isNotEmpty)
               AspectRatio(
-              aspectRatio: site.portraitCovers ? 3 / 4 : 16 / 9,
+              // 封面比例优先级：该条目自带（Pektino 横竖混排，从 mp4 分辨率算）>
+              // 吃瓜社区帖子卡（/archives/，横版大图）> 站点默认（竖屏 3:4 / 横屏 16:9）
+              aspectRatio: article.coverAspect ??
+                  (article.url.startsWith('/archives/')
+                      ? 16 / 9
+                      : (site.portraitCovers ? 3 / 4 : 16 / 9)),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -468,19 +716,20 @@ class ArticleCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 标题：**所有站点都居中**；**能一行就一行**，长了才换两行
-                  // （不预留固定 2 行的高度）。卡片高度靠下面的"填满格子"保证对齐
-                  SizedBox(
-                    width: double.infinity,
-                    child: Text(
-                      article.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600),
+                  // 标题：**所有站点都居中**；**能一行就一行**，长了才换两行。
+                  // 没有标题的卡片（Pektino 站点的卡片就没有标题）整行不渲染。
+                  if (article.title.isNotEmpty)
+                    SizedBox(
+                      width: double.infinity,
+                      child: Text(
+                        article.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
                     ),
-                  ),
                   // 小字简介（黄果的卡片有）：同样一行就一行
                   if (article.desc.isNotEmpty) ...[
                     const SizedBox(height: 3),
@@ -631,6 +880,7 @@ class _SearchPageState extends State<SearchPage> {
               : RowsGrid(
                   // 跟列表页同一套：竖屏站一行 3 个
                   cols: widget.site.portraitCovers ? 3 : 2,
+                  masonry: widget.site.template == SiteTemplate.pektino,
                   count: _results.length,
                   tail: () {
                     if (_done) {
