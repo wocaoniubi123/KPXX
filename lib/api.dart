@@ -2047,7 +2047,8 @@ class Api {
         }
       }
       var title = (v['tf'] ?? v['t'] ?? '').toString();
-      if (title.contains('&')) title = hp.parseFragment(title).text;
+      // 解 HTML 实体（tf 里带 &#039; 之类）；DocumentFragment.text 可为空 → 兜底 ''
+      if (title.contains('&')) title = hp.parseFragment(title).text ?? '';
       final n = (v['n'] ?? '').toString().trim();
       out.add(Article(
         title: title.trim().isEmpty ? url : title.trim(),
