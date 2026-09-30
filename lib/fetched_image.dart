@@ -121,11 +121,18 @@ class _FetchedImageState extends State<FetchedImage> {
   }
 
   static Future<Uint8List?> _fetchAndDecode(String url) async {
+    // Referer 统一用「图片自身的域名」（同播放器的铁律）：写死某个站的 Referer
+    // 会被别的图床拒——实测 hanime1 的 hembed 图床见到 51cg1 的 Referer 直接
+    // 403（自家域名/不带 = 200），App 里表现为"图标和封面不显示"。
+    final u = Uri.parse(url);
+    final ref = (u.hasScheme && u.host.isNotEmpty)
+        ? '${u.scheme}://${u.host}/'
+        : 'https://51cg1.com/';
     final r = await Site.httpClient
-        .get(Uri.parse(url), headers: {
+        .get(u, headers: {
           'User-Agent':
               'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-          'Referer': 'https://51cg1.com/',
+          'Referer': ref,
           'Accept': 'image/*,*/*;q=0.8',
         })
         .timeout(const Duration(seconds: 15));
