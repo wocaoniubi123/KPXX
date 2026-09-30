@@ -1205,12 +1205,12 @@ class _ControlBarState extends State<_ControlBar> {
               if (widget.showButtons)
                 Row(
                   children: [
-                    // 上一集：已是第一集时置灰禁用
-                    _barBtn(
-                      icon: Icons.skip_previous,
-                      enabled: widget.hasPrev,
-                      onPressed: widget.onPrev,
-                    ),
+                    // 上一集：第一集（没有上一集）时整个隐藏（用户要求不显示；原来只是置灰）
+                    if (widget.hasPrev)
+                      _barBtn(
+                        icon: Icons.skip_previous,
+                        onPressed: widget.onPrev,
+                      ),
                     _barBtn(
                       icon: s.playing ? Icons.pause : Icons.play_arrow,
                       onPressed: () =>
@@ -1361,10 +1361,24 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   }
 
   bool _errShown = false;
+  bool _endHandled = false; // 本段播完是否已处理（换集后自动重置）
 
   void _onTick() {
-    final err = widget.player.value.error;
-    if (err != _errShown && mounted) setState(() => _errShown = err);
+    if (!mounted) return;
+    final v = widget.player.value;
+    if (v.error != _errShown) setState(() => _errShown = v.error);
+    // 播完且没有下一集：自动退出全屏（竖版/横版都适用；用户要求）
+    if (v.completed) {
+      if (!_endHandled) {
+        _endHandled = true;
+        if (!(widget.switcher?.hasNext ?? false)) {
+          _restoreOrientation();
+          Navigator.pop(context);
+        }
+      }
+    } else {
+      _endHandled = false;
+    }
   }
 
   /// 双击：左三成退、右三成进（步长来自设置）、**中间暂停/播放**
