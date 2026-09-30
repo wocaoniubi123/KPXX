@@ -58,6 +58,9 @@ class SiteEntry {
   /// 竖屏封面站（如 黄果短剧 封面是 3:4 竖图）→ 卡片封面按竖屏比例显示
   final bool portraitCovers;
 
+  /// 详情页要不要显示「相关推荐」（默认显示；51吃瓜 按用户要求关掉）
+  final bool showRelated;
+
   /// 可选图标地址；以 / 开头 = 用该站第一个域名拼（例：'/favicon.ico'）；
   /// 留空 = 用名字首字画色块。站点 favicon 是 ICO，app 内解码（见 fetched_image.dart）
   final String iconUrl;
@@ -73,6 +76,7 @@ class SiteEntry {
     this.categories = const [],
     this.url = '',
     this.portraitCovers = false,
+    this.showRelated = true,
     this.iconUrl = '',
     this.color = const Color(0xFFFF7043),
   });
@@ -93,6 +97,8 @@ const List<SiteEntry> kSites = [
     name: '51吃瓜',
     template: SiteTemplate.wordpress,
     iconUrl: '/favicon.ico',
+    // 用户要求：51吃瓜 详情页不显示「相关推荐」（它那个热闻区是纯文字链）
+    showRelated: false,
     // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
     hosts: ['51cg1.com'],
     // 顺序 = 站点导航原顺序（27 个，2026-09-30 实测首页导航）
@@ -357,6 +363,22 @@ const List<SiteEntry> kSites = [
         SiteTab('search:国产动漫', '国产动漫'),
         SiteTab('search:3d动漫', '3d动漫'),
         SiteTab('search:同人动漫', '同人动漫'),
+      ]),
+      // 精选合集：列表页是"合集卡"（点开进该合集的视频列表）
+      SiteTab('/moviesets', '精选合集', [
+        SiteTab('/moviesets', '最新合集'),
+        SiteTab('/moviesets/rank', '排行榜合集'),
+        SiteTab('/moviesets/category', '分类合集'),
+        SiteTab('/moviesets/people', '人物合集'),
+        SiteTab('/moviesets/brand', '品牌合集'),
+      ]),
+      // 色情小说：列表是文字卡（无封面），详情是小说正文（article.markdown-body）
+      SiteTab('/novels', '色情小说', [
+        SiteTab('/novels', '全部'),
+        SiteTab('/novels/dushi-jiqing/new', '都市激情'),
+        SiteTab('/novels/xiaoyuan-zhilian/new', '校园之恋'),
+        SiteTab('/novels/renqi-shunv/new', '人妻熟女'),
+        SiteTab('/novels/jiating-luanlun/new', '家庭乱伦'),
       ]),
     ],
     color: Color(0xFF3B5998),

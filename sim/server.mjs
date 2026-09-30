@@ -128,6 +128,7 @@ async function loadSites() {
         kind: /kind:\s*SiteKind\.web/.test(b) ? 'web' : 'native',
         template: pick(b, /template:\s*SiteTemplate\.(\w+)/) || 'wordpress',
         portraitCovers: /portraitCovers:\s*true/.test(b),
+        showRelated: !/showRelated:\s*false/.test(b),
         iconUrl: pick(b, /iconUrl:\s*'([^']*)'/),
         url: pick(b, /\burl:\s*'([^']*)'/),
         hosts: hostsBlock ? listOf(hostsBlock[1], /'([^']+)'/g) : [],
@@ -433,11 +434,14 @@ async function handleRequest(req, res) {
 }
 
 /** 监听端口；被占用就等一会儿再试（热重载时新旧进程会短暂抢同一个端口） */
+let activeServer = null; // 当前在监听的 server（热重载时要先关掉它，把端口让出来）
+
 function listen(attempt = 0) {
   const server = http.createServer(handleRequest);
+  activeServer = server;
   server.once('error', (err) => {
     if (err.code === 'EADDRINUSE' && attempt < 20) {
-      setTimeout(() => listen(attempt + 1), 300);
+      setTimeout(() => listen(attempt + 1), 500);
     } else {
       console.error(`启动失败：${err.message}`);
       process.exit(1);
@@ -463,6 +467,8 @@ if (!process.env.KPXX_NO_RELOAD) {
     if (reloading) return;
     reloading = true;
     console.log('[热重载] server.mjs 变了，自动重启…');
+    // 先关掉自己占的端口，新进程才能立刻接上（否则要等重试窗口）
+    try { activeServer && activeServer.close(); } catch (e) {}
     try {
       const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
         detached: true,

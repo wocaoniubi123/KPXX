@@ -67,6 +67,7 @@
   .tabs {
     display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: #fff;
     border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none;
+    touch-action: pan-x;   /* 触屏：浏览器原生横滑；鼠标拖动由 JS 处理 */
   }
   .tabs::-webkit-scrollbar { display: none; }
   .tabs .tab {
@@ -76,7 +77,7 @@
   .tabs .tab.on { color: #8d4b2a; border-color: #8d4b2a; font-weight: 600; }
   /* 子分类行（黄果的排序 / 91porna 的子频道） */
   .subbar { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: #fff;
-    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none; }
+    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none; touch-action: pan-x; }
   .subbar::-webkit-scrollbar { display: none; }
   .subbar .sub { flex: 0 0 auto; padding: 5px 12px; border-radius: 15px; font-size: 12px;
     background: #f0f0f2; color: #444; cursor: pointer; white-space: nowrap; }
@@ -84,11 +85,11 @@
   /* 二级子分类行：小一号、底色浅，跟一级区分 */
   .subbar.l2 { background: #fafafa; padding: 5px 12px; gap: 6px; }
   .subbar.l2 .sub { padding: 4px 10px; font-size: 11px; border-radius: 13px; }
-  /* align-items:start：卡片按自身内容高低排，别被拉伸到整行高度
-     （拉伸时，标题/时间少的卡片底下会空出一块） */
+  /* 卡片拉伸到整行高度：同一行里卡片高度必须一致（用户要求） */
   .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px;
-    align-items: start; }
-  /* 竖屏封面站（黄果短剧）：封面按 3:4 显示 */
+    align-items: stretch; }
+  /* 竖屏封面站（黄果短剧）：封面 3:4，且**一行 3 个**（和 App 一致） */
+  .cards.portrait { grid-template-columns: repeat(3, 1fr); }
   .cards.portrait .card .cover { aspect-ratio: 3/4; }
   .card { background: #fff; border-radius: 12px; overflow: hidden; cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,.06); }
@@ -98,10 +99,21 @@
   .card .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.6);
     color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 4px; }
   .card .txt { padding: 6px 8px 8px; }
+  /* 标题能一行就一行（不预留两行高度）；最多两行 */
   .card .ttl { font-size: 13px; font-weight: 600; line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .card .meta { margin-top: 4px; font-size: 10px; color: #999; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; text-align: center; }
+  .card .ttl { text-align: center; }   /* 标题一律居中（用户要求） */
+  /* 小字简介（黄果的卡片有） */
+  /* 简介同样能一行就一行，最多两行 */
+  .card .desc { margin-top: 3px; font-size: 11px; line-height: 1.3; color: #666;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* 卡片上的分类标签（可点 → 标签列表） */
+  .card .ctags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .card .ctag { font-size: 10px; color: #555; background: #f0f0f2; border-radius: 9px;
+    padding: 2px 6px; cursor: pointer; }
+  .card .ctag:hover { background: #e4e4e8; }
   /* ---------- 详情页 ---------- */
   .player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; }
   .player video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
@@ -131,7 +143,12 @@
   .vrow.on .num { background: #e8590c; color: #fff; }
   .vrow.on .t { font-weight: 700; }
   .vrow .t { font-size: 13px; line-height: 1.4; }
-  .stills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+  /* 黄果短剧的选集：横向排，按宽度自动换行（用户要求，仅这站这么显示） */
+  .vchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .vchip { padding: 5px 10px; border-radius: 8px; background: #f0f0f2; color: #444;
+    font-size: 12px; line-height: 1.2; cursor: pointer; }
+  .vchip.on { background: #e8590c; color: #fff; font-weight: 600; }
+  .stills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; touch-action: pan-x; }
   .stills img { width: 120px; height: 84px; object-fit: cover; border-radius: 6px;
     background: #eee; cursor: zoom-in; flex: 0 0 auto; }
   /* 相关推荐：有封面显示缩略图；没有（如 51/每日大赛 的热闻区）显示个占位图标 */
@@ -158,7 +175,7 @@
   .strow .s { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.5; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 16px; }
   /* 标签：横向单行滚动（在剧照下方） */
-  .tagrow { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: none; }
+  .tagrow { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: none; touch-action: pan-x; }
   .tagrow::-webkit-scrollbar { display: none; }
   .tagrow .chip { flex: 0 0 auto; cursor: pointer; }
   .chip { padding: 6px 14px; border-radius: 18px; border: 1px solid #ddd; font-size: 13px; }
@@ -377,12 +394,16 @@ function hgCards(doc) {
     const epRaw = (el.querySelector('.hg-drama-card__episode')?.textContent || '')
       .replace(/\s+/g, ' ').trim();
     const ep = /(更新至\s*\d+\s*集|全\s*\d+\s*集|完结)/.exec(epRaw);
+    const desc = (el.querySelector('.hg-drama-card__desc')?.textContent || '')
+      .replace(/\s+/g, ' ').trim();
     out.push({
       title,
       url: a.getAttribute('href') || '',
       cover: img?.getAttribute('data-src') || '',
-      meta: ep ? ep[0] : '',
-      duration: '',
+      meta: '',
+      badge: ep ? ep[0] : '',
+      desc,
+      tags: [],   // 卡片不显示标签（用户要求）
     });
     if (out.length >= 60) break;
   }
@@ -394,13 +415,16 @@ function hgCards(doc) {
 function hgItem(v) {
   const ep = parseInt(v.episode_count, 10) || 0;
   const total = parseInt(v.total_episodes, 10) || 0;
+  // 黄果的卡片：封面右下角=集数（站点就是这么显示的），标题下面=小字简介+分类
   const epText = v.is_finished && total > 0 ? `全集${total}集` : (ep > 0 ? `更新至${ep}集` : '');
   return {
     title: String(v.title || '').trim(),
     url: `/video/${v.id}/`,
     cover: v.cover || '',
-    meta: epText,
-    duration: hgDuration(v.duration),
+    meta: '',
+    badge: epText,
+    desc: String(v.description || '').replace(/\s+/g, ' ').trim(),
+    tags: [],   // 卡片不显示标签（用户要求）
   };
 }
 
@@ -412,6 +436,38 @@ function hgDuration(raw) {
   const mm = String(m).padStart(h > 0 ? 2 : 1, '0');
   const ss = String(s).padStart(2, '0');
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** 精选合集的"合集卡"（a.ms-card → /moviesets/{type}/{slug}） */
+function msCards(doc) {
+  const out = [];
+  for (const a of doc.querySelectorAll('a.ms-card')) {
+    const href = a.getAttribute('href') || '';
+    const tt = a.querySelector('.ms-card__title');
+    const title = ((tt ? tt.textContent : '') || '').replace(/\s+/g, ' ').trim();
+    if (!href || !title) continue;
+    const img = a.querySelector('img[data-src]') || a.querySelector('img');
+    const mt = a.querySelector('.ms-card__meta');
+    const meta = ((mt ? mt.textContent : '') || '').replace(/\s+/g, ' ').trim();
+    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta, badge: '', desc: '', tags: [] });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 色情小说的文字卡（没封面；标题 .dx-title） */
+function novelCards(doc) {
+  const out = [];
+  for (const a of doc.querySelectorAll('a[href^="/novels/"]')) {
+    const href = a.getAttribute('href') || '';
+    if (!/^\/novels\/\d+$/.test(href)) continue;
+    const tt = a.querySelector('h2.dx-title') || a.querySelector('.dx-title');
+    const title = ((tt ? tt.textContent : '') || '').replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    out.push({ title, url: href, cover: '', meta: metaDate(a.textContent || ''), badge: '', desc: '', tags: [] });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
 }
 
 /** 91porna 的卡片：div.video-item（时长角标在封面右下角） */
@@ -442,7 +498,9 @@ function pornaCards(doc) {
       url: a.getAttribute('href') || '',
       cover: img?.getAttribute('data-src') || '',
       meta: '',
-      duration,
+      badge: duration,
+      desc: '',
+      tags: [],
     });
   }
   const seen = new Set();
@@ -461,13 +519,14 @@ async function parseDetail(html, site, url) {
     // 三种详情页：短视频 / 黑料图文 / 普通视频（靠 URL 区分）
     if (url && url.startsWith('/melonshort/video/')) return melonDetail(html, url);
     if (url && url.startsWith('/heiliao-chigua/')) return await heiliaoDetail(html, site);
+    if (url && url.startsWith('/novels/')) return await novelDetail(html);
     return await pornaDetail(html, site);
   }
-  return wpDetail(html);
+  return await wpDetail(html, site, url);
 }
 
 /** WordPress 系详情（含 51fans1 的兜底分支） */
-function wpDetail(html) {
+async function wpDetail(html, site, url) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   let title = (doc.querySelector('.post-title')?.textContent || '').trim();
   if (!title) title = (doc.querySelector('.novel-title h1')?.textContent || '').trim();
@@ -516,7 +575,42 @@ function wpDetail(html) {
     const n = ord > 0 ? ord : order;
     videos.push({ ordinal: n, label: ord > 0 && texts.length ? texts[0] : '视频 ' + n, sources });
   }
+  // 合集文章：正文没有播放器，只有"👉点我查看详情帖"链接 → 抓子文章取源，拼成篇内视频
+  if (!videos.length) {
+    const subs = [];
+    // 结构规律（不看文字）：真·子文章链接的直接父元素是 <p>；
+    // 推广在 th、上一篇/下一篇在 span、相关文章在 div.link-list、版权行 href 是本页
+    const contentEl = doc.querySelector('.post-content');
+    for (const a of contentEl ? contentEl.querySelectorAll('a[href*="/archives/"]') : []) {
+      // 两道结构判定：父级是 <p>，且该 <p> 是 .post-content 的直接子元素
+      if (!a.parentElement || a.parentElement.tagName.toLowerCase() !== 'p') continue;
+      if (a.parentElement.parentElement !== contentEl) continue;
+      let href = a.getAttribute('href') || '';
+      if (href.startsWith('http')) { const i = href.indexOf('/archives/'); if (i >= 0) href = href.slice(i); }
+      const txt = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!href || !txt || href === url) continue;
+      if (subs.some((x) => x[0] === href)) continue;
+      subs.push([href, txt]);
+      if (subs.length >= 20) break;
+    }
+    // ⚠️ 不预抓子文章：只放"标题 + 地址"，点到哪集才抓哪篇（playVideo 里按需取）
+    let o = 0;
+    for (const x of subs) {
+      o++;
+      videos.push({ ordinal: o, label: cleanSubTitle(x[1]), sources: [], lazyUrl: x[0] });
+    }
+  }
+
   videos.sort((a, b) => a.ordinal - b.ordinal);
+
+  /** 合集的"详情帖"链接文字 → 选集标题 */
+  function cleanSubTitle(raw) {
+    let s = String(raw || '').replace(/\s+/g, ' ').trim();
+    s = s.replace('点我查看详情帖', ' ');
+    s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    return s || '视频';
+  }
 
   // 标签（/tag/xxx/），可点击跳转
   const tags = [];
@@ -559,7 +653,31 @@ function hgDetail(html) {
   const raw = doc.querySelector('script#videoInitialData')?.textContent || '';
   if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
   const videos = [];
-  if (data && data.epPlaySrcs) {
+  // 选集：页面上有完整的选集链接（/video/{id}/、/video/{id}/ep-{n}/）；
+  // epPlaySrcs 只是"当前集附近 2~3 集"的窗口 → 列全，窗口内有源的直接播，
+  // 其余 lazyUrl 留那一集地址，点到才取（点哪集抓哪集）
+  const epUrls = new Map();
+  const vid = data ? String(data.id || '') : '';
+  if (vid) {
+    const re = new RegExp('^/video/' + vid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:/ep-(\\d+))?/$');
+    for (const a of doc.querySelectorAll('a[href^="/video/"]')) {
+      const href = a.getAttribute('href') || '';
+      const m = re.exec(href);
+      if (!m) continue;
+      const n = parseInt(m[1] || '1', 10) || 1;
+      if (!epUrls.has(n)) epUrls.set(n, href);
+    }
+  }
+  if (epUrls.size) {
+    for (const n of Array.from(epUrls.keys()).sort((a, b) => a - b)) {
+      const src = (data && data.epPlaySrcs && data.epPlaySrcs[String(n)]) || '';
+      videos.push({
+        ordinal: n, label: `第 ${n} 集`,
+        sources: src ? [src] : [],
+        lazyUrl: src ? undefined : epUrls.get(n),
+      });
+    }
+  } else if (data && data.epPlaySrcs) {
     const keys = Object.keys(data.epPlaySrcs).map((k) => parseInt(k, 10) || 0).sort((a, b) => a - b);
     for (const k of keys) {
       const src = data.epPlaySrcs[String(k)];
@@ -615,6 +733,26 @@ function hgPostDetail(html) {
     tags,
     related: hgCards(doc).slice(0, 12),
     duration: '',
+  };
+}
+
+/** 色情小说详情：标题（og:title 去站点后缀）+ 正文（article.markdown-body 全文）+ 插图 */
+async function novelDetail(html) {
+  const doc = parseHtml(html);
+  let title = (doc.querySelector('meta[property="og:title"]')?.getAttribute('content') || '').trim();
+  title = title.replace(/\s*-\s*91博客色情小说\s*$/, '');
+  const body = (doc.querySelector('article.markdown-body')?.textContent || '').trim();
+  const desc = (doc.querySelector('meta[name="description"]')?.getAttribute('content') || '')
+    .replace(/\s+/g, ' ').trim();
+  const images = [];
+  for (const img of doc.querySelectorAll('article.markdown-body img[data-src]')) {
+    const src = img.getAttribute('data-src') || '';
+    if (src.startsWith('http') && !images.includes(src)) images.push(src);
+  }
+  return {
+    title, intro: body || desc,
+    time: metaDate(doc.querySelector('.markdown-body')?.textContent || ''),
+    images, videos: [], tags: [], related: [], duration: '',
   };
 }
 
@@ -906,10 +1044,51 @@ function setTabs(cats, activeIdx, onPick) {
     t.onclick = () => onPick(parseInt(t.dataset.i, 10)));
 }
 
+/** 横向长条支持"按住左右拖"滚动。
+ *  用户是手机远控电脑（没有滚轮/触控板），横条只能靠拖动才够得着；
+ *  拖超过 8px 就把随后那次 click 吞掉，免得滑动时误切了分类。 */
+function enableDragScroll(el) {
+  if (!el || el.dataset.dragScroll === '1') return;
+  el.dataset.dragScroll = '1';
+  let down = false, startX = 0, startLeft = 0, moved = 0;
+  el.addEventListener('pointerdown', (e) => {
+    // 触摸走浏览器原生横滑（CSS 里给了 touch-action: pan-x），这里只管鼠标
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    down = true; moved = 0; startX = e.clientX; startLeft = el.scrollLeft;
+    // ⚠️ 千万别用 setPointerCapture：指针捕获会把随后的 click 也重定向到容器，
+    //    子元素（tab、子分类胶囊）的点击会全部失效——之前就是这么把点击搞坏的
+    el.style.cursor = 'grabbing';
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!down) return;
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > moved) moved = Math.abs(dx);
+    el.scrollLeft = startLeft - dx;
+    if (moved > 8 && e.cancelable) e.preventDefault();
+  });
+  const up = () => {
+    if (!down) return;
+    down = false;
+    el.style.cursor = '';
+    if (moved > 8) {
+      // 捕获阶段吞掉这次 click（滑完手抬起来别顺手切了分类）
+      const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      el.addEventListener('click', swallow, true);
+      setTimeout(() => el.removeEventListener('click', swallow, true), 300);
+    }
+  };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('pointerleave', up);
+}
+
 function push(view) { stack.push(view); view(); }
 function back() { stack.pop(); (stack[stack.length - 1] || viewGrid)(); }
 
 /* -------- 宫格首页 -------- */
+// 三条常驻横条支持拖动（行内内容会重建，但容器是常驻的，挂一次就够）
+['tabs', 'subbar', 'subbar2'].forEach((id) => enableDragScroll($(id)));
+
 function viewGrid() {
   showNav(true);
   $('tabs').style.display = 'none';
@@ -917,6 +1096,7 @@ function viewGrid() {
   const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
   setAppbar(`<div class="spacer"></div><h1>KPXX</h1><div class="spacer"></div>`);
   $('body').className = 'body';
+  $('body').onscroll = null; // 从列表页返回时别让旧的"滚到底加载"还跟着跑
   $('body').innerHTML = `<div class="grid">${SITES.map((s, i) => `
     <div class="tile" data-i="${i}">
       <div class="box">
@@ -966,6 +1146,13 @@ function subOf(site, cat) { return subTabOf(site, cat)?.key || null; }
  *  /chigua/                          → hg-post-card（翻页 /chigua/page/N/） */
 async function hgPageList(site, path, page) {
   const p0 = path.endsWith('/') ? path : path + '/';
+  // ⚠️ 精选推荐 / 最近上新 走 JSON 接口：页面 HTML 那份是站点没更新的静态版
+  if (p0 === '/recommend/' || p0 === '/newest/') {
+    const sort = p0 === '/newest/' ? 'sort=new&' : '';
+    const j = JSON.parse(await getHtml(site, `/api/videos?${sort}page=${page}&size=20`));
+    const items = (j && j.data && j.data.items) || [];
+    return items.map(hgItem);
+  }
   const url = page <= 1 ? p0 : (p0.startsWith('/chigua') ? p0 + 'page/' + page + '/' : p0 + page + '/');
   const doc = parseHtml(await getHtml(site, url));
   if (p0.startsWith('/chigua')) return hgPostCards(doc);
@@ -986,7 +1173,7 @@ function hgTopicCards(doc) {
     const img = a.querySelector('img[data-src]') || a.querySelector('img');
     const mt = a.querySelector('.hg-topic-card__meta');
     const meta = ((mt ? mt.textContent : '') || '').replace(/\s+/g, ' ').trim();
-    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta, duration: '' });
+    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta, badge: '', desc: '', tags: [] });
   }
   const seen = new Set();
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
@@ -1002,7 +1189,7 @@ function hgPostCards(doc) {
     if (!href || !title) continue;
     const img = a.querySelector('img[data-src]') || a.querySelector('img');
     const date = (a.querySelector('.hg-post-card__date')?.textContent || '').trim();
-    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta: metaDate(date), duration: '' });
+    out.push({ title, url: href, cover: img?.getAttribute('data-src') || '', meta: metaDate(date), badge: '', desc: '', tags: [] });
   }
   const seen = new Set();
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
@@ -1020,7 +1207,7 @@ function hgRankCards(doc) {
     const img = el.querySelector('img[data-src]') || el.querySelector('img');
     const num = (el.querySelector('.hg-rank-num')?.textContent || '').trim();
     out.push({ title, url: a.getAttribute('href') || '', cover: img?.getAttribute('data-src') || '',
-      meta: num ? '第 ' + num + ' 名' : '', duration: '' });
+      meta: num ? '第 ' + num + ' 名' : '', badge: '', desc: '', tags: [] });
   }
   const seen = new Set();
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
@@ -1066,6 +1253,13 @@ async function pornaFetch(site, key, page) {
   if (path.startsWith('/melonshort')) return melonCards(doc);
   // ⚠️ 只看路径部分（搜索关键词里也可能有"黑料"），并且用完整的"黑料吃瓜"编码
   const p0 = path.split('?')[0];
+  // 精选合集：/moviesets、/moviesets/{rank|category|people|brand} 是合集卡页面；
+  // 再深一层才是该合集的视频列表（走 video-item）
+  if (p0.startsWith('/moviesets')) {
+    const segs = p0.split('/').filter((x) => x);
+    if (segs.length <= 2) return msCards(doc);
+  }
+  if (p0 === '/novels' || p0.startsWith('/novels/')) return novelCards(doc);
   if (p0.includes('heiliao') || p0.includes('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) return heiliaoCards(doc);
   return pornaCards(doc);
 }
@@ -1086,7 +1280,9 @@ function melonCards(doc) {
       url: a.getAttribute('href') || '',
       cover: img?.getAttribute('data-src') || '',
       meta: '',
-      duration: dm ? dm[0] : '',
+      badge: dm ? dm[0] : '',
+      desc: '',
+      tags: [],
     });
   }
   const seen = new Set();
@@ -1106,7 +1302,9 @@ function heiliaoCards(doc) {
       url: a.getAttribute('href') || '',
       cover: poster?.getAttribute('data-src') || '',
       meta: metaDate(desc),
-      duration: '',
+      badge: '',
+      desc: '',
+      tags: [],
     });
   }
   const seen = new Set();
@@ -1187,22 +1385,35 @@ function setSubBar(site, cat) {
 function renderCards(cat, st) {
   const wrap = $('cards');
   if (!wrap) return;
+  const centerTitle = !!(cat.site && cat.site.portraitCovers);
   wrap.innerHTML = st.items.map((a, i) => `
     <div class="card" data-i="${i}">
-      <div class="cover">
+      ${a.cover ? `<div class="cover">
         <img data-src="${esc(a.cover)}" alt="" />
-        ${a.duration ? `<span class="dur">${esc(a.duration)}</span>` : ''}
-      </div>
+        ${a.badge ? `<span class="dur">${esc(a.badge)}</span>` : ''}
+      </div>` : ''}
       <div class="txt">
-        <div class="ttl">${esc(a.title)}</div>
+        <div class="ttl${centerTitle ? ' center' : ''}">${esc(a.title)}</div>
+        ${a.desc ? `<div class="desc">${esc(a.desc)}</div>` : ''}
+        ${(a.tags && a.tags.length) ? `<div class="ctags">${a.tags.slice(0, 4).map((t) =>
+          `<span class="ctag" data-slug="${esc(t.slug)}" data-name="${esc(t.name)}">${esc(t.name)}</span>`).join('')}</div>` : ''}
         ${a.meta ? `<div class="meta">${esc(a.meta)}</div>` : ''}
       </div>
     </div>`).join('');
+  // 卡片上的分类标签：能点就进该标签的列表（slug 为空 = 只展示）
+  wrap.querySelectorAll('.ctag').forEach((el) => {
+    if (!el.dataset.slug) return;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const site0 = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
+      openTagList(site0, el.dataset.name, el.dataset.slug, true);
+    };
+  });
   wrap.querySelectorAll('.card').forEach((c) => {
     const a = st.items[parseInt(c.dataset.i, 10)];
     c.onclick = () => {
       // 专题卡（/topics/xxx/）点开的是"该专题下的视频列表"，不是某一篇详情
-      if (a.url && a.url.startsWith('/topics/')) {
+      if (a.url && (a.url.startsWith('/topics/') || a.url.startsWith('/moviesets/'))) {
         const site0 = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
         openTagList(site0, a.title, a.url, false);
         return;
@@ -1290,10 +1501,14 @@ async function viewDetail(article, cat, scrollTop) {
         ${d.videos.length ? `<span>${d.videos.length} 集</span>` : ''}
         ${d.duration ? `<span>时长 ${esc(d.duration)}</span>` : ''}</div>
       ${d.videos.length > 1 ? `
-        <div class="sec"><h3>视频（${d.videos.length}）</h3><div class="vlist" id="vlist">
+        <div class="sec"><h3>视频（${d.videos.length}）</h3>
+        ${site.portraitCovers ? `<div class="vchips" id="vlist">
+          ${d.videos.map((v, i) => `<div class="vchip ${i === 0 ? 'on' : ''}" data-i="${i}">${esc(v.label)}</div>`).join('')}
+        </div>` : `<div class="vlist" id="vlist">
           ${d.videos.map((v, i) => `<div class="vrow ${i === 0 ? 'on' : ''}" data-i="${i}">
             <div class="num">${v.ordinal}</div><div class="t">${esc(v.label)}</div></div>`).join('')}
-        </div></div>` : ''}
+        </div>`}
+        </div>` : ''}
       ${d.intro ? `<div class="sec"><h3>简介</h3><div class="intro">${esc(d.intro)}</div></div>` : ''}
       ${d.images.length ? `<div class="sec"><h3>剧照</h3><div class="stills" id="stills">
           ${d.images.map((u) => `<img data-src="${esc(u)}" alt="" />`).join('')}</div></div>` : ''}
@@ -1301,7 +1516,7 @@ async function viewDetail(article, cat, scrollTop) {
           ${cat && cat.key ? `<div class="chip tagchip" data-slug="${esc(cat.key)}" data-tag="0">${esc(cat.name)}</div>` : ''}
           ${d.tags.map((t) => `<div class="chip tagchip" data-slug="${esc(t.slug)}" data-tag="1">#${esc(t.name)}</div>`).join('')}
         </div>` : ''}
-      ${d.related.length ? `<div class="sec"><h3>相关推荐</h3><div class="vlist" id="related">
+      ${(d.related.length && site.showRelated !== false) ? `<div class="sec"><h3>相关推荐</h3><div class="vlist" id="related">
           ${d.related.map((a, i) => `<div class="relrow" data-i="${i}">
             ${a.cover ? `<img data-src="${esc(a.cover)}" alt="" />` : '<div class="noimg">🔥</div>'}
             <div class="t">${esc(a.title)}</div>
@@ -1310,6 +1525,9 @@ async function viewDetail(article, cat, scrollTop) {
     </div>`;
   fillImages($('body'));
   if (scrollTop) $('body').scrollTop = scrollTop;
+  // 标签行 / 剧照行也支持按住拖动
+  enableDragScroll($('tagrow'));
+  enableDragScroll($('stills'));
 
   // 标签 / 分类点击 → 对应列表
   const tagrow = $('tagrow');
@@ -1343,16 +1561,17 @@ async function viewDetail(article, cat, scrollTop) {
   // 多视频切换
   const vlist = $('vlist');
   if (vlist) {
-    vlist.querySelectorAll('.vrow').forEach((row) => {
+    vlist.querySelectorAll('.vrow, .vchip').forEach((row) => {
       row.onclick = () => {
         const i = parseInt(row.dataset.i, 10);
-        vlist.querySelectorAll('.vrow').forEach((r) => r.classList.remove('on'));
+        vlist.querySelectorAll('.vrow, .vchip').forEach((r) => r.classList.remove('on'));
         row.classList.add('on');
-        playVideo(d.videos[i]);
+        playVideo(d.videos[i], site);
       };
     });
   }
-  playVideo(d.videos[0]);
+  if (d.videos.length) playVideo(d.videos[0], site);
+  else $('pstate').textContent = '';   // 纯文字页（小说/图文）不报"无源"
 }
 
 /* -------- 播放器（hls.js + 自定义进度条，行为对齐 App） -------- */
@@ -1376,10 +1595,60 @@ async function ensureHls() {
   return false;
 }
 
-async function playVideo(v) {
+const lazySrcCache = new Map(); // 合集按需取源缓存：子文章地址 -> 播放源[]
+
+/** 合集：点哪集抓哪集（把这一篇子文章的 dplayer 源取回来） */
+async function fetchLazySources(site, url) {
+  if (lazySrcCache.has(url)) return lazySrcCache.get(url);
+  const task = (async () => {
+    try {
+      const html = await getHtml(site, url);
+      const page = parseHtml(html);
+      const out = [];
+      if (site.template === 'huangguo') {
+        // 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep）
+        let data = null;
+        const raw = page.querySelector('script#videoInitialData')?.textContent || '';
+        if (raw) { try { data = JSON.parse(raw); } catch (e) { data = null; } }
+        const ep = data ? (parseInt(String(data.ep), 10) || 0) : 0;
+        const src = (data && data.epPlaySrcs && data.epPlaySrcs[String(ep)]) || '';
+        if (src) out.push(src);
+      } else {
+        for (const dp of page.querySelectorAll('.dplayer[data-config]')) {
+          try {
+            const cfg = JSON.parse(dp.getAttribute('data-config'));
+            if (cfg.video && cfg.video.url) out.push(cfg.video.url);
+            if (cfg.video_h265 && cfg.video_h265.url) out.push(cfg.video_h265.url);
+          } catch (e) {}
+        }
+      }
+      if (out.length) lazySrcCache.set(url, out);
+      return out;
+    } catch (e) {
+      log('取源失败 ' + url + '：' + ((e && e.message) || e), 'err');
+      return [];
+    }
+  })();
+  lazySrcCache.set(url, task);
+  return task;
+}
+
+async function playVideo(v, site) {
   const video = $('v');
   if (!video) return;
   if (curPlayer && curPlayer.destroy) { try { curPlayer.destroy(); } catch (e) {} curPlayer = null; }
+  // 合集类：这一集没有源 → 按需去它的子文章页取（详情页首屏才快）
+  if (v && !(v.sources && v.sources.length) && v.lazyUrl) {
+    $('pstate').textContent = '正在取视频…';
+    log('按需取源：' + v.lazyUrl, 'dim');
+    const got = await fetchLazySources(site, v.lazyUrl);
+    if (!got.length) {
+      $('pstate').textContent = '这一集已失效（子文章打不开或没有视频）';
+      log('这一集取源失败：' + v.lazyUrl, 'err');
+      return;
+    }
+    v = { ...v, sources: got };
+  }
   const src = v && v.sources && v.sources[0];
   if (!src) {
     $('pstate').textContent = '该视频没有可用源';
@@ -1539,6 +1808,23 @@ async function tagListItems(site, slug, isTag, page) {
   return parseArticles(await getHtml(site, path), site);
 }
 
+/** 搜索列表（按站点模板取，与 api.dart 的 search() 对齐）
+ *  WordPress 系 5 站的搜索**有分页**：/search/{kw}/{页码}/
+ *  （页面上「下一页」链接就是这个形态；实测第 2 页有内容且与第 1 页不重复。
+ *  2026-09-30 修正：之前以为"站点无搜索分页"，只取了第 1 页）；
+ *  黄果搜索单页；91porna 走 &page=。 */
+async function searchItems(site, kw, page) {
+  const tpl = site.template || 'wordpress';
+  if (tpl === 'huangguo') {
+    if (page > 1) return []; // 黄果搜索单页（页面上没有分页入口）
+    return hgCards(parseHtml(await getHtml(site, '/search/?keyword=' + encodeURIComponent(kw))));
+  }
+  if (tpl === 'porna') return pornaFetch(site, 'search:' + kw, page);
+  const enc = encodeURIComponent(kw);
+  const path = page <= 1 ? `/search/${enc}/` : `/search/${enc}/${page}/`;
+  return parseArticles(await getHtml(site, path), site);
+}
+
 /* -------- 搜索页 -------- */
 function openSearch(siteIdx) { push(() => viewSearch(SITES[siteIdx])); }
 
@@ -1553,6 +1839,9 @@ function viewSearch(site) {
   $('subbar').style.display = 'none';
   const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
   $('body').className = 'body';
+  // 清掉上一个页面遗留的滚动监听：否则搜索结果滚到底，会去加载那个分类的
+  // "下一页"，并把搜索结果替换成分类列表（串台，踩过 → 已在真机对照中发现）
+  $('body').onscroll = null;
   $('body').innerHTML = `<div class="hint">输入关键词即可搜索</div>`;
   $('doSearch').onclick = doSearch;
   $('kw').onkeydown = (e) => { if (e.key === 'Enter') doSearch(); };
@@ -1560,25 +1849,42 @@ function viewSearch(site) {
   async function doSearch() {
     const kw = $('kw').value.trim();
     if (!kw) return;
+    $('body').onscroll = null; // 换一批结果前先解绑旧的滚动监听
     $('body').innerHTML = `<div style="text-align:center;padding:40px 0"><span class="spin"></span></div>`;
     try {
-      const tpl = site.template || 'wordpress';
-      let items;
-      if (tpl === 'huangguo') {
-        items = hgCards(parseHtml(await getHtml(site, '/search/?keyword=' + encodeURIComponent(kw))));
-      } else if (tpl === 'porna') {
-        items = pornaCards(parseHtml(await getHtml(site,
-          '/comic/index/search?keyword=' + encodeURIComponent(kw))));
-      } else {
-        items = parseArticles(await getHtml(site, '/search/' + encodeURIComponent(kw) + '/'), site);
-      }
+      const items = await searchItems(site, kw, 1);
       log(`搜索「${kw}」：${items.length} 篇`, items.length ? 'ok' : 'err');
       if (!items.length) { $('body').innerHTML = `<div class="hint">无结果</div>`; return; }
       const portrait = site.portraitCovers ? ' portrait' : '';
-      $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>`;
-      const st = { items, page: 1, done: true };
+      $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>
+        <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
+      const st = { items, page: 2, done: false };
+      // 与 App 搜索页一致：滚到底自动翻下一页（到底后 #more 显示"没有更多了"）
+      const load = async () => {
+        if (st.loading || st.done) return;
+        st.loading = true;
+        try {
+          const more = await searchItems(site, kw, st.page);
+          if (!more.length) { st.done = true; log(`搜索「${kw}」第 ${st.page} 页：0 篇（到底）`, 'dim'); }
+          else { st.items.push(...more); st.page++; log(`搜索「${kw}」第 ${st.page - 1} 页：${more.length} 篇`, 'ok'); }
+        } catch (e) {
+          st.done = true;
+          log(`搜索「${kw}」抓取失败：${e.message}`, 'err');
+        } finally {
+          st.loading = false;
+          renderCards({ name: '搜索「' + kw + '」', site }, st);
+          // 内容还占不满一屏（如黄果只有 9 条）→ 够不着"滚到底"，继续检查
+          if (!st.done && $('body').scrollHeight <= $('body').clientHeight + 300) load();
+        }
+      };
+      $('body').onscroll = () => {
+        if ($('body').scrollTop + $('body').clientHeight > $('body').scrollHeight - 300) load();
+      };
       // 传 site：详情页要靠它决定请求哪个域名（原先是 null → 回落 51吃瓜 → 404）
-      renderCards({ name: '搜索', site }, st);
+      renderCards({ name: '搜索「' + kw + '」', site }, st);
+      // 一屏都没占满（如黄果只有 9 条）就够不着"滚到底"：直接检查，
+      // 该加载就接着加载（黄果会立刻到底 → 显示"没有更多了"）
+      if ($('body').scrollHeight <= $('body').clientHeight + 300) load();
     } catch (e) {
       $('body').innerHTML = `<div class="hint">搜索失败：${esc(e.message)}</div>`;
       log('搜索失败：' + e.message, 'err');

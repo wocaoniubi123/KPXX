@@ -59,6 +59,7 @@ class DetailPageState extends State<DetailPage> {
   /// 原生 AVPlayer 在个别片源上跳转会卡死，这里是另一个引擎的出口。
   void _openInWeb() {
     if (widget.site.hosts.isEmpty) return;
+    _switcher?.pause(); // 跳走前先停一下，别两边同时出声
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => WebPage(
@@ -155,16 +156,22 @@ class DetailPageState extends State<DetailPage> {
               ? const Center(child: CircularProgressIndicator())
               : ListView(
                   children: [
-                    // 视频区（无视频时显示封面/占位；用正文首图做海报）
-                    PlayerWidget(
+                    // 视频区：有视频、或有海报（剧照首图）才显示；
+                    // 纯文字页（如小说）不显示空白播放器
+                    if (videos.isNotEmpty || d.images.isNotEmpty)
+                      PlayerWidget(
                       // 不换 key：换片由播放器内部复用同一实例开新源
                       // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
-                      switcher: _switcher,
-                      sources: videos.isEmpty ? const [] : videos[idx].sources,
-                      referer: _api.base,
-                      poster: d.images.isNotEmpty ? d.images.first : '',
-                      onRefreshSources: _refreshSources,
-                    ),
+                        switcher: _switcher,
+                        sources: videos.isEmpty ? const [] : videos[idx].sources,
+                        referer: _api.base,
+                        poster: d.images.isNotEmpty ? d.images.first : '',
+                        onRefreshSources: _refreshSources,
+                        // 合集类：当前这一集没有源时，按需去子文章取
+                        lazyUrl:
+                            videos.isEmpty ? null : videos[idx].lazyUrl,
+                        onFetchSources: _api.videoSourcesAt,
+                      ),
                     Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
@@ -208,52 +215,90 @@ class DetailPageState extends State<DetailPage> {
                                 style: const TextStyle(
                                     fontSize: 15, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 6),
-                            for (final (i, v) in videos.indexed)
-                              InkWell(
-                                onTap: () => _switcher?.select(i),
-                                child: Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 6),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        width: 22,
-                                        height: 22,
-                                        alignment: Alignment.center,
+                            // 竖屏封面站（黄果短剧）：选集**横向排、按宽度自动换行**
+                            // 的胶囊（这站是"第 N 集"这种短标签，竖排太占地方）；
+                            // 其它站保持原来的竖排（标题可能很长）
+                            if (widget.site.portraitCovers)
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final (i, v) in videos.indexed)
+                                    InkWell(
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: () => _switcher?.select(i),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 5),
                                         decoration: BoxDecoration(
                                           color: i == idx
-                                              ? Colors.deepOrange
-                                              : const Color(0x1F000000),
+                                              ? const Color(0xFFE8590C)
+                                              : const Color(0xFFF0F0F2),
                                           borderRadius:
-                                              BorderRadius.circular(6),
+                                              BorderRadius.circular(8),
                                         ),
-                                        child: Text('${v.ordinal}',
-                                            style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: i == idx
-                                                    ? Colors.white
-                                                    : Colors.black54)),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
                                         child: Text(
                                           v.label,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                              fontSize: 13,
+                                              fontSize: 12,
                                               fontWeight: i == idx
-                                                  ? FontWeight.w700
-                                                  : FontWeight.w500),
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w400,
+                                              color: i == idx
+                                                  ? Colors.white
+                                                  : const Color(0xFF444444)),
                                         ),
                                       ),
-                                    ],
+                                    ),
+                                ],
+                              )
+                            else
+                              for (final (i, v) in videos.indexed)
+                                InkWell(
+                                  onTap: () => _switcher?.select(i),
+                                  child: Padding(
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 6),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 22,
+                                          height: 22,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: i == idx
+                                                ? Colors.deepOrange
+                                                : const Color(0x1F000000),
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                          ),
+                                          child: Text('${v.ordinal}',
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: i == idx
+                                                      ? Colors.white
+                                                      : Colors.black54)),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            v.label,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: i == idx
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
                           ],
                           // 简介
                           if (d.intro.isNotEmpty) ...[
@@ -327,6 +372,9 @@ class DetailPageState extends State<DetailPage> {
                             for (final a in d.related)
                               InkWell(
                                 onTap: () {
+                                  // 点相关推荐跳走：先把本页播放器停掉
+                                  // （不然本页压栈继续放 + 新页也在放 = 两个声音）
+                                  _switcher?.pause();
                                   Navigator.of(context).push(MaterialPageRoute(
                                     builder: (_) => DetailPage(
                                         site: widget.site, baseUrl: a.url),
@@ -413,6 +461,7 @@ class DetailPageState extends State<DetailPage> {
 
   /// 点标签/分类 → 对应列表页
   void _openList(String title, String slug, bool isTag) {
+    _switcher?.pause(); // 同上：跳列表页前先把本页播放器停掉
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TagListPage(
@@ -448,6 +497,7 @@ class DetailPageState extends State<DetailPage> {
                 selected: a.url == widget.baseUrl,
                 onSelected: (_) {
                   if (a.url == widget.baseUrl) return;
+                  _switcher?.pause(); // 切集同理（旧页马上会被 replace 销毁）
                   // 切集：replace 当前页，避免栈无限加深
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
@@ -608,11 +658,15 @@ class _TagListPageState extends State<TagListPage> {
                   : const CircularProgressIndicator())
           : GridView.builder(
               padding: const EdgeInsets.all(8),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
+              // 比例必须跟着站点走：竖屏封面站（黄果 3:4）用 1.05 的话，
+              // 封面比格子还高 → 标题被挤出可视区裁掉（专题点进去只有封面没标题就是这么来的）
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
+                crossAxisCount: widget.site.portraitCovers ? 3 : 2,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: 1.05,
+                childAspectRatio:
+                    widget.site.portraitCovers ? 0.45 : 1.00,
               ),
               itemCount: _items.length + 1,
               itemBuilder: (ctx, i) {

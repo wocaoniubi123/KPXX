@@ -41,6 +41,12 @@ class VideoSwitcher {
   int total;
   final ValueNotifier<int> index;
 
+  /// "暂停一下"的信号（自增计数）。详情页点标签/相关推荐跳走时发一次——
+  /// 否则原页面的播放器压在栈下面继续放，新页面也在放，就变成多个视频同时出声。
+  /// 不直接调播放器是因为实例由 PlayerWidget 持有、全屏页也共用它，不能乱动。
+  final ValueNotifier<int> pauseTick = ValueNotifier<int>(0);
+  void pause() => pauseTick.value++;
+
   bool get hasNext => index.value < total - 1;
 
   void next() {
@@ -51,7 +57,10 @@ class VideoSwitcher {
     if (i >= 0 && i < total) index.value = i;
   }
 
-  void dispose() => index.dispose();
+  void dispose() {
+    index.dispose();
+    pauseTick.dispose();
+  }
 }
 
 /// 播放器状态快照：把引擎的若干条 stream 合成一个整体状态，UI 只认它。
@@ -471,6 +480,12 @@ class PlayerWidget extends StatefulWidget {
   /// 全部源都失败时调用：重新抓详情页拿新地址
   final Future<List<String>> Function()? onRefreshSources;
 
+  /// 合集类：当前这一集要去哪个子文章页取源（为空 = 自带视频的普通条目）
+  final String? lazyUrl;
+
+  /// 合集类：按地址取源的入口（详情页接到 Api.videoSourcesAt）
+  final Future<List<String>> Function(String url)? onFetchSources;
+
   /// 篇内视频切换状态（多视频文章才有；null = 单视频，没有"下一集"）
   final VideoSwitcher? switcher;
 
@@ -480,6 +495,8 @@ class PlayerWidget extends StatefulWidget {
     required this.referer,
     this.poster = '',
     this.onRefreshSources,
+    this.lazyUrl,
+    this.onFetchSources,
     this.switcher,
   });
 
@@ -496,6 +513,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
   KpPlayer? _kp;
   late List<String> _sources =
       widget.sources.where((s) => s.isNotEmpty).toList();
+  VoidCallback? _pauseHooked; // 挂在 switcher.pauseTick 上的监听（换 widget 时要摘）
   String? _error;
   bool _busy = false;
   bool _init = false;
@@ -519,9 +537,27 @@ class _PlayerWidgetState extends State<PlayerWidget>
   @override
   bool get wantKeepAlive => true;
 
+  /// switcher 可能在 initState 之后才传进来（详情页是异步拿数据建 switcher 的），
+  /// 所以每次依赖变化/更新都重新对一遍监听，挂的是同一个回调。
+  void _syncPauseHook() {
+    final tick = widget.switcher?.pauseTick;
+    if (tick == _pauseHookedTick) return;
+    _pauseHookedTick?.removeListener(_pauseHooked!);
+    _pauseHookedTick = tick;
+    if (tick != null) {
+      _pauseHooked = () => _kp?.pause();
+      tick.addListener(_pauseHooked!);
+    } else {
+      _pauseHooked = null;
+    }
+  }
+
+  ValueNotifier<int>? _pauseHookedTick;
+
   @override
   void didUpdateWidget(covariant PlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _syncPauseHook();
     if ((widget.switcher?.index.value ?? 0) != _curIndex) {
       _curIndex = widget.switcher?.index.value ?? 0;
       // 换片（点"下一集"或自动下一集）：复用同一个播放器实例去开新源。
@@ -537,6 +573,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _syncPauseHook(); // switcher 可能是后到的，每次依赖变化都对一遍监听
     if (!_init) {
       _init = true;
       bvPrime(); // 预读系统亮度/音量做缓存
@@ -547,6 +584,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
 
   @override
   void dispose() {
+    _pauseHookedTick?.removeListener(_pauseHooked!);
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     disposeBv();
@@ -559,6 +597,32 @@ class _PlayerWidgetState extends State<PlayerWidget>
   /// 注意顺序：先把播放器挂到界面上（画面/声音一有就出），
   /// 再等"就绪"——就绪只用来判断要不要换下一个源，不该拦住显示。
   Future<void> _initPlayer() async {
+    // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
+    if (_sources.isEmpty &&
+        widget.lazyUrl != null &&
+        widget.onFetchSources != null) {
+      setState(() {
+        _busy = true;
+        _error = null;
+      });
+      try {
+        final got = (await widget.onFetchSources!(widget.lazyUrl!))
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (!mounted) return;
+        _sources = got;
+      } catch (_) {
+        // 下面统一误提示
+      }
+      if (!mounted) return;
+      if (_sources.isEmpty) {
+        setState(() {
+          _busy = false;
+          _error = '这一集已失效（子文章打不开或没有视频）';
+        });
+        return;
+      }
+    }
     if (_sources.isEmpty) {
       setState(() => _error = '该文章暂无视频');
       return;

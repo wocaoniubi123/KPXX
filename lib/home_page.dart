@@ -305,18 +305,29 @@ class _FeedViewState extends State<_FeedView>
               padding: const EdgeInsets.all(8),
               physics: const AlwaysScrollableScrollPhysics(),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
+                // 竖屏封面站（黄果）**一行 3 个**（用户要求：竖屏一格太占地方）；
+                // 横屏站保持一行 2 个
+                crossAxisCount: widget.site.portraitCovers ? 3 : 2,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                // 默认 16:9 封面；竖屏封面站（黄果短剧）用 3:4。
-                // 比例按"封面 + 两行标题 + 一行时间"的实际高度定：竖屏封面高，
-                // 给 0.58（0.62 时内容比格子高，标题会被挤掉/溢出）
-                childAspectRatio: widget.site.portraitCovers ? 0.58 : 1.05,
+                // 比例按卡片实际内容高度定：一行 3 个时格子宽 ~119，
+                // 封面 3:4 → 159 + 标题/简介/标签 ≈ 103 → 约 0.45
+                childAspectRatio: widget.site.portraitCovers ? 0.48 : 1.00,
               ),
               // 滚动到底部附近时翻页
               itemCount: feed.items.length + 1,
               itemBuilder: (ctx, i) {
                 if (i >= feed.items.length) {
+                  if (feed._done) {
+                    // 到底就明说（同搜索页）：别让圈圈一直空转
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(
+                          child: Text('没有更多了',
+                              style: TextStyle(
+                                  color: Colors.grey, fontSize: 12))),
+                    );
+                  }
                   feed.ensureMore();
                   return const Padding(
                     padding: EdgeInsets.all(16),
@@ -341,13 +352,16 @@ class ArticleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 填满格子（不贴顶收缩）：同一行里卡片高度才会一致（用户要求）
     return Card(
       clipBehavior: Clip.antiAlias,
       color: Colors.white,
       child: InkWell(
         onTap: () {
-          // 专题卡（/topics/xxx/）点开的是"该专题下的视频列表"，不是某一篇详情
-          if (article.url.startsWith('/topics/')) {
+          // 专题卡（/topics/xxx/）、合集卡（/moviesets/...）点开的是"下面那批视频的列表"，
+          // 不是某一篇详情
+          if (article.url.startsWith('/topics/') ||
+              article.url.startsWith('/moviesets/')) {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => TagListPage(
@@ -369,17 +383,17 @@ class ArticleCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 封面：默认 16:9，竖屏封面站 3:4；右下角叠视频时长（站点有才显示）
-            AspectRatio(
+            // 封面：默认 16:9，竖屏封面站 3:4；右下角叠角标
+            // （一般是时长；黄果短剧按站点习惯显示集数）
+            // 站点本来就没有封面（如 91porna 的小说）→ 整块不渲染，卡片变纯文字卡
+            if (article.cover.isNotEmpty)
+              AspectRatio(
               aspectRatio: site.portraitCovers ? 3 / 4 : 16 / 9,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (article.cover.isEmpty)
-                    const ColoredBox(color: Color(0xFFEEEEEE))
-                  else
-                    FetchedImage(url: article.cover, memWidth: 480),
-                  if (article.duration.isNotEmpty)
+                  FetchedImage(url: article.cover, memWidth: 480),
+                  if (article.badge.isNotEmpty)
                     Positioned(
                       right: 6,
                       bottom: 6,
@@ -391,7 +405,7 @@ class ArticleCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          article.duration,
+                          article.badge,
                           style: const TextStyle(
                               fontSize: 10, color: Colors.white),
                         ),
@@ -405,16 +419,72 @@ class ArticleCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    article.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w600),
+                  // 标题：**所有站点都居中**；**能一行就一行**，长了才换两行
+                  // （不预留固定 2 行的高度）。卡片高度靠下面的"填满格子"保证对齐
+                  SizedBox(
+                    width: double.infinity,
+                    child: Text(
+                      article.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
                   ),
+                  // 小字简介（黄果的卡片有）：同样一行就一行
+                  if (article.desc.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      article.desc,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11, height: 1.3, color: Colors.black54),
+                    ),
+                  ],
+                  // 分类标签：站点卡片上能点的，这里也能点（进该标签的列表）
+                  if (article.tags.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 4,
+                      children: [
+                        for (final t in article.tags.take(4))
+                          InkWell(
+                            borderRadius: BorderRadius.circular(9),
+                            onTap: t.key.isEmpty
+                                ? null
+                                : () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => TagListPage(
+                                          site: site,
+                                          title: t.value,
+                                          slug: t.key,
+                                          isTag: true,
+                                        ),
+                                      ),
+                                    ),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF0F0F2),
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                              child: Text(
+                                t.value,
+                                style: const TextStyle(
+                                    fontSize: 10, color: Color(0xFF555555)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                  // 时间（居中，站点有才显示）
                   if (article.meta.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    // 时间居中显示（卡片标题下面那行）
                     SizedBox(
                       width: double.infinity,
                       child: Text(
@@ -512,18 +582,32 @@ class _SearchPageState extends State<SearchPage> {
               : GridView.builder(
                   padding: const EdgeInsets.all(8),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
+                    // 跟列表页同一套：竖屏站一行 3 个
+                    crossAxisCount: widget.site.portraitCovers ? 3 : 2,
                     mainAxisSpacing: 8,
                     crossAxisSpacing: 8,
-                    // 跟列表页同一套比例（原来 0.82 格子比内容高一截，
-                    // 卡片下面会空出一大片）
-                    childAspectRatio: widget.site.portraitCovers ? 0.58 : 1.05,
+                    childAspectRatio: widget.site.portraitCovers ? 0.48 : 1.00,
                   ),
                   itemCount: _results.length + 1,
                   itemBuilder: (ctx, i) {
                     if (i >= _results.length) {
-                      if (!_done) _search(more: true);
-                      return const Center(child: CircularProgressIndicator());
+                      if (_done) {
+                        // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
+                        // 看起来像"卡住了"）
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(
+                              child: Text('没有更多了',
+                                  style: TextStyle(
+                                      color: Colors.grey, fontSize: 12))),
+                        );
+                      }
+                      _search(more: true);
+                      return const Padding(
+                        padding: EdgeInsets.all(16),
+                        child:
+                            Center(child: CircularProgressIndicator()),
+                      );
                     }
                     return ArticleCard(article: _results[i], site: widget.site);
                   },
