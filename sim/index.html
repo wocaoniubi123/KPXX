@@ -1345,7 +1345,8 @@ function hanimeRel(href) {
 
 /** 分类列表：/search?genre=X&page=N（网格卡：a > div.video-card-inner > img + 标题） */
 async function hanimeFetch(site, genre, page) {
-  const path = '/search?genre=' + encodeURIComponent(genre) + (page > 1 ? '&page=' + page : '');
+  const q = ['genre=' + encodeURIComponent(genre), ...(page > 1 ? ['page=' + page] : []), ...hnParams()];
+  const path = '/search?' + q.join('&');
   const doc = parseHtml(await getHtml(site, path));
   const out = [];
   for (const a of doc.querySelectorAll('a[href*="/watch?v="]')) {
@@ -1362,7 +1363,8 @@ async function hanimeFetch(site, genre, page) {
 
 /** 搜索 / 站内标签（?query= 与 ?tags[]=）共用的横排卡解析（含时长/上传者/时间） */
 async function hanimeSearchAt(site, basePath, page) {
-  const path = basePath + (page > 1 ? (basePath.includes('?') ? '&' : '?') + 'page=' + page : '');
+  const extra = [...(page > 1 ? ['page=' + page] : []), ...hnParams()];
+  const path = basePath + (extra.length ? (basePath.includes('?') ? '&' : '?') + extra.join('&') : '');
   const doc = parseHtml(await getHtml(site, path));
   const out = [];
   for (const el of doc.querySelectorAll('div.video-item-container')) {
@@ -1407,6 +1409,122 @@ function hanimeDetail(html, url) {
     if (t) tags.push({ slug: hanimeRel(href), name: t });
   }
   return { title, time: '', images: poster ? [poster] : [], intro, videos, tags, related: [], duration: '' };
+}
+
+/* Hanime1 筛选（照站点四个下拉：標籤/排序方式/發佈日期/時長；主分类页和搜索页都有） */
+const HN_SORTS = ['最新上市', '最新上傳', '本日排行', '本週排行', '本月排行', '觀看次數', '讚好比例', '時長最長', '他們在看'];
+const HN_DATES = ['過去 24 小時', '過去 2 天', '過去 1 週', '過去 1 個月', '過去 3 個月', '過去 1 年'];
+const HN_DURS = ['1 分鐘 +', '5 分鐘 +', '10 分鐘 +', '20 分鐘 +', '30 分鐘 +', '60 分鐘 +', '0 - 10 分鐘', '0 - 20 分鐘'];
+let hnFilter = { sort: '', date: '', dur: '', tags: [] };
+let hnTags = null; // 240 个标签（打开弹窗时抓一次缓存）
+const hnEscAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+/** 当前筛选 → 请求参数（空值跳过；tags[] 可重复） */
+function hnParams() {
+  const parts = [];
+  if (hnFilter.sort) parts.push('sort=' + encodeURIComponent(hnFilter.sort));
+  if (hnFilter.date) parts.push('date=' + encodeURIComponent(hnFilter.date));
+  if (hnFilter.dur) parts.push('duration=' + encodeURIComponent(hnFilter.dur));
+  for (const t of hnFilter.tags) parts.push('tags[]=' + encodeURIComponent(t));
+  return parts;
+}
+
+/** 筛选行 HTML（照站点：四个按钮，带当前值/●） */
+function hnFilterBarHtml() {
+  const b = (id, label, on) => `<button id="${id}" style="flex:none">${label}${on ? ' ●' : ''}</button>`;
+  return `<div class="hnbar" style="padding:8px 10px 0">
+    <div style="overflow-x:auto"><div style="display:flex;gap:6px;width:max-content">
+      ${b('hnTagBtn', '標籤' + (hnFilter.tags.length ? `(${hnFilter.tags.length})` : ''), hnFilter.tags.length > 0)}
+      ${b('hnSortBtn', hnFilter.sort || '排序方式', !!hnFilter.sort)}
+      ${b('hnDateBtn', hnFilter.date || '發佈日期', !!hnFilter.date)}
+      ${b('hnDurBtn', hnFilter.dur || '時長', !!hnFilter.dur)}
+    </div></div>
+  </div>`;
+}
+
+/** 弹窗容器（挂在手机屏 .screen 内，同 pkdlg 模式；不随页面重渲染消失） */
+function hnEnsureDlg() {
+  let dlg = document.getElementById('hndlg');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'hndlg';
+    dlg.style.cssText =
+      'display:none;position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.style.display = 'none'; });
+    document.querySelector('.screen').appendChild(dlg);
+  }
+  return dlg;
+}
+
+/** 单选弹窗（选完即关） */
+function hnOpenPicker(title, options, current, apply) {
+  const dlg = hnEnsureDlg();
+  const row = (v) => `<div class="hnopt" data-v="${hnEscAttr(v)}" style="padding:10px 14px;font-size:14px;border-bottom:1px solid #eee;cursor:pointer;${v === current ? 'color:#e8590c;font-weight:600' : ''}">${v || '全部'}</div>`;
+  dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:86%;max-height:76%;overflow:auto;padding:0">
+    <div style="padding:12px 14px;font-size:15px;font-weight:600;border-bottom:1px solid #eee">${title}</div>
+    ${['', ...options].map(row).join('')}
+  </div>`;
+  dlg.style.display = 'flex';
+  dlg.querySelectorAll('.hnopt').forEach((el) => {
+    el.onclick = () => { apply(el.dataset.v); dlg.style.display = 'none'; };
+  });
+}
+
+/** 标签多选弹窗（240 个，动态抓取一次缓存）：先弹窗显示"加载中"，抓到再填 */
+async function hnOpenTags(site, reload) {
+  const dlg = hnEnsureDlg();
+  const sel = new Set(hnFilter.tags);
+  if (!hnTags) {
+    dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:92%;padding:12px">
+      <div style="font-size:15px;font-weight:600;padding:6px 0">內容標籤</div>
+      <div style="padding:22px 60px;text-align:center;color:#888">标签加载中…</div>
+    </div>`;
+    dlg.style.display = 'flex';
+    try {
+      const doc = parseHtml(await getHtml(site, '/search'));
+      hnTags = [...new Set([...doc.querySelectorAll('input[name="tags[]"]')].map((i) => i.value).filter(Boolean))];
+    } catch (e) {
+      log('标签抓取失败：' + e.message, 'err');
+      dlg.style.display = 'none';
+      return;
+    }
+    if (!hnTags.length) { dlg.style.display = 'none'; log('标签列表为空', 'err'); return; }
+  }
+  dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:92%;max-height:80%;overflow:auto;padding:12px">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <div style="font-size:15px;font-weight:600;flex:1">內容標籤</div>
+      <button id="hnTagClear" style="flex:none;margin-right:6px">清除</button>
+      <button id="hnTagOk" style="flex:none">確定</button>
+    </div>
+    <div id="hnTagList" style="display:flex;flex-wrap:wrap;gap:6px;max-height:56vh;overflow:auto">
+      ${hnTags.map((t) => `<span class="pktag${sel.has(t) ? ' on' : ''}" data-k="${hnEscAttr(t)}">${t}</span>`).join('')}
+    </div>
+  </div>`;
+  dlg.style.display = 'flex';
+  dlg.querySelectorAll('#hnTagList .pktag').forEach((el) => {
+    el.onclick = () => {
+      const t = el.dataset.k;
+      if (sel.has(t)) sel.delete(t); else sel.add(t);
+      el.classList.toggle('on', sel.has(t));
+    };
+  });
+  dlg.querySelector('#hnTagClear').onclick = () => {
+    sel.clear();
+    dlg.querySelectorAll('#hnTagList .pktag').forEach((e) => e.classList.remove('on'));
+  };
+  dlg.querySelector('#hnTagOk').onclick = () => {
+    hnFilter.tags = [...sel];
+    dlg.style.display = 'none';
+    reload();
+  };
+}
+
+/** 绑定筛选行（列表页/搜索页通用）；reload = 按当前筛选重拉 */
+function hnBindBar(site, reload) {
+  $('hnTagBtn').onclick = () => hnOpenTags(site, reload);
+  $('hnSortBtn').onclick = () => hnOpenPicker('排序方式', HN_SORTS, hnFilter.sort, (v) => { hnFilter.sort = v; reload(); });
+  $('hnDateBtn').onclick = () => hnOpenPicker('發佈日期', HN_DATES, hnFilter.date, (v) => { hnFilter.date = v; reload(); });
+  $('hnDurBtn').onclick = () => hnOpenPicker('時長', HN_DURS, hnFilter.dur, (v) => { hnFilter.dur = v; reload(); });
 }
 
 /* -------- Pektino（X/Twitter 视频保存排行站：/api/media + 推文原 mp4） -------- */
@@ -1682,16 +1800,27 @@ function viewList(site, idx, scrollTop) {
   // Pektino：主分类页面顶部有筛选行（多级分类：主题/语言/时长/排序）；
   // 卡片不拉平（横竖混排，照站点）
   const pkBar = site.template === 'pektino' ? pkFilterBarHtml() : '';
-  // 非 Pektino 页面：把标签筛选弹窗收掉（它挂在 document.body 上，不随页面重渲染消失）
+  const hnBar = site.template === 'hanime1' ? hnFilterBarHtml() : '';
+  // 换页面时把筛选弹窗收掉（它们挂在手机屏里，不随页面重渲染消失）
   if (site.template !== 'pektino') {
     const d = document.getElementById('pkdlg');
     if (d) d.style.display = 'none';
   }
+  if (site.template !== 'hanime1') {
+    const d = document.getElementById('hndlg');
+    if (d) d.style.display = 'none';
+  }
   const pkCls = site.template === 'pektino' ? ' pk' : '';
-  $('body').innerHTML = `${pkBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
+  $('body').innerHTML = `${pkBar}${hnBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
     <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
   if (site.template === 'pektino') {
     pkBindBar(() => {
+      listState.delete(key); // 筛选变了：清了缓存重拉
+      viewList(site, site.categories.indexOf(cat));
+    });
+  }
+  if (site.template === 'hanime1') {
+    hnBindBar(site, () => {
       listState.delete(key); // 筛选变了：清了缓存重拉
       viewList(site, site.categories.indexOf(cat));
     });
@@ -2065,9 +2194,7 @@ async function playVideo(v, site) {
       // Pektino 的视频是推文原 mp4（video.twimg.com 直链）：连不上那个 CDN 时
       // 报"格式不支持"会误导——它就是网络到推特视频 CDN 不通（挂代理再试）
       $('pstate').textContent = /\.mp4/i.test(url)
-        ? (url.includes('twimg')
-          ? '视频源打不开（video.twimg.com）——多为网络到推特视频 CDN 不通，挂代理再试'
-          : '视频源打不开——多为网络到视频 CDN 不通，挂代理再试')
+        ? '视频源打不开（video.twimg.com）——多为网络到推特视频 CDN 不通，挂代理再试'
         : '播放出错（浏览器不支持该格式，且 hls.js 没加载上）';
       log('video 元素报错', 'err');
     };
@@ -2308,8 +2435,10 @@ function viewSearch(site) {
       log(`搜索「${kw}」：${items.length} 篇`, items.length ? 'ok' : 'err');
       if (!items.length) { $('body').innerHTML = `<div class="hint">无结果</div>`; return; }
       const portrait = site.portraitCovers ? ' portrait' : '';
-      $('body').innerHTML = `<div class="cards${portrait}" id="cards"></div>
+      const hnBar = site.template === 'hanime1' ? hnFilterBarHtml() : '';
+      $('body').innerHTML = `${hnBar}<div class="cards${portrait}" id="cards"></div>
         <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
+      if (site.template === 'hanime1') hnBindBar(site, doSearch); // 筛选变了：按新条件重搜
       const st = { items, page: 2, done: false };
       // 与 App 搜索页一致：滚到底自动翻下一页（到底后 #more 显示"没有更多了"）
       const load = async () => {

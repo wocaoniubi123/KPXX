@@ -82,7 +82,8 @@ class Api {
       String? sub2,
       String? theme,
       String? duration,
-      String? sort}) async {
+      String? sort,
+      List<MapEntry<String, String>>? extra}) async {
     final l1 = (sub == null || sub.isEmpty) ? null : sub;
     final l2 = (sub2 == null || sub2.isEmpty) ? null : sub2;
     final k = l2 ?? l1 ?? key;
@@ -114,7 +115,8 @@ class Api {
             page: page, duration: duration, sort: sort);
       case SiteTemplate.hanime1:
         // 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre=
-        return _hanimeList(key, page: page);
+        // extra = 筛选行（sort/date/duration/tags[]）
+        return _hanimeList(key, page: page, extra: extra);
     }
   }
 
@@ -171,7 +173,8 @@ class Api {
   /// （页面上的「下一页」链接就是这个形态；实测第 2 页有内容、与第 1 页不重复。
   ///  2026-09-30 修正：之前误判成「站点无搜索分页」，只取了第 1 页）。
   /// 黄果搜索单页（页面上没有分页入口）；91porna 用 `&page=`。
-  Future<List<Article>> search(String keyword, {int page = 1}) async {
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
     switch (site.template) {
       case SiteTemplate.wordpress:
         final kw = Uri.encodeComponent(keyword);
@@ -188,7 +191,7 @@ class Api {
         // 站点搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条）
         return _pektinoList('all', keyword, page: page);
       case SiteTemplate.hanime1:
-        return _hanimeSearch(keyword, page: page);
+        return _hanimeSearch(keyword, page: page, extra: extra);
     }
   }
 
@@ -1668,10 +1671,24 @@ class Api {
     return '${u.path}${u.hasQuery ? '?${u.query}' : ''}';
   }
 
-  /// 分类列表：/search?genre={genre}&page=N（网格卡）
-  Future<List<Article>> _hanimeList(String genre, {int page = 1}) async {
-    final path = '/search?genre=${Uri.encodeComponent(genre)}'
-        '${page > 1 ? '&page=$page' : ''}';
+  /// 拼查询串：页码 + Hanime1 筛选参数（空值跳过；tags[] 可重复出现）
+  static String _hnQuery(
+      String base, int page, List<MapEntry<String, String>>? extra) {
+    final parts = <String>[
+      if (page > 1) 'page=$page',
+      for (final e in extra ?? const <MapEntry<String, String>>[])
+        if (e.value.isNotEmpty)
+          '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
+    ];
+    if (parts.isEmpty) return base;
+    return '$base${base.contains('?') ? '&' : '?'}${parts.join('&')}';
+  }
+
+  /// 分类列表：/search?genre={genre}&page=N&筛选（网格卡）
+  Future<List<Article>> _hanimeList(String genre,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final path =
+        _hnQuery('/search?genre=${Uri.encodeComponent(genre)}', page, extra);
     final doc = hp.parse(await _fetchText(path));
     final out = <Article>[];
     for (final a in doc.querySelectorAll('a[href*="/watch?v="]')) {
@@ -1694,10 +1711,8 @@ class Api {
 
   /// 搜索 / 站内标签（?query= 与 ?tags[]= 两种路径）共用的横排卡解析
   Future<List<Article>> _hanimeSearchAt(String basePath,
-      {int page = 1}) async {
-    final path = page > 1
-        ? '$basePath${basePath.contains('?') ? '&' : '?'}page=$page'
-        : basePath;
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final path = _hnQuery(basePath, page, extra);
     final doc = hp.parse(await _fetchText(path));
     final out = <Article>[];
     for (final el in doc.querySelectorAll('div.video-item-container')) {
@@ -1723,9 +1738,26 @@ class Api {
   }
 
   /// 搜索：关键词走 /search?query=
-  Future<List<Article>> _hanimeSearch(String keyword, {int page = 1}) =>
+  Future<List<Article>> _hanimeSearch(String keyword,
+          {int page = 1, List<MapEntry<String, String>>? extra}) =>
       _hanimeSearchAt('/search?query=${Uri.encodeComponent(keyword)}',
-          page: page);
+          page: page, extra: extra);
+
+  /// Hanime1 的「內容標籤」（240 个，tags[] 多选用）——打开标签弹窗时从 /search
+  /// 动态抓一次、内存缓存（不常变，没必要硬编码 240 条）
+  static List<String>? _hnTagCache;
+  Future<List<String>> hanimeTags() async {
+    final cached = _hnTagCache;
+    if (cached != null) return cached;
+    final doc = hp.parse(await _fetchText('/search'));
+    final out = <String>[];
+    for (final el in doc.querySelectorAll('input[name="tags[]"]')) {
+      final v = el.attributes['value'] ?? '';
+      if (v.isNotEmpty && !out.contains(v)) out.add(v);
+    }
+    _hnTagCache = out;
+    return out;
+  }
 
   /// 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低）
   Future<ArticleDetail> _hanimeDetail(String url) async {

@@ -518,11 +518,13 @@ async function handleRequest(req, res) {
         res.end();
         return;
       }
+      // 绝对地址（如 hanime1 的 tab_logo.png 带签名）直接抓；站内路径走"逐域名试"
+      const abs = /^https?:\/\//i.test(site.iconUrl);
       const p = site.iconUrl.startsWith('/') ? site.iconUrl : '/' + site.iconUrl;
-      const r = await fetchSite(name, p);   // 复用"逐域名试 + 记住"的逻辑
+      const r = abs ? await fetchUrl(site.iconUrl) : await fetchSite(name, p);
       res.writeHead(200, {
         'Content-Type': r.headers['content-type'] || 'image/x-icon',
-        'X-Sim-Host': r.host,
+        'X-Sim-Host': r.host || '',
         ...cors,
       });
       res.end(r.body);

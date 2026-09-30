@@ -524,8 +524,13 @@ const List<SiteEntry> kSites = [
   SiteEntry(
     name: 'Hanime1',
     template: SiteTemplate.hanime1,
-    iconUrl: '/favicon.ico',
+    // 站点的 favicon 实际是 tab_logo.png（在 vdownload.hembed.com，**必须带 secure
+    // 签名**，不带 = 403；签名到 2124 年，可直接当常量用）
+    iconUrl:
+        'https://vdownload.hembed.com/image/icon/tab_logo.png?secure=EJYLwnrDlidVi_wFp3DaGw==,4867726124',
     hosts: ['hanime1.me'],
+    // 封面是竖版（实测 268×394）→ 竖屏封面站
+    portraitCovers: true,
     // 主分类 = 首页分类 tabs（照站点原序，10 个）。
     // 「H漫畫」是站外链接（hanimeone.me，未接）；「新番預告」桌面上另有 /previews
     // 月表页，这里用与首页 tabs 一致的 search?genre= 形态（同一套列表卡片）。

@@ -16,6 +16,241 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+/// Hanime1 筛选选项（照站点四个下拉；'' 一律 = 全部）
+const List<String> _hnSorts = [
+  '最新上市', '最新上傳', '本日排行', '本週排行', '本月排行',
+  '觀看次數', '讚好比例', '時長最長', '他們在看',
+];
+const List<String> _hnDates = [
+  '過去 24 小時', '過去 2 天', '過去 1 週', '過去 1 個月', '過去 3 個月', '過去 1 年',
+];
+const List<String> _hnDurations = [
+  '1 分鐘 +', '5 分鐘 +', '10 分鐘 +', '20 分鐘 +', '30 分鐘 +', '60 分鐘 +',
+  '0 - 10 分鐘', '0 - 20 分鐘',
+];
+
+/// Hanime1 的四合一筛选状态（照站点：標籤/排序方式/發佈日期/時長）
+class _HnFilters {
+  String sort = '';
+  String date = '';
+  String duration = '';
+  final List<String> tags = [];
+  List<MapEntry<String, String>> toParams() => [
+        if (sort.isNotEmpty) MapEntry('sort', sort),
+        if (date.isNotEmpty) MapEntry('date', date),
+        if (duration.isNotEmpty) MapEntry('duration', duration),
+        for (final t in tags) MapEntry('tags[]', t),
+      ];
+}
+
+/// Hanime1 的筛选行（照站点四个下拉）。单选类"选完即关"；
+/// 標籤是 240 个标签的多选弹窗（确定/清除/取消）。
+class _HnFilterBar extends StatelessWidget {
+  final Api api;
+  final _HnFilters filters;
+  final VoidCallback onChanged;
+  const _HnFilterBar(
+      {required this.api, required this.filters, required this.onChanged});
+
+  Future<void> _pickSingle(BuildContext context, String title,
+      List<String> options, String current, void Function(String) apply) async {
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(title, style: const TextStyle(fontSize: 16)),
+        children: [
+          for (final o in <String>['', ...options])
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, o),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      o.isEmpty ? '全部' : o,
+                      style: TextStyle(
+                          fontSize: 14,
+                          color: o == current
+                              ? const Color(0xFFE8590C)
+                              : const Color(0xFF333333)),
+                    ),
+                  ),
+                  if (o == current)
+                    const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (v != null && v != current) {
+      apply(v);
+      onChanged();
+    }
+  }
+
+  Future<void> _pickTags(BuildContext context) async {
+    final sel = await showDialog<List<String>>(
+      context: context,
+      builder: (_) => _HnTagDialog(api: api, init: List.of(filters.tags)),
+    );
+    if (sel != null) {
+      filters.tags
+        ..clear()
+        ..addAll(sel);
+      onChanged();
+    }
+  }
+
+  Widget _btn(String label, bool on, VoidCallback tap) => OutlinedButton(
+        onPressed: tap,
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+        ),
+        child: Text(
+          on ? '$label ●' : label,
+          style: TextStyle(
+              fontSize: 13,
+              color: on ? const Color(0xFFE8590C) : const Color(0xFF444444)),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final f = filters;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _btn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
+                f.tags.isNotEmpty, () => _pickTags(context)),
+            const SizedBox(width: 6),
+            _btn(
+                f.sort.isEmpty ? '排序方式' : f.sort,
+                f.sort.isNotEmpty,
+                () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
+                    (v) => f.sort = v)),
+            const SizedBox(width: 6),
+            _btn(
+                f.date.isEmpty ? '發佈日期' : f.date,
+                f.date.isNotEmpty,
+                () => _pickSingle(context, '發佈日期', _hnDates, f.date,
+                    (v) => f.date = v)),
+            const SizedBox(width: 6),
+            _btn(
+                f.duration.isEmpty ? '時長' : f.duration,
+                f.duration.isNotEmpty,
+                () => _pickSingle(context, '時長', _hnDurations, f.duration,
+                    (v) => f.duration = v)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hanime1 标签弹窗：240 个标签多选（打开时动态抓取一次），确定/清除/取消。
+class _HnTagDialog extends StatefulWidget {
+  final Api api;
+  final List<String> init;
+  const _HnTagDialog({required this.api, required this.init});
+
+  @override
+  State<_HnTagDialog> createState() => _HnTagDialogState();
+}
+
+class _HnTagDialogState extends State<_HnTagDialog> {
+  List<String>? _all;
+  bool _error = false;
+  late final List<String> _sel = List.of(widget.init);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final t = await widget.api.hanimeTags();
+      if (mounted) setState(() => _all = t);
+    } catch (_) {
+      if (mounted) setState(() => _error = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = _all;
+    return AlertDialog(
+      title: const Text('內容標籤', style: TextStyle(fontSize: 16)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: _error
+              ? const Center(child: Text('标签加载失败'))
+              : all == null
+                  ? const Center(
+                      child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                  : SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final t in all)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => setState(() => _sel.contains(t)
+                                  ? _sel.remove(t)
+                                  : _sel.add(t)),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: _sel.contains(t)
+                                      ? const Color(0xFFE8590C)
+                                      : const Color(0xFFF0F0F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  t,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: _sel.contains(t)
+                                          ? Colors.white
+                                          : const Color(0xFF444444)),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, <String>[]),
+          child: const Text('清除'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _sel),
+          child: const Text('確定'),
+        ),
+      ],
+    );
+  }
+}
+
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
@@ -34,6 +269,9 @@ class _HomePageState extends State<HomePage>
   String? _theme; // 选中的主题 slug（null = 不限）
   String _duration = '0,0'; // 时长档（"0,0" = 全部）
   String _sort = 'favorite'; // 排序
+
+  // ---- Hanime1 的筛选器（照站点：標籤/排序方式/發佈日期/時長）----
+  final _hn = _HnFilters();
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -85,7 +323,8 @@ class _HomePageState extends State<HomePage>
             c.key, s1.isEmpty ? null : s1, s2.isEmpty ? null : s2, _api)
           ..theme = _theme
           ..duration = _duration
-          ..sort = _sort);
+          ..sort = _sort
+          ..extra = _hn.toParams());
   }
 
   /// 切筛选：所有分类的列表都重拉（筛选是页面级状态，照站点）
@@ -95,6 +334,19 @@ class _HomePageState extends State<HomePage>
       f.applyFilters(theme: _theme, duration: _duration, sort: _sort);
     }
   }
+
+  /// Hanime1：把当前筛选应用到所有列表 + 重建
+  void _applyHn() {
+    setState(() {});
+    final p = _hn.toParams();
+    for (final f in _feeds.values) {
+      f.applyExtra(p);
+    }
+  }
+
+  /// Hanime1 的筛选行（四个下拉，照站点）
+  Widget _hnFilterRow() =>
+      _HnFilterBar(api: _api, filters: _hn, onChanged: _applyHn);
 
   /// Pektino 的筛选行（照站点：筛选按钮 + 时长/排序下拉）；
   /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」；2026-10-01 从"展开"改"弹窗"）
@@ -327,6 +579,8 @@ class _HomePageState extends State<HomePage>
           // 筛选器（多级分类：主题/时长/排序——站点把它们放在"每天/每周"这些
           // 主分类页面里，照站点做一行筛选控件）
           if (widget.site.filters != null) _filterRow(widget.site.filters!),
+          // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
+          if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),
           Expanded(
             child: TabBarView(
               controller: _tab,
@@ -411,6 +665,9 @@ class _CategoryFeed extends ChangeNotifier {
   String duration = '0,0'; // 时长档 "min,max" 秒（"0,0" = 全部）
   String sort = 'favorite'; // 排序：favorite / pv / time / created
 
+  /// Hanime1 类站点的筛选参数（sort/date/duration/tags[]，直接拼进请求）
+  List<MapEntry<String, String>>? extra;
+
   final List<Article> items = [];
   int _page = 1;
   bool _loading = false;
@@ -437,6 +694,17 @@ class _CategoryFeed extends ChangeNotifier {
     if (_started) ensureMore();
   }
 
+  /// 切 Hanime1 筛选：清了重拉（同 applyFilters 的懒加载逻辑）
+  void applyExtra(List<MapEntry<String, String>>? e) {
+    extra = e;
+    items.clear();
+    _page = 1;
+    _done = false;
+    error = false;
+    notifyListeners();
+    if (_started) ensureMore();
+  }
+
   Future<void> ensureMore() async {
     if (_loading || _done) return;
     _loading = true;
@@ -448,7 +716,8 @@ class _CategoryFeed extends ChangeNotifier {
           sub2: sub2,
           theme: theme,
           duration: duration,
-          sort: sort);
+          sort: sort,
+          extra: extra);
       if (next.isEmpty) {
         _done = true;
       } else {
@@ -851,6 +1120,9 @@ class _SearchPageState extends State<SearchPage> {
   bool _done = false;
   String _kw = '';
 
+  // ---- Hanime1：搜索页顶部也有筛选行（照站点四个下拉）----
+  final _hn = _HnFilters();
+
   /// 转场动画结束后再聚焦（弹键盘）：键盘第一次冷启动开销大，和页面转场叠在一起
   /// 会掉帧（用户实报"第一次点开搜索有点掉帧"）。页面滑入完再弹，两者错峰。
   void _onRouteAnimStatus(AnimationStatus s) {
@@ -899,7 +1171,7 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _searched = true);
     _loading = true;
     try {
-      final next = await _api.search(kw, page: _page);
+      final next = await _api.search(kw, page: _page, extra: _hn.toParams());
       if (next.isEmpty) {
         _done = true;
       } else {
@@ -935,37 +1207,58 @@ class _SearchPageState extends State<SearchPage> {
           TextButton(onPressed: _search, child: const Text('搜索')),
         ],
       ),
-      body: !_searched
-          ? const SizedBox.shrink() // 空态不再放居中文字：键盘弹出时它会往上跳，看着卡（用户实报）
-          : _results.isEmpty
-              ? const Center(child: Text('无结果'))
-              : RowsGrid(
-                  // 跟列表页同一套：竖屏站一行 3 个
-                  cols: widget.site.portraitCovers ? 3 : 2,
-                  masonry: widget.site.template == SiteTemplate.pektino,
-                  count: _results.length,
-                  tail: () {
-                    if (_done) {
-                      // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
-                      // 看起来像"卡住了"）
-                      return const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(
-                            child: Text('没有更多了',
-                                style: TextStyle(
-                                    color: Colors.grey, fontSize: 12))),
-                      );
-                    }
-                    _search(more: true);
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child:
-                          Center(child: CircularProgressIndicator()),
-                    );
-                  },
-                  itemBuilder: (ctx, i) =>
-                      ArticleCard(article: _results[i], site: widget.site),
-                ),
+      body: Column(
+        children: [
+          // Hanime1：搜索页顶部也有筛选行（照站点四个下拉）
+          if (widget.site.template == SiteTemplate.hanime1)
+            _HnFilterBar(
+              api: _api,
+              filters: _hn,
+              onChanged: () {
+                setState(() {});
+                if (_searched) {
+                  _kw = ''; // 绕过"同关键词不重复搜"守卫：筛选变了必须重搜
+                  _search();
+                }
+              },
+            ),
+          Expanded(
+            child: !_searched
+                ? const SizedBox.shrink() // 空态不再放居中文字：键盘弹出时它会往上跳，看着卡（用户实报）
+                : _results.isEmpty
+                    ? const Center(child: Text('无结果'))
+                    : RowsGrid(
+                        // 跟列表页同一套：竖屏站一行 3 个
+                        cols: widget.site.portraitCovers ? 3 : 2,
+                        masonry:
+                            widget.site.template == SiteTemplate.pektino,
+                        count: _results.length,
+                        tail: () {
+                          if (_done) {
+                            // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
+                            // 看起来像"卡住了"）
+                            return const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                  child: Text('没有更多了',
+                                      style: TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12))),
+                            );
+                          }
+                          _search(more: true);
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(
+                                child: CircularProgressIndicator()),
+                          );
+                        },
+                        itemBuilder: (ctx, i) => ArticleCard(
+                            article: _results[i], site: widget.site),
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }
