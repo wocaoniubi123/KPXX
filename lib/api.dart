@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
@@ -2074,10 +2075,11 @@ class Api {
       .join()
       .toUpperCase();
 
-  List<int> _kmBytes(String hex) {
-    final out = <int>[];
+  /// hex → 字节。encrypt 包的 Encrypted 要 Uint8List（不是 List<int>）
+  Uint8List _kmBytes(String hex) {
+    final out = Uint8List(hex.length ~/ 2);
     for (var i = 0; i + 1 < hex.length; i += 2) {
-      out.add(int.parse(hex.substring(i, i + 2), radix: 16));
+      out[i ~/ 2] = int.parse(hex.substring(i, i + 2), radix: 16);
     }
     return out;
   }
