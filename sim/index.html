@@ -1456,13 +1456,14 @@ function hnEnsureDlg() {
   return dlg;
 }
 
-/** 单选弹窗（选完即关） */
+/** 单选弹窗（Hanime1 / Pektino 共用；选完即关）。
+ *  options 由调用方给全（需要"全部"就自己放 ''） */
 function hnOpenPicker(title, options, current, apply) {
   const dlg = hnEnsureDlg();
   const row = (v) => `<div class="hnopt" data-v="${hnEscAttr(v)}" style="padding:10px 14px;font-size:14px;border-bottom:1px solid #eee;cursor:pointer;${v === current ? 'color:#e8590c;font-weight:600' : ''}">${v || '全部'}</div>`;
   dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:86%;max-height:76%;overflow:auto;padding:0">
     <div style="padding:12px 14px;font-size:15px;font-weight:600;border-bottom:1px solid #eee">${title}</div>
-    ${['', ...options].map(row).join('')}
+    ${options.map(row).join('')}
   </div>`;
   dlg.style.display = 'flex';
   dlg.querySelectorAll('.hnopt').forEach((el) => {
@@ -1522,9 +1523,9 @@ async function hnOpenTags(site, reload) {
 /** 绑定筛选行（列表页/搜索页通用）；reload = 按当前筛选重拉 */
 function hnBindBar(site, reload) {
   $('hnTagBtn').onclick = () => hnOpenTags(site, reload);
-  $('hnSortBtn').onclick = () => hnOpenPicker('排序方式', HN_SORTS, hnFilter.sort, (v) => { hnFilter.sort = v; reload(); });
-  $('hnDateBtn').onclick = () => hnOpenPicker('發佈日期', HN_DATES, hnFilter.date, (v) => { hnFilter.date = v; reload(); });
-  $('hnDurBtn').onclick = () => hnOpenPicker('時長', HN_DURS, hnFilter.dur, (v) => { hnFilter.dur = v; reload(); });
+  $('hnSortBtn').onclick = () => hnOpenPicker('排序方式', ['', ...HN_SORTS], hnFilter.sort, (v) => { hnFilter.sort = v; reload(); });
+  $('hnDateBtn').onclick = () => hnOpenPicker('發佈日期', ['', ...HN_DATES], hnFilter.date, (v) => { hnFilter.date = v; reload(); });
+  $('hnDurBtn').onclick = () => hnOpenPicker('時長', ['', ...HN_DURS], hnFilter.dur, (v) => { hnFilter.dur = v; reload(); });
 }
 
 /* -------- Pektino（X/Twitter 视频保存排行站：/api/media + 推文原 mp4） -------- */
@@ -1557,6 +1558,11 @@ const PK_DURS = [['0,0', '全部'], ['0,300', '0-5分钟'], ['300,900', '5-15分
 const PK_SORTS = [['favorite', '按点赞'], ['pv', '按观看数'], ['time', '按时长'], ['created', '最近添加']];
 let pkFilter = { theme: null, dur: '0,0', sort: 'favorite' };
 
+/** 时长/排序按钮的当前值文案（默认档显示控件名；弹窗的 current 用 pkName 取显示名） */
+const pkName = (list, key) => (list.find((x) => x[0] === key) || [key, key])[1];
+const pkDurLabel = () => pkFilter.dur === '0,0' ? '时长' : pkName(PK_DURS, pkFilter.dur);
+const pkSortLabel = () => pkFilter.sort === 'favorite' ? '排序' : pkName(PK_SORTS, pkFilter.sort);
+
 /** 筛选行 HTML（主分类页面顶部，照站点：筛选按钮 + 时长/排序下拉）
  *  标签筛选是弹窗（pkOpenFilterDlg，照站点「按标签筛选」；2026-10-01 用户要求） */
 function pkFilterBarHtml() {
@@ -1564,10 +1570,8 @@ function pkFilterBarHtml() {
     <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
       <button id="pkThemeBtn" style="flex:none">筛选${pkFilter.theme ? ' ●' : ''}</button>
       ${(pkFilter.theme || pkFilter.dur !== '0,0' || pkFilter.sort !== 'favorite') ? '<button id="pkReset" style="flex:none">重置</button>' : ''}
-      <span style="font-size:12px;color:#888">时长</span>
-      <select id="pkDur" style="width:100px;flex:none;text-align:center;text-align-last:center">${PK_DURS.map(([v, n]) => `<option value="${v}"${v === pkFilter.dur ? ' selected' : ''}>${n}</option>`).join('')}</select>
-      <span style="font-size:12px;color:#888">排序</span>
-      <select id="pkSort" style="width:100px;flex:none;text-align:center;text-align-last:center">${PK_SORTS.map(([v, n]) => `<option value="${v}"${v === pkFilter.sort ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <button id="pkDurBtn" style="flex:none">${pkDurLabel()}${pkFilter.dur !== '0,0' ? ' ●' : ''}</button>
+      <button id="pkSortBtn" style="flex:none">${pkSortLabel()}${pkFilter.sort !== 'favorite' ? ' ●' : ''}</button>
     </div></div>
   </div>`;
 }
@@ -1613,8 +1617,19 @@ function pkOpenFilterDlg() {
 function pkBindBar(reload) {
   pkReload = reload;
   $('pkThemeBtn').onclick = () => pkOpenFilterDlg();
-  $('pkDur').onchange = (e) => { pkFilter.dur = e.target.value; reload(); };
-  $('pkSort').onchange = (e) => { pkFilter.sort = e.target.value; reload(); };
+  // 时长/排序：Hanime1 式弹窗选择（按钮显示当前值 + ●，选完即关）
+  $('pkDurBtn').onclick = () => {
+    hnOpenPicker('时长', PK_DURS.map((d) => d[1]), pkName(PK_DURS, pkFilter.dur), (name) => {
+      const hit = PK_DURS.find((d) => d[1] === name);
+      if (hit) { pkFilter.dur = hit[0]; reload(); }
+    });
+  };
+  $('pkSortBtn').onclick = () => {
+    hnOpenPicker('排序', PK_SORTS.map((d) => d[1]), pkName(PK_SORTS, pkFilter.sort), (name) => {
+      const hit = PK_SORTS.find((d) => d[1] === name);
+      if (hit) { pkFilter.sort = hit[0]; reload(); }
+    });
+  };
   const rb = $('pkReset');
   if (rb) {
     // 一键重置：主题/时长/排序全回默认（有筛选生效时才会渲染这个按钮）

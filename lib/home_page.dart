@@ -16,6 +16,69 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+/// 单选弹窗（Hanime1 / Pektino 共用）：选项 key → 显示名，当前项橙色 + ✓，
+/// 选完即关。（"这样的选择样式"——2026-10-01 用户指定）
+Future<void> pickOptionDialog(
+  BuildContext context,
+  String title,
+  List<MapEntry<String, String>> options,
+  String current,
+  void Function(String key) apply,
+) async {
+  final v = await showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: Text(title, style: const TextStyle(fontSize: 16)),
+      children: [
+        for (final o in options)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, o.key),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    o.value,
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: o.key == current
+                            ? const Color(0xFFE8590C)
+                            : const Color(0xFF333333)),
+                  ),
+                ),
+                if (o.key == current)
+                  const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+  if (v != null && v != current) apply(v);
+}
+
+/// 筛选行按钮（Hanime1 / Pektino 共用）：生效时橙色 + " ●"
+Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
+      onPressed: tap,
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+      ),
+      child: Text(
+        on ? '$label ●' : label,
+        style: TextStyle(
+            fontSize: 13,
+            color: on ? const Color(0xFFE8590C) : const Color(0xFF444444)),
+      ),
+    );
+
+/// 在 tab 列表里按 key 找显示名（找不到就回 key 本身）
+String _nameOf(List<SiteTab> items, String key) {
+  for (final t in items) {
+    if (t.key == key) return t.name;
+  }
+  return key;
+}
+
 /// Hanime1 筛选选项（照站点四个下拉；'' 一律 = 全部）
 const List<String> _hnSorts = [
   '最新上市', '最新上傳', '本日排行', '本週排行', '本月排行',
@@ -53,40 +116,20 @@ class _HnFilterBar extends StatelessWidget {
       {required this.api, required this.filters, required this.onChanged});
 
   Future<void> _pickSingle(BuildContext context, String title,
-      List<String> options, String current, void Function(String) apply) async {
-    final v = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(title, style: const TextStyle(fontSize: 16)),
-        children: [
-          for (final o in <String>['', ...options])
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, o),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      o.isEmpty ? '全部' : o,
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: o == current
-                              ? const Color(0xFFE8590C)
-                              : const Color(0xFF333333)),
-                    ),
-                  ),
-                  if (o == current)
-                    const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
-                ],
-              ),
-            ),
+          List<String> options, String current, void Function(String) apply) =>
+      pickOptionDialog(
+        context,
+        title,
+        [
+          const MapEntry('', '全部'),
+          for (final o in options) MapEntry(o, o),
         ],
-      ),
-    );
-    if (v != null && v != current) {
-      apply(v);
-      onChanged();
-    }
-  }
+        current,
+        (v) {
+          apply(v);
+          onChanged();
+        },
+      );
 
   Future<void> _pickTags(BuildContext context) async {
     final sel = await showDialog<List<String>>(
@@ -101,20 +144,6 @@ class _HnFilterBar extends StatelessWidget {
     }
   }
 
-  Widget _btn(String label, bool on, VoidCallback tap) => OutlinedButton(
-        onPressed: tap,
-        style: OutlinedButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-        ),
-        child: Text(
-          on ? '$label ●' : label,
-          style: TextStyle(
-              fontSize: 13,
-              color: on ? const Color(0xFFE8590C) : const Color(0xFF444444)),
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
     final f = filters;
@@ -124,22 +153,22 @@ class _HnFilterBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _btn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
+            filterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
                 f.tags.isNotEmpty, () => _pickTags(context)),
             const SizedBox(width: 6),
-            _btn(
+            filterBtn(
                 f.sort.isEmpty ? '排序方式' : f.sort,
                 f.sort.isNotEmpty,
                 () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
                     (v) => f.sort = v)),
             const SizedBox(width: 6),
-            _btn(
+            filterBtn(
                 f.date.isEmpty ? '發佈日期' : f.date,
                 f.date.isNotEmpty,
                 () => _pickSingle(context, '發佈日期', _hnDates, f.date,
                     (v) => f.date = v)),
             const SizedBox(width: 6),
-            _btn(
+            filterBtn(
                 f.duration.isEmpty ? '時長' : f.duration,
                 f.duration.isNotEmpty,
                 () => _pickSingle(context, '時長', _hnDurations, f.duration,
@@ -360,18 +389,7 @@ class _HomePageState extends State<HomePage>
             scrollDirection: Axis.horizontal, // 兜底：极窄屏也不换行（可横滑）
             child: Row(
               children: [
-                OutlinedButton.icon(
-                  // 点「筛选」弹窗（照站点「按标签筛选」；2026-10-01 用户要求）
-                  onPressed: () => _openFilterDialog(f),
-                  icon: const Icon(Icons.search, size: 16),
-                  // 选了主题时加个 ●，提示"标签正带着"
-                  label: Text(_theme == null ? '筛选' : '筛选 ●',
-                      style: const TextStyle(fontSize: 13)),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                  ),
-                ),
+                filterBtn('筛选', _theme != null, () => _openFilterDialog(f)),
                 // 有筛选生效时给个一键重置（不然切来切去总带着老标签）
                 if (_theme != null ||
                     _duration != '0,0' ||
@@ -391,62 +409,35 @@ class _HomePageState extends State<HomePage>
                     child: const Text('重置', style: TextStyle(fontSize: 13)),
                   ),
                 ],
-                const SizedBox(width: 8),
-                const Text('时长',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(width: 2),
-                SizedBox(
-                  width: 96,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _duration,
-                      isDense: true,
-                      isExpanded: true,
-                      alignment: Alignment.center, // 框内文字居中（用户要求）
-                      style:
-                          const TextStyle(fontSize: 13, color: Colors.black87),
-                      items: [
-                        for (final d in f.durations)
-                          DropdownMenuItem(
-                              value: d.key,
-                              child: Text(d.value,
-                                  overflow: TextOverflow.ellipsis)),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        _duration = v;
-                        _applyFilters();
-                      },
-                    ),
+                const SizedBox(width: 6),
+                // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）
+                filterBtn(
+                  _duration == '0,0' ? '时长' : _nameOf(f.durations, _duration),
+                  _duration != '0,0',
+                  () => pickOptionDialog(
+                    context,
+                    '时长',
+                    [for (final d in f.durations) MapEntry(d.key, d.value)],
+                    _duration,
+                    (v) {
+                      _duration = v;
+                      _applyFilters();
+                    },
                   ),
                 ),
-                const SizedBox(width: 10),
-                const Text('排序',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(width: 2),
-                SizedBox(
-                  width: 96,
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _sort,
-                      isDense: true,
-                      isExpanded: true,
-                      alignment: Alignment.center, // 框内文字居中（用户要求）
-                      style:
-                          const TextStyle(fontSize: 13, color: Colors.black87),
-                      items: [
-                        for (final s in f.sorts)
-                          DropdownMenuItem(
-                              value: s.key,
-                              child: Text(s.value,
-                                  overflow: TextOverflow.ellipsis)),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        _sort = v;
-                        _applyFilters();
-                      },
-                    ),
+                const SizedBox(width: 6),
+                filterBtn(
+                  _sort == 'favorite' ? '排序' : _nameOf(f.sorts, _sort),
+                  _sort != 'favorite',
+                  () => pickOptionDialog(
+                    context,
+                    '排序',
+                    [for (final s in f.sorts) MapEntry(s.key, s.value)],
+                    _sort,
+                    (v) {
+                      _sort = v;
+                      _applyFilters();
+                    },
                   ),
                 ),
               ],
