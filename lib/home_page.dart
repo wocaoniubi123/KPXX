@@ -71,10 +71,11 @@ Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
       ),
     );
 
-/// 在 tab 列表里按 key 找显示名（找不到就回 key 本身）
-String _nameOf(List<SiteTab> items, String key) {
+/// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
+/// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
+String _nameOf(List<MapEntry<String, String>> items, String key) {
   for (final t in items) {
-    if (t.key == key) return t.name;
+    if (t.key == key) return t.value;
   }
   return key;
 }
