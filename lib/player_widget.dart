@@ -524,6 +524,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
   VoidCallback? _pauseHooked; // 挂在 switcher.pauseTick 上的监听（换 widget 时要摘）
   String? _error;
   bool _busy = false;
+  // 播放出错自动重试：最多 5 次（起播成功后清零；手动点重试也给新额度）
+  int _autoRetries = 0;
+  bool _autoRetrying = false; // 自动重试进行中（显示提示、暂藏重试按钮）
+  Timer? _autoRetryTimer;
+  bool _opening = false; // 正在依次尝试各源（期间不排自动重试，交给循环收尾）
   bool _init = false;
   /// 正在按需取源（合集/黄果选集）：点击那一刻就亮提示，别等网络回来才弹
   bool _fetchingLazy = false;
@@ -578,6 +583,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
       _nextFired = false;
       _errShown = false;
       _error = null;
+      // 换集：自动重试排期与计数一并清零
+      _autoRetryTimer?.cancel();
+      _autoRetryTimer = null;
+      _autoRetries = 0;
+      _autoRetrying = false;
       // 点击就要"立刻"有反应（用户要求）：旧视频先停住，别等新源就绪；
       // 这一集要按需取源的话，"正在取视频…"提示也立即亮（不用等网络）。
       _kp?.pause();
@@ -603,6 +613,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     _pauseHookedTick?.removeListener(_pauseHooked!);
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
+    _autoRetryTimer?.cancel();
     disposeBv();
     disposeSwipe();
     _kp?.shutdown();
@@ -638,6 +649,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
           _busy = false;
           _error = '这一集已失效（子文章打不开或没有视频）';
         });
+        _notePlaybackError();
         return;
       }
     }
@@ -657,36 +669,42 @@ class _PlayerWidgetState extends State<PlayerWidget>
       setState(() => _busy = false);
     }
 
-    for (var round = 0; round < 2; round++) {
-      for (var i = 0; i < _sources.length; i++) {
-        final ok = await _openAndWait(kp, _sources[i]);
-        if (!mounted) return;
-        if (ok) {
-          _scheduleHide();
-          return;
-        }
-      }
-      // 本轮全失败：刷新一次时效链接再来一轮
-      if (round == 0 && widget.onRefreshSources != null) {
-        try {
-          final fresh = (await widget.onRefreshSources!())
-              .where((s) => s.isNotEmpty)
-              .toList();
-          if (fresh.isNotEmpty) {
-            _sources = fresh;
-            continue;
+    _opening = true; // 源尝试进行中：期间的出错排期让循环收尾统一处理
+    try {
+      for (var round = 0; round < 2; round++) {
+        for (var i = 0; i < _sources.length; i++) {
+          final ok = await _openAndWait(kp, _sources[i]);
+          if (!mounted) return;
+          if (ok) {
+            _scheduleHide();
+            return;
           }
-        } catch (_) {
-          // 刷新失败就走错误提示
         }
+        // 本轮全失败：刷新一次时效链接再来一轮
+        if (round == 0 && widget.onRefreshSources != null) {
+          try {
+            final fresh = (await widget.onRefreshSources!())
+                .where((s) => s.isNotEmpty)
+                .toList();
+            if (fresh.isNotEmpty) {
+              _sources = fresh;
+              continue;
+            }
+          } catch (_) {
+            // 刷新失败就走错误提示
+          }
+        }
+        break;
       }
-      break;
+    } finally {
+      _opening = false;
     }
     if (mounted) {
       setState(() {
         _busy = false;
         _error = '视频加载失败';
       });
+      _notePlaybackError();
     }
   }
 
@@ -752,12 +770,22 @@ class _PlayerWidgetState extends State<PlayerWidget>
         widget.switcher?.next();
       }
     }
+    final errEdge = err && !_errShown; // 出错的上升沿 → 自动重试
+    final startedEdge = started && !_started; // 起播（含自动重试后恢复）→ 额度清零
     if ((err != _errShown || started != _started) && mounted) {
       setState(() {
         _errShown = err;
         _started = started;
+        if (startedEdge && (_autoRetries != 0 || _autoRetrying)) {
+          // 起播了：撤销已排期的自动重试（别把刚播起来的视频又重开）
+          _autoRetryTimer?.cancel();
+          _autoRetryTimer = null;
+          _autoRetries = 0;
+          _autoRetrying = false;
+        }
       });
     }
+    if (errEdge) _notePlaybackError();
   }
 
   /// 双击左半屏后退、右半屏快进（步长来自设置，默认 10 秒）
@@ -797,7 +825,35 @@ class _PlayerWidgetState extends State<PlayerWidget>
     });
   }
 
-  void _retry() => _initPlayer();
+  void _retry() {
+    // 手动重试：撤销自动重试排期、额度清零（再失败会重新自动重试一轮）
+    _autoRetryTimer?.cancel();
+    _autoRetryTimer = null;
+    _autoRetries = 0;
+    if (_autoRetrying) setState(() => _autoRetrying = false);
+    _initPlayer();
+  }
+
+  /// 播放出错 → 排一次自动重试（最多 5 次）。
+  /// 5 次都失败后不再自动重试：错误提示留在屏幕上，由用户自己点重试。
+  void _notePlaybackError() {
+    if (!mounted) return;
+    // 源尝试循环还在跑：这次失败由循环收尾统一排期（别掐断正在加载的下一路源）
+    if (_opening) return;
+    if (_autoRetries >= 5) {
+      // 额度用完：撤掉"自动重试中"提示，把错误提示/重试按钮露出来
+      if (_autoRetrying) setState(() => _autoRetrying = false);
+      return;
+    }
+    // 同一次失败可能双通道报错（引擎 error + 源尝试失败），排一次就够
+    if (_autoRetryTimer != null) return;
+    _autoRetries++;
+    setState(() => _autoRetrying = true);
+    _autoRetryTimer = Timer(const Duration(milliseconds: 1200), () {
+      _autoRetryTimer = null;
+      if (mounted) _initPlayer();
+    });
+  }
 
   /// 控制条显示数秒后自动隐藏
   void _scheduleHide() {
@@ -902,10 +958,12 @@ class _PlayerWidgetState extends State<PlayerWidget>
                   _bufferingHint(kp),
                   // 正在按需取源（合集/黄果选集）：点击那一刻起亮着
                   if (_fetchingLazy) _lazyHint(),
-                  // 播放中途出错：给个重试入口
                   // 亮度/音量指示条
                   buildGauge(),
-                  if (_errShown || _error != null)
+                  // 播放出错：自动重试（最多 5 次）；重试用尽后给手动重试入口
+                  if (_autoRetrying)
+                    _autoRetryHint()
+                  else if (_errShown || _error != null)
                     Center(
                       child: TextButton.icon(
                         onPressed: _retry,
@@ -931,7 +989,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
                       return Align(
                         alignment: Alignment.bottomCenter,
                         child: Container(
-                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               begin: Alignment.topCenter,
@@ -996,6 +1054,33 @@ class _PlayerWidgetState extends State<PlayerWidget>
           const Center(
               child: CircularProgressIndicator(color: Colors.white70)),
       ],
+    );
+  }
+
+  /// "自动重试中 n/5…"提示（播放出错后自动重试期间显示）。
+  Widget _autoRetryHint() {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                  color: Colors.white70, strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            Text('播放出错，自动重试 $_autoRetries/5…',
+                style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
     );
   }
 
