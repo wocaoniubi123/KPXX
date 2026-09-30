@@ -903,7 +903,7 @@ class _SearchPageState extends State<SearchPage> {
           controller: _ctl,
           focusNode: _focus,
           textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(hintText: '搜索文章关键词...'),
+          decoration: const InputDecoration(hintText: '输入关键词即可搜索'),
           onSubmitted: (_) => _search(),
         ),
         actions: [
@@ -911,7 +911,7 @@ class _SearchPageState extends State<SearchPage> {
         ],
       ),
       body: !_searched
-          ? const Center(child: Text('输入关键词即可搜索'))
+          ? const SizedBox.shrink() // 空态不再放居中文字：键盘弹出时它会往上跳，看着卡（用户实报）
           : _results.isEmpty
               ? const Center(child: Text('无结果'))
               : RowsGrid(

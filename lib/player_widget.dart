@@ -1263,7 +1263,7 @@ class _ControlBarState extends State<_ControlBar> {
   }
 }
 
-/// 全屏播放页：黑底 + 左右滑动快进快退 + 下滑返回。
+/// 全屏播放页：黑底 + 左右滑动快进快退 + 左边缘滑返回（仿 iOS）/返回按钮退出。
 /// vertical=true 竖屏全屏（视频 contain 居中不拉伸），false 横屏全屏。
 class FullscreenPlayer extends StatefulWidget {
   final KpPlayer player;
@@ -1292,6 +1292,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   Timer? _tapHintTimer;
   bool _longPressing = false; // 长按快进中（按住 2 倍速）
   Animation<double>? _routeAnim; // 全屏路由的转场动画（监听退场那一瞬，提前恢复方向）
+  static const double _kEdgeWidth = 28; // 左边缘手势带宽度（仿 iOS 边缘滑返回）
+  double _hDownX = 0; // 本次横向拖拽的起手位置
+  bool _edgeSwipe = false; // 本次左右滑是否从边缘起手（=返回手势）
+  double _edgeDx = 0; // 边缘返回手势的累计水平位移
 
   @override
   KpPlayer get gesturePlayer => widget.player;
@@ -1418,19 +1422,41 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         onTap: _toggleControls,
         onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
         onDoubleTap: _onDoubleTap,
-        // 竖向：左半屏调亮度、右半屏调音量；没实际调整时的快速下滑仍是退出
+        // 竖向：左半屏调亮度、右半屏调音量
+        // （下滑退出已删——它和亮度/音量抢同一手势区，实际几乎触发不了；用户要求删除）
         onVerticalDragStart: bvStart,
         onVerticalDragUpdate: bvUpdate,
-        onVerticalDragEnd: (d) {
-          bvEnd(d);
-          if (!bvApplied && (d.primaryVelocity ?? 0) > 900) {
-            _restoreOrientation(); // 退出一触发先转回竖屏
-            Navigator.pop(context);
-          }
+        onVerticalDragEnd: bvEnd,
+        // 左右滑：默认=快进快退；从左边缘起手=返回（仿 iOS 边缘滑返回，用户选的 B 方案）
+        onHorizontalDragDown: (d) => _hDownX = d.localPosition.dx,
+        onHorizontalDragStart: (d) {
+          _edgeSwipe = _hDownX <= _kEdgeWidth;
+          _edgeDx = 0;
+          if (!_edgeSwipe) swipeStart(d);
         },
-        onHorizontalDragStart: swipeStart,
-        onHorizontalDragUpdate: swipeUpdate,
-        onHorizontalDragEnd: swipeEnd,
+        onHorizontalDragUpdate: (d) {
+          if (_edgeSwipe) {
+            _edgeDx += d.delta.dx;
+            return;
+          }
+          swipeUpdate(d);
+        },
+        onHorizontalDragEnd: (d) {
+          if (_edgeSwipe) {
+            _edgeSwipe = false;
+            final w = MediaQuery.sizeOf(context).width;
+            if ((d.primaryVelocity ?? 0) > 300 || _edgeDx > w * 0.28) {
+              _restoreOrientation();
+              Navigator.pop(context);
+            }
+            return;
+          }
+          swipeEnd(d);
+        },
+        onHorizontalDragCancel: () {
+          _edgeSwipe = false;
+          _edgeDx = 0;
+        },
         // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
         onLongPressStart: (_) {
           widget.player.setRate(2.0);
