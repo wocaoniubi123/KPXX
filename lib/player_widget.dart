@@ -690,6 +690,20 @@ class _PlayerWidgetState extends State<PlayerWidget>
     }
   }
 
+  /// 播放用的 Referer：统一用「视频源自身的域名」（不是站点域名）。
+  /// 站点视频常托管在别的域名/IP（2026-09-30 实测：黄果→yd-hls.tktjpm.cn、
+  /// WP 系→hls.qldjxf.cn / op.udhhzr.cn、91porna→yd-hls.tktjpm.cn、
+  /// Pektino→video.twimg.com），拿站点域名当 Referer 会被 CDN 拒
+  /// （video.twimg.com 对 pektino.com 直接 403）。全站回归实测：各 CDN 对
+  /// 「源自身域名」均放行（m3u8/分片/密钥全 200）；视频与站点同域时新旧等价。
+  String _playReferer(String url) {
+    final u = Uri.tryParse(url);
+    if (u != null && u.hasScheme && u.host.isNotEmpty) {
+      return '${u.scheme}://${u.host}/';
+    }
+    return '${widget.referer}/';
+  }
+
   /// 打开某个源并等它"能播了"（拿到时长）或明确失败
   Future<bool> _openAndWait(KpPlayer kp, String url) async {
     final done = Completer<bool>();
@@ -706,7 +720,7 @@ class _PlayerWidgetState extends State<PlayerWidget>
     try {
       await kp.open(url, httpHeaders: {
         'User-Agent': _ua,
-        'Referer': '${widget.referer}/',
+        'Referer': _playReferer(url),
       });
       return await done.future
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
