@@ -278,6 +278,21 @@ setInterval(() => {
 const AES_KEY = 'f5d965df75336270';   // 与 app 的 fetched_image.dart 一致
 const AES_IV = '97b60394abc2fbe1';
 
+/* 模拟器**默认静音**：所有 video（含动态插入的）自动 muted ——
+   在别的浏览器/窗口打开模拟器也不用特意去关声音 */
+(function initMute() {
+  const mute = () => document.querySelectorAll('video').forEach((v) => {
+    v.muted = true;
+    v.volume = 0;
+  });
+  document.addEventListener('play', (e) => {
+    const v = e.target;
+    if (v && v.tagName === 'VIDEO') { v.muted = true; v.volume = 0; }
+  }, true);
+  new MutationObserver(mute).observe(document.documentElement, { childList: true, subtree: true });
+  mute();
+})();
+
 let SITES = [];
 
 async function reloadSites() {
