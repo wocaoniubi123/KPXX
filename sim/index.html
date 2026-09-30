@@ -1304,7 +1304,8 @@ async function fetchList(site, cat, subKey, page) {
     return hanimeFetch(site, cat.key, page);
   }
   if (tpl === 'xvideos') {
-    return xvListAt(site, cat.key, page);
+    // 子分类（「分类」tab 下面那排）选中时用子分类 key
+    return xvListAt(site, subKey || cat.key, page);
   }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
@@ -1534,12 +1535,56 @@ function hnBindBar(site, reload) {
 
 /* -------- XVideos（tube 站）：thumb-block 卡片 + HLS/mp4 直链 -------- */
 
-/** 分类/标签列表：第 N 页 = base + '/${N-1}'（0 计页）；Newest 第 1 页 = '/' */
+/** 「最佳影片」当月月份缓存（从 /best 页分页链接解析，如 2026-08） */
+let xvBestMonth = null;
+
+/** 分类/标签列表：第 N 页 = base + '/${N-1}'（0 计页）；Newest 第 1 页 = '/'；
+ *  最佳影片：第 1 页 = /best（服务端跳当月），第 N 页 = /best/{月份}/N-1 */
 async function xvListAt(site, base, page) {
   let path;
   if (base === '/new') path = page <= 1 ? '/' : '/new/' + (page - 1);
-  else path = page <= 1 ? base : base + '/' + (page - 1);
-  return xvCards(parseHtml(await getHtml(site, path)));
+  else if (base === '/best') {
+    if (page <= 1) {
+      const html = await getHtml(site, '/best');
+      xvBestMonth = (html.match(/\/best\/(\d{4}-\d{2})\//) || [])[1] || xvBestMonth;
+      return xvCards(parseHtml(html));
+    }
+    if (!xvBestMonth) {
+      const html = await getHtml(site, '/best');
+      xvBestMonth = (html.match(/\/best\/(\d{4}-\d{2})\//) || [])[1];
+    }
+    path = xvBestMonth ? '/best/' + xvBestMonth + '/' + (page - 1) : '/best';
+  } else path = page <= 1 ? base : base + '/' + (page - 1);
+  const html = await getHtml(site, path);
+  // 頻道/色情明星 = 目录页（卡片是频道/演员主页链接，不是视频卡片）
+  if (base === '/channels-index' || base === '/pornstars-index') {
+    return xvDirectory(parseHtml(html));
+  }
+  return xvCards(parseHtml(html));
+}
+
+/** 頻道/色情明星索引卡（thumb-block-profile）：名字+主页链接+头像（头像在 script 字符串里） */
+function xvDirectory(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('div.thumb-block')) {
+    const a = el.querySelector('div.thumb a[href]');
+    if (!a) continue;
+    const href = a.getAttribute('href') || '';
+    if (!href || href.includes('/video.')) continue;
+    const nameEl = el.querySelector('p.profile-name a') || el.querySelector('.profile-name');
+    const name = nameEl ? (nameEl.textContent || '').trim() : '';
+    if (!name) continue;
+    const sc = el.querySelector('script');
+    const m = ((sc && sc.textContent) || '').match(/<img src="([^"]+)"/);
+    out.push({
+      title: name,
+      url: href,
+      cover: m ? m[1] : '',
+      meta: ((el.querySelector('p.profile-counts') || {}).textContent || '').trim(),
+      badge: '',
+    });
+  }
+  return out;
 }
 
 /** 搜索：/?k=kw（翻页 &p=N-1） */
@@ -1554,14 +1599,17 @@ function xvCards(doc) {
   for (const el of doc.querySelectorAll('div.thumb-block')) {
     const a = el.querySelector('p.title a') || el.querySelector('div.thumb a[href*="/video"]');
     if (!a) continue;
-    const href = a.getAttribute('href') || '';
+    let href = a.getAttribute('href') || '';
     if (!href.includes('/video')) continue;
+    // 占位符 THUMBNUM（真站由 JS 填数字；字面值 404）→ 填 1，与 App 一致
+    if (href.includes('THUMBNUM')) href = href.replace('THUMBNUM', '1');
     let title = (a.getAttribute('title') || '').trim();
     if (!title) title = (a.textContent || '').replace(/\s*\d+ min\s*$/, '').trim();
     if (!title) continue;
     const img = el.querySelector('img[data-src]') || el.querySelector('img');
     let cover = (img && (img.getAttribute('data-src') || img.getAttribute('src'))) || '';
     if (cover.includes('blank')) cover = '';
+    if (cover.includes('THUMBNUM')) cover = cover.replace('THUMBNUM', '1');
     const durEl = el.querySelector('p.title span.duration') || el.querySelector('span.duration');
     const dur = ((durEl && durEl.textContent) || '').trim();
     let meta = (el.querySelector('p.metadata')?.textContent || '').replace(/\s+/g, ' ').trim();
@@ -2008,6 +2056,12 @@ function renderCards(cat, st) {
       if (a.url && (a.url.startsWith('/topics/') || a.url.startsWith('/moviesets/'))) {
         const site0 = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
         openTagList(site0, a.title, a.url, false);
+        return;
+      }
+      // XVideos 频道/演员卡：二级内容是 JS 动态加载，暂未支持（先提示）
+      const siteNow = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
+      if (siteNow && siteNow.template === 'xvideos' && a.url && !a.url.includes('/video.')) {
+        log('频道/演员内容页为动态加载，暂未支持', 'dim');
         return;
       }
       openDetail(a, cat, $('body').scrollTop);

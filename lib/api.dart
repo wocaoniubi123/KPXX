@@ -37,7 +37,8 @@ class Api {
   /// 顺序尝试域名，返回第一个成功的文本。
   /// 上次跑通的域名排最前：站点常有一两个域名挂掉，若每次从列表头开始试，
   /// 每个请求都要先白等一次超时（列表/详情/视频启动全被拖慢）。
-  Future<String> _fetchText(String path) async {
+  Future<String> _fetchText(String path,
+      {Map<String, String>? extraHeaders}) async {
     final order = [
       if (hosts.contains(_host)) _host,
       ...hosts.where((h) => h != _host),
@@ -53,6 +54,7 @@ class Api {
               'Referer': 'https://$h/',
               'Accept':
                   'text/html,application/xhtml+xml;application/json;q=0.9,*/*;q=0.8',
+              ...?extraHeaders,
             },
           ).timeout(const Duration(seconds: 8));
           if (r.statusCode == 200) {
@@ -118,8 +120,9 @@ class Api {
         // extra = 筛选行（sort/date/duration/tags[]）
         return _hanimeList(key, page: page, extra: extra);
       case SiteTemplate.xvideos:
-        // 分类 tab = /c/xxx；另有「Newest」= /new（特殊规则在 _xvList 里）
-        return _xvList(key, page: page);
+        // 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先；
+        // 主分类 key = /best、/new、/channels-index、/pornstars-index（见 _xvList）
+        return _xvList(k, page: page);
     }
   }
 
@@ -1840,23 +1843,55 @@ class Api {
   // 约 5 小时有效——过期走现有"失败→刷新详情"兜底）；相关推荐在页面内
   // JS 数组 video_related=[{u,i,t,d,…}]。
 
+  /// 本地化：带 Accept-Language 才是**中文版**（照用户看到的站点；不带时
+  /// 会按访问环境给英文）。只给 xvideos 的请求用，其他站点不受影响。
+  static const Map<String, String> _xvLang = {
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+  };
+
+  /// 「最佳影片」当月月份（如 2026-08）：从上一次 /best 页的分页链接解析后缓存
+  String? _xvBestMonth;
+
   /// 分类/标签列表：第 N 页 = base + '/${N-1}'（站点页码从 0 计；N=1 = base）；
-  /// 「Newest」特殊：第 1 页 = '/'、第 N 页 = '/new/N-1'
+  /// 「Newest」特殊：第 1 页 = '/'、第 N 页 = '/new/N-1'；
+  /// 「最佳影片」特殊：第 1 页 = '/best'（服务端跳当月），第 N 页 =
+  /// '/best/{YYYY-MM}/N-1'（月份从第 1 页分页链接解析）
   Future<List<Article>> _xvList(String base, {int page = 1}) async {
-    final String path;
+    String path;
     if (base == '/new') {
       path = page <= 1 ? '/' : '/new/${page - 1}';
+    } else if (base == '/best') {
+      if (page <= 1) {
+        final html = await _fetchText('/best', extraHeaders: _xvLang);
+        _xvBestMonth =
+            RegExp(r'/best/(\d{4}-\d{2})/').firstMatch(html)?.group(1) ??
+                _xvBestMonth;
+        return _xvCards(html);
+      }
+      var m = _xvBestMonth;
+      if (m == null) {
+        m = RegExp(r'/best/(\d{4}-\d{2})/')
+            .firstMatch(await _fetchText('/best', extraHeaders: _xvLang))
+            ?.group(1);
+        _xvBestMonth = m;
+      }
+      path = m == null ? '/best' : '/best/$m/${page - 1}';
     } else {
       path = page <= 1 ? base : '$base/${page - 1}';
     }
-    return _xvCards(await _fetchText(path));
+    final html = await _fetchText(path, extraHeaders: _xvLang);
+    // 頻道/色情明星 = 目录页（卡片是频道/演员主页链接，不是视频卡片）
+    if (base == '/channels-index' || base == '/pornstars-index') {
+      return _xvDirectory(html);
+    }
+    return _xvCards(html);
   }
 
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
   Future<List<Article>> _xvSearch(String keyword, {int page = 1}) async {
     final path = '/?k=${Uri.encodeComponent(keyword)}'
         '${page > 1 ? '&p=${page - 1}' : ''}';
-    return _xvCards(await _fetchText(path));
+    return _xvCards(await _fetchText(path, extraHeaders: _xvLang));
   }
 
   /// thumb-block 卡片解析（分类 / 标签 / 搜索共用）
@@ -1866,8 +1901,11 @@ class Api {
     for (final el in doc.querySelectorAll('div.thumb-block')) {
       final a = el.querySelector('p.title a') ??
           el.querySelector('div.thumb a[href*="/video"]');
-      final href = a?.attributes['href'] ?? '';
+      var href = a?.attributes['href'] ?? '';
       if (!href.contains('/video')) continue;
+      // 部分卡片的链接带未替换的占位符 THUMBNUM（真站由 JS 填数字；字面值会 404）。
+      // 填 1 即可——实测任意数字等价，站点会把多余层级 302 到规范短链。
+      if (href.contains('THUMBNUM')) href = href.replaceFirst('THUMBNUM', '1');
       var title = (a?.attributes['title'] ?? '').trim();
       if (title.isEmpty) {
         title = (a?.text ?? '')
@@ -1878,6 +1916,8 @@ class Api {
       final img = el.querySelector('img[data-src]') ?? el.querySelector('img');
       var cover = img?.attributes['data-src'] ?? img?.attributes['src'] ?? '';
       if (cover.contains('blank')) cover = '';
+      // 封面同理：xv_THUMBNUM_t.jpg → xv_1_t.jpg（不填则 404）
+      if (cover.contains('THUMBNUM')) cover = cover.replaceFirst('THUMBNUM', '1');
       final dur = el.querySelector('p.title span.duration')?.text.trim() ??
           el.querySelector('span.duration')?.text.trim() ??
           '';
@@ -1900,9 +1940,39 @@ class Api {
     return out;
   }
 
+  /// 頻道 / 色情明星 索引卡（div.thumb-block-profile）：名字 + 主页链接 + 头像。
+  /// 头像图在卡片内 <script>document.write(…)</script> 的字符串里（DOM 里没有 img
+  /// 节点），从 script 文本正则取；名字用 .profile-name（频道=span、演员=p>a）。
+  List<Article> _xvDirectory(String html) {
+    final doc = hp.parse(html);
+    final out = <Article>[];
+    for (final el in doc.querySelectorAll('div.thumb-block')) {
+      final a = el.querySelector('div.thumb a[href]');
+      final href = a?.attributes['href'] ?? '';
+      if (href.isEmpty || href.contains('/video.')) continue;
+      final name = ((el.querySelector('p.profile-name a') ??
+                      el.querySelector('.profile-name'))
+                  ?.text ??
+              '')
+          .trim();
+      if (name.isEmpty) continue;
+      final script = el.querySelector('script')?.text ?? '';
+      final cover =
+          RegExp(r'<img src="([^"]+)"').firstMatch(script)?.group(1) ?? '';
+      final counts = (el.querySelector('p.profile-counts')?.text ?? '').trim();
+      out.add(Article(
+        title: name,
+        url: href,
+        cover: cover,
+        meta: counts,
+      ));
+    }
+    return out;
+  }
+
   /// 详情：标题 / 时长 / 标签 / 播放源（mp4 High→Low→HLS，去重）/ 相关推荐
   Future<ArticleDetail> _xvDetail(String url) async {
-    final html = await _fetchText(url);
+    final html = await _fetchText(url, extraHeaders: _xvLang);
     final doc = hp.parse(html);
     var title =
         RegExp(r"setVideoTitle\('([^']*)'\)").firstMatch(html)?.group(1)?.trim() ??
