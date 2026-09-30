@@ -127,6 +127,9 @@ class Api {
       case SiteTemplate.porna:
         final first = site.categories.isEmpty ? '' : site.categories.first.key;
         return _pornaList(first, page: page);
+      case SiteTemplate.pektino:
+        // 首页 = 每日榜（和站点首页一致）
+        return _pektinoList('timely', '', page: page);
     }
   }
 
@@ -146,6 +149,9 @@ class Api {
         // 其余是搜索关键词（视频页的 keywords）
         return _pornaList(slug.startsWith('/') ? slug : 'search:$slug',
             page: page);
+      case SiteTemplate.pektino:
+        // "标签" = 主题筛选（走同一个接口，全时段）
+        return _pektinoList('all', slug, page: page);
     }
   }
 
