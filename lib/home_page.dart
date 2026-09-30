@@ -815,6 +815,9 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _ctl = TextEditingController();
+  final FocusNode _focus = FocusNode();
+  bool _focusScheduled = false; // 转场后聚焦只安排一次
+  Animation<double>? _focusAnim; // 挂过监听的转场动画（dispose 要摘）
   final List<Article> _results = [];
   late final Api _api = Api(site: widget.site);
   int _page = 1;
@@ -822,6 +825,40 @@ class _SearchPageState extends State<SearchPage> {
   bool _searched = false;
   bool _done = false;
   String _kw = '';
+
+  /// 转场动画结束后再聚焦（弹键盘）：键盘第一次冷启动开销大，和页面转场叠在一起
+  /// 会掉帧（用户实报"第一次点开搜索有点掉帧"）。页面滑入完再弹，两者错峰。
+  void _onRouteAnimStatus(AnimationStatus s) {
+    if (s != AnimationStatus.completed) return;
+    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
+    _focusAnim = null;
+    if (mounted) _focus.requestFocus();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_focusScheduled) return;
+    _focusScheduled = true;
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == null || anim.status == AnimationStatus.completed) {
+      // 没有转场（或已完成）：下一帧直接聚焦
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    } else {
+      _focusAnim = anim;
+      anim.addStatusListener(_onRouteAnimStatus);
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
+    _focus.dispose();
+    _ctl.dispose();
+    super.dispose();
+  }
 
   Future<void> _search({bool more = false}) async {
     final kw = _ctl.text.trim();
@@ -864,7 +901,7 @@ class _SearchPageState extends State<SearchPage> {
       appBar: AppBar(
         title: TextField(
           controller: _ctl,
-          autofocus: true,
+          focusNode: _focus,
           textInputAction: TextInputAction.search,
           decoration: const InputDecoration(hintText: '搜索文章关键词...'),
           onSubmitted: (_) => _search(),

@@ -871,12 +871,23 @@ class _PlayerWidgetState extends State<PlayerWidget>
   void _openFullscreen({required bool vertical}) {
     final kp = _kp;
     if (kp == null) return;
+    // 进出全屏用快速淡入淡出：默认系统侧滑转场对全屏视频违和（用户实报"过渡难看"）
     Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FullscreenPlayer(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 180),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, __, ___) => FullscreenPlayer(
           player: kp,
           vertical: vertical,
           switcher: widget.switcher,
+        ),
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(
+          opacity: CurvedAnimation(
+            parent: anim,
+            curve: Curves.easeOut,
+            reverseCurve: Curves.easeIn,
+          ),
+          child: child,
         ),
       ),
     );
@@ -1280,6 +1291,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   double _tapHintX = 0; // 提示位置：-0.6 左 / 0 中 / 0.6 右
   Timer? _tapHintTimer;
   bool _longPressing = false; // 长按快进中（按住 2 倍速）
+  Animation<double>? _routeAnim; // 全屏路由的转场动画（监听退场那一瞬，提前恢复方向）
+
   @override
   KpPlayer get gesturePlayer => widget.player;
 
@@ -1303,6 +1316,27 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     _scheduleHide();
   }
 
+  /// 路由转场状态：一开始退场（reverse）就恢复竖屏——
+  /// 让系统旋转和退场动画并行跑，消除横版退出"先横版卡一会"（用户实报）。
+  void _onRouteAnimStatus(AnimationStatus s) {
+    if (s == AnimationStatus.reverse) _restoreOrientation();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final anim = ModalRoute.of(context)?.animation;
+    if (identical(anim, _routeAnim)) return;
+    _routeAnim?.removeStatusListener(_onRouteAnimStatus);
+    _routeAnim = anim;
+    anim?.addStatusListener(_onRouteAnimStatus);
+  }
+
+  /// 恢复竖屏（退出路径都调它；dispose 里兜底）
+  void _restoreOrientation() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
@@ -1316,8 +1350,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     }();
     disposeSwipe();
     widget.player.removeListener(_onTick);
-    // 退出全屏恢复竖屏
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    _routeAnim?.removeStatusListener(_onRouteAnimStatus);
+    // 兜底：退出路径都已在触发时恢复过，这里再保一次
+    _restoreOrientation();
     super.dispose();
   }
 
@@ -1389,6 +1424,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         onVerticalDragEnd: (d) {
           bvEnd(d);
           if (!bvApplied && (d.primaryVelocity ?? 0) > 900) {
+            _restoreOrientation(); // 退出一触发先转回竖屏
             Navigator.pop(context);
           }
         },
@@ -1418,7 +1454,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () {
+                        _restoreOrientation();
+                        Navigator.pop(context);
+                      },
                     ),
                     const Expanded(child: SizedBox()),
                   ],
