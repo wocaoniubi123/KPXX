@@ -10,6 +10,7 @@
 // 然后浏览器打开提示的地址（改完页面刷新即可，不用重新构建 App）。
 import http from 'node:http';
 import https from 'node:https';
+import crypto from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import { execSync, spawn } from 'node:child_process';
@@ -235,7 +236,7 @@ function parseHttpResponse(buf) {
 }
 
 /** 通过 HTTP 代理抓 HTTPS：CONNECT 隧道 + TLS + 手写 HTTP */
-function viaProxy(u, headers, timeoutMs) {
+function viaProxy(u, headers, timeoutMs, body = null) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(PROXY.port, PROXY.host);
     let settled = false;
@@ -263,10 +264,13 @@ function viaProxy(u, headers, timeoutMs) {
       if (status !== 200) return fail(new Error('代理 CONNECT 返回 ' + status));
       const tlsSock = tls.connect({ socket: sock, servername: u.hostname }, () => {
         const lines = Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('');
+        const bodyBuf = body != null ? Buffer.from(body, 'utf8') : null;
         tlsSock.write(
-          `GET ${u.pathname}${u.search} HTTP/1.1\r\nHost: ${u.host}\r\n${lines}` +
+          `${bodyBuf ? 'POST' : 'GET'} ${u.pathname}${u.search} HTTP/1.1\r\nHost: ${u.host}\r\n${lines}` +
+            (bodyBuf ? `Content-Length: ${bodyBuf.length}\r\n` : '') +
             'Accept-Encoding: identity\r\nConnection: close\r\n\r\n'
         );
+        if (bodyBuf) tlsSock.write(bodyBuf);
       });
       const chunks = [];
       tlsSock.on('data', (c) => chunks.push(c));
@@ -398,8 +402,9 @@ function streamVideo(req, res, targetUrl) {
   });
 }
 
-/** 带重定向跟随的 GET（最多 5 跳），返回 { status, headers, body } */
-function fetchUrl(url, redirects = 0, timeoutMs = 20000) {
+/** 带重定向跟随的请求（最多 5 跳），返回 { status, headers, body }。
+ *  默认 GET；body 非空 = POST（快猫的加密 API 用）；extraHdrs 追加请求头。 */
+function fetchUrl(url, redirects = 0, timeoutMs = 20000, body = null, extraHdrs = null) {
   return new Promise((resolve, reject) => {
     let u;
     try {
@@ -413,13 +418,14 @@ function fetchUrl(url, redirects = 0, timeoutMs = 20000) {
       Referer: `${u.protocol}//${u.host}/`,
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'zh-CN,zh;q=0.9',
+      ...(extraHdrs || {}),
     };
     if (PROXY && u.protocol === 'https:') {
-      viaProxy(u, hdrs, timeoutMs)
+      viaProxy(u, hdrs, timeoutMs, body)
         .then((r) => {
           const code = r.status;
           if ([301, 302, 303, 307, 308].includes(code) && r.headers.location && redirects < 5) {
-            resolve(fetchUrl(new URL(r.headers.location, u).href, redirects + 1, timeoutMs));
+            resolve(fetchUrl(new URL(r.headers.location, u).href, redirects + 1, timeoutMs, body, extraHdrs));
             return;
           }
           resolve(r);
@@ -428,21 +434,14 @@ function fetchUrl(url, redirects = 0, timeoutMs = 20000) {
       return;
     }
     const lib = u.protocol === 'https:' ? https : http;
-    const req = lib.get(
+    const req = lib.request(
       u,
-      {
-        headers: {
-          'User-Agent': UA,
-          Referer: `${u.protocol}//${u.host}/`,
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-        },
-      },
+      { method: body != null ? 'POST' : 'GET', headers: hdrs },
       (res) => {
         const code = res.statusCode || 0;
         if ([301, 302, 303, 307, 308].includes(code) && res.headers.location && redirects < 5) {
           res.resume();
-          resolve(fetchUrl(new URL(res.headers.location, u).href, redirects + 1, timeoutMs));
+          resolve(fetchUrl(new URL(res.headers.location, u).href, redirects + 1, timeoutMs, body, extraHdrs));
           return;
         }
         const chunks = [];
@@ -452,6 +451,7 @@ function fetchUrl(url, redirects = 0, timeoutMs = 20000) {
         );
       }
     );
+    if (body != null) req.write(body);
     req.on('error', reject);
     req.setTimeout(timeoutMs, () => req.destroy(new Error('请求超时')));
   });
@@ -541,6 +541,40 @@ async function handleRequest(req, res) {
         ...cors,
       });
       res.end(r.body);
+      return;
+    }
+
+    if (me.pathname === '/kmpost') {
+      // 快猫的加密 API：服务端做 AES-128-CBC + md5 签名（与 App 的 _kmPost 同一
+      // 协议），把明文 JSON 回给页面。参数：path=/api/…&body=<请求 JSON>
+      const path = me.searchParams.get('path') || '';
+      const body = me.searchParams.get('body') || '{}';
+      const kmKey = Buffer.from('625202f9149maomi');
+      const kmIv = Buffer.from('5efd3f6060emaomi');
+      const c = crypto.createCipheriv('aes-128-cbc', kmKey, kmIv);
+      const hex = Buffer.concat([c.update(Buffer.from(body, 'utf8')), c.final()])
+        .toString('hex')
+        .toUpperCase();
+      const sig = crypto
+        .createHash('md5')
+        .update('data=' + hex + 'maomi_pass_xyz')
+        .digest('hex');
+      const r = await fetchUrl('https://kmsvip.xyz' + path, 0, 20000, `data=${hex}&sig=${sig}`, {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        Origin: 'https://kmsvip.xyz',
+      });
+      let plain;
+      try {
+        const d = crypto.createDecipheriv('aes-128-cbc', kmKey, kmIv);
+        plain = Buffer.concat([
+          d.update(Buffer.from(r.body.toString('utf8').trim(), 'hex')),
+          d.final(),
+        ]).toString('utf8');
+      } catch (e) {
+        plain = JSON.stringify({ code: 1, message: '响应解密失败' });
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', ...cors });
+      res.end(plain);
       return;
     }
 

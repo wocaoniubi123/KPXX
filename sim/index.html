@@ -1307,6 +1307,10 @@ async function fetchList(site, cat, subKey, page) {
     // 子分类（「分类」tab 下面那排）选中时用子分类 key
     return xvListAt(site, subKey || cat.key, page);
   }
+  if (tpl === 'kmsvip') {
+    // key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）
+    return kmList(site, cat.key === '1' ? '/api/videos/listAll' : '/api/videos/listHot', page);
+  }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
   const path = k.startsWith('/')
@@ -1611,6 +1615,49 @@ async function xvProfileVideos(site, base, page) {
       badge: String(v.d || ''),
     };
   }).filter((a) => a.url);
+}
+
+/* -------- 快猫（kmsvip.xyz）：加密 API（AES-128-CBC + md5 签名）--------
+   页面不自己加解密：走服务端 /kmpost（与 App 的 _kmPost 同一协议）。 */
+
+/** 走服务端 /kmpost：path=/api/…、body=请求 JSON，回明文 JSON */
+async function kmPost(path, body) {
+  const r = await fetch('/kmpost?path=' + encodeURIComponent(path) +
+    '&body=' + encodeURIComponent(JSON.stringify(body)));
+  const t = await r.text();
+  if (!r.ok) throw new Error(t.slice(0, 120));
+  return JSON.parse(t);
+}
+
+/** 列表：listHot（热门视频/type=0）/ listAll（视频广场/type=1），19 条/页、页码 1 起 */
+async function kmList(site, api, page) {
+  const j = await kmPost(api, { perPage: 19, page });
+  if (j.code !== 0) return [];
+  const list = (j.data && j.data.list) || [];
+  return list.filter((v) => v.is_cat_ads != 1).map((v) => ({
+    title: String(v.mv_title || ''),
+    url: String(v.mv_id || ''),
+    cover: String(v.mv_img_url || ''),
+    meta: String(v.mu_name || '') +
+      (v.mv_created ? ' · ' + String(v.mv_created).slice(5, 16) : ''),
+    badge: '♡' + String(v.mv_like || '0'),
+  })).filter((a) => a.url);
+}
+
+/** 详情：/api/videos/detail（必须带 uId，访客默认 60364099）；播放用 https 直链那份 */
+async function kmDetail(url) {
+  const j = await kmPost('/api/videos/detail', { mvId: url, uId: '60364099' });
+  if (j.code !== 0) throw new Error(j.message || '接口错误');
+  const d = j.data || {};
+  const play = String(d.mv_play_url || '');
+  return {
+    title: String(d.mv_title || ''),
+    time: String(d.mv_created || ''),
+    images: d.mv_img_url ? [String(d.mv_img_url)] : [],
+    intro: '',
+    videos: play ? [{ label: '视频', ordinal: 1, sources: [play] }] : [],
+    tags: [], related: [], duration: '',
+  };
 }
 
 /** 搜索：/?k=kw（翻页 &p=N-1） */
@@ -2153,7 +2200,10 @@ async function viewDetail(article, cat, scrollTop) {
 
   let d;
   try {
-    d = await parseDetail(await getHtml(site, article.url), site, article.url);
+    const tpl0 = (site && site.template) || 'wordpress';
+    d = tpl0 === 'kmsvip'
+      ? await kmDetail(article.url)
+      : await parseDetail(await getHtml(site, article.url), site, article.url);
     log(`详情：${d.videos.length} 个视频 / ${d.images.length} 张剧照 / 简介 ${d.intro ? d.intro.length : 0} 字`, 'ok');
   } catch (e) {
     $('body').innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
@@ -2561,6 +2611,7 @@ async function tagListItems(site, slug, isTag, page) {
     if (slug.startsWith('/')) return xvProfileVideos(site, slug, page);
     return xvListAt(site, '/tags/' + slug, page);
   }
+  if (tpl === 'kmsvip') return []; // 站点没有标签功能
   const path = isTag
     ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
     : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
@@ -2574,6 +2625,7 @@ async function tagListItems(site, slug, isTag, page) {
  *  黄果搜索单页；91porna 走 &page=。 */
 async function searchItems(site, kw, page) {
   const tpl = site.template || 'wordpress';
+  if (tpl === 'kmsvip') return []; // 站点没有搜索功能
   if (tpl === 'huangguo') {
     if (page > 1) return []; // 黄果搜索单页（页面上没有分页入口）
     return hgCards(parseHtml(await getHtml(site, '/search/?keyword=' + encodeURIComponent(kw))));

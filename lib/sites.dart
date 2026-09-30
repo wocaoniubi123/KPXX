@@ -34,6 +34,12 @@ enum SiteTemplate {
   /// 第 N 页 = 路径 /N-1）；详情页内嵌 setVideoHLS / setVideoUrlLow/High 直链
   /// （xvideos-cdn，无防盗链；secure 签名约 5 小时有效，过期自动重取详情）
   xvideos,
+
+  /// 快猫（kmsvip.xyz）：Vue SPA，数据走**加密 API**（AES-128-CBC 大写 HEX +
+  /// md5 签名，协议照站点前端 JS，见 api.dart _kmPost）；分类 = #/video_list
+  /// ?type=0 热门视频 / type=1 视频广场；列表 19 条/页、页码从 1 起；详情给
+  /// https 直链 mp4（实测无防盗链）。站点没有搜索页、也没有标签。
+  kmsvip,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -670,5 +676,22 @@ const List<SiteEntry> kSites = [
       SiteTab('/pornstars-index', '色情明星'),
     ],
     color: Color(0xFFFF9900),
+  ),
+
+  // 快猫（kmsvip.xyz，用户指定）：主分类只要 2 个（热门视频 / 视频广场，照站点
+  // #/video_list?type=0|1；用户明确"只需要这两个主分类"）。数据走加密 API：列表
+  // 19 条/页（页码 1 起）、详情给 https 播放直链（实测无防盗链）；站点路由里
+  // 没有搜索页、也没有标签功能。封面竖版（720x1280，用户要求竖版展示）。
+  SiteEntry(
+    name: '快猫',
+    template: SiteTemplate.kmsvip,
+    iconUrl: '/pc/favicon.ico',
+    hosts: ['kmsvip.xyz'],
+    portraitCovers: true,
+    categories: [
+      SiteTab('0', '热门视频'),
+      SiteTab('1', '视频广场'),
+    ],
+    color: Color(0xFFFF4D6A),
   ),
 ];

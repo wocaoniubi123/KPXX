@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
@@ -123,6 +125,11 @@ class Api {
         // 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先；
         // 主分类 key = /best、/new、/channels-index、/pornstars-index（见 _xvList）
         return _xvList(k, page: page);
+      case SiteTemplate.kmsvip:
+        // key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）
+        return _kmList(
+            key == '1' ? '/api/videos/listAll' : '/api/videos/listHot',
+            page: page);
     }
   }
 
@@ -147,6 +154,8 @@ class Api {
       case SiteTemplate.xvideos:
         // 首页 = Newest 列表
         return _xvList('/new', page: page);
+      case SiteTemplate.kmsvip:
+        return _kmList('/api/videos/listHot', page: page);
     }
   }
 
@@ -177,6 +186,8 @@ class Api {
       case SiteTemplate.xvideos:
         // 详情页标签 = /tags/{slug}（翻页规则同分类页）
         return _xvList('/tags/$slug', page: page);
+      case SiteTemplate.kmsvip:
+        return const []; // 站点没有标签功能
     }
   }
 
@@ -206,6 +217,8 @@ class Api {
         return _hanimeSearch(keyword, page: page, extra: extra);
       case SiteTemplate.xvideos:
         return _xvSearch(keyword, page: page);
+      case SiteTemplate.kmsvip:
+        throw Exception('该站点没有搜索功能');
     }
   }
 
@@ -234,6 +247,8 @@ class Api {
         return _hanimeDetail(url);
       case SiteTemplate.xvideos:
         return _xvDetail(url);
+      case SiteTemplate.kmsvip:
+        return _kmDetail(url);
     }
   }
 
@@ -2043,6 +2058,123 @@ class Api {
       ));
     }
     return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 快猫（kmsvip.xyz）：加密 API（AES-128-CBC 大写 HEX + md5 签名，协议照站点
+  // 前端 JS 原样搬；key/iv 就硬编码在站点的前端里）
+
+  static final _kmAes =
+      Encrypter(AES(Key(utf8.encode('625202f9149maomi')), mode: AESMode.cbc));
+  static final _kmIv = IV(utf8.encode('5efd3f6060emaomi'));
+
+  String _kmHex(List<int> bytes) => bytes
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .toUpperCase();
+
+  List<int> _kmBytes(String hex) {
+    final out = <int>[];
+    for (var i = 0; i + 1 < hex.length; i += 2) {
+      out.add(int.parse(hex.substring(i, i + 2), radix: 16));
+    }
+    return out;
+  }
+
+  /// 快猫的加密 API：请求体 JSON → AES-128-CBC（Pkcs7）→ 大写 HEX；form 编码
+  /// POST `data=<hex>&sig=<md5('data=<hex>maomi_pass_xyz')>`；响应同密钥密文 →
+  /// 解密成 JSON。站点有访客态接口（不用登录），md5 用 crypto 包。
+  Future<Map<String, dynamic>> _kmPost(
+      String path, Map<String, dynamic> body) async {
+    final hex = _kmHex(
+        _kmAes.encryptBytes(utf8.encode(jsonEncode(body)), iv: _kmIv).bytes);
+    final sig =
+        md5.convert(utf8.encode('data=$hex' 'maomi_pass_xyz')).toString();
+    final order = [
+      if (hosts.contains(_host)) _host,
+      ...hosts.where((h) => h != _host),
+    ];
+    for (final h in order) {
+      try {
+        final r = await _client
+            .post(
+              Uri.parse('https://$h$path'),
+              headers: {
+                'User-Agent': Site.ua,
+                'Referer': 'https://$h/',
+                'Origin': 'https://$h',
+                'Accept-Language': 'zh-CN,zh;q=0.9',
+                'Content-Type':
+                    'application/x-www-form-urlencoded; charset=UTF-8',
+              },
+              body: 'data=$hex&sig=$sig',
+            )
+            .timeout(const Duration(seconds: 10));
+        if (r.statusCode != 200) continue;
+        _host = h;
+        final plain = _kmAes.decryptBytes(
+            Encrypted(_kmBytes(utf8.decode(r.bodyBytes).trim())),
+            iv: _kmIv);
+        return jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
+      } catch (_) {
+        // 换下一个域名
+      }
+    }
+    throw Exception('请求失败');
+  }
+
+  /// 快猫列表：listHot（热门视频）/ listAll（视频广场），19 条/页、页码从 1 起。
+  /// 卡片照站点：竖版封面、标题、上传者 · 发布时间，角标 = 点赞数（♡N）；
+  /// is_cat_ads=1 是广告位（站点本会跳外链），跳过。
+  Future<List<Article>> _kmList(String api, {int page = 1}) async {
+    final j = await _kmPost(api, {'perPage': 19, 'page': page});
+    if (j['code'] != 0) return const [];
+    final data = j['data'];
+    final list =
+        (data is Map ? (data['list'] ?? const []) : const []) as List;
+    final out = <Article>[];
+    for (final v in list) {
+      if (v is! Map) continue;
+      if ((v['is_cat_ads'] ?? 0) == 1) continue;
+      final id = (v['mv_id'] ?? '').toString();
+      if (id.isEmpty) continue;
+      final created = (v['mv_created'] ?? '').toString();
+      out.add(Article(
+        title: (v['mv_title'] ?? '').toString(),
+        url: id,
+        cover: (v['mv_img_url'] ?? '').toString(),
+        meta: '${v['mu_name'] ?? ''}'
+            '${created.length >= 16 ? ' · ${created.substring(5, 16)}' : ''}',
+        badge: '♡${v['mv_like'] ?? 0}',
+      ));
+    }
+    return out;
+  }
+
+  /// 快猫详情：/api/videos/detail（必须带 uId——站点访客默认 60364099，不带会报
+  /// "用户未登录"）。播放地址取详情里的 **https 直链**（列表中那份是 http://IP/…
+  /// 形式，iOS ATS 不允许 http，且从开发机实测不可达）。
+  Future<ArticleDetail> _kmDetail(String url) async {
+    final j =
+        await _kmPost('/api/videos/detail', {'mvId': url, 'uId': '60364099'});
+    final data = j['data'];
+    final d = data is Map ? data : const <dynamic, dynamic>{};
+    final play = (d['mv_play_url'] ?? '').toString();
+    final cover = (d['mv_img_url'] ?? '').toString();
+    return ArticleDetail(
+      title: (d['mv_title'] ?? '').toString(),
+      time: (d['mv_created'] ?? '').toString(),
+      categories: const [],
+      images: cover.isEmpty ? const [] : [cover],
+      intro: '',
+      videos: [
+        if (play.isNotEmpty)
+          ArticleVideo(label: '视频', ordinal: 1, sources: [play]),
+      ],
+      tags: const [],
+      related: const [],
+      seriesPrefix: '',
+    );
   }
 
   /// 详情：标题 / 时长 / 标签 / 播放源（mp4 High→Low→HLS，去重）/ 相关推荐
