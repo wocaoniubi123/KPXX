@@ -1361,34 +1361,63 @@ const PK_DURS = [['0,0', '全部'], ['0,300', '0-5分钟'], ['300,900', '5-15分
 const PK_SORTS = [['favorite', '按点赞'], ['pv', '按观看数'], ['time', '按时长'], ['created', '最近添加']];
 let pkFilter = { theme: null, dur: '0,0', sort: 'favorite' };
 
-/** 筛选行 HTML（主分类页面顶部，照站点：筛选按钮 + 时长/排序下拉） */
+/** 筛选行 HTML（主分类页面顶部，照站点：筛选按钮 + 时长/排序下拉）
+ *  标签筛选是弹窗（pkOpenFilterDlg，照站点「按标签筛选」；2026-10-01 用户要求） */
 function pkFilterBarHtml() {
   return `<div class="pkbar" id="pkbar" style="padding:8px 10px 0">
     <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
       <button id="pkThemeBtn" style="flex:none">筛选${pkFilter.theme ? ' ●' : ''}</button>
       ${(pkFilter.theme || pkFilter.dur !== '0,0' || pkFilter.sort !== 'favorite') ? '<button id="pkReset" style="flex:none">重置</button>' : ''}
       <span style="font-size:12px;color:#888">时长</span>
-      <select id="pkDur" style="width:100px;flex:none">${PK_DURS.map(([v, n]) => `<option value="${v}"${v === pkFilter.dur ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <select id="pkDur" style="width:100px;flex:none;text-align:center;text-align-last:center">${PK_DURS.map(([v, n]) => `<option value="${v}"${v === pkFilter.dur ? ' selected' : ''}>${n}</option>`).join('')}</select>
       <span style="font-size:12px;color:#888">排序</span>
-      <select id="pkSort" style="width:100px;flex:none">${PK_SORTS.map(([v, n]) => `<option value="${v}"${v === pkFilter.sort ? ' selected' : ''}>${n}</option>`).join('')}</select>
+      <select id="pkSort" style="width:100px;flex:none;text-align:center;text-align-last:center">${PK_SORTS.map(([v, n]) => `<option value="${v}"${v === pkFilter.sort ? ' selected' : ''}>${n}</option>`).join('')}</select>
     </div></div>
-    <div id="pkThemes" style="display:none;flex-wrap:wrap;gap:6px;margin-top:6px">
-      ${PK_THEMES.map(([k, n]) => `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('')}
-    </div>
-    <div id="pkLangs" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px">
-      ${PK_LANGS.map(([k, n]) => `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('')}
-    </div>
   </div>`;
+}
+
+/** 标签筛选弹窗（挂在 document.body 上，不随页面重渲染关闭）。
+ *  选标签即时生效并重拉列表；点遮罩或 ✕ 关闭。 */
+let pkReload = null; // pkBindBar 赋的重拉函数（弹窗里选完标签用）
+function pkOpenFilterDlg() {
+  let dlg = document.getElementById('pkdlg');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'pkdlg';
+    dlg.style.cssText =
+      'display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.style.display = 'none'; });
+    document.body.appendChild(dlg);
+  }
+  const tags = (items) => items.map(([k, n]) =>
+    `<span class="pktag${pkFilter.theme === k ? ' on' : ''}" data-k="${k}">${n}</span>`).join('');
+  dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:92%;max-height:76%;overflow:auto;padding:14px 14px 12px;box-shadow:0 10px 34px rgba(0,0,0,.22)">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <div style="font-size:15px;font-weight:600">按标签筛选</div>
+      <div style="flex:1"></div>
+      <span id="pkdlgX" style="font-size:18px;color:#888;cursor:pointer;line-height:1">✕</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${tags(PK_THEMES)}</div>
+    <div style="height:8px"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${tags(PK_LANGS)}</div>
+  </div>`;
+  dlg.style.display = 'flex';
+  dlg.querySelector('#pkdlgX').onclick = () => { dlg.style.display = 'none'; };
+  dlg.querySelectorAll('.pktag').forEach((el) => {
+    el.onclick = () => {
+      pkFilter.theme = pkFilter.theme === el.dataset.k ? null : el.dataset.k;
+      // 弹窗内高亮即时刷新（列表在后台重拉）
+      dlg.querySelectorAll('.pktag').forEach((t) =>
+        t.classList.toggle('on', t.dataset.k === pkFilter.theme));
+      if (pkReload) pkReload();
+    };
+  });
 }
 
 /** 绑定筛选行交互；reload = 重拉当前列表 */
 function pkBindBar(reload) {
-  $('pkThemeBtn').onclick = () => {
-    const el = $('pkThemes'), el2 = $('pkLangs');
-    const show = el.style.display === 'none';
-    el.style.display = show ? 'flex' : 'none';
-    if (el2) el2.style.display = show ? 'flex' : 'none';
-  };
+  pkReload = reload;
+  $('pkThemeBtn').onclick = () => pkOpenFilterDlg();
   $('pkDur').onchange = (e) => { pkFilter.dur = e.target.value; reload(); };
   $('pkSort').onchange = (e) => { pkFilter.sort = e.target.value; reload(); };
   const rb = $('pkReset');
@@ -1399,14 +1428,6 @@ function pkBindBar(reload) {
       reload();
     };
   }
-  ['pkThemes', 'pkLangs'].forEach((id) => {
-    $(id).querySelectorAll('.pktag').forEach((el) => {
-      el.onclick = () => {
-        pkFilter.theme = pkFilter.theme === el.dataset.k ? null : el.dataset.k;
-        reload();
-      };
-    });
-  });
 }
 
 /** 秒 → 时长（207 → 3:27；6228 → 1:43:48），拿不到返回空 */
@@ -1584,6 +1605,11 @@ function viewList(site, idx, scrollTop) {
   // Pektino：主分类页面顶部有筛选行（多级分类：主题/语言/时长/排序）；
   // 卡片不拉平（横竖混排，照站点）
   const pkBar = site.template === 'pektino' ? pkFilterBarHtml() : '';
+  // 非 Pektino 页面：把标签筛选弹窗收掉（它挂在 document.body 上，不随页面重渲染消失）
+  if (site.template !== 'pektino') {
+    const d = document.getElementById('pkdlg');
+    if (d) d.style.display = 'none';
+  }
   const pkCls = site.template === 'pektino' ? ' pk' : '';
   $('body').innerHTML = `${pkBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
     <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;

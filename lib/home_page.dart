@@ -34,7 +34,6 @@ class _HomePageState extends State<HomePage>
   String? _theme; // 选中的主题 slug（null = 不限）
   String _duration = '0,0'; // 时长档（"0,0" = 全部）
   String _sort = 'favorite'; // 排序
-  bool _themeOpen = false; // "筛选"按钮展开的主题面板
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -98,7 +97,7 @@ class _HomePageState extends State<HomePage>
   }
 
   /// Pektino 的筛选行（照站点：筛选按钮 + 时长/排序下拉）；
-  /// 点"筛选"展开一排主题胶囊（多级分类的第二层）
+  /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」；2026-10-01 从"展开"改"弹窗"）
   Widget _filterRow(SiteFilters f) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -110,7 +109,8 @@ class _HomePageState extends State<HomePage>
             child: Row(
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => setState(() => _themeOpen = !_themeOpen),
+                  // 点「筛选」弹窗（照站点「按标签筛选」；2026-10-01 用户要求）
+                  onPressed: () => _openFilterDialog(f),
                   icon: const Icon(Icons.search, size: 16),
                   // 选了主题时加个 ●，提示"标签正带着"
                   label: Text(_theme == null ? '筛选' : '筛选 ●',
@@ -150,6 +150,7 @@ class _HomePageState extends State<HomePage>
                       value: _duration,
                       isDense: true,
                       isExpanded: true,
+                      alignment: Alignment.center, // 框内文字居中（用户要求）
                       style:
                           const TextStyle(fontSize: 13, color: Colors.black87),
                       items: [
@@ -178,6 +179,7 @@ class _HomePageState extends State<HomePage>
                       value: _sort,
                       isDense: true,
                       isExpanded: true,
+                      alignment: Alignment.center, // 框内文字居中（用户要求）
                       style:
                           const TextStyle(fontSize: 13, color: Colors.black87),
                       items: [
@@ -199,26 +201,13 @@ class _HomePageState extends State<HomePage>
             ),
           ),
         ),
-        if (_themeOpen)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 主题区（40 个，照站点弹窗原顺序）
-                _filterChips(f.themes),
-                const SizedBox(height: 8),
-                // 语言区（10 个，照站点弹窗下半区）
-                _filterChips(f.languages),
-              ],
-            ),
-          ),
       ],
     );
   }
 
-  /// 筛选面板里的一组标签胶囊（主题区 / 语言区共用）
-  Widget _filterChips(List<SiteTab> items) {
+  /// 筛选弹窗里的一组标签胶囊（主题区 / 语言区共用）。
+  /// after：弹窗内容靠 StatefulBuilder 刷新，页面 setState 不会重建弹窗。
+  Widget _filterChips(List<SiteTab> items, [VoidCallback? after]) {
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -229,6 +218,7 @@ class _HomePageState extends State<HomePage>
             onTap: () {
               _theme = _theme == t.key ? null : t.key;
               _applyFilters();
+              after?.call();
             },
             child: Container(
               padding:
@@ -252,6 +242,43 @@ class _HomePageState extends State<HomePage>
             ),
           ),
       ],
+    );
+  }
+
+  /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」的形态；2026-10-01 用户要求
+  /// 从"页面里展开一行"改成弹窗）。选标签即时生效；点关闭或遮罩收起。
+  void _openFilterDialog(SiteFilters f) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('按标签筛选', style: TextStyle(fontSize: 16)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 420),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 主题区（40 个，照站点弹窗原顺序）
+                    _filterChips(f.themes, () => setDlgState(() {})),
+                    const SizedBox(height: 8),
+                    // 语言区（10 个，照站点弹窗下半区）
+                    _filterChips(f.languages, () => setDlgState(() {})),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
