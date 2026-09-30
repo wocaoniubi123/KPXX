@@ -117,6 +117,9 @@ class Api {
         // 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre=
         // extra = 筛选行（sort/date/duration/tags[]）
         return _hanimeList(key, page: page, extra: extra);
+      case SiteTemplate.xvideos:
+        // 分类 tab = /c/xxx；另有「Newest」= /new（特殊规则在 _xvList 里）
+        return _xvList(key, page: page);
     }
   }
 
@@ -138,6 +141,9 @@ class Api {
       case SiteTemplate.hanime1:
         final first = site.categories.isEmpty ? '' : site.categories.first.key;
         return _hanimeList(first, page: page);
+      case SiteTemplate.xvideos:
+        // 首页 = Newest 列表
+        return _xvList('/new', page: page);
     }
   }
 
@@ -165,6 +171,9 @@ class Api {
         // 其余当搜索词
         if (slug.startsWith('/search')) return _hanimeSearchAt(slug, page: page);
         return _hanimeSearch(slug, page: page);
+      case SiteTemplate.xvideos:
+        // 详情页标签 = /tags/{slug}（翻页规则同分类页）
+        return _xvList('/tags/$slug', page: page);
     }
   }
 
@@ -192,6 +201,8 @@ class Api {
         return _pektinoList('all', keyword, page: page);
       case SiteTemplate.hanime1:
         return _hanimeSearch(keyword, page: page, extra: extra);
+      case SiteTemplate.xvideos:
+        return _xvSearch(keyword, page: page);
     }
   }
 
@@ -218,6 +229,8 @@ class Api {
         return _pektinoDetail(url);
       case SiteTemplate.hanime1:
         return _hanimeDetail(url);
+      case SiteTemplate.xvideos:
+        return _xvDetail(url);
     }
   }
 
@@ -1818,6 +1831,152 @@ class Api {
       related: const [], // 相关推荐是 AJAX POST，v1 未接
       seriesPrefix: '',
       duration: '',
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // XVideos（tube 站）：列表/搜索/标签共用 thumb-block 卡片；详情页内嵌
+  // setVideoHLS / setVideoUrlLow/High 直链（xvideos-cdn，无防盗链；secure 签名
+  // 约 5 小时有效——过期走现有"失败→刷新详情"兜底）；相关推荐在页面内
+  // JS 数组 video_related=[{u,i,t,d,…}]。
+
+  /// 分类/标签列表：第 N 页 = base + '/${N-1}'（站点页码从 0 计；N=1 = base）；
+  /// 「Newest」特殊：第 1 页 = '/'、第 N 页 = '/new/N-1'
+  Future<List<Article>> _xvList(String base, {int page = 1}) async {
+    final String path;
+    if (base == '/new') {
+      path = page <= 1 ? '/' : '/new/${page - 1}';
+    } else {
+      path = page <= 1 ? base : '$base/${page - 1}';
+    }
+    return _xvCards(await _fetchText(path));
+  }
+
+  /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
+  Future<List<Article>> _xvSearch(String keyword, {int page = 1}) async {
+    final path = '/?k=${Uri.encodeComponent(keyword)}'
+        '${page > 1 ? '&p=${page - 1}' : ''}';
+    return _xvCards(await _fetchText(path));
+  }
+
+  /// thumb-block 卡片解析（分类 / 标签 / 搜索共用）
+  List<Article> _xvCards(String html) {
+    final doc = hp.parse(html);
+    final out = <Article>[];
+    for (final el in doc.querySelectorAll('div.thumb-block')) {
+      final a = el.querySelector('p.title a') ??
+          el.querySelector('div.thumb a[href*="/video"]');
+      final href = a?.attributes['href'] ?? '';
+      if (!href.contains('/video')) continue;
+      var title = (a?.attributes['title'] ?? '').trim();
+      if (title.isEmpty) {
+        title = (a?.text ?? '')
+            .replaceAll(RegExp(r'\s*\d+ min\s*$'), '')
+            .trim();
+      }
+      if (title.isEmpty) continue;
+      final img = el.querySelector('img[data-src]') ?? el.querySelector('img');
+      var cover = img?.attributes['data-src'] ?? img?.attributes['src'] ?? '';
+      if (cover.contains('blank')) cover = '';
+      final dur = el.querySelector('p.title span.duration')?.text.trim() ??
+          el.querySelector('span.duration')?.text.trim() ??
+          '';
+      var meta = (el.querySelector('p.metadata')?.text ?? '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (dur.isNotEmpty && meta.startsWith(dur)) {
+        meta = meta
+            .substring(dur.length)
+            .replaceAll(RegExp(r'^[\s\-–]+'), '');
+      }
+      out.add(Article(
+        title: title,
+        url: href,
+        cover: cover,
+        meta: meta,
+        badge: dur,
+      ));
+    }
+    return out;
+  }
+
+  /// 详情：标题 / 时长 / 标签 / 播放源（mp4 High→Low→HLS，去重）/ 相关推荐
+  Future<ArticleDetail> _xvDetail(String url) async {
+    final html = await _fetchText(url);
+    final doc = hp.parse(html);
+    var title =
+        RegExp(r"setVideoTitle\('([^']*)'\)").firstMatch(html)?.group(1)?.trim() ??
+            '';
+    if (title.isEmpty) {
+      title = doc.querySelector('h2.page-title')?.text.trim() ?? url;
+    }
+    final dur =
+        doc.querySelector('h2.page-title span.duration')?.text.trim() ?? '';
+    // 播放源：mp4 优先（单文件、模拟器可经 /vproxy 验证），HLS 兜底
+    final srcs = <String>[];
+    for (final re in [
+      RegExp(r"setVideoUrlHigh\('([^']+)'\)"),
+      RegExp(r"setVideoUrlLow\('([^']+)'\)"),
+      RegExp(r"setVideoHLS\('([^']+)'\)"),
+    ]) {
+      final u = re.firstMatch(html)?.group(1) ?? '';
+      if (u.isNotEmpty && !srcs.contains(u)) srcs.add(u);
+    }
+    final videos = <ArticleVideo>[];
+    if (srcs.isNotEmpty) {
+      videos.add(ArticleVideo(label: '视频', ordinal: 1, sources: srcs));
+    }
+    final poster = doc
+            .querySelector('meta[property="og:image"]')
+            ?.attributes['content'] ??
+        '';
+    // 标签：/tags/xxx
+    final tags = <MapEntry<String, String>>[];
+    for (final a in doc.querySelectorAll('a[href^="/tags/"]')) {
+      final name = a.querySelector('span.name')?.text.trim() ?? a.text.trim();
+      final href = a.attributes['href'] ?? '';
+      if (name.isEmpty || href == '/tags') continue;
+      if (tags.any((t) => t.value == name)) continue;
+      tags.add(MapEntry(href.replaceFirst('/tags/', ''), name));
+    }
+    // 相关推荐：页面内 JS 数组 video_related=[{u,i,t,d,…}]
+    final related = <Article>[];
+    final rm =
+        RegExp(r'video_related=\[(.*?)\];', dotAll: true).firstMatch(html);
+    if (rm != null) {
+      try {
+        final arr = jsonDecode('[${rm.group(1)}]');
+        if (arr is List) {
+          for (final e in arr) {
+            if (e is! Map) continue;
+            final u = '${e['u'] ?? ''}';
+            final t = '${e['t'] ?? e['tf'] ?? ''}'.trim();
+            if (u.isEmpty || t.isEmpty) continue;
+            related.add(Article(
+              title: t,
+              url: u,
+              cover: '${e['i'] ?? e['il'] ?? ''}',
+              meta: '',
+              badge: '${e['d'] ?? ''}',
+            ));
+            if (related.length >= 20) break;
+          }
+        }
+      } catch (_) {
+        // 解析不了当无相关推荐
+      }
+    }
+    return ArticleDetail(
+      title: title.isEmpty ? url : title,
+      time: '',
+      categories: const [],
+      images: poster.isEmpty ? const [] : [poster],
+      intro: '',
+      videos: videos,
+      tags: tags,
+      related: related,
+      seriesPrefix: '',
+      duration: dur,
     );
   }
 

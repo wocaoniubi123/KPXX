@@ -29,6 +29,11 @@ enum SiteTemplate {
   /// 搜索=横排卡（/search?query=）；详情页 watch?v= 里是多档直链 mp4
   /// （vdownload.hembed.com，secure 签名约 12 小时有效，过期自动重取详情）
   hanime1,
+
+  /// XVideos（tube 站）：列表/搜索/标签共用 thumb-block 卡片（页码从 0 计：
+  /// 第 N 页 = 路径 /N-1）；详情页内嵌 setVideoHLS / setVideoUrlLow/High 直链
+  /// （xvideos-cdn，无防盗链；secure 签名约 5 小时有效，过期自动重取详情）
+  xvideos,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -549,5 +554,58 @@ const List<SiteEntry> kSites = [
     // 相关推荐走 AJAX POST（/video/load-playlist-chunk + _token），v1 未接
     showRelated: false,
     color: Color(0xFF5B2A86),
+  ),
+  SiteEntry(
+    name: 'XVideos',
+    template: SiteTemplate.xvideos,
+    // 官方 logo 的 32px PNG（绝对地址）
+    iconUrl:
+        'https://assets-cdn77.xvideos-cdn.com/v3/img/skins/default/logo/xv.white.32.png',
+    hosts: ['www.xvideos.com'],
+    // 主分类 = 「Newest」（= 站点首页那份最新列表）+ 网站「Categories」菜单
+    // 原序 38 个（名称照站点）。菜单里另有 Porn in your language / Transsexual /
+    // Gay Porn / All tags 及 Pornstars、Channels 等（非视频列表）——未接。
+    categories: [
+      SiteTab('/new', 'Newest'),
+      SiteTab('/c/AI-239', 'AI'),
+      SiteTab('/c/Amateur-65', 'Amateur'),
+      SiteTab('/c/Anal-12', 'Anal'),
+      SiteTab('/c/Arab-159', 'Arab'),
+      SiteTab('/c/Asian_Woman-32', 'Asian'),
+      SiteTab('/c/ASMR-229', 'ASMR'),
+      SiteTab('/c/Ass-14', 'Ass'),
+      SiteTab('/c/bbw-51', 'BBW'),
+      SiteTab('/c/Bi_Sexual-62', 'Bi'),
+      SiteTab('/c/Big_Ass-24', 'Big Ass'),
+      SiteTab('/c/Big_Cock-34', 'Big Cock'),
+      SiteTab('/c/Big_Tits-23', 'Big Tits'),
+      SiteTab('/c/Black_Woman-30', 'Black'),
+      SiteTab('/c/Blonde-20', 'Blonde'),
+      SiteTab('/c/Blowjob-15', 'Blowjob'),
+      SiteTab('/c/Brunette-25', 'Brunette'),
+      SiteTab('/c/Cam_Porn-58', 'Cam Porn'),
+      SiteTab('/c/Creampie-40', 'Creampie'),
+      SiteTab('/c/Cuckold-237', 'Cuckold/Hotwife'),
+      SiteTab('/c/Cumshot-18', 'Cumshot'),
+      SiteTab('/c/Femdom-235', 'Femdom'),
+      SiteTab('/c/Fisting-165', 'Fisting'),
+      SiteTab('/c/Fucked_Up_Family-81', 'Fucked Up Family'),
+      SiteTab('/c/Gangbang-69', 'Gangbang'),
+      SiteTab('/c/Gapes-167', 'Gapes'),
+      SiteTab('/c/Indian-89', 'Indian'),
+      SiteTab('/c/Interracial-27', 'Interracial'),
+      SiteTab('/c/Latina-16', 'Latina'),
+      SiteTab('/c/Lesbian-26', 'Lesbian'),
+      SiteTab('/c/Lingerie-83', 'Lingerie'),
+      SiteTab('/c/Mature-38', 'Mature'),
+      SiteTab('/c/Milf-19', 'Milf'),
+      SiteTab('/c/Oiled-22', 'Oiled'),
+      SiteTab('/c/Redhead-31', 'Redhead'),
+      SiteTab('/c/Solo_and_Masturbation-33', 'Solo'),
+      SiteTab('/c/Squirting-56', 'Squirting'),
+      SiteTab('/c/Stockings-28', 'Stockings'),
+      SiteTab('/c/Teen-13', 'Teen'),
+    ],
+    color: Color(0xFFFF9900),
   ),
 ];

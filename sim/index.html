@@ -557,6 +557,7 @@ async function parseDetail(html, site, url) {
   }
   if (tpl === 'pektino') return pektinoDetail(html, url);
   if (tpl === 'hanime1') return hanimeDetail(html, url);
+  if (tpl === 'xvideos') return xvDetail(html, url);
   return await wpDetail(html, site, url);
 }
 
@@ -1302,6 +1303,9 @@ async function fetchList(site, cat, subKey, page) {
   if (tpl === 'hanime1') {
     return hanimeFetch(site, cat.key, page);
   }
+  if (tpl === 'xvideos') {
+    return xvListAt(site, cat.key, page);
+  }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
   const path = k.startsWith('/')
@@ -1526,6 +1530,82 @@ function hnBindBar(site, reload) {
   $('hnSortBtn').onclick = () => hnOpenPicker('排序方式', ['', ...HN_SORTS], hnFilter.sort, (v) => { hnFilter.sort = v; reload(); });
   $('hnDateBtn').onclick = () => hnOpenPicker('發佈日期', ['', ...HN_DATES], hnFilter.date, (v) => { hnFilter.date = v; reload(); });
   $('hnDurBtn').onclick = () => hnOpenPicker('時長', ['', ...HN_DURS], hnFilter.dur, (v) => { hnFilter.dur = v; reload(); });
+}
+
+/* -------- XVideos（tube 站）：thumb-block 卡片 + HLS/mp4 直链 -------- */
+
+/** 分类/标签列表：第 N 页 = base + '/${N-1}'（0 计页）；Newest 第 1 页 = '/' */
+async function xvListAt(site, base, page) {
+  let path;
+  if (base === '/new') path = page <= 1 ? '/' : '/new/' + (page - 1);
+  else path = page <= 1 ? base : base + '/' + (page - 1);
+  return xvCards(parseHtml(await getHtml(site, path)));
+}
+
+/** 搜索：/?k=kw（翻页 &p=N-1） */
+async function xvSearchAt(site, kw, page) {
+  const path = '/?k=' + encodeURIComponent(kw) + (page > 1 ? '&p=' + (page - 1) : '');
+  return xvCards(parseHtml(await getHtml(site, path)));
+}
+
+/** thumb-block 卡片解析（分类/标签/搜索共用） */
+function xvCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('div.thumb-block')) {
+    const a = el.querySelector('p.title a') || el.querySelector('div.thumb a[href*="/video"]');
+    if (!a) continue;
+    const href = a.getAttribute('href') || '';
+    if (!href.includes('/video')) continue;
+    let title = (a.getAttribute('title') || '').trim();
+    if (!title) title = (a.textContent || '').replace(/\s*\d+ min\s*$/, '').trim();
+    if (!title) continue;
+    const img = el.querySelector('img[data-src]') || el.querySelector('img');
+    let cover = (img && (img.getAttribute('data-src') || img.getAttribute('src'))) || '';
+    if (cover.includes('blank')) cover = '';
+    const durEl = el.querySelector('p.title span.duration') || el.querySelector('span.duration');
+    const dur = ((durEl && durEl.textContent) || '').trim();
+    let meta = (el.querySelector('p.metadata')?.textContent || '').replace(/\s+/g, ' ').trim();
+    if (dur && meta.startsWith(dur)) meta = meta.slice(dur.length).replace(/^[\s\-–]+/, '');
+    out.push({ title, url: href, cover, meta, badge: dur });
+  }
+  return out;
+}
+
+/** 详情：标题/时长/标签/播放源（mp4 High→Low→HLS）/相关推荐（页面内 video_related 数组） */
+function xvDetail(html, url) {
+  const doc = parseHtml(html);
+  let title = (html.match(/setVideoTitle\('([^']*)'\)/) || [])[1] || '';
+  title = title.trim() || (doc.querySelector('h2.page-title')?.textContent || '').trim() || url;
+  const dur = (doc.querySelector('h2.page-title span.duration')?.textContent || '').trim();
+  const srcs = [];
+  for (const re of [/setVideoUrlHigh\('([^']+)'\)/, /setVideoUrlLow\('([^']+)'\)/, /setVideoHLS\('([^']+)'\)/]) {
+    const m = html.match(re);
+    if (m && m[1] && !srcs.includes(m[1])) srcs.push(m[1]);
+  }
+  const videos = srcs.length ? [{ ordinal: 1, label: '视频', sources: srcs }] : [];
+  const og = doc.querySelector('meta[property="og:image"]');
+  const poster = og ? (og.getAttribute('content') || '') : '';
+  const tags = [];
+  for (const a of doc.querySelectorAll('a[href^="/tags/"]')) {
+    const name = (a.querySelector('.name')?.textContent || a.textContent || '').trim();
+    const href = a.getAttribute('href') || '';
+    if (!name || href === '/tags') continue;
+    if (tags.some((t) => t.name === name)) continue;
+    tags.push({ slug: href.replace('/tags/', ''), name });
+  }
+  const related = [];
+  const rm = html.match(/video_related=\[(.*?)\];/s);
+  if (rm) {
+    try {
+      for (const e of JSON.parse('[' + rm[1] + ']')) {
+        const u = String(e.u || ''); const t = String(e.t || e.tf || '').trim();
+        if (!u || !t) continue;
+        related.push({ title: t, url: u, cover: String(e.i || e.il || ''), meta: '', badge: String(e.d || '') });
+        if (related.length >= 20) break;
+      }
+    } catch (e) { log('related 解析失败：' + e.message, 'dim'); }
+  }
+  return { title, time: '', images: poster ? [poster] : [], intro: '', videos, tags, related, duration: dur };
 }
 
 /* -------- Pektino（X/Twitter 视频保存排行站：/api/media + 推文原 mp4） -------- */
@@ -2393,6 +2473,7 @@ async function tagListItems(site, slug, isTag, page) {
     // 详情页标签是 /search?query= 或 /search?tags[]= 的路径；其余当搜索词
     return hanimeSearchAt(site, slug.startsWith('/search') ? slug : '/search?query=' + encodeURIComponent(slug), page);
   }
+  if (tpl === 'xvideos') return xvListAt(site, '/tags/' + slug, page);
   const path = isTag
     ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
     : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
@@ -2414,6 +2495,7 @@ async function searchItems(site, kw, page) {
   // Pektino：搜索 = 把输入当分类名传同一个接口（与站点一致；搜索独立、不受列表筛选影响）
   if (tpl === 'pektino') return pektinoFetch(site, 'all', kw, page, true);
   if (tpl === 'hanime1') return hanimeSearchAt(site, '/search?query=' + encodeURIComponent(kw), page);
+  if (tpl === 'xvideos') return xvSearchAt(site, kw, page);
   const enc = encodeURIComponent(kw);
   const path = page <= 1 ? `/search/${enc}/` : `/search/${enc}/${page}/`;
   return parseArticles(await getHtml(site, path), site);
