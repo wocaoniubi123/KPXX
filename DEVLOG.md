@@ -1,6 +1,10 @@
 # KPXX — 自用入口聚合 App
 
 > ⚠️ **铁律（播放 Referer，2026-10-01 用户重点强调）**：视频链接的 Referer **一律用「视频源自身的域名」**（`scheme://host/`），**绝不用站点域名**——聚合站的视频常托管在别家 CDN，发站点域名会被 CDN 拒绝（Pektino 全站 `Failed to open` 事故，详见 §8.2.1 第 36 条；实现见 `player_widget.dart` 的 `_playReferer()`）。
+>
+> ⚠️ **铁律 2（图片 Referer 同理，2026-10-01 用户重点强调"必须记住"）**：**图片请求的 Referer 一律用「图片自身（图床）的域名」**（`scheme://host/`），**绝不许写死某个站的头**——历史事故：图片加载器把 Referer 写死成 `51cg1.com`（接 51 吃瓜时的 hack），别的图床都不校验 Referer 所以一直没暴露，直到 hanime1 的 hembed 图床一校验就 403 → 全站图标/封面不显示（详见第 51 条；实现见 `fetched_image.dart`）。
+>
+> ⚠️ **铁律 3（网络栈，2026-10-01 用户实报 hanime1「App 访问不了」后确立）**：**iOS 的 HTTP 请求必须走 NSURLSession**（`Site.httpClient`，即 `cupertino_http`），**不许退回 dart:io 的 HttpClient**——dart:io 默认 `DIRECT`、**不读系统的 Wi-Fi 代理 / VPN 配置**：浏览器能打开的站（如挂代理才能到的 hanime1.me）App 会直连被墙（详见第 50 条）。列表 / 详情 / 搜索 / 图标 / 封面全部走 `Site.httpClient`；播放器（libmpv）是独立网络栈、不在此列。
 
 ## 1. 快速开始
 
