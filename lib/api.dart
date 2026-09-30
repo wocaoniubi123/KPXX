@@ -1876,6 +1876,9 @@ class Api {
         _xvBestMonth = m;
       }
       path = m == null ? '/best' : '/best/$m/${page - 1}';
+    } else if (_isXvProfile(base)) {
+      // 频道/演员卡进来的 slug：走「視頻」免费列表（JSON 接口，见 _xvProfileVideos）
+      return _xvProfileVideos(base, page: page);
     } else {
       path = page <= 1 ? base : '$base/${page - 1}';
     }
@@ -1983,6 +1986,60 @@ class Api {
         url: href,
         cover: cover,
         meta: counts,
+      ));
+    }
+    return out;
+  }
+
+  /// 频道/演员路径（頻道、色情明星 卡点进来的 slug）：'/xxx' 或 '/models/xxx'。
+  /// 其它已知分支（/c/、/tags、/best、/lang/、/channels-index、/pornstars-index、
+  /// /new、/trans、/gay）都排除掉。
+  bool _isXvProfile(String base) =>
+      base.startsWith('/models/') ||
+      (!base.startsWith('/c/') &&
+          !base.startsWith('/tags') &&
+          !base.startsWith('/best') &&
+          !base.startsWith('/lang/') &&
+          !base.startsWith('/channels-index') &&
+          !base.startsWith('/pornstars-index') &&
+          base != '/new' &&
+          base != '/trans' &&
+          base != '/gay');
+
+  /// 频道/演员的「視頻」标签页 = 免费全量列表（站点顶上有 RED 收费 tab，不取）：
+  /// GET /channels/<slug>/videos/best/{N-1}（0 计页、36/页）→ JSON。
+  /// 频道 slug 直接接 /channels 下；演员 /models/xxx → /channels/xxx。
+  Future<List<Article>> _xvProfileVideos(String base, {int page = 1}) async {
+    final seg = base.startsWith('/models/')
+        ? '/channels/${base.substring('/models/'.length)}'
+        : '/channels$base';
+    final j = jsonDecode(
+        await _fetchText('$seg/videos/best/${page - 1}', extraHeaders: _xvLang));
+    final vids = (j is Map) ? j['videos'] : null;
+    if (vids is! List) return const [];
+    final out = <Article>[];
+    for (final v in vids) {
+      if (v is! Map) continue;
+      var url = (v['u'] ?? '').toString();
+      if (url.isEmpty) continue;
+      // 站上给的是 /prof-video-click/… 跳转链接：改写成直链 /video.<eid>/<slug>
+      // （少一跳、少一处失败面；两种形式实测都可达）
+      if (url.startsWith('/prof-video-click')) {
+        final eid = (v['eid'] ?? '').toString();
+        final segs = url.split('/');
+        if (eid.isNotEmpty && segs.isNotEmpty) {
+          url = '/video.$eid/${segs[segs.length - 1]}';
+        }
+      }
+      var title = (v['tf'] ?? v['t'] ?? '').toString();
+      if (title.contains('&')) title = hp.parseFragment(title).text;
+      final n = (v['n'] ?? '').toString().trim();
+      out.add(Article(
+        title: title.trim().isEmpty ? url : title.trim(),
+        url: url,
+        cover: (v['i'] ?? v['il'] ?? '').toString(),
+        meta: n.isEmpty ? '' : '$n 观看次数',
+        badge: (v['d'] ?? '').toString(),
       ));
     }
     return out;

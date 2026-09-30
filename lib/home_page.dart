@@ -949,13 +949,20 @@ class ArticleCard extends StatelessWidget {
             );
             return;
           }
-          // XVideos 的频道/演员卡（頻道、色情明星 列表）：二级内容（该频道/演员的
-          // 视频列表）站点是 JS 异步加载、静态抓不到——先给提示，别进详情报错
+          // XVideos 的频道/演员卡（頻道、色情明星 列表）：进该频道/演员的
+          // 「視頻」免费列表（站点顶上 RED 是收费的，不取）
           if (site.template == SiteTemplate.xvideos &&
               !article.url.contains('/video.')) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('该频道/演员的内容页为动态加载，暂未支持'),
-                duration: Duration(seconds: 2)));
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TagListPage(
+                  site: site,
+                  title: article.title,
+                  slug: article.url,
+                  isTag: false,
+                ),
+              ),
+            );
             return;
           }
           Navigator.of(context).push(

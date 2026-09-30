@@ -1587,6 +1587,32 @@ function xvDirectory(doc) {
   return out;
 }
 
+/** 频道/演员的「視頻」tab = 免费全量列表（RED 收费不取）：/channels/<slug>/videos/best/N-1 */
+async function xvProfileVideos(site, base, page) {
+  const seg = base.startsWith('/models/')
+    ? '/channels/' + base.slice('/models/'.length)
+    : '/channels' + base;
+  const j = JSON.parse(await getHtml(site, seg + '/videos/best/' + (page - 1)));
+  const vids = Array.isArray(j.videos) ? j.videos : [];
+  return vids.map((v) => {
+    let url = String(v.u || '');
+    // /prof-video-click/… → 直链 /video.<eid>/<slug>（少一跳，与 App 一致）
+    if (url.startsWith('/prof-video-click') && v.eid) {
+      const segs = url.split('/');
+      url = '/video.' + v.eid + '/' + segs[segs.length - 1];
+    }
+    let title = String(v.tf || v.t || '');
+    if (title.includes('&')) title = (parseHtml(title).body || {}).textContent || '';
+    return {
+      title: title.trim() || url,
+      url: url,
+      cover: String(v.i || v.il || ''),
+      meta: v.n ? v.n + ' 观看次数' : '',
+      badge: String(v.d || ''),
+    };
+  }).filter((a) => a.url);
+}
+
 /** 搜索：/?k=kw（翻页 &p=N-1） */
 async function xvSearchAt(site, kw, page) {
   const path = '/?k=' + encodeURIComponent(kw) + (page > 1 ? '&p=' + (page - 1) : '');
@@ -2061,10 +2087,10 @@ function renderCards(cat, st) {
         openTagList(site0, a.title, a.url, false);
         return;
       }
-      // XVideos 频道/演员卡：二级内容是 JS 动态加载，暂未支持（先提示）
+      // XVideos 频道/演员卡：进该频道/演员的「視頻」免费列表（RED 收费不取）
       const siteNow = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
       if (siteNow && siteNow.template === 'xvideos' && a.url && !a.url.includes('/video.')) {
-        log('频道/演员内容页为动态加载，暂未支持', 'dim');
+        openTagList(siteNow, a.title, a.url, false);
         return;
       }
       openDetail(a, cat, $('body').scrollTop);
@@ -2530,7 +2556,11 @@ async function tagListItems(site, slug, isTag, page) {
     // 详情页标签是 /search?query= 或 /search?tags[]= 的路径；其余当搜索词
     return hanimeSearchAt(site, slug.startsWith('/search') ? slug : '/search?query=' + encodeURIComponent(slug), page);
   }
-  if (tpl === 'xvideos') return xvListAt(site, '/tags/' + slug, page);
+  if (tpl === 'xvideos') {
+    // 频道/演员卡（slug 以 / 开头）：进「視頻」免费列表；其余是详情页标签
+    if (slug.startsWith('/')) return xvProfileVideos(site, slug, page);
+    return xvListAt(site, '/tags/' + slug, page);
+  }
   const path = isTag
     ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
     : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
