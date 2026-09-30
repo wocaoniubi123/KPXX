@@ -1597,14 +1597,16 @@ async function xvSearchAt(site, kw, page) {
 function xvCards(doc) {
   const out = [];
   for (const el of doc.querySelectorAll('div.thumb-block')) {
-    const a = el.querySelector('p.title a') || el.querySelector('div.thumb a[href*="/video"]');
+    const a = el.querySelector('p.title a') || el.querySelector('div.title a[href*="/video"]') || el.querySelector('div.thumb a[href*="/video"]');
     if (!a) continue;
     let href = a.getAttribute('href') || '';
     if (!href.includes('/video')) continue;
     // 占位符 THUMBNUM（真站由 JS 填数字；字面值 404）→ 填 1，与 App 一致
     if (href.includes('THUMBNUM')) href = href.replace('THUMBNUM', '1');
-    let title = (a.getAttribute('title') || '').trim();
-    if (!title) title = (a.textContent || '').replace(/\s*\d+ min\s*$/, '').trim();
+    // 标题：首页 p.title / 最佳影片 div.title（容器带 title 属性）；兜底去掉 thl 脚本残留
+    const tEl = el.querySelector('p.title') || el.querySelector('div.title');
+    let title = ((tEl && tEl.getAttribute('title')) || a.getAttribute('title') || '').trim();
+    if (!title) title = (a.textContent || '').replace(/thl\("[^"]*",\s*\d+\);?/g, ' ').replace(/\s*\d+ (min|分钟)\s*$/, '').trim();
     if (!title) continue;
     const img = el.querySelector('img[data-src]') || el.querySelector('img');
     let cover = (img && (img.getAttribute('data-src') || img.getAttribute('src'))) || '';
@@ -1612,8 +1614,9 @@ function xvCards(doc) {
     if (cover.includes('THUMBNUM')) cover = cover.replace('THUMBNUM', '1');
     const durEl = el.querySelector('p.title span.duration') || el.querySelector('span.duration');
     const dur = ((durEl && durEl.textContent) || '').trim();
-    let meta = (el.querySelector('p.metadata')?.textContent || '').replace(/\s+/g, ' ').trim();
+    let meta = ((el.querySelector('p.metadata') || el.querySelector('.video-metadata') || {}).textContent || '').replace(/\s+/g, ' ').trim();
     if (dur && meta.startsWith(dur)) meta = meta.slice(dur.length).replace(/^[\s\-–]+/, '');
+    if (dur && meta.includes(dur)) meta = meta.split(dur).join(' ').replace(/\s*-\s*-\s*/g, ' - ').replace(/^\s*[-–\s]+|[-–\s]+$/, '').trim();
     out.push({ title, url: href, cover, meta, badge: dur });
   }
   return out;

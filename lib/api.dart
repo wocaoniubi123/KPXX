@@ -1900,16 +1900,24 @@ class Api {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('div.thumb-block')) {
       final a = el.querySelector('p.title a') ??
+          el.querySelector('div.title a[href*="/video"]') ??
           el.querySelector('div.thumb a[href*="/video"]');
       var href = a?.attributes['href'] ?? '';
       if (!href.contains('/video')) continue;
       // 部分卡片的链接带未替换的占位符 THUMBNUM（真站由 JS 填数字；字面值会 404）。
       // 填 1 即可——实测任意数字等价，站点会把多余层级 302 到规范短链。
       if (href.contains('THUMBNUM')) href = href.replaceFirst('THUMBNUM', '1');
-      var title = (a?.attributes['title'] ?? '').trim();
+      // 标题：两种皮肤——首页 p.title / 最佳影片 div.title（容器上带 title 属性）；
+      // 兜底取锚文本时先去掉 thl("…",0); 脚本残留（最佳影片缩略图锚里只有这段）
+      var title = (el.querySelector('p.title')?.attributes['title'] ??
+              el.querySelector('div.title')?.attributes['title'] ??
+              a?.attributes['title'] ??
+              '')
+          .trim();
       if (title.isEmpty) {
         title = (a?.text ?? '')
-            .replaceAll(RegExp(r'\s*\d+ min\s*$'), '')
+            .replaceAll(RegExp(r'thl\("[^"]*",\s*\d+\);?'), ' ')
+            .replaceAll(RegExp(r'\s*\d+ (min|分钟)\s*$'), '')
             .trim();
       }
       if (title.isEmpty) continue;
@@ -1921,13 +1929,23 @@ class Api {
       final dur = el.querySelector('p.title span.duration')?.text.trim() ??
           el.querySelector('span.duration')?.text.trim() ??
           '';
-      var meta = (el.querySelector('p.metadata')?.text ?? '')
+      var meta = (el.querySelector('p.metadata')?.text ??
+              el.querySelector('.video-metadata')?.text ??
+              '')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (dur.isNotEmpty && meta.startsWith(dur)) {
         meta = meta
             .substring(dur.length)
             .replaceAll(RegExp(r'^[\s\-–]+'), '');
+      }
+      // 最佳影片皮肤：时长在 metadata 末尾（"上传者 - 5.7M 观看次数 - 11分钟"）→ 去掉
+      if (dur.isNotEmpty && meta.contains(dur)) {
+        meta = meta
+            .replaceAll(dur, ' ')
+            .replaceAll(RegExp(r'\s*-\s*-\s*'), ' - ')
+            .replaceAll(RegExp(r'^\s*[-–\s]+|[-–\s]+$'), '')
+            .trim();
       }
       out.add(Article(
         title: title,

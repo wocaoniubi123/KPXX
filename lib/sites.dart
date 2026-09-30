@@ -568,12 +568,39 @@ const List<SiteEntry> kSites = [
     // 非视频列表。「分类」下面挂站点分类菜单全量（名称照站点；逐一实测 200 且有内容）。
     // 「Curious wife no panties」只有 2 条（近无资源）未上；「所有標簽」是标签索引
     // （非视频列表）未上。「最新」= 站点首页那份列表（不在菜单里，我留作分类默认项）。
+    // 「最佳影片」子分类 = 免费月份条（照站点：八月 2026 起往回 24 个月，快照；
+    // 站点每月出新月份，需要时更新此处；收费的 RED（/best-of-red）未上）。
     // 翻页：/c/、/tags/、/trans、/gay、/lang/chinese 第 N 页 = 原路径/{N-1}(0 计)；
     //       /best 特殊（月份路径）、/new 特殊（第1页='/'），见 api.dart _xvList。
     // 頻道/色情明星：索引列表可抓；点进频道/演员的二级内容站点是 JS 异步加载、
     // 静态抓不到——卡片刻意先给提示，二级待另找数据接口。
     categories: [
-      SiteTab('/best', '最佳影片'),
+      SiteTab('/best', '最佳影片', [
+        SiteTab('/best/2026-08', '八月 2026'),
+        SiteTab('/best/2026-07', '七月 2026'),
+        SiteTab('/best/2026-06', '六月 2026'),
+        SiteTab('/best/2026-05', '五月 2026'),
+        SiteTab('/best/2026-04', '四月 2026'),
+        SiteTab('/best/2026-03', '三月 2026'),
+        SiteTab('/best/2026-02', '二月 2026'),
+        SiteTab('/best/2026-01', '一月 2026'),
+        SiteTab('/best/2025-12', '十二月 2025'),
+        SiteTab('/best/2025-11', '十一月 2025'),
+        SiteTab('/best/2025-10', '十月 2025'),
+        SiteTab('/best/2025-09', '九月 2025'),
+        SiteTab('/best/2025-08', '八月 2025'),
+        SiteTab('/best/2025-07', '七月 2025'),
+        SiteTab('/best/2025-06', '六月 2025'),
+        SiteTab('/best/2025-05', '五月 2025'),
+        SiteTab('/best/2025-04', '四月 2025'),
+        SiteTab('/best/2025-03', '三月 2025'),
+        SiteTab('/best/2025-02', '二月 2025'),
+        SiteTab('/best/2025-01', '一月 2025'),
+        SiteTab('/best/2024-12', '十二月 2024'),
+        SiteTab('/best/2024-11', '十一月 2024'),
+        SiteTab('/best/2024-10', '十月 2024'),
+        SiteTab('/best/2024-09', '九月 2024'),
+      ]),
       SiteTab('/new', '分类', [
         SiteTab('/new', '最新'),
         SiteTab('/lang/chinese', '說中文的色情'),
