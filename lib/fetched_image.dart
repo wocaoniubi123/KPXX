@@ -11,14 +11,25 @@ import 'package:http/http.dart' as http;
 bool _isIco(Uint8List b) =>
     b.length > 6 && b[0] == 0 && b[1] == 0 && b[2] == 1 && b[3] == 0;
 
-/// ICO → PNG。Flutter 的解码器不认识 ICO，但站点 favicon 都是 ICO
-/// （实测两站都是 ICO 内嵌 BMP），所以在这里用纯 Dart 的 image 包解码后
-/// 重新编码成 PNG 再交给 Flutter。解不出来返回 null（上层会走占位图）。
+/// ICO → PNG。Flutter 的解码器不认识 ICO，而站点 favicon 都是 ICO
+/// （实测是 ICO 内嵌 BMP），所以用纯 Dart 的 image 包解码后重新编码成
+/// PNG 再交给 Flutter。解不出来返回 null（上层会走占位图）。
+///
+/// ⚠️ 多尺寸 ICO（如黄果的 16/32/48 三帧）会被 decodeIco 解成"多帧图像"，
+/// 而 encodePng 对多帧会输出**动画 PNG（APNG，写 acTL/fcTL 帧控制块）**——
+/// Flutter 的 Image 会把它当动画循环播放（帧尺寸还不一致）→ 首页图标
+/// 一闪一闪（2026-09-30 用户实报，对照 image 包源码确认）。
+/// 这里只取**面积最大的一帧**转单帧 PNG，保证是静图。
+/// 单帧 ICO（其余站点）走同一段逻辑，行为不变。
 Uint8List? _icoToPng(Uint8List b) {
   try {
     final img = im.decodeIco(b);
     if (img == null) return null;
-    return Uint8List.fromList(im.encodePng(img));
+    var best = img;
+    for (final f in img.frames) {
+      if (f.width * f.height > best.width * best.height) best = f;
+    }
+    return Uint8List.fromList(im.encodePng(best));
   } catch (_) {
     return null;
   }

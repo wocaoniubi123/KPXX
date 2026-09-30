@@ -301,46 +301,92 @@ class _FeedViewState extends State<_FeedView>
                     ),
                   ],
                 ))
-          : GridView.builder(
-              padding: const EdgeInsets.all(8),
+          : RowsGrid(
+              // 竖屏封面站（黄果）**一行 3 个**（用户要求：竖屏一格太占地方）；
+              // 横屏站保持一行 2 个
+              cols: widget.site.portraitCovers ? 3 : 2,
               physics: const AlwaysScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                // 竖屏封面站（黄果）**一行 3 个**（用户要求：竖屏一格太占地方）；
-                // 横屏站保持一行 2 个
-                crossAxisCount: widget.site.portraitCovers ? 3 : 2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                // 比例按卡片实际内容高度定：一行 3 个时格子宽 ~119，
-                // 封面 3:4 → 159 + 标题/简介/标签 ≈ 103 → 约 0.45
-                childAspectRatio: widget.site.portraitCovers ? 0.48 : 1.00,
-              ),
-              // 滚动到底部附近时翻页
-              itemCount: feed.items.length + 1,
-              itemBuilder: (ctx, i) {
-                if (i >= feed.items.length) {
-                  if (feed._done) {
-                    // 到底就明说（同搜索页）：别让圈圈一直空转
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Center(
-                          child: Text('没有更多了',
-                              style: TextStyle(
-                                  color: Colors.grey, fontSize: 12))),
-                    );
-                  }
-                  feed.ensureMore();
+              count: feed.items.length,
+              // 滚动到尾部才构造 → 在那时触发翻页（懒加载）
+              tail: () {
+                if (feed._done) {
+                  // 到底就明说（同搜索页）：别让圈圈一直空转
                   return const Padding(
                     padding: EdgeInsets.all(16),
                     child: Center(
-                        child: CircularProgressIndicator()),
+                        child: Text('没有更多了',
+                            style: TextStyle(
+                                color: Colors.grey, fontSize: 12))),
                   );
                 }
-                return ArticleCard(
-                  article: feed.items[i],
-                  site: widget.site,
+                feed.ensureMore();
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(
+                      child: CircularProgressIndicator()),
                 );
               },
+              itemBuilder: (ctx, i) =>
+                  ArticleCard(article: feed.items[i], site: widget.site),
             ),
+    );
+  }
+}
+
+/// 按行排的卡片列表：**行高 = 该行最高的卡片**，行内其它卡片拉伸到同高；
+/// 行高完全由内容决定 —— 不像"固定宽高比网格"（childAspectRatio 是按内容
+/// 最多的卡片估出来的），内容少的行（专题/排行榜卡）底部不会再多出一大块空白
+/// （2026-09-30 用户实报"所有站点都留白很多"）。
+/// [count]=数据条数；[tail] 是列表尾项（"没有更多了"/转圈），**只在滚到尾部
+/// 时才构造** —— "加载下一页"的触发时机与原来一致（懒加载，不会一进页面就预拉）。
+class RowsGrid extends StatelessWidget {
+  final int count;
+  final int cols;
+  final Widget Function(BuildContext, int) itemBuilder;
+  final Widget Function()? tail;
+  final ScrollPhysics? physics;
+  const RowsGrid({
+    super.key,
+    required this.count,
+    required this.cols,
+    required this.itemBuilder,
+    this.tail,
+    this.physics,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = (count + cols - 1) ~/ cols;
+    return ListView.builder(
+      padding: const EdgeInsets.all(8),
+      physics: physics,
+      itemCount: rows + (tail == null ? 0 : 1),
+      itemBuilder: (ctx, r) {
+        if (r >= rows) return tail!();
+        final start = r * cols;
+        // IntrinsicHeight：把这行的高度定成"最高的那张卡片"，
+        // 其它卡片随 stretch 拉伸对齐；行与行互不影响
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var c = 0; c < cols; c++)
+                if (start + c < count)
+                  Expanded(
+                    child: Padding(
+                      // 列间距 8（最后一列不用，右侧留给 ListView 的 padding）
+                      padding: EdgeInsets.only(
+                          right: c < cols - 1 ? 8 : 0, bottom: 8),
+                      child: itemBuilder(ctx, start + c),
+                    ),
+                  )
+                else
+                  // 最后一行不满：占位保持列宽
+                  const Expanded(child: SizedBox()),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -352,7 +398,8 @@ class ArticleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 填满格子（不贴顶收缩）：同一行里卡片高度才会一致（用户要求）
+    // 卡片按内容自然高度（不再靠"撑满固定格子"对齐）；同一行的高度对齐
+    // 由 RowsGrid 统一处理（用户要求：行内等高，但不要按写死的比例留大片空白）
     return Card(
       clipBehavior: Clip.antiAlias,
       color: Colors.white,
@@ -381,6 +428,8 @@ class ArticleCard extends StatelessWidget {
           );
         },
         child: Column(
+          // 自然高度：内容多少就多高（行内对齐交给 RowsGrid 拉伸处理）
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 封面：默认 16:9，竖屏封面站 3:4；右下角叠角标
@@ -579,38 +628,31 @@ class _SearchPageState extends State<SearchPage> {
           ? const Center(child: Text('输入关键词即可搜索'))
           : _results.isEmpty
               ? const Center(child: Text('无结果'))
-              : GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    // 跟列表页同一套：竖屏站一行 3 个
-                    crossAxisCount: widget.site.portraitCovers ? 3 : 2,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    childAspectRatio: widget.site.portraitCovers ? 0.48 : 1.00,
-                  ),
-                  itemCount: _results.length + 1,
-                  itemBuilder: (ctx, i) {
-                    if (i >= _results.length) {
-                      if (_done) {
-                        // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
-                        // 看起来像"卡住了"）
-                        return const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Center(
-                              child: Text('没有更多了',
-                                  style: TextStyle(
-                                      color: Colors.grey, fontSize: 12))),
-                        );
-                      }
-                      _search(more: true);
+              : RowsGrid(
+                  // 跟列表页同一套：竖屏站一行 3 个
+                  cols: widget.site.portraitCovers ? 3 : 2,
+                  count: _results.length,
+                  tail: () {
+                    if (_done) {
+                      // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
+                      // 看起来像"卡住了"）
                       return const Padding(
                         padding: EdgeInsets.all(16),
-                        child:
-                            Center(child: CircularProgressIndicator()),
+                        child: Center(
+                            child: Text('没有更多了',
+                                style: TextStyle(
+                                    color: Colors.grey, fontSize: 12))),
                       );
                     }
-                    return ArticleCard(article: _results[i], site: widget.site);
+                    _search(more: true);
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child:
+                          Center(child: CircularProgressIndicator()),
+                    );
                   },
+                  itemBuilder: (ctx, i) =>
+                      ArticleCard(article: _results[i], site: widget.site),
                 ),
     );
   }

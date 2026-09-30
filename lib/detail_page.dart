@@ -656,29 +656,30 @@ class _TagListPageState extends State<TagListPage> {
               child: _error != null
                   ? Text('加载失败：$_error')
                   : const CircularProgressIndicator())
-          : GridView.builder(
-              padding: const EdgeInsets.all(8),
-              // 比例必须跟着站点走：竖屏封面站（黄果 3:4）用 1.05 的话，
-              // 封面比格子还高 → 标题被挤出可视区裁掉（专题点进去只有封面没标题就是这么来的）
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
-                crossAxisCount: widget.site.portraitCovers ? 3 : 2,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio:
-                    widget.site.portraitCovers ? 0.45 : 1.00,
-              ),
-              itemCount: _items.length + 1,
-              itemBuilder: (ctx, i) {
-                if (i >= _items.length) {
-                  _more();
+          : RowsGrid(
+              // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
+              cols: widget.site.portraitCovers ? 3 : 2,
+              count: _items.length,
+              // 滚动到尾部才构造 → 在那时触发翻页（懒加载）；
+              // 到底后显示"没有更多了"，不再空转圈（同列表/搜索页）
+              tail: () {
+                if (_done) {
                   return const Padding(
                     padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(
+                        child: Text('没有更多了',
+                            style: TextStyle(
+                                color: Colors.grey, fontSize: 12))),
                   );
                 }
-                return ArticleCard(article: _items[i], site: widget.site);
+                _more();
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
               },
+              itemBuilder: (ctx, i) =>
+                  ArticleCard(article: _items[i], site: widget.site),
             ),
     );
   }
