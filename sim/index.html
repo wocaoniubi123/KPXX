@@ -1638,8 +1638,8 @@ async function kmList(site, api, page) {
     title: String(v.mv_title || ''),
     url: String(v.mv_id || ''),
     cover: String(v.mv_img_url || ''),
-    meta: String(v.mu_name || '') +
-      (v.mv_created ? ' · ' + String(v.mv_created).slice(5, 16) : ''),
+    // 用户要求：不显示作者名，只留发布时间
+    meta: String(v.mv_created || '').slice(5, 16),
     badge: '♡' + String(v.mv_like || '0'),
   })).filter((a) => a.url);
 }

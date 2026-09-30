@@ -2124,7 +2124,7 @@ class Api {
   }
 
   /// 快猫列表：listHot（热门视频）/ listAll（视频广场），19 条/页、页码从 1 起。
-  /// 卡片照站点：竖版封面、标题、上传者 · 发布时间，角标 = 点赞数（♡N）；
+  /// 卡片：竖版封面、标题、发布时间（用户要求不显示作者名），角标 = 点赞数（♡N）；
   /// is_cat_ads=1 是广告位（站点本会跳外链），跳过。
   Future<List<Article>> _kmList(String api, {int page = 1}) async {
     final j = await _kmPost(api, {'perPage': 19, 'page': page});
@@ -2143,8 +2143,8 @@ class Api {
         title: (v['mv_title'] ?? '').toString(),
         url: id,
         cover: (v['mv_img_url'] ?? '').toString(),
-        meta: '${v['mu_name'] ?? ''}'
-            '${created.length >= 16 ? ' · ${created.substring(5, 16)}' : ''}',
+        // 用户要求：不显示作者名，只留发布时间（"09-29 18:12"）
+        meta: created.length >= 16 ? created.substring(5, 16) : created,
         badge: '♡${v['mv_like'] ?? 0}',
       ));
     }
