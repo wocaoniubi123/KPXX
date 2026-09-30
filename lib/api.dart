@@ -1907,6 +1907,48 @@ class Api {
     return _xvCards(html);
   }
 
+  /// 拉 HLS 主列表并选「分辨率最高」的子列表地址（相对地址按 master 解析）。
+  /// 不是主列表 / 请求失败 → null（调用方保留原地址，不至于不能播）。
+  Future<String?> _pickTopHlsVariant(String masterUrl) async {
+    try {
+      final mu = Uri.parse(masterUrl);
+      final r = await _client
+          .get(mu, headers: {
+            'User-Agent': Site.ua,
+            'Referer': '${mu.scheme}://${mu.host}/',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+          })
+          .timeout(const Duration(seconds: 6));
+      if (r.statusCode != 200) return null;
+      final text = utf8.decode(r.bodyBytes);
+      if (!text.contains('#EXT-X-STREAM-INF')) return null; // 单档列表
+      final lines = const LineSplitter().convert(text);
+      var best = -1;
+      String? bestUri;
+      for (var i = 0; i + 1 < lines.length; i++) {
+        if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
+        final res = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(lines[i]);
+        final bw = int.tryParse(
+                RegExp(r'BANDWIDTH=(\d+)').firstMatch(lines[i])?.group(1) ??
+                    '') ??
+            0;
+        final score = res == null
+            ? bw
+            : int.parse(res.group(1)!) * int.parse(res.group(2)!);
+        final uri = lines[i + 1].trim();
+        if (uri.isEmpty || uri.startsWith('#')) continue;
+        if (score > best) {
+          best = score;
+          bestUri = uri;
+        }
+      }
+      if (bestUri == null) return null;
+      return mu.resolve(bestUri).toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
   Future<List<Article>> _xvSearch(String keyword, {int page = 1}) async {
     final path = '/?k=${Uri.encodeComponent(keyword)}'
@@ -2193,16 +2235,23 @@ class Api {
     }
     final dur =
         doc.querySelector('h2.page-title span.duration')?.text.trim() ?? '';
-    // 播放源：mp4 优先（单文件、模拟器可经 /vproxy 验证），HLS 兜底
+    // 播放源：HLS 优先（免费片的 High/Low 两条实测都是同一个 mp4_sd 最低画质），
+    // mp4 兜底（单文件、无防盗链）
     final srcs = <String>[];
     for (final re in [
-      // HLS 优先：master 含 1080p；免费片的 High/Low 两条实测都是 mp4_sd（最低画质）
       RegExp(r"setVideoHLS\('([^']+)'\)"),
       RegExp(r"setVideoUrlHigh\('([^']+)'\)"),
       RegExp(r"setVideoUrlLow\('([^']+)'\)"),
     ]) {
       final u = re.firstMatch(html)?.group(1) ?? '';
       if (u.isNotEmpty && !srcs.contains(u)) srcs.add(u);
+    }
+    // HLS 主列表 → 直接换成「分辨率最高的子列表」地址：mpv 播 master 时挑哪档
+    // 不可靠（老 libmpv 默认第一档=480p，且 mpv 不做 ABR 上爬）。失败保留原地址。
+    final hlsIdx = srcs.indexWhere((s) => s.contains('.m3u8'));
+    if (hlsIdx >= 0) {
+      final top = await _pickTopHlsVariant(srcs[hlsIdx]);
+      if (top != null) srcs[hlsIdx] = top;
     }
     final videos = <ArticleVideo>[];
     if (srcs.isNotEmpty) {
