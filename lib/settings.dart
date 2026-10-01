@@ -294,12 +294,15 @@ class PlayHistory extends ChangeNotifier {
     final a = mk(u: '/a.html', p: 123, f: true, ts: 1700000000000);
     final b = PlayRecord.fromJson(jsonDecode(jsonEncode(a.toJson())));
     assert(b != null, '往返不能丢记录');
-    assert(b!.site == a.site && b.url == a.url && b.title == a.title, '基本字段');
-    assert(b.cover == a.cover && b.videoIndex == a.videoIndex, '封面/集号');
-    assert(b.position == a.position, '位置（秒精度）');
-    assert(b.duration == a.duration && b.finished && b.updatedAt == a.updatedAt,
+    // 解包成非空变量再用：`b!` 之后 Dart 不会把 b 当非空，
+    // CI 实测报过 "Property 'cover' cannot be accessed on 'PlayRecord?'"
+    final r = b!;
+    assert(r.site == a.site && r.url == a.url && r.title == a.title, '基本字段');
+    assert(r.cover == a.cover && r.videoIndex == a.videoIndex, '封面/集号');
+    assert(r.position == a.position, '位置（秒精度）');
+    assert(r.duration == a.duration && r.finished && r.updatedAt == a.updatedAt,
         '时长/看完/时间戳');
-    assert(b.key == a.key, '去重键必须一致：${b.key}');
+    assert(r.key == a.key, '去重键必须一致：${r.key}');
 
     // 2) 字段缺失/类型错 → 不能抛异常（宁可丢一条，不能让整页崩）
     assert(PlayRecord.fromJson(const {}) == null, '没有 site/url 的应丢弃');
@@ -313,8 +316,8 @@ class PlayHistory extends ChangeNotifier {
       'ts': 5.0,
     });
     assert(messy != null && messy!.position == Duration.zero, '坏字段退化到 0');
-    assert(!messy.finished, 'f 不是 true 就当 false');
-    assert(messy.videoIndex == 0 && messy.updatedAt == 0, '非 int 数字退化');
+    assert(!messy!.finished, 'f 不是 true 就当 false');
+    assert(messy!.videoIndex == 0 && messy!.updatedAt == 0, '非 int 数字退化');
 
     // 3) 进度计算
     assert(mk(u: '/p.html', p: 0).progress == 0, '没动过 = 0');
