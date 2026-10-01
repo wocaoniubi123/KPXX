@@ -10,7 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 ///
 /// - 默认：asset `assets/bg_default.jpg`（用户指定那张；打包前已从 3277×4096
 ///   缩到 1440 宽 —— 原图解码要 ~53MB 常驻内存，1440 宽只要 ~10MB，肉眼无差）
-/// - 自选：相册选图 → 缩到同样规格 → 拷进沙盒 `documents/bg_custom.jpg`
+/// - 自选：相册选图 → 缩到同样规格 → 拷进沙盒 `documents/bg_custom_<毫秒时间戳>.jpg`
+///   （**每次换图写新文件名**，原因见 `pickFromGallery()` 的注释）
 ///   → 路径存 shared_preferences
 ///
 /// 谁用：`AppBackground`（铺满整屏）、设置页的背景图卡片（选图/恢复默认）。
@@ -42,17 +43,52 @@ class AppBg extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       final p = sp.getString(_kPath);
-      if (p == null || p.isEmpty) return;
-      if (!File(p).existsSync()) return;
-      _filePath = p;
-      notifyListeners();
+      if (p != null && p.isNotEmpty && File(p).existsSync()) {
+        _filePath = p;
+        notifyListeners();
+      }
+      await _sweepOrphans(); // 兜底清扫（见方法注释）
     } catch (_) {
       // 读失败就用默认图，不影响启动
     }
   }
 
+  /// 清扫孤儿自选图：只保留当前这张，其它 `bg_custom_*.jpg`（含老版本的
+  /// `bg_custom.jpg`）一律删掉。
+  ///
+  /// 为什么需要兜底：换图是"写新文件 → 删旧文件"，若在这两步之间进程被杀，
+  /// 会残留一张（正常路径下不会，每次换图都已删掉上一张）。成本极低，
+  /// 只列一次 documents 目录、数量是常数级。
+  Future<void> _sweepOrphans() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final keep = _filePath?.split(Platform.pathSeparator).last;
+      await for (final e in dir.list()) {
+        if (e is! File) continue;
+        final n = e.path.split(Platform.pathSeparator).last;
+        final mine = n == 'bg_custom.jpg' ||
+            (n.startsWith('bg_custom_') && n.endsWith('.jpg'));
+        if (!mine || n == keep) continue;
+        try {
+          await e.delete();
+        } catch (_) {
+          // 删不掉就算了
+        }
+      }
+    } catch (_) {
+      // 清扫失败不影响背景图使用
+    }
+  }
+
   /// 从相册选图。true = 换好了；false = 用户取消
   /// （失败会抛异常，调用方 catch 后提示）
+  ///
+  /// ⚠️ 每次写**新文件名**（带毫秒时间戳），绝不覆写同一个路径。
+  /// 原因（用户实测）：`FileImage` 的缓存键是 `(路径, scale)`。路径不变时，
+  /// 即使 `evict()` 清掉 ImageCache，只要还有控件挂在这个 key 的 ImageStream 上
+  /// （`gaplessPlayback` 会一直握着旧图），后续 resolve 依旧复用同一个
+  /// ImageStreamCompleter → 换第二张没反应；而"先恢复默认再选"能换，正是因为
+  /// 切回 `AssetImage` 把旧的流释放了。换新文件名 = 新 key = 必定重新解码。
   Future<bool> pickFromGallery() async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
@@ -62,12 +98,12 @@ class AppBg extends ChangeNotifier {
     );
     if (picked == null) return false;
     final dir = await getApplicationDocumentsDirectory();
-    final dst = File('${dir.path}${Platform.pathSeparator}bg_custom.jpg');
+    final old = _filePath;
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final dst = File(
+        '${dir.path}${Platform.pathSeparator}bg_custom_$stamp.jpg');
     await File(picked.path).copy(dst.path);
-    // ⚠️ 每次都覆写同一个路径 → FileImage 的缓存键是 (路径, scale)，路径没变，
-    // ImageCache 会把**第一次解码的那张旧图**继续给你（用户实测：换第二张还是第一张）。
-    // 覆写完必须 evict 掉这个条目，下一帧才会重新读盘解码。
-    await FileImage(dst).evict();
+    await FileImage(dst).evict(); // 双保险（新 key 本来也命中不了旧缓存）
     _filePath = dst.path;
     notifyListeners();
     try {
@@ -75,6 +111,15 @@ class AppBg extends ChangeNotifier {
       await sp.setString(_kPath, dst.path);
     } catch (_) {
       // 存失败也不影响本次会话（下次启动回默认图）
+    }
+    // 删掉上一张自选图：换图是"写新文件"，不清理的话沙盒里会越积越多
+    if (old != null) {
+      try {
+        final f = File(old);
+        if (f.existsSync()) await f.delete();
+      } catch (_) {
+        // 删不掉就算了（可能已被系统清理）
+      }
     }
     return true;
   }
