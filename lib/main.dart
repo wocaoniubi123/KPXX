@@ -150,7 +150,7 @@ class ModuleGridPage extends StatelessWidget {
     } else {
       page = WebPage(title: e.name, url: e.url);
     }
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => PageBg(child: page)));
   }
 
   @override

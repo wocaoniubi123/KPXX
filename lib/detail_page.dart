@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'app_background.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
 import 'models.dart';
@@ -151,10 +152,10 @@ class DetailPageState extends State<DetailPage> {
     _switcher?.pause(); // 跳走前先停一下，别两边同时出声
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => WebPage(
+        builder: (_) => PageBg(child: WebPage(
           title: widget.site.name,
           url: 'https://${widget.site.hosts.first}${widget.baseUrl}',
-        ),
+        )),
       ),
     );
   }
@@ -449,10 +450,10 @@ class DetailPageState extends State<DetailPage> {
                                 itemBuilder: (_, i) => InkWell(
                                   onTap: () => Navigator.of(context).push(
                                     MaterialPageRoute(
-                                      builder: (_) => PhotoViewerPage(
+                                      builder: (_) => PageBg(child: PhotoViewerPage(
                                         urls: d.images,
                                         initial: i,
-                                      ),
+                                      )),
                                     ),
                                   ),
                                   child: ClipRRect(
@@ -488,8 +489,8 @@ class DetailPageState extends State<DetailPage> {
                                   // （不然本页压栈继续放 + 新页也在放 = 两个声音）
                                   _switcher?.pause();
                                   Navigator.of(context).push(MaterialPageRoute(
-                                    builder: (_) => DetailPage(
-                                        site: widget.site, baseUrl: a.url),
+                                    builder: (_) => PageBg(child: DetailPage(
+                                        site: widget.site, baseUrl: a.url)),
                                   ));
                                 },
                                 child: Padding(
@@ -576,12 +577,12 @@ class DetailPageState extends State<DetailPage> {
     _switcher?.pause(); // 同上：跳列表页前先把本页播放器停掉
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TagListPage(
+        builder: (_) => PageBg(child: TagListPage(
           site: widget.site,
           title: title,
           slug: slug,
           isTag: isTag,
-        ),
+        )),
       ),
     );
   }
@@ -613,8 +614,8 @@ class DetailPageState extends State<DetailPage> {
                   // 切集：replace 当前页，避免栈无限加深
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
-                      builder: (_) =>
-                          DetailPage(site: widget.site, baseUrl: a.url),
+                      builder: (_) => PageBg(child: DetailPage(
+                          site: widget.site, baseUrl: a.url)),
                     ),
                   );
                 },

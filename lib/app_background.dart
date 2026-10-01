@@ -47,3 +47,37 @@ const List<Shadow> kTextHalo = [
   Shadow(color: Color(0x61FFFFFF), blurRadius: 2.5),
   Shadow(color: Color(0x1A000000), offset: Offset(0, 1), blurRadius: 1),
 ];
+
+/// **每个被 push 的页面都要套这一层。**
+///
+/// 为什么需要：转场时靠"新页面自己不透明"来盖住旧页面。而全 App 的 Scaffold 都设成了
+/// `Colors.transparent`（为了让背景图透出来）→ 新页面盖不住旧页面，两个页面直接叠在
+/// 一起（用户实测截图：设置页和播放记录页文字/进度条全部重影，看着像"卡半秒 + 闪"）。
+///
+/// 解法：让每个页面自己铺一层**同一张**背景图（`AppBg.i.image` 已有 ImageCache，
+/// 不会重复解码），这样转场期间新页面是实心的、旧页面被真正挡住，
+/// 页面内部的透明控件照旧能看到图。
+class PageBg extends StatelessWidget {
+  final Widget child;
+  const PageBg({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: Image(
+              image: AppBg.i.image,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}

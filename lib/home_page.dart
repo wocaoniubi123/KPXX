@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import 'api.dart';
+import 'app_background.dart';
 import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
@@ -658,7 +659,7 @@ class _HomePageState extends State<HomePage>
 
   void _openSearch(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => SearchPage(site: widget.site)),
+      MaterialPageRoute(builder: (_) => PageBg(child: SearchPage(site: widget.site))),
     );
   }
 }
@@ -959,12 +960,12 @@ class ArticleCard extends StatelessWidget {
               article.url.startsWith('/moviesets/')) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => TagListPage(
+                builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
                   slug: article.url,
                   isTag: false,
-                ),
+                )),
               ),
             );
             return;
@@ -974,12 +975,12 @@ class ArticleCard extends StatelessWidget {
           if (article.url.startsWith('/tag/')) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => TagListPage(
+                builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
                   slug: article.url,
                   isTag: true,
-                ),
+                )),
               ),
             );
             return;
@@ -990,23 +991,23 @@ class ArticleCard extends StatelessWidget {
               !article.url.contains('/video.')) {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => TagListPage(
+                builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
                   slug: article.url,
                   isTag: false,
-                ),
+                )),
               ),
             );
             return;
           }
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => DetailPage(
+              builder: (_) => PageBg(child: DetailPage(
                 site: site,
                 baseUrl: article.url,
                 listCover: article.cover, // 记播放记录时的封面（零额外请求）
-              ),
+              )),
             ),
           );
         },
@@ -1095,12 +1096,12 @@ class ArticleCard extends StatelessWidget {
                                 ? null
                                 : () => Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) => TagListPage(
+                                        builder: (_) => PageBg(child: TagListPage(
                                           site: site,
                                           title: t.value,
                                           slug: t.key,
                                           isTag: true,
-                                        ),
+                                        )),
                                       ),
                                     ),
                             child: Container(

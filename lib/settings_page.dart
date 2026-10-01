@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_background.dart';
 import 'app_bg.dart';
 import 'detail_page.dart';
 import 'play_history_page.dart';
@@ -72,7 +73,7 @@ class SettingsPage extends StatelessWidget {
               title: '播放记录',
               trailing: '${list.length} 条 ›',
               onTapTrailing: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PlayHistoryPage()),
+                MaterialPageRoute(builder: (_) => const PageBg(child: PlayHistoryPage())),
               ),
             ),
             // 预览只显示前 3 条；点「N 条 ›」进整页。
@@ -397,14 +398,14 @@ class SettingsPage extends StatelessWidget {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => DetailPage(
+        builder: (_) => PageBg(child: DetailPage(
           site: hit.first,
           baseUrl: r.url,
           listCover: r.cover,
           // 看完的从头播：否则跳到结尾会立刻又"看完"，等于看不了
           initialPosition: r.finished ? null : r.position,
           initialVideoIndex: r.videoIndex,
-        ),
+        )),
       ),
     );
   }

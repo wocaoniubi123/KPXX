@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_background.dart';
 import 'detail_page.dart';
 import 'play_record_tile.dart';
 import 'settings.dart';
@@ -93,7 +94,7 @@ class PlayHistoryPage extends StatelessWidget {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => DetailPage(
+        builder: (_) => PageBg(child: DetailPage(
           site: site.first,
           baseUrl: record.url,
           listCover: record.cover,
@@ -101,7 +102,7 @@ class PlayHistoryPage extends StatelessWidget {
           // 已看完的从头播——否则会跳到结尾立即又"看完"，等于看不了。
           initialPosition: record.finished ? null : record.position,
           initialVideoIndex: record.videoIndex,
-        ),
+        )),
       ),
     );
   }
