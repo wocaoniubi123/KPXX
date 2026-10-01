@@ -950,6 +950,21 @@ class ArticleCard extends StatelessWidget {
             );
             return;
           }
+          // 标签卡（url 形如 /tag/xxx，麻豆社的「热门标签」标签云页）：
+          // 点进的是该标签的列表页，不是文章详情
+          if (article.url.startsWith('/tag/')) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => TagListPage(
+                  site: site,
+                  title: article.title,
+                  slug: article.url,
+                  isTag: true,
+                ),
+              ),
+            );
+            return;
+          }
           // XVideos 的频道/演员卡（頻道、色情明星 列表）：进该频道/演员的
           // 「視頻」免费列表（站点顶上 RED 是收费的，不取）
           if (site.template == SiteTemplate.xvideos &&

@@ -365,6 +365,7 @@ function parseArticles(html, site) {
   const tpl = (site && site.template) || 'wordpress';
   if (tpl === 'huangguo') return hgCards(doc);
   if (tpl === 'porna') return pornaCards(doc);
+  if (tpl === 'madou') return madouCards(doc);
   const out = [];
   for (const el of doc.querySelectorAll('article[itemscope]')) {
     const cls = el.className || '';
@@ -540,6 +541,128 @@ function pornaCards(doc) {
   return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
 }
 
+/* -------- 麻豆社（madou.club）：article.excerpt 卡片（无 itemscope）
+   + 详情正文 iframe → dash.madou.club 分享页取 m3u8（与 api.dart 的 _md* 对齐） -------- */
+
+/** 绝对地址 → 站内路径（与 api.dart 的 _toRelPath 一致：先认 /archives/，否则剥 scheme+host） */
+function madouRel(href) {
+  const h = String(href || '');
+  if (!/^https?:/i.test(h)) return h;
+  const i = h.indexOf('/archives/');
+  if (i >= 0) return h.slice(i);
+  try { const u = new URL(h); return u.pathname + (u.search || ''); } catch (e) { return h; }
+}
+
+/** 卡片：article.excerpt（首页/分类/搜索/标签/榜单共用，同 api.dart 的 _mdCards） */
+function madouCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('article.excerpt')) {
+    const href = madouRel(el.querySelector('a.thumbnail')?.getAttribute('href') || '');
+    if (!href) continue;
+    const title = (el.querySelector('h2 a')?.textContent || '').trim();
+    if (!title) continue;
+    // 封面必须是真图：img[src] 是懒加载占位（thumb.png），真封面在 data-src 上
+    const cover = (el.querySelector('a.thumbnail img')?.getAttribute('data-src') || '').trim();
+    if (!cover || cover.endsWith('/showcase/img/thumb.png')) continue;
+    // 观看数：站点原文「观看(59.26K)」原样显示（与 api.dart 的 _mdCards 一致；
+    // 用户先要只留数字、随后又说"观看数加回去"，以最终要求为准）
+    out.push({
+      title, url: href, cover,
+      meta: (el.querySelector('.post-view')?.textContent || '').trim(),
+      badge: '', desc: '',
+      // ⚠️ 卡片上的分类名**不取**（footer 的 rel="category tag"，如"麻豆传媒"）：
+      // 用户明确要求去掉（见 DEVLOG 第 56 条）——挂 tags 会在卡片上渲染成可点胶囊。
+      // 详情页的分类/标签不受影响（走 madouDetail 的 .item-3/.article-tags）。
+      tags: [],
+    });
+  }
+  const seen = new Set();
+  return out.filter((x) => !seen.has(x.url) && seen.add(x.url));
+}
+
+/** 麻豆社「热门标签」标签云页（/tags）——**不是文章卡片**，别用 madouCards 解：
+ *  `.tagslist li` 里 `a.name`=标签名（href 是 /tag/{slug}）、`<small>`=文章数
+ *  （形如 ×2577）、`a.tit` 是"该标签下的一篇示例文章"（**忽略**）。
+ *  没有封面 → 卡片变纯文字卡。站点**没有分页**（实测无 .pagination）。
+ *  （与 api.dart 的 _mdTags 逐条一致） */
+function madouTags(doc) {
+  const out = [];
+  for (const li of doc.querySelectorAll('.tagslist li')) {
+    const a = li.querySelector('a.name');
+    if (!a) continue;
+    const title = (a.textContent || '').trim();
+    const segs = (a.getAttribute('href') || '').split('/').filter((s) => s);
+    const slug = segs.length ? segs[segs.length - 1] : '';
+    if (!title || !slug) continue;
+    if (out.some((x) => x.url === '/tag/' + slug)) continue;
+    out.push({
+      title, url: '/tag/' + slug, cover: '',
+      meta: (li.querySelector('small')?.textContent || '').trim(),
+      badge: '', desc: '', tags: [],
+    });
+  }
+  return out;
+}
+
+/** 详情：标题/分类/标签/相关推荐 + 播放源（唯一一个：分享页里的 m3u8 + token） */
+async function madouDetail(html, url) {
+  const doc = parseHtml(html);
+  const title = (doc.querySelector('.article-title')?.textContent || '').trim();
+  const catName = (doc.querySelector('.item-3 a')?.textContent || '').trim();
+  // 标签：slug = URL 最后一段（原始编码值，不解码——与其它站点一致）
+  const tags = [];
+  for (const a of doc.querySelectorAll('.article-tags a')) {
+    const name = (a.textContent || '').trim();
+    const segs = (a.getAttribute('href') || '').split('/').filter((s) => s);
+    const slug = segs.length ? segs[segs.length - 1] : '';
+    if (!name || !slug) continue;
+    if (tags.some((t) => t.slug === slug)) continue;
+    tags.push({ slug, name });
+  }
+  // 相关推荐：标题取锚的文本（<a> 里只有一个缩进的 span>img，没有别的文本节点）
+  const related = [];
+  for (const a of doc.querySelectorAll('.postitems li a')) {
+    const href = madouRel(a.getAttribute('href') || '');
+    const t = (a.textContent || '').trim();
+    if (!href || !t || href === url) continue;
+    if (related.some((x) => x.url === href)) continue;
+    related.push({
+      title: t, url: href, meta: '', badge: '', desc: '', tags: [],
+      cover: (a.querySelector('img[data-src]')?.getAttribute('data-src') || '').trim(),
+    });
+    if (related.length >= 12) break;
+  }
+  // 播放源：正文第一个 iframe（src 带不带引号都行，DOMParser 两种都吃）→ 分享页。
+  // 分享页是另一个域（dash.madou.club），走服务端的 /proxy 抓（浏览器直连被跨域拦）。
+  const videos = [];
+  const share = (doc.querySelector('.article-content iframe')?.getAttribute('src') || '').trim();
+  if (share) {
+    try {
+      const r = await fetch(px(share));
+      if (!r.ok) {
+        log('分享页请求失败 HTTP ' + r.status + '：' + share, 'err');
+      } else {
+        const sh = await r.text();
+        // 分享页里两行 JS：token 是双引号、m3u8 是单引号
+        const tok = /var\s+token\s*=\s*"([^"]*)"/.exec(sh);
+        const m3 = /var\s+m3u8\s*=\s*'([^']*)'/.exec(sh);
+        if (tok && m3) {
+          const abs = /^https?:/i.test(m3[1]) ? m3[1] : 'https://dash.madou.club' + m3[1];
+          videos.push({ ordinal: 1, label: title, sources: [abs + '?token=' + tok[1]] });
+        } else {
+          log('分享页里没找到 token/m3u8：' + share, 'err');
+        }
+      }
+    } catch (e) {
+      log('分享页取源失败：' + ((e && e.message) || e), 'err');
+    }
+  }
+  return {
+    title, time: '', categories: catName ? [catName] : [], images: [], intro: '',
+    videos, tags, related, duration: '',
+  };
+}
+
 /** 与 api.dart 的 detail() 对应（按站点模板分派；黄果/91porna 还要额外请求） */
 async function parseDetail(html, site, url) {
   const tpl = (site && site.template) || 'wordpress';
@@ -558,6 +681,7 @@ async function parseDetail(html, site, url) {
   if (tpl === 'pektino') return pektinoDetail(html, url);
   if (tpl === 'hanime1') return hanimeDetail(html, url);
   if (tpl === 'xvideos') return xvDetail(html, url);
+  if (tpl === 'madou') return await madouDetail(html, url);
   return await wpDetail(html, site, url);
 }
 
@@ -1310,6 +1434,20 @@ async function fetchList(site, cat, subKey, page) {
   if (tpl === 'kmsvip') {
     // key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）
     return kmList(site, cat.key === '1' ? '/api/videos/listAll' : '/api/videos/listHot', page);
+  }
+  if (tpl === 'madou') {
+    // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
+    // （/likes /week /month 三个榜单 + /tags 标签云）
+    // 空 key = 「首页」tab（站点导航第一项）→ 站点首页，别拼 /category/（会 404）
+    const k = subKey || cat.key;
+    if (!k) return parseArticles(await getHtml(site, page <= 1 ? '/' : `/page/${page}`), site);
+    if (k === '/tags') return madouTags(parseHtml(await getHtml(site, '/tags')));
+    if (k.startsWith('/')) {
+      // 榜单**没有翻页**：第 2 页起直接空，别重复追加
+      if (page > 1) return [];
+      return parseArticles(await getHtml(site, k), site);
+    }
+    return parseArticles(await getHtml(site, page <= 1 ? `/category/${k}` : `/category/${k}/page/${page}`), site);
   }
   // wordpress 系（含 51fans1）
   const k = subKey || cat.key;
@@ -2135,6 +2273,13 @@ function renderCards(cat, st) {
         openTagList(site0, a.title, a.url, false);
         return;
       }
+      // 标签卡（url 形如 /tag/xxx，麻豆社的「热门标签」标签云页）：
+      // 点进的是该标签的列表页，不是文章详情
+      if (a.url && a.url.startsWith('/tag/')) {
+        const site1 = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
+        openTagList(site1, a.title, a.url, true);
+        return;
+      }
       // XVideos 频道/演员卡：进该频道/演员的「視頻」免费列表（RED 收费不取）
       const siteNow = cat.site || SITES.find((s) => s.categories.includes(cat)) || SITES[0];
       if (siteNow && siteNow.template === 'xvideos' && a.url && !a.url.includes('/video.')) {
@@ -2613,6 +2758,13 @@ async function tagListItems(site, slug, isTag, page) {
     return xvListAt(site, '/tags/' + slug, page);
   }
   if (tpl === 'kmsvip') return []; // 站点没有标签功能
+  if (tpl === 'madou') {
+    // 详情页的标签是裸 slug（/tag/{slug}）；以 / 开头的是卡片上的分类路径
+    const path = slug.startsWith('/')
+      ? (page <= 1 ? slug : `${slug}/page/${page}`)
+      : (page <= 1 ? `/tag/${slug}` : `/tag/${slug}/page/${page}`);
+    return parseArticles(await getHtml(site, path), site);
+  }
   const path = isTag
     ? (page <= 1 ? `/tag/${slug}/` : `/tag/${slug}/page/${page}/`)
     : (page <= 1 ? `/category/${slug}/` : `/category/${slug}/${page}/`);
@@ -2636,6 +2788,11 @@ async function searchItems(site, kw, page) {
   if (tpl === 'pektino') return pektinoFetch(site, 'all', kw, page, true);
   if (tpl === 'hanime1') return hanimeSearchAt(site, '/search?query=' + encodeURIComponent(kw), page);
   if (tpl === 'xvideos') return xvSearchAt(site, kw, page);
+  if (tpl === 'madou') {
+    // 搜索 = /?s={kw}；翻页参数是 **paged**（不是 page），照站点原样
+    const encM = encodeURIComponent(kw);
+    return parseArticles(await getHtml(site, page <= 1 ? `/?s=${encM}` : `/?paged=${page}&s=${encM}`), site);
+  }
   const enc = encodeURIComponent(kw);
   const path = page <= 1 ? `/search/${enc}/` : `/search/${enc}/${page}/`;
   return parseArticles(await getHtml(site, path), site);

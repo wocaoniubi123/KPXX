@@ -22,6 +22,9 @@ import 'sites.dart';
 ///   详情页内嵌 `<script id="videoInitialData">`，里面有全部剧集的 m3u8。
 /// - `SiteTemplate.porna`（91porna）：列表 `div.video-item`；
 ///   详情页播放地址要再请求 `/index/detail_play?img=..&u=..&t=..` 换回 m3u8（带时效签名）。
+/// - `SiteTemplate.madou`（麻豆社 madou.club）：列表 `article.excerpt`（无 itemscope）；
+///   分页 `/page/N`、`/category/{slug}/page/N`、`/tag/{slug}/page/N`、`/?paged=N&s=kw`；
+///   详情正文是玩家 iframe → dash.madou.club 分享页给 token + m3u8（见 _mdDetail）。
 class Api {
   /// site：站点清单里的那条（域名、模板、分类都从这来）
   Api({required this.site})
@@ -73,6 +76,24 @@ class Api {
       }
     }
     throw Exception('所有域名均无法访问');
+  }
+
+  /// 绝对地址请求（跨域，如麻豆社详情页里 dash.madou.club 的视频分享页）。
+  /// 同样走 [Site.httpClient]（iOS = NSURLSession）；Referer 用**该地址自身的域名**
+  /// （视频源域名，不是站点域名）；拿不到就返回空串（调用方当"没有源"，不抛异常）。
+  Future<String> _fetchAbs(String url) async {
+    try {
+      final u = Uri.parse(url);
+      final r = await _client.get(u, headers: {
+        'User-Agent': Site.ua,
+        'Referer': '${u.scheme}://${u.host}/',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+      }).timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) return '';
+      return utf8.decode(r.bodyBytes);
+    } catch (_) {
+      return '';
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -132,6 +153,22 @@ class Api {
         return _kmList(
             key == '1' ? '/api/videos/listAll' : '/api/videos/listHot',
             page: page);
+      case SiteTemplate.madou:
+        // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
+        // （/likes /week /month 三个榜单 + /tags 标签云）
+        // 空 key = 「首页」tab（站点导航第一项）→ 走首页那条路
+        if (k.isEmpty) return home(page: page);
+        if (k == '/tags') return _mdTags(await _fetchText('/tags'));
+        if (k.startsWith('/')) {
+          // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
+          // （同 huangguo 标签页的做法）
+          return page > 1 ? const [] : _mdCards(await _fetchText(k));
+        }
+        // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
+        // （站点对未编码的中文路径实测 400，编码后 200）
+        final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
+        return _mdCards(await _fetchText(
+            page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
     }
   }
 
@@ -158,6 +195,9 @@ class Api {
         return _xvList('/new', page: page);
       case SiteTemplate.kmsvip:
         return _kmList('/api/videos/listHot', page: page);
+      case SiteTemplate.madou:
+        // 首页第 N 页 = /page/N（没有 /page/1）
+        return _mdCards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
     }
   }
 
@@ -190,6 +230,14 @@ class Api {
         return _xvList('/tags/$slug', page: page);
       case SiteTemplate.kmsvip:
         return const []; // 站点没有标签功能
+      case SiteTemplate.madou:
+        // 详情页的标签是裸 slug（/tag/{slug}）；以 / 开头的是卡片上的分类路径
+        if (slug.startsWith('/')) {
+          return _mdCards(
+              await _fetchText(page <= 1 ? slug : '$slug/page/$page'));
+        }
+        return _mdCards(await _fetchText(
+            page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
     }
   }
 
@@ -221,6 +269,11 @@ class Api {
         return _xvSearch(keyword, page: page);
       case SiteTemplate.kmsvip:
         throw Exception('该站点没有搜索功能');
+      case SiteTemplate.madou:
+        // 搜索 = /?s={kw}；翻页参数是 **paged**（不是 page），照站点原样
+        final kw = Uri.encodeComponent(keyword);
+        return _mdCards(await _fetchText(
+            page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
     }
   }
 
@@ -251,6 +304,8 @@ class Api {
         return _xvDetail(url);
       case SiteTemplate.kmsvip:
         return _kmDetail(url);
+      case SiteTemplate.madou:
+        return _mdDetail(url);
     }
   }
 
@@ -281,7 +336,15 @@ class Api {
   static String _toRelPath(String href) {
     if (!href.startsWith('http')) return href;
     final i = href.indexOf('/archives/');
-    return i >= 0 ? href.substring(i) : href;
+    if (i >= 0) return href.substring(i);
+    // 其它形态的绝对地址（如麻豆社的 https://host/xxx.html）：剥掉 scheme+host
+    // 只留路径——_fetchText 会自己拼 "https://$host$path"，不剥就会拼出
+    // "https://hosthttps://host/xxx.html" 这种废地址。
+    final u = Uri.tryParse(href);
+    if (u != null && u.path.isNotEmpty) {
+      return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
+    }
+    return href;
   }
 
   /// 列表页 / 搜索页通用的文章卡片解析。
@@ -2309,6 +2372,153 @@ class Api {
       seriesPrefix: '',
       duration: dur,
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 麻豆社（madou.club）—— WordPress + 自研主题 showcase
+  //
+  // 列表：`article.excerpt`（**没有 itemscope**，和上面 5 个 wordpress 站不是一套）
+  //   - 详情链接 a.thumbnail[href]、封面 a.thumbnail img[data-src] 都是绝对地址
+  //     （用 _toRelPath 剥成站内路径）；封面是懒加载占位 thumb.png/空 → 整卡跳过
+  //   - meta = ".post-view" 里的**数字**（站点原文 "观看(59.26K)"，只留 "59.26K"；
+  //     用户要求去掉"观看"这截标签；站点**没有发布时间**）
+  //   - 卡片分类名 = footer 里第一个 rel="category tag" 的锚文本（挂 Article.tags，
+  //     key = 该分类的站内路径，点进去是该分类的列表）
+  // 详情：`.article-title` / `.item-3 a`（分类）/ `.article-tags a`（标签）/
+  //   `.postitems li a`（相关推荐）；播放源在正文 iframe 指向的分享页里。
+
+  /// 卡片解析（首页/分类/搜索/标签/榜单共用）
+  List<Article> _mdCards(String html) {
+    final doc = hp.parse(html);
+    final out = <Article>[];
+    for (final el in doc.querySelectorAll('article.excerpt')) {
+      final href =
+          _toRelPath(el.querySelector('a.thumbnail')?.attributes['href'] ?? '');
+      if (href.isEmpty) continue;
+      final title = (el.querySelector('h2 a')?.text ?? '').trim();
+      if (title.isEmpty) continue;
+      // 封面必须是真图：img[src] 是懒加载占位（thumb.png），真封面在 data-src 上
+      final cover =
+          (el.querySelector('a.thumbnail img')?.attributes['data-src'] ?? '')
+              .trim();
+      if (cover.isEmpty || cover.endsWith('/showcase/img/thumb.png')) continue;
+      // 观看数：站点原文「观看(59.26K)」**原样**显示（用户先要求只留数字、
+      // 随后又说"观看数加回去"，以最终要求为准；见 DEVLOG 第 55/57 条）
+      out.add(Article(
+        title: title,
+        url: href,
+        cover: cover,
+        meta: (el.querySelector('.post-view')?.text ?? '').trim(),
+        // ⚠️ 卡片上的分类名**不取**：footer 里那个 `rel="category tag"`（如"麻豆传媒"）
+        // 用户明确要求去掉（2026-10-01，见 DEVLOG 第 56 条）——挂 Article.tags 会在
+        // 卡片上渲染成可点胶囊。详情页的分类/标签不受影响（走 _mdDetail 的 .item-3/.article-tags）。
+      ));
+    }
+    final seen = <String>{};
+    return [
+      for (final a in out)
+        if (seen.add(a.url)) a
+    ];
+  }
+
+  /// 详情：标题/分类/标签/相关推荐/播放源（站点没有时长、系列、简介、发布时间）
+  Future<ArticleDetail> _mdDetail(String url) async {
+    final doc = hp.parse(await _fetchText(url));
+    final title = (doc.querySelector('.article-title')?.text ?? '').trim();
+    final catName = (doc.querySelector('.item-3 a')?.text ?? '').trim();
+    // 标签：slug = URL 最后一段（原始编码值，不解码——与其它站点做法一致）
+    final tags = <MapEntry<String, String>>[];
+    for (final a in doc.querySelectorAll('.article-tags a')) {
+      final name = a.text.trim();
+      final slug = _mdLastSeg(a.attributes['href'] ?? '');
+      if (name.isEmpty || slug.isEmpty) continue;
+      if (tags.any((e) => e.key == slug)) continue;
+      tags.add(MapEntry(slug, name));
+    }
+    // 相关推荐：标题取锚的文本（<a> 里只有一个缩进的 span>img，没有别的文本节点）
+    final related = <Article>[];
+    for (final a in doc.querySelectorAll('.postitems li a')) {
+      final href = _toRelPath(a.attributes['href'] ?? '');
+      final t = a.text.trim();
+      if (href.isEmpty || t.isEmpty || href == url) continue;
+      if (related.any((x) => x.url == href)) continue;
+      related.add(Article(
+        title: t,
+        url: href,
+        cover:
+            (a.querySelector('img[data-src]')?.attributes['data-src'] ?? '')
+                .trim(),
+        meta: '',
+      ));
+      if (related.length >= 12) break;
+    }
+    final play = await _mdPlayUrl(doc);
+    return ArticleDetail(
+      title: title.isEmpty ? url : title,
+      time: '',
+      categories: [if (catName.isNotEmpty) catName],
+      images: const [],
+      intro: '',
+      videos: [
+        if (play.isNotEmpty)
+          ArticleVideo(label: title, ordinal: 1, sources: [play]),
+      ],
+      tags: tags,
+      related: related,
+      seriesPrefix: '',
+    );
+  }
+
+  /// URL 最后一段（标签 slug 用；空链接返回空串）
+  static String _mdLastSeg(String href) {
+    final segs = href.split('/').where((s) => s.isNotEmpty).toList();
+    return segs.isEmpty ? '' : segs.last;
+  }
+
+  /// 麻豆社「热门标签」标签云页（/tags）——**不是文章卡片**，别用 _mdCards 解：
+  /// `.tagslist li` 里 `a.name`=标签名（href 是 /tag/{slug}）、`<small>`=文章数
+  /// （HTML 实体由 dom 包解出来，形如 ×2577）、`a.tit` 是"该标签下的一篇示例文章"
+  /// （**忽略**）。没有封面 → 卡片变纯文字卡。站点**没有分页**（实测无 .pagination）。
+  List<Article> _mdTags(String html) {
+    final doc = hp.parse(html);
+    final out = <Article>[];
+    for (final li in doc.querySelectorAll('.tagslist li')) {
+      final a = li.querySelector('a.name');
+      if (a == null) continue;
+      final title = a.text.trim();
+      final slug = _mdLastSeg(a.attributes['href'] ?? '');
+      if (title.isEmpty || slug.isEmpty) continue;
+      if (out.any((x) => x.url == '/tag/$slug')) continue;
+      out.add(Article(
+        title: title,
+        url: '/tag/$slug',
+        cover: '',
+        // 站点显示 "×N"（=该标签下的文章数），原样保留
+        meta: (li.querySelector('small')?.text ?? '').trim(),
+      ));
+    }
+    return out;
+  }
+
+  /// 播放源：正文第一个 iframe → dash.madou.club 分享页 → 页面里两行 JS
+  /// （token 是双引号、m3u8 是单引号）→ `https://dash.madou.club{m3u8}?token=`。
+  /// 任何一步拿不到就返回空串（videos 留空，不抛异常、不编假地址）；
+  /// token 只有 100 秒时效，过期靠上层「起播失败 → 重新抓详情页」兜底。
+  Future<String> _mdPlayUrl(Document doc) async {
+    final share = (doc.querySelector('.article-content iframe')
+                ?.attributes['src'] ??
+            '')
+        .trim();
+    if (share.isEmpty) return '';
+    final html = await _fetchAbs(share);
+    if (html.isEmpty) return '';
+    final tok =
+        RegExp(r'var\s+token\s*=\s*"([^"]*)"').firstMatch(html)?.group(1) ?? '';
+    final path =
+        RegExp(r"var\s+m3u8\s*=\s*'([^']*)'").firstMatch(html)?.group(1) ?? '';
+    if (tok.isEmpty || path.isEmpty) return '';
+    final abs = path.startsWith('http') ? path : 'https://dash.madou.club$path';
+    return '$abs?token=$tok';
   }
 
   /// 合集按需取源的缓存（url -> 播放源）与"进行中"的请求（同一集去重）

@@ -40,6 +40,16 @@ enum SiteTemplate {
   /// ?type=0 热门视频 / type=1 视频广场；列表 19 条/页、页码从 1 起；详情给
   /// https 直链 mp4（实测无防盗链）。站点没有搜索页、也没有标签。
   kmsvip,
+
+  /// 麻豆社（madou.club）：WordPress + 自研主题 showcase，卡片 `article.excerpt`
+  /// （**没有 itemscope**，和上面 5 个 wordpress 站的类名完全不是一套）。
+  /// 翻页：`/page/N`、`/category/{slug}/page/N`、`/tag/{slug}/page/N`、
+  /// `/?paged=N&s=kw`（是 paged）；榜单 /likes /week /month 没有翻页。
+  /// 站点**没有发布时间** → 卡片 meta 放观看数（".post-view" 里的数字，
+  /// 站点原文是"观看(59.26K)"，只留"59.26K"）。
+  /// 详情正文只有一个玩家 iframe（dash.madou.club 的分享页）：
+  /// 分享页里 token + m3u8 路径拼出唯一播放源（见 api.dart _mdDetail）。
+  madou,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -209,6 +219,51 @@ const List<MapEntry<String, String>> _pkSorts = [
   MapEntry('pv', '按观看数'),
   MapEntry('time', '按时长'),
   MapEntry('created', '最近添加'),
+];
+
+/// 麻豆社「其他原创/企划」的 28 个分类（照站点导航原顺序、原名）。
+/// key = 站点链接里那段**已编码的 slug**，逐字照抄站点导航（别自己重新编码）。
+/// ⚠️ 模拟器（sim/server.mjs）用正则解析本文件：子分类只能是①内联字面量数组、
+/// ②顶层 `const List<SiteTab> _xxx = [...]`，所以这里是顶层常量（同 _hgSorts）。
+const List<SiteTab> _mdOther = [
+  SiteTab('hongkongdoll', 'HongKongDoll'),
+  SiteTab('psychoporntw', 'PsychopornTW'),
+  SiteTab('91%e5%88%b6%e7%89%87%e5%8e%82', '91制片厂'),
+  SiteTab('%e6%9e%9c%e5%86%bb%e4%bc%a0%e5%aa%92', '果冻传媒'),
+  SiteTab('%e8%9c%9c%e6%a1%83%e5%bd%b1%e5%83%8f', '蜜桃影像'),
+  SiteTab('%e5%a4%a9%e7%be%8e%e4%bc%a0%e5%aa%92', '天美传媒'),
+  SiteTab('%e7%9a%87%e5%ae%b6%e5%8d%8e%e4%ba%ba', '皇家华人'),
+  SiteTab('%e5%85%94%e5%ad%90%e5%85%88%e7%94%9f', '兔子先生'),
+  SiteTab('%e6%98%9f%e7%a9%ba%e6%97%a0%e9%99%90%e4%bc%a0%e5%aa%92', '星空无限传媒'),
+  SiteTab('%e7%88%b1%e8%b1%86', '爱豆'),
+  SiteTab('%e9%ba%bb%e8%b1%86%e5%af%bc%e6%bc%94%e7%b3%bb%e5%88%97', '麻豆导演系列'),
+  SiteTab('%e5%a4%a7%e8%b1%a1%e4%bc%a0%e5%aa%92', '大象传媒'),
+  SiteTab('%e7%8c%ab%e7%88%aa%e5%bd%b1%e5%83%8f', '猫爪影像'),
+  SiteTab('%e7%b2%be%e4%b8%9c%e5%bd%b1%e4%b8%9a', '精东影业'),
+  SiteTab('%e6%9d%8f%e5%90%a7', '杏吧'),
+  SiteTab('%e4%b9%90%e6%92%ad%e4%bc%a0%e5%aa%92', '乐播传媒'),
+  SiteTab('%e8%8d%89%e8%8e%93', '草莓'),
+  SiteTab('%e6%8a%96%e9%98%b4', '抖阴'),
+  SiteTab('sa%e5%9b%bd%e9%99%85%e4%bc%a0%e5%aa%92', 'SA国际传媒'),
+  SiteTab('%e8%b5%b7%e7%82%b9%e4%bc%a0%e5%aa%92-%e6%80%a7%e8%a7%86%e7%95%8c%e4%bc%a0%e5%aa%92',
+      '起点传媒/性视界传媒'),
+  SiteTab('%e5%a4%a7%e9%b8%9f%e5%8d%81%e5%85%ab', '大鸟十八'),
+  SiteTab('%e5%b0%8f%e9%b9%8f%e5%a5%87%e5%95%aa%e8%a1%8c', '小鹏奇啪行'),
+  SiteTab('%e5%a5%b3%e4%bc%98%e6%b7%ab%e5%a8%83%e5%9f%b9%e8%ae%ad%e8%90%a5', '女优淫娃培训营'),
+  SiteTab('%e6%b7%ab%e6%ac%b2%e6%b8%b8%e6%88%8f%e7%8e%8b', '淫欲游戏王'),
+  SiteTab('%e5%a5%b3%e7%a5%9e%e7%be%9e%e7%be%9e%e7%a0%94%e7%a9%b6%e6%89%80', '女神羞羞研究所'),
+  SiteTab('%e7%aa%81%e8%a2%ad%e5%a5%b3%e4%bc%98%e5%ae%b6', '突袭女优家'),
+  SiteTab('%e6%83%85%e8%b6%a3k%e6%ad%8c%e6%88%bf', '情趣K歌房'),
+  SiteTab('kiss%e7%b3%96%e6%9e%9c%e5%b1%8b', 'KISS糖果屋'),
+];
+
+/// 麻豆社「筛选」的 3 个榜单（照站点导航：/likes /week /month）。
+/// 都以 / 开头 = 站内路径；**没有翻页**（/week /month 站点目前就是空的，
+/// 解析出 0 条 = 空列表，不是错）。
+const List<SiteTab> _mdScreens = [
+  SiteTab('/likes', '点赞排行'),
+  SiteTab('/week', '7天热门'),
+  SiteTab('/month', '30天热门'),
 ];
 
 const List<SiteEntry> kSites = [
@@ -693,5 +748,36 @@ const List<SiteEntry> kSites = [
       SiteTab('1', '视频广场'),
     ],
     color: Color(0xFFFF4D6A),
+  ),
+
+  // 麻豆社（madou.club，用户指定）：WordPress + 自研主题 showcase —— 卡片是
+  // `article.excerpt`（无 itemscope）、详情正文是玩家 iframe（dash.madou.club 的
+  // 分享页），跟上面 5 个 wordpress 站不是一套，所以单列 SiteTemplate.madou。
+  // 封面横版；每页 20 张卡（榜单 /likes 100 张）；站点**没有发布时间** → 卡片
+  // meta 放观看数（.post-view **原文**"观看(59.26K)"；曾按用户要求只留数字，
+  // 随后用户又要求"加回去"，以最终为准）。
+  // ⚠️ 卡片上**不显示分类名**（footer 的 rel="category tag"，如"麻豆传媒"）——
+  // 用户明确要求去掉（见 api.dart _mdCards 的注释）；详情页的分类/标签照旧。
+  // 分类 = 站点导航原顺序：首页 + 3 个主分类（麻豆传媒/番外篇/花絮）+「热门标签」
+  // +「其他原创/企划」的 28 个分类 +「筛选」的 3 个榜单。
+  SiteEntry(
+    name: '麻豆社',
+    template: SiteTemplate.madou,
+    iconUrl: '/favicon.ico',
+    hosts: ['madou.club'],
+    portraitCovers: false,
+    showRelated: true,
+    categories: [
+      // 空 key = 站点首页（api.dart 的 category() 里特判走 home 那条路——
+      // 不特判就会请求 /category/ → 站点 404）
+      SiteTab('', '首页'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e4%bc%a0%e5%aa%92', '麻豆传媒'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e7%95%aa%e5%a4%96%e7%af%87', '麻豆番外篇'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e8%8a%b1%e7%b5%ae', '麻豆花絮'),
+      SiteTab('筛选', '其他原创/企划', _mdOther),
+      // 标签云页 /tags：50 个标签卡，点进去是该标签的列表页（站点没有分页）
+      SiteTab('/tags', '热门标签'),
+      SiteTab('筛选', '筛选', _mdScreens),
+    ],
   ),
 ];
