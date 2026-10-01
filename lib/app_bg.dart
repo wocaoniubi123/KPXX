@@ -26,10 +26,16 @@ class AppBg extends ChangeNotifier {
   String? get filePath => _filePath;
   bool get isCustom => _filePath != null;
 
-  /// 铺满整屏用的图源
-  ImageProvider get image => _filePath == null
-      ? const AssetImage(defaultAsset)
-      : FileImage(File(_filePath!));
+  /// 铺满整屏用的图源。
+  ///
+  /// ⚠️ 必须分开 return，不能写成 `p == null ? AssetImage(..) : FileImage(..)`：
+  /// 三元表达式的静态类型会被推成 `Object`（两者只有 Object 这个公共超类），
+  /// 赋给 `ImageProvider` 直接编译失败（第 60 条首次构建就是这么挂的）。
+  ImageProvider get image {
+    final p = _filePath;
+    if (p == null) return const AssetImage(defaultAsset);
+    return FileImage(File(p));
+  }
 
   /// 启动时读一次；文件没了就当没设过（回默认图）
   Future<void> load() async {
