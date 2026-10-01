@@ -101,6 +101,12 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 换背景图时需要从相册选一张图片" Runner/Info.plist || \
             /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 换背景图时需要从相册选一张图片" Runner/Info.plist
           grep -n "NSPhotoLibraryUsageDescription" Runner/Info.plist
+          # 写相册权限（图集页左滑「导出」用 gal 存进系统相册）：iOS 14+ 走的是
+          # **addOnly**（只写）授权 —— 缺这条描述**直接崩**（gal 源码 GalPlugin.swift
+          # 的 hasAccess/requestAccess 分支：14+ 用 .addOnly，13 用全部权限）
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 导出背景图到系统相册时需要保存权限" Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 导出背景图到系统相册时需要保存权限" Runner/Info.plist
+          grep -n "NSPhotoLibraryAddUsageDescription" Runner/Info.plist
           grep -n "PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_STYLE\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE\|DEVELOPMENT_TEAM" Runner.xcodeproj/project.pbxproj | head -12
 
       - name: 生成导出选项 (Ad-hoc)

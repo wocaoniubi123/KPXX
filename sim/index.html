@@ -448,11 +448,16 @@
   .bgal-ago { flex: 1; min-width: 0; font-size: 12px; color: #9aa0a6; }
   .screen.hasbg .bgal-ago { color: #2f3642; }   /* 浅色图上灰字会糊 → 压深一档（同 .snote 那批） */
   .bgal-ok { color: #E8590C; font-weight: 700; }
-  /* 「删除」在行底下垫着：行透明了会把它透出来 → 只有滑开/正在拖的时候才显 */
-  .bgal-del { position: absolute; z-index: 0; top: 0; right: 0; width: 64px; height: 100%;
-    background: #e5484d; color: #fff; font-size: 13px; font-weight: 600;
-    display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .12s; }
-  .bgal-row[data-open="1"] + .bgal-del, .bgal-row[data-drag="1"] + .bgal-del { opacity: 1; }
+  /* 左滑露出的两个按钮（垫在行底下：行是透明的，不滑开就得藏住）：
+     ① 导出（真机 = 存进系统相册；模拟器没有相册 → 用浏览器下载代替）
+     ② 删除（⚠️ 用户要求：左滑不能直接删，必须露出按钮再点一下） */
+  .bgal-acts { position: absolute; z-index: 0; top: 0; right: 0; height: 100%;
+    display: flex; opacity: 0; transition: opacity .12s; }
+  .bgal-acts > div { width: 64px; display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .bgal-exp { background: #3c4043; }
+  .bgal-del { background: #e5484d; }
+  .bgal-row[data-open="1"] + .bgal-acts, .bgal-row[data-drag="1"] + .bgal-acts { opacity: 1; }
   /* ---------- 背景图卡片里"照真机 1:1"的两个按钮（_bgCard 的 _button）----------
      可用/主 = 橙底白字，不可用 = 浅灰底暗字。真机那两个按钮和模拟器专用按钮样式不同是故意的（那排是模拟器自己的）。 */
   .abtn { flex: 1; text-align: center; font-size: 14px; font-weight: 600; padding: 11px 0;
@@ -1776,6 +1781,24 @@ function bgAlbumApply(i) {
   renderAlbum();
 }
 
+/** 导出一条（真机 = 存进系统相册；模拟器没有相册 → 用浏览器下载代替）。
+    ⚠️ 跨域的图集值（外链图床）会被浏览器忽略 download 属性、变成直接打开图片 ——
+    这是浏览器的限制，不是这里写错了；站内的 alb1~5.jpg / bg_default.jpg 正常下载。 */
+function bgAlbumExport(i) {
+  const it = bgAlbum[i];
+  if (!it) return;
+  if (/gradient\(/.test(it.v)) { log('背景图集：示范渐变不是图片文件，导不出来', 'err'); return; }
+  const base = it.v.split('?')[0].split('/').pop() || '';
+  const a = document.createElement('a');
+  a.href = it.v;
+  a.download = /\.(jpe?g|png|webp|gif|bmp)$/i.test(base) ? base : `kpxx-bg-${i + 1}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  log(`背景图集：导出第 ${i + 1} 张 → ${a.download}（模拟器用浏览器下载代替相册，看下载栏）`, 'ok');
+  renderAlbum();   // 顺手收回滑开状态
+}
+
 /** 删一条；删的正好是当前在用的 → 切回内置默认图 */
 function bgAlbumDel(i) {
   const it = bgAlbum[i];
@@ -1802,7 +1825,10 @@ function bgAlbumRows() {
         <span class="bgal-ago">${esc(bgStamp(it.t))}</span>
         ${it.v === appBg ? '<span class="bgal-ok">✓</span>' : ''}
       </div>
-      <div class="bgal-del" onclick="bgAlbumDel(${i})">删除</div>
+      <div class="bgal-acts">
+        <div class="bgal-exp" onclick="bgAlbumExport(${i})">导出</div>
+        <div class="bgal-del" onclick="bgAlbumDel(${i})">删除</div>
+      </div>
     </div>`).join('');
 }
 
@@ -1812,11 +1838,11 @@ function renderAlbum() {
   if (box) box.innerHTML = bgAlbumRows();
 }
 
-/** 左滑删除：横拖行内容向左位移，露出右侧红色「删除」；没拖动 = 点一下 → 立即应用。
+/** 左滑露出右侧「导出 / 删除」两个按钮：横拖行内容向左位移；没拖动 = 点一下 → 立即应用。
     指针事件（鼠标 / 触摸同一套）。⚠️ 别用 setPointerCapture：它会把随后的 click 重定向
     （见 enableDragScroll 里的教训）。 */
 function bgAlbumSwipe(box) {
-  const W = 64;   // 「删除」按钮宽度 = 滑开的位移量（要跟 .bgal-del 的 width 一致）
+  const W = 128;   // = 两个按钮的总宽（各 64px，见 .bgal-acts > div）
   let row = null, x0 = 0, base = 0, moved = 0, dx = 0;
   const onMove = (e) => {
     dx = e.clientX - x0;
@@ -1862,8 +1888,8 @@ function viewAlbum() {
   $('body').innerHTML = `
     <div class="spage">
       <div class="scard" id="bgalList"></div>
-      <div class="snote">点一下立即应用；左滑一行露出「删除」——
-        删掉当前在用的那张会切回内置默认图</div>
+      <div class="snote">点一下立即应用；左滑一行露出「导出 / 删除」——
+        导出在真机是存进系统相册（模拟器用浏览器下载代替）；删掉当前在用的那张会切回内置默认图</div>
     </div>`;
   renderAlbum();
   bgAlbumSwipe($('bgalList'));

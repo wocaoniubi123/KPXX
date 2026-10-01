@@ -45,6 +45,10 @@ dependencies:
   image_picker: '>=1.1.0 <1.2.0'
   # 背景图存沙盒要拿 documents 目录（2.1.6 要 Flutter 3.38+ → 钉在 2.1.x）
   path_provider: '>=2.1.0 <2.1.6'
+  # 导出背景图到系统相册（图集页左滑「导出」）。2.3.3 的约束很松
+  # （sdk >=3.0.0 / flutter >=3.7.0、podspec ios.deployment_target 11.0），
+  # 3.24.5 可用；iOS 侧需要 Info.plist 两条权限（见 .github/workflows/ios.yml）
+  gal: '>=2.3.0 <3.0.0'
 
 dev_dependencies:
   flutter_lints: ^4.0.0
