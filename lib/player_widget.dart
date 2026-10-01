@@ -176,6 +176,16 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 卡住看门狗：播放中位置连续 9 秒不前进 → 判为卡住（真卡住才提示）
     _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final s = value;
+      // 恢复判断必须在下面那行早退**之前**：error 一旦置上，早退每轮都命中，
+      // 后面的逻辑全都不会执行 —— 放到 else 分支里等于永远不清。
+      // 清它不只是为了撤提示：`_onTick` 的 errEdge 是 `err && !_errShown`，
+      // 残留着 true 会让**后续的自动重试静默失效**（真挂掉时连一次都不重试）。
+      if (_stalled &&
+          s.error &&
+          (s.position - _lastPos).abs().inMilliseconds >= 500) {
+        _stalled = false;
+        value = value.copyWith(error: false, errorText: '');
+      }
       if (!s.playing || s.error) {
         _stuckMs = 0;
         _lastPos = s.position;
@@ -185,6 +195,7 @@ class KpPlayer extends ValueNotifier<KpState> {
         _stuckMs += 1000;
         if (_stuckMs >= _stuckLimitMs) {
           _stuckMs = 0;
+          _stalled = true; // 这次算"看门狗判的"：位置恢复前进时由它自己撤掉
           value = value.copyWith(
             error: true,
             errorText: _lastFatal.isEmpty
@@ -209,6 +220,10 @@ class KpPlayer extends ValueNotifier<KpState> {
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
 
+  /// 当前这个 error 是不是**看门狗自己判的卡住**（只有它才由看门狗自己撤）。
+  /// 起播失败那类 error 不归它管 —— 撤了会把"真失败"静默掉。
+  bool _stalled = false;
+
   /// 位置连续多久不前进就判为卡住（毫秒）
   static const int _stuckLimitMs = 9000;
 
@@ -223,6 +238,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
     value = value.copyWith(error: false, errorText: '', completed: false);
     _everStarted = false; // 新源重新算"还没播起来"
+    _stalled = false; // 错误已经清了 → 看门狗那个"我判的卡住"标记一并撤
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
@@ -1044,18 +1060,22 @@ class PlayerWidgetState extends State<PlayerWidget>
                   if (_fetchingLazy) _lazyHint(),
                   // 亮度/音量指示条
                   buildGauge(),
-                  // 播放出错：自动重试（最多 5 次）；重试用尽后给手动重试入口
+                  // 播放出错：只显示自动重试进度（最多 5 次），用完就静默。
+                  // 用户拍板（2026-10-01）：5 次都失败说明源/链路真有问题，**不再显示
+                  // 「点此重试」那套**（含 mpv 的英文原文）—— 退出重进等价，没必要再烦人。
+                  // 条件只看 `_error`（"这集本身没有/坏了"的中文说明），**不看 `_errShown`**：
+                  // 引擎错误走上面的 n/5 提示，用完就不打扰；这样也不会再出现
+                  // "视频已经在播、提示还挂着"（那个就是 `_errShown` 由看门狗置上、
+                  // 之后没人撤留下的）。
                   if (_autoRetrying)
                     _autoRetryHint()
-                  else if (_errShown || _error != null)
+                  else if (_error != null)
                     Center(
                       child: TextButton.icon(
-                        onPressed: _retry,
+                        onPressed: _busy ? null : _retry,
                         icon: const Icon(Icons.refresh, color: Colors.white),
                         label: Text(
-                          kp.value.errorText.isEmpty
-                              ? '播放出错，点此重试'
-                              : '播放出错：${kp.value.errorText}（点此重试）',
+                          _error!,
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white),
                         ),
