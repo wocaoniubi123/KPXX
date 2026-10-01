@@ -77,7 +77,7 @@
   /* ---------- 列表页 ---------- */
   .tabs {
     display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: transparent;
-    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none;
+    border-bottom: 1px solid transparent; flex: 0 0 auto; scrollbar-width: none;
     touch-action: pan-x;   /* 触屏：浏览器原生横滑；鼠标拖动由 JS 处理 */
   }
   .tabs::-webkit-scrollbar { display: none; }
@@ -88,11 +88,16 @@
   .tabs .tab.on { color: #8d4b2a; border-color: #8d4b2a; font-weight: 600; }
   /* 子分类行（黄果的排序 / 91porna 的子频道） */
   .subbar { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: transparent;
-    border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none; touch-action: pan-x; }
+    border-bottom: 1px solid transparent; flex: 0 0 auto; scrollbar-width: none; touch-action: pan-x; }
   .subbar::-webkit-scrollbar { display: none; }
   .subbar .sub { flex: 0 0 auto; padding: 5px 12px; border-radius: 15px; font-size: 12px;
-    background: #f0f0f2; color: #444; cursor: pointer; white-space: nowrap; }
+    background: transparent; border: 1px solid rgba(60,60,60,.35); color: #2c2c2c; cursor: pointer; white-space: nowrap; }
   .subbar .sub.on { background: #e8590c; color: #fff; }
+  /* Hanime1 的四个筛选下拉（標籤/排序方式/發佈日期/時長）：裸 <button>，
+     原来吃的是全局 button 样式（浅灰实心框）→ 覆盖成透明底+细描边，和 App 一致 */
+  .hnbar { background: transparent; }
+  .hnbar button { background: transparent; border: 1px solid rgba(60,60,60,.35);
+    color: #2c2c2c; border-radius: 8px; }
   /* 二级子分类行：小一号、底色浅，跟一级区分 */
   .subbar.l2 { background: #fafafa; padding: 5px 12px; gap: 6px; }
   .subbar.l2 .sub { padding: 4px 10px; font-size: 11px; border-radius: 13px; }
@@ -164,17 +169,17 @@
   /* 黄果短剧的选集：横向排，按宽度自动换行（用户要求，仅这站这么显示） */
   .vchips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* Pektino 的筛选行（多级分类：主题/时长/排序） */
-  .pkbar button { border: 1px solid #ddd; background: #fff; border-radius: 8px;
+  .pkbar button { border: 1px solid rgba(60,60,60,.35); background: transparent; border-radius: 8px;
     padding: 5px 10px; font-size: 13px; cursor: pointer; }
   .pkbar select { border: 1px solid #ddd; border-radius: 8px; padding: 4px 6px;
     font-size: 13px; background: #fff; }
-  .pktag { font-size: 12px; padding: 5px 10px; border-radius: 8px; background: #f0f0f2;
+  .pktag { font-size: 12px; padding: 5px 10px; border-radius: 8px; background: transparent; border: 1px solid rgba(60,60,60,.35);
     color: #444; cursor: pointer; }
   .pktag.on { background: #e8590c; color: #fff; font-weight: 600; }
   /* Pektino：瀑布流两列（卡片按顺序轮流放、列内连续；照站点，不留空档） */
   .cards.pk { display: flex; gap: 10px; align-items: flex-start; }
   .cards.pk .pkcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-  .vchip { padding: 5px 10px; border-radius: 8px; background: #f0f0f2; color: #444;
+  .vchip { padding: 5px 10px; border-radius: 8px; background: transparent; border: 1px solid rgba(60,60,60,.35); color: #444;
     font-size: 12px; line-height: 1.2; cursor: pointer; }
   .vchip.on { background: #e8590c; color: #fff; font-weight: 600; }
   .stills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; touch-action: pan-x; }

@@ -22,11 +22,16 @@ class AppBackground extends StatelessWidget {
       builder: (context, _) => Stack(
         fit: StackFit.expand,
         children: [
-          Image(
-            image: AppBg.i.image,
-            fit: BoxFit.cover,
-            gaplessPlayback: true, // 换图时别闪白
-            // 背景图解码尺寸已在选图/打包时限制过，这里不再额外处理
+          // ⚠️ 背景图必须单独一个 repaint 层：它和 Navigator 同在一个 Stack 里，
+          // 不隔离的话每次转场（push/pop 每帧）都要把这张全屏大图重新 raster，
+          // 表现就是"点了没反应、过一会儿才慢慢切过去"（用户实测 0.5s 卡顿）。
+          RepaintBoundary(
+            child: Image(
+              image: AppBg.i.image,
+              fit: BoxFit.cover,
+              gaplessPlayback: true, // 换图时别闪白
+              // 背景图解码尺寸已在选图/打包时限制过，这里不再额外处理
+            ),
           ),
           child,
         ],

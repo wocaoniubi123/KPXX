@@ -468,9 +468,13 @@ class _HomePageState extends State<HomePage>
               padding:
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
+                // 同 _chipsRow：未选中透明底 + 细描边（图能透出来）
                 color: _theme == t.key
                     ? const Color(0xFFE8590C)
-                    : const Color(0xFFF0F0F2),
+                    : Colors.transparent,
+                border: _theme == t.key
+                    ? null
+                    : Border.all(color: const Color(0x593C3C3C)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -481,7 +485,7 @@ class _HomePageState extends State<HomePage>
                         _theme == t.key ? FontWeight.w600 : FontWeight.w400,
                     color: _theme == t.key
                         ? Colors.white
-                        : const Color(0xFF444444)),
+                        : const Color(0xFF2C2C2C)),
               ),
             ),
           ),
@@ -546,6 +550,11 @@ class _HomePageState extends State<HomePage>
           controller: _tab,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
+          // 透明化：M3 的 TabBar 默认在下面画一条浅灰分割线，压在背景图上很突兀
+          dividerColor: Colors.transparent,
+          indicatorColor: const Color(0xFFE8590C),
+          labelColor: const Color(0xFFE8590C),
+          unselectedLabelColor: const Color(0xFF3A3A3A),
           tabs: [
             for (final c in _cats) Tab(text: c.name),
           ],
@@ -601,7 +610,10 @@ class _HomePageState extends State<HomePage>
     bool compact = false, // 二级子分类行：小一号、底色浅一点，跟一级区分开
   }) {
     return Container(
-      color: compact ? const Color(0xFFFAFAFA) : Colors.white,
+      // 透明：原来是一级 `Colors.white` / 二级 `0xFFFAFAFA`，两行深浅不同，
+      // 交界处出现一条灰缝，而且整条把背景图挡死（用户截图指的就是这个）。
+      // 胶囊自己保留浅色底（小方块，不挡图、保证字看得清）。
+      color: Colors.transparent,
       padding: EdgeInsets.symmetric(vertical: compact ? 4 : 6),
       child: SizedBox(
         height: compact ? 26 : 30,
@@ -620,14 +632,20 @@ class _HomePageState extends State<HomePage>
                 alignment: Alignment.center,
                 padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
                 decoration: BoxDecoration(
-                  color: on ? const Color(0xFFE8590C) : const Color(0xFFF0F0F2),
+                  // 未选中：**透明底 + 细描边**（用户指定效果：背景图从胶囊里透出来，
+                  // 不要浅灰实心块）；选中的保持品牌橙实底
+                  color: on ? const Color(0xFFE8590C) : Colors.transparent,
+                  border: on
+                      ? null
+                      : Border.all(color: const Color(0x593C3C3C)),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
                   s.name,
                   style: TextStyle(
                     fontSize: compact ? 11 : 12,
-                    color: on ? Colors.white : const Color(0xFF444444),
+                    color: on ? Colors.white : const Color(0xFF2C2C2C),
+                    // 描边胶囊里字要压深一点（浅灰在图上会糊）
                   ),
                 ),
               ),

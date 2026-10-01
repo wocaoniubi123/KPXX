@@ -64,6 +64,10 @@ class AppBg extends ChangeNotifier {
     final dir = await getApplicationDocumentsDirectory();
     final dst = File('${dir.path}${Platform.pathSeparator}bg_custom.jpg');
     await File(picked.path).copy(dst.path);
+    // ⚠️ 每次都覆写同一个路径 → FileImage 的缓存键是 (路径, scale)，路径没变，
+    // ImageCache 会把**第一次解码的那张旧图**继续给你（用户实测：换第二张还是第一张）。
+    // 覆写完必须 evict 掉这个条目，下一帧才会重新读盘解码。
+    await FileImage(dst).evict();
     _filePath = dst.path;
     notifyListeners();
     try {

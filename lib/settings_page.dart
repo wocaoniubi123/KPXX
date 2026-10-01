@@ -21,14 +21,20 @@ class SettingsPage extends StatelessWidget {
   static const Color _deep = Color(0xFFD1550F); // 分段控件选中字色
   static const Color _sub = Color(0xFF2F3642); // 说明/小字（压深一档，图上看得清）
 
+  /// 本页依赖的三份状态。**必须建一次复用**：写在 build 里会每次重建都新建一个
+  /// merged Listenable（旧监听被摘/新监听挂上），配合下面的 key 一起，
+  /// 才不会在跳转那一帧把记录行整行重建（用户反馈「进全部记录时设置页闪一下」）。
+  /// PlayHistory.i 也要听：看完视频回来，预览的进度/条数得是新的。
+  static final Listenable _deps =
+      Listenable.merge([AppSettings.i, AppBg.i, PlayHistory.i]);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(title: const Text('设置'), centerTitle: true),
       body: ListenableBuilder(
-        // 两个都要刷：设置改完要换选中态，背景换完要换缩略图
-        listenable: Listenable.merge([AppSettings.i, AppBg.i]),
+        listenable: _deps,
         builder: (context, _) => ListView(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 22),
           children: [
@@ -69,9 +75,14 @@ class SettingsPage extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const PlayHistoryPage()),
               ),
             ),
-            // 预览只显示前 3 条；点「N 条 ›」进整页
+            // 预览只显示前 3 条；点「N 条 ›」进整页。
+            // key 用记录去重键：列表内容变了也只做增量重建，封面不会被重挂载（闪一下的来源）
             for (final r in list.take(3))
-              PlayRecordTile(record: r, onTap: () => _open(context, r)),
+              PlayRecordTile(
+                key: ValueKey(r.key),
+                record: r,
+                onTap: () => _open(context, r),
+              ),
           ],
         ],
       ),

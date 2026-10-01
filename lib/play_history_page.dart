@@ -48,6 +48,7 @@ class PlayHistoryPage extends StatelessWidget {
             itemBuilder: (context, i) {
               final r = list[i];
               return PlayRecordTile(
+                key: ValueKey(r.key), // 稳定身份：增删一条时别把整列封面重挂载
                 record: r,
                 onTap: () => _open(context, r),
                 onDelete: () => PlayHistory.i.remove(r.key),
