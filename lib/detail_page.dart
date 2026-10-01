@@ -224,6 +224,16 @@ class DetailPageState extends State<DetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏 / 标题 / 小字 / 小节标题都读 kTxt）。
+    // ⚠️ 必须在 builder 里重建页面：把 widget 实例直接交给 builder，
+    // Flutter 会因"实例相同"跳过整棵子树的重建，isDark 翻了也不会刷。
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     final d = _detail;
     final videos = d?.videos ?? const <ArticleVideo>[];
     final idx = videos.isEmpty
@@ -234,6 +244,7 @@ class DetailPageState extends State<DetailPage> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(widget.site.name),
+        foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         actions: [
           // 原生播放器卡的时候换网页那套引擎（hls.js，跳转更快）
           IconButton(
@@ -283,8 +294,10 @@ class DetailPageState extends State<DetailPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(d.title,
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: kTxt)),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -293,8 +306,8 @@ class DetailPageState extends State<DetailPage> {
                               const SizedBox(width: 4),
                               Text(
                                 _fmtTime(d.time),
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.grey),
+                                style: TextStyle(
+                                    fontSize: 12, color: kTxtSub),
                               ),
                               const SizedBox(width: 12),
                               // 显示本篇的视频数（原来显示的是"同系列文章数"，
@@ -302,14 +315,14 @@ class DetailPageState extends State<DetailPage> {
                               // 图文帖（没有视频）就不显示这一段，别写"0 集"
                               if (videos.isNotEmpty)
                                 Text('${videos.length} 集',
-                                    style: const TextStyle(
-                                        fontSize: 12, color: Colors.grey)),
+                                    style: TextStyle(
+                                        fontSize: 12, color: kTxtSub)),
                               // 站点自带时长（如 91porna 的 1:00:39、黄果的 3:34）
                               if (d.duration.isNotEmpty) ...[
                                 const SizedBox(width: 12),
                                 Text('时长 ${d.duration}',
-                                    style: const TextStyle(
-                                        fontSize: 12, color: Colors.grey)),
+                                    style: TextStyle(
+                                        fontSize: 12, color: kTxtSub)),
                               ],
                             ],
                           ),
@@ -317,8 +330,10 @@ class DetailPageState extends State<DetailPage> {
                           if (videos.length > 1) ...[
                             const SizedBox(height: 14),
                             Text('视频（${videos.length}）',
-                                style: const TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                                style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: kTxt)),
                             const SizedBox(height: 6),
                             // 竖屏封面站（黄果短剧）：选集**横向排、按宽度自动换行**
                             // 的胶囊（这站是"第 N 集"这种短标签，竖排太占地方）；
@@ -405,7 +420,8 @@ class DetailPageState extends State<DetailPage> {
                                                 fontSize: 13,
                                                 fontWeight: i == idx
                                                     ? FontWeight.w700
-                                                    : FontWeight.w500),
+                                                    : FontWeight.w500,
+                                                color: kTxt),
                                           ),
                                         ),
                                       ],
@@ -416,16 +432,18 @@ class DetailPageState extends State<DetailPage> {
                           // 简介
                           if (d.intro.isNotEmpty) ...[
                             const SizedBox(height: 14),
-                            const Text('简介',
+                            Text('简介',
                                 style: TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: kTxt)),
                             const SizedBox(height: 6),
                             Text(
                               d.intro,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 13,
                                   height: 1.5,
-                                  color: Colors.black87),
+                                  color: kTxt),
                             ),
                           ],
                           // 选集横条（同系列文章）
@@ -436,9 +454,11 @@ class DetailPageState extends State<DetailPage> {
                           // 剧照：横向小图，点开看大图
                           if (d.images.isNotEmpty) ...[
                             const SizedBox(height: 14),
-                            const Text('剧照',
+                            Text('剧照',
                                 style: TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: kTxt)),
                             const SizedBox(height: 8),
                             SizedBox(
                               height: 84,
@@ -478,9 +498,11 @@ class DetailPageState extends State<DetailPage> {
                           // 相关推荐（规范：必须显示在「剧照」下方）
                           if (d.related.isNotEmpty) ...[
                             const SizedBox(height: 16),
-                            const Text('相关推荐',
+                            Text('相关推荐',
                                 style: TextStyle(
-                                    fontSize: 15, fontWeight: FontWeight.bold)),
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: kTxt)),
                             const SizedBox(height: 6),
                             for (final a in d.related)
                               InkWell(
@@ -519,9 +541,10 @@ class DetailPageState extends State<DetailPage> {
                                           a.title,
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               fontSize: 13,
-                                              fontWeight: FontWeight.w500),
+                                              fontWeight: FontWeight.w500,
+                                              color: kTxt),
                                         ),
                                       ),
                                     ],
@@ -761,9 +784,21 @@ class _TagListPageState extends State<TagListPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏标题 / 尾项文字读 kTxt）
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(),
+    );
+  }
+
+  Widget _pageView() {
     return Scaffold(
       backgroundColor: Colors.transparent, // 同上：吃根层背景图
-      appBar: AppBar(title: Text(widget.title), centerTitle: true),
+      appBar: AppBar(
+        title: Text(widget.title),
+        centerTitle: true,
+        foregroundColor: kTxt, // 标题/返回箭头直接压在图上 → 跟明暗
+      ),
       body: _items.isEmpty
           ? Center(
               child: _error != null
@@ -779,12 +814,12 @@ class _TagListPageState extends State<TagListPage> {
               // 到底后显示"没有更多了"，不再空转圈（同列表/搜索页）
               tail: () {
                 if (_done) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
                     child: Center(
                         child: Text('没有更多了',
                             style: TextStyle(
-                                color: Colors.grey, fontSize: 12))),
+                                color: kTxtSub, fontSize: 12))),
                   );
                 }
                 _more();

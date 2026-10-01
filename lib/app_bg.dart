@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
@@ -38,6 +40,53 @@ class AppBg extends ChangeNotifier {
     return FileImage(File(p));
   }
 
+  /// 背景图偏深还是偏浅 → "直接浮在图上的文字"照它切黑白（见 app_background.dart 的 kTxt）。
+  /// 判定不了（读字节/解码失败）一律 false = 按浅色处理，不抛给调用方。
+  bool _isDark = false;
+  bool get isDark => _isDark;
+
+  /// 重算明暗：位图缩到 32px 宽 → 逐像素算亮度 `0.299R+0.587G+0.114B`（0~1）
+  /// → 数亮度 < 0.5 的像素占比，**> 50% 判深色**（照模拟器 sim/index.html 的 bgIsDark）。
+  ///
+  /// 像素量是常数级（32×~24），换图/启动各跑一次，不阻塞 UI。
+  Future<void> _judgeDark() async {
+    final key = _filePath; // 判定期间又换图 → 这次结果作废（同 sim 的 bgJudged 守卫）
+    var dark = false;
+    try {
+      // 内置图走 asset 字节，自选图读沙盒文件；失败一律当浅色
+      final data = key == null ? await rootBundle.load(defaultAsset) : null;
+      final bytes = data != null
+          ? data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes)
+          : await File(key!).readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 32);
+      final img = (await codec.getNextFrame()).image;
+      final px = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+      codec.dispose();
+      img.dispose();
+      if (px != null) {
+        final rgba = px.buffer.asUint8List(px.offsetInBytes, px.lengthInBytes);
+        var darkPx = 0;
+        for (var i = 0; i < rgba.length; i += 4) {
+          final l =
+              (0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]) /
+                  255;
+          if (l < 0.5) darkPx++;
+        }
+        final total = rgba.length ~/ 4;
+        final ratio = total == 0 ? 0.0 : darkPx / total;
+        dark = ratio > 0.5;
+        debugPrint('背景明暗：暗像素占比 ${(ratio * 100).toStringAsFixed(1)}% '
+            '→ ${dark ? '深色' : '浅色'}');
+      }
+    } catch (e) {
+      debugPrint('背景明暗：判定失败，按浅色处理（$e）');
+      dark = false;
+    }
+    if (key != _filePath) return; // 判定期间又换了图 → 丢弃这次结果
+    _isDark = dark;
+    notifyListeners();
+  }
+
   /// 启动时读一次；文件没了就当没设过（回默认图）
   Future<void> load() async {
     try {
@@ -51,6 +100,7 @@ class AppBg extends ChangeNotifier {
     } catch (_) {
       // 读失败就用默认图，不影响启动
     }
+    await _judgeDark(); // 定明暗（贴图文字的黑白靠它）
   }
 
   /// 清扫孤儿自选图：只保留当前这张，其它 `bg_custom_*.jpg`（含老版本的
@@ -106,6 +156,7 @@ class AppBg extends ChangeNotifier {
     await FileImage(dst).evict(); // 双保险（新 key 本来也命中不了旧缓存）
     _filePath = dst.path;
     notifyListeners();
+    await _judgeDark(); // 换了图 → 重新定明暗
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setString(_kPath, dst.path);
@@ -139,5 +190,6 @@ class AppBg extends ChangeNotifier {
     } catch (_) {
       // 同上：失败只影响下次启动
     }
+    await _judgeDark(); // 回默认图 → 重新定明暗
   }
 }

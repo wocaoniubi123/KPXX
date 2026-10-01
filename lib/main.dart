@@ -47,13 +47,10 @@ class KpxxApp extends StatelessWidget {
           type: BottomNavigationBarType.fixed,
         ),
       ),
-      // 背景层铺在最底下（含顶栏/底栏/状态栏区域），再把整棵树包一层文字描边：
-      // 描边只加给字、不动图 —— 用户换任何一张背景图都能看清
+      // 背景层铺在最底下（含顶栏/底栏/状态栏区域）；文字可读性靠**按背景明暗自适应
+      // 黑白字**（app_background.dart 的 kTxt）—— 不加描边、不加光晕（用户否掉了）
       builder: (context, child) => AppBackground(
-        child: DefaultTextStyle.merge(
-          style: const TextStyle(shadows: kTextHalo),
-          child: child ?? const SizedBox.shrink(),
-        ),
+        child: child ?? const SizedBox.shrink(),
       ),
       home: const RootPage(),
     );
@@ -110,6 +107,16 @@ class _RootPageState extends State<RootPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（底栏标签 = kTxt / 选中浅橙，都不是常量）。
+    // ⚠️ 必须在 builder 里重新构造页面：把 widget 实例直接交给 builder，
+    // Flutter 会因"实例相同"跳过整棵子树的重建，isDark 翻了也不会刷。
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -122,8 +129,11 @@ class _RootPageState extends State<RootPage> {
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Theme.of(context).colorScheme.primary,
-        unselectedItemColor: Colors.black45,
+        // 底栏直接压在背景图上 → 跟着明暗翻（选中用模拟器里的浅橙）
+        selectedItemColor: AppBg.i.isDark
+            ? const Color(0xFFFFB07A)
+            : Theme.of(context).colorScheme.primary,
+        unselectedItemColor: AppBg.i.isDark ? Colors.white : Colors.black45,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.grid_view_rounded),
@@ -155,13 +165,22 @@ class ModuleGridPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 同上：宫格图标名读 kTxt，整页要跟着背景明暗重建
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _grid(context),
+    );
+  }
+
+  Widget _grid(BuildContext context) {
     return Scaffold(
       // 透明：让根层的背景图从这里透出来（顶栏也是透明的，见 theme）
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const KpxxLogo(),
+        title: const KpxxLogo(), // 橙底黑字，自带底色不跟明暗走
         centerTitle: true,
         elevation: 0,
+        foregroundColor: kTxt, // 顶栏图标（返回/操作）跟着背景明暗
       ),
       body: SafeArea(
         child: GridView.builder(
@@ -238,7 +257,7 @@ class _SiteTile extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              style: TextStyle(fontSize: 12, color: kTxt),
             ),
           ),
         ],

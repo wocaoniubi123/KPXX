@@ -13,11 +13,20 @@ class PlayHistoryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏标题/图标、记录行文字都读 kTxt）
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent, // 外层已铺背景图，别挡掉
       appBar: AppBar(
         title: const Text('播放记录'),
         centerTitle: true,
+        foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         actions: [
           ListenableBuilder(
             listenable: PlayHistory.i,
@@ -36,9 +45,9 @@ class PlayHistoryPage extends StatelessWidget {
         builder: (context, _) {
           final list = PlayHistory.i.records;
           if (list.isEmpty) {
-            return const Center(
+            return Center(
               child: Text('还没有播放记录',
-                  style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  style: TextStyle(color: kTxtSub, fontSize: 13)),
             );
           }
           return ListView.separated(

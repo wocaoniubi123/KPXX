@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_background.dart';
 import 'fetched_image.dart';
 import 'settings.dart';
 
@@ -43,10 +44,11 @@ class PlayRecordTile extends StatelessWidget {
                     record.title.isEmpty ? record.url : record.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       height: 1.3,
+                      color: kTxt,
                     ),
                   ),
                   const SizedBox(height: 7),
@@ -58,9 +60,9 @@ class PlayRecordTile extends StatelessWidget {
                     record.site,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: Color(0xFF2F3642),
+                      color: kTxt,
                     ),
                   ),
                 ],
@@ -70,7 +72,7 @@ class PlayRecordTile extends StatelessWidget {
               IconButton(
                 tooltip: '删除',
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.close, size: 18, color: Colors.black38),
+                icon: Icon(Icons.close, size: 18, color: kTxt),
                 onPressed: onDelete,
               ),
           ],
@@ -123,7 +125,7 @@ class PlayRecordTile extends StatelessWidget {
 
   /// 左 = 进度小字，右 = 相对时间
   Widget _meta() {
-    const style = TextStyle(fontSize: 11, color: Color(0xFF2F3642));
+    final style = TextStyle(fontSize: 11, color: kTxtSub);
     final total = _fmt(record.duration);
     final done = record.finished;
     // 看完的显式标"已看完"；没时长的只报百分比（别显示 0:00 / 0:00）

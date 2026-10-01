@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 
 import 'app_bg.dart';
 
@@ -9,8 +9,8 @@ import 'app_bg.dart';
 ///    所以不会出现 Web 那种"背景盖住内容"的层叠坑（那边要额外加 z-index）。
 /// 2. 页面自己必须透明：见 main.dart 的 theme（scaffold / appBar / 底栏都设成
 ///    Colors.transparent）。**不透明底色在哪一层，背景就会在哪一层断掉。**
-/// 3. 图**不压任何白纱/蒙版** —— 用户明确嫌"发白"，可读性靠文字描边解决
-///    （见 main.dart 的 kTextHalo）。
+/// 3. 图**不压任何白纱/蒙版** —— 用户明确嫌"发白"；可读性靠**按背景明暗自适应
+///    黑白字**解决（见下面的 kTxt / kTxtSub / kChipBorder），不加描边/光晕。
 class AppBackground extends StatelessWidget {
   final Widget child;
   const AppBackground({super.key, required this.child});
@@ -40,13 +40,22 @@ class AppBackground extends StatelessWidget {
   }
 }
 
-/// 文字描边（白色光晕）。**只加给字，不动背景图** —— 这样换任何一张背景都看得清，
-/// 又不会把图冲淡。参数是照模拟器里调过的那套（用户先嫌"泡白"、又嫌"晃眼"）。
-const List<Shadow> kTextHalo = [
-  Shadow(color: Color(0xC7FFFFFF), blurRadius: 1),
-  Shadow(color: Color(0x61FFFFFF), blurRadius: 2.5),
-  Shadow(color: Color(0x1A000000), offset: Offset(0, 1), blurRadius: 1),
-];
+/// 直接浮在背景图上的文字色：深色图→白、浅色图→深（照模拟器 `.darkbg` 那套）。
+///
+/// **只给"直接贴图"的字用**：字压在自己底色上的（白底卡片 / 分段控件 / 带底色按钮 /
+/// 输入框 / 图标方块里的字 / 播放器覆盖层）一律别用，翻了就看不清。
+///
+/// ⚠️ 这只是取值，不会自己触发重建：读它的控件要挂在 `AppBg.i` 上
+/// （`ListenableBuilder` 或已有的 merged `Listenable`）才会随明暗刷新。
+Color get kTxt => AppBg.i.isDark ? Colors.white : const Color(0xFF1B1B1F);
+
+/// 次级文字（说明/时间/站点名等）：深色图上不用纯白，柔一档
+Color get kTxtSub =>
+    AppBg.i.isDark ? const Color(0xFFE8E8EC) : const Color(0xFF3B4250);
+
+/// 描边胶囊的边框（未选中态）：深色图上深边框看不见，转浅
+Color get kChipBorder =>
+    AppBg.i.isDark ? const Color(0x8CFFFFFF) : const Color(0x593C3C3C);
 
 /// **每个被 push 的页面都要套这一层。**
 ///

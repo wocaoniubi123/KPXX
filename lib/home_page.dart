@@ -63,12 +63,15 @@ Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 10),
+        // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
+        side: BorderSide(color: kChipBorder),
       ),
       child: Text(
         on ? '$label ●' : label,
         style: TextStyle(
             fontSize: 13,
-            color: on ? const Color(0xFFE8590C) : const Color(0xFF444444)),
+            // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
+            color: on ? const Color(0xFFE8590C) : kTxt),
       ),
     );
 
@@ -531,6 +534,16 @@ class _HomePageState extends State<HomePage>
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏/TabBar/胶囊/空态文字都读 kTxt）。
+    // ⚠️ 必须在 builder 里重建页面：把 widget 实例直接交给 builder，
+    // Flutter 会因"实例相同"跳过整棵子树的重建，isDark 翻了也不会刷。
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     final idx = _cats.isEmpty ? 0 : _tab.index.clamp(0, _cats.length - 1);
     final cur = _cats.isEmpty ? null : _cats[idx];
     final l1 = cur == null ? null : _level1(cur);
@@ -541,6 +554,7 @@ class _HomePageState extends State<HomePage>
       appBar: AppBar(
         title: Text(widget.site.name),
         centerTitle: true,
+        foregroundColor: kTxt, // 标题/搜索图标直接压在图上 → 跟明暗
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -554,8 +568,12 @@ class _HomePageState extends State<HomePage>
           // 透明化：M3 的 TabBar 默认在下面画一条浅灰分割线，压在背景图上很突兀
           dividerColor: Colors.transparent,
           indicatorColor: const Color(0xFFE8590C),
-          labelColor: const Color(0xFFE8590C),
-          unselectedLabelColor: const Color(0xFF3A3A3A),
+          // 分类 tab 也直接压在图上：选中用模拟器的浅橙，未选中跟明暗翻
+          labelColor: AppBg.i.isDark
+              ? const Color(0xFFFFB07A)
+              : const Color(0xFFE8590C),
+          unselectedLabelColor:
+              AppBg.i.isDark ? Colors.white : const Color(0xFF3A3A3A),
           tabs: [
             for (final c in _cats) Tab(text: c.name),
           ],
@@ -634,19 +652,17 @@ class _HomePageState extends State<HomePage>
                 padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
                 decoration: BoxDecoration(
                   // 未选中：**透明底 + 细描边**（用户指定效果：背景图从胶囊里透出来，
-                  // 不要浅灰实心块）；选中的保持品牌橙实底
+                  // 不要浅灰实心块）；选中的保持品牌橙实底。
+                  // 描边色也跟明暗走（深边框在深色图上等于没有）
                   color: on ? const Color(0xFFE8590C) : Colors.transparent,
-                  border: on
-                      ? null
-                      : Border.all(color: const Color(0x593C3C3C)),
+                  border: on ? null : Border.all(color: kChipBorder),
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
                   s.name,
                   style: TextStyle(
                     fontSize: compact ? 11 : 12,
-                    color: on ? Colors.white : const Color(0xFF2C2C2C),
-                    // 描边胶囊里字要压深一点（浅灰在图上会糊）
+                    color: on ? Colors.white : kTxt,
                   ),
                 ),
               ),
@@ -796,13 +812,13 @@ class _FeedViewState extends State<_FeedView>
           ? (feed.error
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [
+                  children: [
                     Padding(
-                      padding: EdgeInsets.only(top: 120),
+                      padding: const EdgeInsets.only(top: 120),
                       child: Center(
                           child: Text('加载失败，请下拉重试',
                               style:
-                                  TextStyle(color: Colors.grey, fontSize: 14))),
+                                  TextStyle(color: kTxtSub, fontSize: 14))),
                     ),
                   ],
                 )
@@ -831,12 +847,12 @@ class _FeedViewState extends State<_FeedView>
               tail: () {
                 if (feed._done) {
                   // 到底就明说（同搜索页）：别让圈圈一直空转
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
                     child: Center(
                         child: Text('没有更多了',
                             style: TextStyle(
-                                color: Colors.grey, fontSize: 12))),
+                                color: kTxtSub, fontSize: 12))),
                   );
                 }
                 feed.ensureMore();
@@ -1241,15 +1257,34 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏图标 / 筛选行 / 尾项文字都读 kTxt）
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: TextField(
           controller: _ctl,
           focusNode: _focus,
           textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(hintText: '输入关键词即可搜索'),
+          // 输入框自身透明（直接压在照片上）：字和提示词都要跟明暗翻，
+          // 不然深色图下白底没有、字也是深色 = 看不见。
+          // ⚠️ 用 bodyLarge.copyWith(color:) 而不是只给一个 color：bodyLarge 就是
+          // M3 下输入框/提示词的默认字型，这样写在"整体替换"和"与默认合并"两种
+          // 语义下结果一致；只给 color 时若框架是替换语义会连字号/行高一起丢掉。
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: kTxt),
+          decoration: InputDecoration(
+            hintText: '输入关键词即可搜索',
+            hintStyle:
+                Theme.of(context).textTheme.bodyLarge?.copyWith(color: kTxtSub),
+          ),
           onSubmitted: (_) => _search(),
         ),
+        foregroundColor: kTxt, // 返回箭头直接压在图上 → 跟明暗
         actions: [
           TextButton(onPressed: _search, child: const Text('搜索')),
         ],
@@ -1284,13 +1319,12 @@ class _SearchPageState extends State<SearchPage> {
                           if (_done) {
                             // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
                             // 看起来像"卡住了"）
-                            return const Padding(
-                              padding: EdgeInsets.all(16),
+                            return Padding(
+                              padding: const EdgeInsets.all(16),
                               child: Center(
                                   child: Text('没有更多了',
                                       style: TextStyle(
-                                          color: Colors.grey,
-                                          fontSize: 12))),
+                                          color: kTxtSub, fontSize: 12))),
                             );
                           }
                           _search(more: true);

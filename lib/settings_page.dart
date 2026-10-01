@@ -11,8 +11,8 @@ import 'sites.dart';
 /// 设置页（改版：卡片分组 + 分段控件 + 开关 + 播放记录预览）。
 ///
 /// 1:1 照模拟器 `viewSettings()`（sim/index.html）翻译。几个刻意一致的点：
-/// - 卡片**没有白底**（透明）——背景图直接透出来，可读性靠 main.dart 的
-///   全局 `DefaultTextStyle.merge(shadows: kTextHalo)` 描边，这里**不再加 shadows**
+/// - 卡片**没有白底**（透明）——背景图直接透出来，可读性靠**按背景明暗自适应
+///   黑白字**（app_background.dart 的 kTxt/kTxtSub），**不加描边/光晕**
 /// - 分段控件自绘（模拟器 `.seg` 的样子），不用 ChoiceChip
 /// - 整页透明：外层 `AppBackground` 铺背景图，不透明底色会把它挡掉
 class SettingsPage extends StatelessWidget {
@@ -20,7 +20,6 @@ class SettingsPage extends StatelessWidget {
 
   static const Color _orange = Color(0xFFE8590C); // 主色（开关、主按钮）
   static const Color _deep = Color(0xFFD1550F); // 分段控件选中字色
-  static const Color _sub = Color(0xFF2F3642); // 说明/小字（压深一档，图上看得清）
 
   /// 本页依赖的三份状态。**必须建一次复用**：写在 build 里会每次重建都新建一个
   /// merged Listenable（旧监听被摘/新监听挂上），配合下面的 key 一起，
@@ -31,9 +30,22 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建：body 那层本来就在听 _deps，但**顶栏在 Scaffold 上**
+    // （foregroundColor: kTxt），外面不再包一层的话标题不会跟着刷。
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('设置'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('设置'),
+        centerTitle: true,
+        foregroundColor: kTxt, // 标题直接压在图上 → 跟明暗
+      ),
       body: ListenableBuilder(
         listenable: _deps,
         builder: (context, _) => ListView(
@@ -59,12 +71,12 @@ class SettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (list.isEmpty)
-            // 一条都没有：整块只留这行灰字（不显示头行的"0 条"）
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 14, 16, 2),
+            // 一条都没有：整块只留这行小字（不显示头行的"0 条"）
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 2),
               child: Text(
                 '还没有播放记录',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: kTxtSub),
               ),
             )
           else ...[
@@ -164,7 +176,7 @@ class SettingsPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Text(
                   custom ? '自选图片' : '内置默认',
-                  style: const TextStyle(fontSize: 12, color: _sub),
+                  style: TextStyle(fontSize: 12, color: kTxtSub),
                 ),
               ],
             ),
@@ -225,7 +237,10 @@ class SettingsPage extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: kTxt),
             ),
           ),
           if (trailing != null)
@@ -233,7 +248,7 @@ class SettingsPage extends StatelessWidget {
               onTap: onTapTrailing,
               child: Text(
                 trailing,
-                style: const TextStyle(fontSize: 12, color: _sub),
+                style: TextStyle(fontSize: 12, color: kTxtSub),
               ),
             ),
         ],
@@ -255,13 +270,13 @@ class SettingsPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 15)),
+                Text(title, style: TextStyle(fontSize: 15, color: kTxt)),
                 const SizedBox(height: 2),
                 Text(
                   sub,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: _sub,
+                    color: kTxtSub,
                     height: 1.45,
                   ),
                 ),
@@ -290,7 +305,7 @@ class SettingsPage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 11, color: _sub, height: 1.5),
+        style: TextStyle(fontSize: 11, color: kTxtSub, height: 1.5),
       ),
     );
   }

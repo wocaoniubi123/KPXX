@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'app_background.dart';
+
 /// 应用内浏览器：宫格里 kind=web 的站点用它打开，不跳出 App。
 class WebPage extends StatefulWidget {
   final String title;
@@ -57,6 +59,14 @@ class _WebPageState extends State<WebPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（顶栏标题/图标、错误提示都读 kTxt）
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _pageView(context),
+    );
+  }
+
+  Widget _pageView(BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -71,6 +81,7 @@ class _WebPageState extends State<WebPage> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(widget.title, style: const TextStyle(fontSize: 16)),
+          foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
           bottom: _progress < 1
               ? PreferredSize(
                   preferredSize: const Size.fromHeight(2),
@@ -90,7 +101,7 @@ class _WebPageState extends State<WebPage> {
                     children: [
                       Text('打开失败：$_error',
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.black54)),
+                          style: TextStyle(color: kTxtSub)),
                       const SizedBox(height: 12),
                       FilledButton(onPressed: _reload, child: const Text('重试')),
                     ],
