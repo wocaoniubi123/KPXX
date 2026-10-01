@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'app_bg.dart';
 import 'app_background.dart';
 
 /// 应用内浏览器：宫格里 kind=web 的站点用它打开，不跳出 App。

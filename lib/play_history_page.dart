@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_bg.dart';
 import 'app_background.dart';
 import 'detail_page.dart';
 import 'play_record_tile.dart';

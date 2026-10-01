@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_bg.dart';
 import 'api.dart';
 import 'app_background.dart';
 import 'fetched_image.dart';
