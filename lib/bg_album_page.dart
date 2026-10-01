@@ -91,10 +91,11 @@ class BgAlbumPage extends StatelessWidget {
                         // 没解码完/图裂了时的底（模拟器 .bgal-th 的 #eceff3）
                         color: const Color(0xFFECEFF3),
                         child: Image(
-                          image: FileImage(File(it.path)),
+                          // ⚠️ 裸 Image(image:) 构造器没有 cacheWidth（CI 报过 "No named parameter"）→
+                          // 用 ResizeImage 包一层 provider：竖版小图别按原图解码
+                          // （1440 宽 ≈ 10MB/张，20 行会爆内存）
+                          image: ResizeImage(FileImage(File(it.path)), width: 200),
                           fit: BoxFit.cover,
-                          // 竖版小图别按原图解码（1440 宽 ≈ 10MB/张，20 行会爆内存）
-                          cacheWidth: 200,
                         ),
                       ),
                     ),

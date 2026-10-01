@@ -207,12 +207,13 @@ class SettingsPage extends StatelessWidget {
                 child: Container(
                   color: const Color(0xFFECEFF3), // 没解码完时的底（同模拟器）
                   child: Image(
-                    image: AppBg.i.image,
+                    // ⚠️ 裸 Image(image:) 构造器**没有** cacheWidth 参数（只有 .file/.asset/.network
+                    // 那些便捷构造器才有）—— CI 实测报 "No named parameter with the name 'cacheWidth'"。
+                    // 等价写法是 ResizeImage 包一层 provider（cacheWidth 内部也是这么做的），
+                    // 缓存键会带上尺寸，跟整页大图各自解码、互不影响。
+                    image: ResizeImage(AppBg.i.image, width: 200),
                     fit: BoxFit.cover,
                     gaplessPlayback: true, // 换图时别闪白
-                    // 64×110 的缩略图必须限制解码尺寸：不然每次重建都按原图
-                    // （自选图 1440 宽 ≈ 10MB 内存）整张解码。200 ≈ 64×3 倍屏
-                    cacheWidth: 200,
                   ),
                 ),
               ),
