@@ -502,6 +502,27 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // 静态素材（背景图等）：只放行 sim 目录下、这几个后缀的白名单文件，
+    // 不做目录遍历（路径里出现 .. 或 / 一律拒）
+    if (/^\/[\w.-]+\.(jpg|jpeg|png|webp|gif)$/i.test(me.pathname)) {
+      const name = me.pathname.slice(1);
+      if (name.includes('..') || name.includes('/')) {
+        res.writeHead(400, { ...cors }); res.end('bad name'); return;
+      }
+      try {
+        const buf = await readFile(join(DIR, name));
+        const ext = name.split('.').pop().toLowerCase();
+        const type = ext === 'png' ? 'image/png'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', ...cors });
+        res.end(buf);
+        return;
+      } catch (_) {
+        res.writeHead(404, { ...cors }); res.end('not found'); return;
+      }
+    }
+
     if (me.pathname === '/sites') {
       const data = await loadSites();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', ...cors });

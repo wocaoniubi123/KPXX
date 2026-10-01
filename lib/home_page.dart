@@ -531,7 +531,8 @@ class _HomePageState extends State<HomePage>
     final l1 = cur == null ? null : _level1(cur);
     final l2 = cur == null ? null : _level2(cur);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
+      // 透明：让根层背景图透出来（顶栏也透明，见 main.dart 的 theme）
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(widget.site.name),
         centerTitle: true,

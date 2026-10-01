@@ -1,10 +1,13 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
+import 'app_background.dart';
+import 'app_bg.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
 import 'play_history_page.dart';
 import 'settings.dart';
+import 'settings_page.dart';
 import 'sites.dart';
 import 'web_page.dart';
 
@@ -14,6 +17,7 @@ void main() {
   MediaKit.ensureInitialized();
   AppSettings.i.load(); // 读设置（双击快进秒数）
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
+  AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   runApp(const KpxxApp());
 }
 
@@ -28,8 +32,67 @@ class KpxxApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
+        // ---- 全屏背景图配套：页面自己一律透明，图才不会在某几页断掉 ----
+        // ⚠️ 不透明底色出现在哪一层，背景就会在哪一层被挡住（模拟器里踩过两次）
+        scaffoldBackgroundColor: Colors.transparent,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          type: BottomNavigationBarType.fixed,
+        ),
+      ),
+      // 背景层铺在最底下（含顶栏/底栏/状态栏区域），再把整棵树包一层文字描边：
+      // 描边只加给字、不动图 —— 用户换任何一张背景图都能看清
+      builder: (context, child) => AppBackground(
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(shadows: kTextHalo),
+          child: child ?? const SizedBox.shrink(),
+        ),
       ),
       home: const RootPage(),
+    );
+  }
+}
+
+/// KPXX 品牌字标（宫格首页顶栏，居中）。
+/// 照用户在模拟器里定下的样式：橙色圆角块 + 黑色粗体字（参考图风格，纯自绘、无外部素材）。
+class KpxxLogo extends StatelessWidget {
+  const KpxxLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 30,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 11),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFFB63C), Color(0xFFF29A12)],
+        ),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(color: Color(0x47000000), blurRadius: 7, offset: Offset(0, 2)),
+        ],
+      ),
+      child: const Text(
+        'KPXX',
+        style: TextStyle(
+          color: Color(0xFF14100B),
+          fontWeight: FontWeight.w800,
+          fontSize: 17,
+          letterSpacing: 0.6,
+          // 字标自带底色，不需要描边光晕
+          shadows: [],
+        ),
+      ),
     );
   }
 }
@@ -93,9 +156,10 @@ class ModuleGridPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F6F9),
+      // 透明：让根层的背景图从这里透出来（顶栏也是透明的，见 theme）
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('KPXX'),
+        title: const KpxxLogo(),
         centerTitle: true,
         elevation: 0,
       ),
@@ -178,90 +242,6 @@ class _SiteTile extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 设置页
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置'), centerTitle: true),
-      body: ListenableBuilder(
-        listenable: AppSettings.i,
-        builder: (context, _) => ListView(
-          children: [
-            // 播放记录：进去是独立页面（列表 + 单条删除 + 清空）
-            ListenableBuilder(
-              listenable: PlayHistory.i,
-              builder: (context, _) => ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('播放记录'),
-                subtitle: Text(PlayHistory.i.isEmpty
-                    ? '还没有记录；看过视频后自动记在这'
-                    : '${PlayHistory.i.records.length} 条 · 点一条从上次的进度继续看'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const PlayHistoryPage()),
-                ),
-              ),
-            ),
-            const Divider(height: 32),
-            const ListTile(
-              title: Text('快进/快退秒数'),
-              subtitle: Text('播放器里双击画面左侧后退、右侧快进，一次跳转的时长'),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  for (final s in AppSettings.stepOptions)
-                    ChoiceChip(
-                      label: Text('$s 秒'),
-                      selected: AppSettings.i.step == s,
-                      onSelected: (_) => AppSettings.i.setStep(s),
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 32),
-            SwitchListTile(
-              title: const Text('自动播放下一集'),
-              subtitle: const Text('一篇里有多个视频时，播完自动切下一个（默认关）'),
-              value: AppSettings.i.autoNext,
-              onChanged: (v) => AppSettings.i.setAutoNext(v),
-            ),
-            const Divider(height: 32),
-            const ListTile(
-              title: Text('播放缓冲大小'),
-              subtitle: Text('越大越抗卡、拖动越顺，但更吃内存（1G 在低内存机型上可能被杀进程）；改完重进视频生效'),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                children: [
-                  for (final mb in AppSettings.bufferOptions)
-                    ChoiceChip(
-                      label: Text(AppSettings.bufferLabel(mb)),
-                      selected: AppSettings.i.bufferMb == mb,
-                      onSelected: (_) => AppSettings.i.setBufferMb(mb),
-                    ),
-                ],
-              ),
-            ),
-            const Divider(height: 32),
-            const ListTile(
-              title: Text('左右滑动'),
-              subtitle: Text('按滑动距离快进/快退：滑满一屏 = 120 秒，松手才跳转'),
-            ),
-          ],
-        ),
       ),
     );
   }

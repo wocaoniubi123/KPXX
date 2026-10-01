@@ -24,12 +24,12 @@
   .status {
     height: 44px; flex: 0 0 auto; display: flex; align-items: center;
     justify-content: space-between; padding: 0 22px; font-weight: 600; font-size: 14px;
-    background: inherit;
+    background: transparent; /* 用户要求：状态栏/顶栏/底栏一律透明，不吃底色 */
   }
   .status .right { letter-spacing: 2px; }
   /* ---------- 顶栏 ---------- */
   .appbar {
-    flex: 0 0 auto; background: #fdf1ee; display: flex; align-items: center;
+    flex: 0 0 auto; background: transparent; display: flex; align-items: center;
     gap: 6px; padding: 4px 8px 8px; position: relative;
   }
   .appbar h1 { flex: 1; text-align: center; font-size: 20px; font-weight: 600; margin: 0; }
@@ -39,12 +39,23 @@
   }
   .appbar .ic:hover { background: rgba(0,0,0,.06); }
   .appbar .spacer { width: 40px; }
+  /* ---------- KPXX 品牌标识（宫格首页顶栏，**居中**） ---------- */
+  .brand { display: flex; align-items: center; gap: 9px; margin: 0 auto; }
+  /* 字标：照用户给的参考（橙底圆角块 + 黑色粗体字）。
+     ⚠️ 左边原来那个"K 方块"用户说不要了（2026-10-01），已删 —— 只留这一块。 */
+  .brand .tag {
+    height: 30px; display: flex; align-items: center;
+    padding: 0 11px; border-radius: 8px;
+    background: linear-gradient(180deg,#FFB63C 0%,#F29A12 100%);
+    color: #14100B; font-weight: 800; font-size: 17px; letter-spacing: .6px;
+    box-shadow: 0 2px 7px rgba(0,0,0,.28);
+  }
   /* ---------- 内容区 ---------- */
   .body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; background: #F6F6F9; }
   .body.white { background: #fff; }
   /* ---------- 底部导航 ---------- */
   .nav {
-    flex: 0 0 auto; display: flex; background: #fdf1ee; border-top: 1px solid #eee;
+    flex: 0 0 auto; display: flex; background: transparent; border-top: 1px solid #eee;
   }
   .nav .item {
     flex: 1; padding: 8px 0 14px; display: flex; flex-direction: column;
@@ -65,7 +76,7 @@
   .tile span { font-size: 12px; color: #333; text-align: center; }
   /* ---------- 列表页 ---------- */
   .tabs {
-    display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: #fff;
+    display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: transparent;
     border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none;
     touch-action: pan-x;   /* 触屏：浏览器原生横滑；鼠标拖动由 JS 处理 */
   }
@@ -76,7 +87,7 @@
   }
   .tabs .tab.on { color: #8d4b2a; border-color: #8d4b2a; font-weight: 600; }
   /* 子分类行（黄果的排序 / 91porna 的子频道） */
-  .subbar { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: #fff;
+  .subbar { display: flex; gap: 8px; overflow-x: auto; padding: 8px 12px; background: transparent;
     border-bottom: 1px solid #f0f0f0; flex: 0 0 auto; scrollbar-width: none; touch-action: pan-x; }
   .subbar::-webkit-scrollbar { display: none; }
   .subbar .sub { flex: 0 0 auto; padding: 5px 12px; border-radius: 15px; font-size: 12px;
@@ -192,6 +203,51 @@
   .strow .t { font-size: 15px; }
   .strow .s { font-size: 12px; color: #888; margin-top: 2px; line-height: 1.5; }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 16px; }
+  /* ---------- 设置页改版（卡片 + 分段控件 + 开关 + 播放记录预览） ---------- */
+  .spage { padding: 12px 14px 22px; }
+  .scard { background: #fff; border-radius: 18px; margin-bottom: 14px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(17,24,39,.05), 0 6px 18px rgba(17,24,39,.04); padding: 6px 0 16px; }
+  .scard-hd { display: flex; align-items: center; gap: 8px; padding: 14px 16px 2px; }
+  /* 标题下面直接跟内容（无副标题）的卡片：让内容贴紧一点 */
+  .scard-hd + .srec, .scard-hd + .srow { padding-top: 12px; }
+  .scard-hd .ic { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
+    background: #FDEDE6; color: #D1550F; font-size: 15px; cursor: pointer; }
+  .scard-hd .tt { font-size: 15px; font-weight: 600; flex: 1; cursor: pointer; }
+  .scard-hd .go { font-size: 12px; color: #9aa0a6; cursor: pointer; }
+  .scard-sub { font-size: 12px; color: #9aa0a6; padding: 3px 16px 0 54px; }
+  .srow { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; }
+  .srow .lab { flex: 1; min-width: 0; }
+  .srow .lab .t { font-size: 15px; }
+  .srow .lab .s { font-size: 12px; color: #9aa0a6; margin-top: 2px; line-height: 1.45; }
+  .seg { display: flex; gap: 4px; background: #f1f2f5; border-radius: 12px; padding: 3px; margin: 10px 16px 0; }
+  .seg > div { flex: 1; text-align: center; font-size: 13px; color: #4b5563;
+    padding: 7px 0; border-radius: 9px; cursor: pointer; user-select: none; }
+  .seg > div.on { background: #fff; color: #D1550F; font-weight: 600;
+    box-shadow: 0 1px 3px rgba(17,24,39,.12); }
+  .sw { width: 51px; height: 31px; border-radius: 16px; background: #d9dade; position: relative;
+    flex: 0 0 auto; cursor: pointer; transition: background .18s; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: left .18s; }
+  .sw.on { background: #E8590C; }
+  .sw.on::after { left: 22px; }
+  .sdivider { height: 1px; background: #f0f0f2; margin: 12px 16px 0; }
+  .snote { font-size: 11px; color: #9aa0a6; padding: 10px 16px 0; line-height: 1.5; }
+  .srec { display: flex; gap: 10px; padding: 13px 16px 0; align-items: flex-start; cursor: pointer; }
+  .srec img, .srec .noimg { width: 104px; height: 59px; border-radius: 9px; flex: 0 0 auto;
+    object-fit: cover; background: #eceff3; display: grid; place-items: center; font-size: 18px; }
+  .srec .mid { flex: 1; min-width: 0; }
+  .srec .ti { font-size: 13px; font-weight: 600; line-height: 1.3; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* 标题只占一行（用户要求）：长了省略号 */
+  .srec .ti.oneline { -webkit-line-clamp: 1; text-overflow: ellipsis; }
+  .srec .bar { height: 4px; border-radius: 3px; background: #e8e8ec; margin-top: 7px; overflow: hidden; }
+  .srec .bar > i { display: block; height: 100%; background: #E8590C; }
+  .srec .bar.fin > i { background: #2e7d32; }
+  .srec .meta { font-size: 11px; color: #9aa0a6; margin-top: 4px; display: flex; justify-content: space-between; }
+  .srec .meta .done { color: #2e7d32; }
+  /* 站点名 + 进度同一行（进度在前，一眼看出哪个站看的） */
+  .srec .site { font-size: 11px; color: #6b7280; margin-top: 4px; }
+  .srec .site .sep { color: #d1d5db; margin: 0 5px; }
   /* 标签：横向单行滚动（在剧照下方） */
   .tagrow { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 2px; scrollbar-width: none; touch-action: pan-x; }
   .tagrow::-webkit-scrollbar { display: none; }
@@ -208,11 +264,71 @@
   .spin { display:inline-block; width:16px; height:16px; border:2px solid #ddd;
     border-top-color:#8d4b2a; border-radius:50%; animation: sp .8s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
+  /* ---------- 背景图（首页/设置页；有图时卡片与导航半透明，保证图标文字仍清楚） ---------- */
+  .bg { position: absolute; inset: 0; background: center/cover no-repeat; opacity: 0;
+    transition: opacity .25s; z-index: 0; pointer-events: none; }
+  .bg.on { opacity: 1; }
+  /* ⚠️ 这里**不再铺全屏白纱**：白纱会把整张图洗成"浅浅的发白"（用户实测嫌难受）。
+     改法：图原样显示，对比度只在内容块上做 —— 卡片/导航半透明 + 文字描边。 */
+  /* ⚠️ 关键：背景层有 z-index（定位元素），内容区是静态的 —— 不抬起来会被背景盖住。
+     给内容区统一 z-index:1，压过 .bg(z-index:0)。 */
+  /* ⚠️ 全屏铺图：页面容器只要有不透明底色就会把背景挡住（首页/设置页/列表页都要透明）。
+     卡片、图标、播放器这些"内容块"保持自己的底色 —— 保证看得清。 */
+  .screen.hasbg .status, .screen.hasbg .appbar, .screen.hasbg .tabs,
+  .screen.hasbg .subbar, .screen.hasbg .body, .screen.hasbg .nav,
+  .screen.hasbg .body > * {
+    position: relative; z-index: 1;
+  }
+  .screen.hasbg .body, .screen.hasbg .tabs, .screen.hasbg .subbar,
+  .screen.hasbg .body > * { background: transparent; }
+  /* 文字可读性：**深色字 + 白色描边光晕**（用户默认背景是浅色照片，白字会看不见）。
+     ⚠️ 光晕要克制：3px+7px 会把 12px 小字泡白；太亮又晃眼（用户反馈）——
+     现在按"1px 实边 + 2.5px 很淡的柔光"来，够分离背景又不刺眼。 */
+  .screen.hasbg .appbar *, .screen.hasbg .body *, .screen.hasbg .nav *,
+  .screen.hasbg .status * {
+    text-shadow: 0 0 1px rgba(255,255,255,.78), 0 0 2.5px rgba(255,255,255,.38),
+                 0 1px 1px rgba(0,0,0,.10);
+  }
+  .screen.hasbg .tile span, .screen.hasbg .nav .item span,
+  .screen.hasbg .appbar h1 { font-weight: 700; color: #17171a; }
+  /* 偏浅的灰字在图上会糊 → 统一压深一档 */
+  .screen.hasbg .nav .item { color: #2f2f33; }
+  .screen.hasbg .nav .item.on { color: #B4430A; }
+  .screen.hasbg .snote, .screen.hasbg .srow .lab .s { color: #2f3642; }
+  .screen.hasbg .scard-hd .go, .screen.hasbg .srec .meta { color: #2f3642; }
+  /* 卡片：用户要求分组框**也透明**（不再铺白底） */
+  .screen.hasbg .scard { background: transparent; border: none; box-shadow: none; }
+  .screen.hasbg .sdivider { background: rgba(0,0,0,.12); }
+  .screen.hasbg .tile .box { background: rgba(255,255,255,.92); }
+  /* 顶栏/底栏也吃背景图（不是白条压在上面）。
+     用户要求：**不要磨砂（毛玻璃）** —— 留一点点膜都会和图之间出现一道色阶接缝，
+     所以直接完全透明、无缝；字靠描边光晕保证看得清。 */
+  .screen.hasbg .appbar, .screen.hasbg .status, .screen.hasbg .nav {
+    background: transparent !important;
+    border-top-color: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  /* 图标/首字色块仍保持自己的底（不然图标本身也看不见了） */
+  .screen.hasbg .tile .box { background: rgba(255,255,255,.92); }
+  /* 背景图选择卡 */
+  .bgpresets { display: flex; gap: 8px; padding: 10px 16px 12px; }
+  .bgpresets img { width: 74px; height: 44px; border-radius: 10px; object-fit: cover;
+    cursor: pointer; border: 2px solid transparent; }
+  .bgpresets img.on { border-color: #E8590C; }
+  .sinput { width: calc(100% - 32px); margin: 0 16px; padding: 10px 12px; font-size: 13px;
+    border: 1px solid #e3e4e8; border-radius: 12px; background: #fff; outline: none; }
+  .sbtnrow { display: flex; gap: 8px; padding: 10px 16px 0; }
+  .sbtn { flex: 1; text-align: center; font-size: 13px; padding: 10px 0; border-radius: 12px;
+    background: #f1f2f5; color: #3c4043; cursor: pointer; }
+  .sbtn.primary { background: #E8590C; color: #fff; font-weight: 600; }
+  .sbtn.danger { background: #fdecec; color: #c62828; }
 </style>
 </head>
 <body>
 <div class="phone">
-  <div class="screen">
+  <div class="screen" id="screen">
+    <div class="bg" id="bg"></div>
     <div class="status">
       <span id="clock">23:10</span>
       <span class="right">▮▮▮ ⌾▮ 72</span>
@@ -295,6 +411,33 @@ const AES_IV = '97b60394abc2fbe1';
 
 let SITES = [];
 
+/* -------- 背景图状态（必须声明在启动代码之前：启动时会解析 ?bg=）--------
+   模拟器里只演示、不持久化；真机上是"从相册选图"（见 DEVLOG）。
+   默认背景 = bg_default.jpg（用户指定的原图，放在 sim 目录，由 server.mjs 静态路由提供） */
+let appBg = 'bg_default.jpg';
+// 示范背景：纯 CSS 渐变（不依赖外网图，预览时不会加载不出来）
+const BG_DEMO = [
+  'linear-gradient(140deg,#1f2544 0%,#474f7a 45%,#81689d 100%)',
+  'linear-gradient(140deg,#0f2027 0%,#203a43 50%,#2c5364 100%)',
+  'linear-gradient(140deg,#3e2723 0%,#6d4c41 50%,#a1887f 100%)',
+];
+
+/** ?nav=settings：直达设置页（截图/调试用；站点清单加载完不许切回宫格） */
+const WANT_SETTINGS = /[?&]nav=settings\b/.test(location.search);
+/** ?site=N：直达第 N 个站点的列表页（0 起；截图/调试用） */
+const WANT_SITE = (() => {
+  const m = /[?&]site=(\d+)\b/.exec(location.search);
+  return m ? parseInt(m[1], 10) : -1;
+})();
+/** ?bg=1|2|3：上来就套一张示范背景（截图/调试用，看背景效果不用手点） */
+{
+  const m = /[?&]bg=(\d+)\b/.exec(location.search);
+  if (m) {
+    const i = parseInt(m[1], 10) - 1;
+    if (BG_DEMO[i]) appBg = BG_DEMO[i];
+  }
+}
+
 async function reloadSites() {
   const r = await fetch('/sites');
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -302,7 +445,13 @@ async function reloadSites() {
   if (j.error) throw new Error('解析 lib/sites.dart 失败：' + j.error);
   SITES = j.sites || [];
   log(`站点清单：${SITES.map((s) => s.name).join('、')}`, 'ok');
-  viewGrid();
+  // ?site=N 直达某站点的列表页（截图/调试用，和 ?nav=settings 一个路子）
+  if (WANT_SITE >= 0 && SITES[WANT_SITE]) {
+    openSite(SITES[WANT_SITE]);
+    return;
+  }
+  // ?nav=settings 直达设置页时不抢回宫格（站点清单加载完本来会切走）
+  if (!WANT_SETTINGS) viewGrid();
 }
 
 /** 首次打开时服务可能还没监听 → 失败要重试几次，别留一屏空白 */
@@ -1266,27 +1415,85 @@ function enableDragScroll(el) {
 function push(view) { stack.push(view); view(); }
 function back() { stack.pop(); (stack[stack.length - 1] || viewGrid)(); }
 
+/* -------- KPXX 品牌标识 --------
+   只保留字标：橙底圆角块 + 黑色粗体 KPXX（照用户给的参考样式）。
+   （原来左边那个 K 方块用户说不要了，已删；没有引用任何第三方品牌素材。） */
+function kpxxBrand() {
+  return `<div class="brand"><span class="tag">KPXX</span></div>`;
+}
+
 /* -------- 宫格首页 -------- */
 // 三条常驻横条支持拖动（行内内容会重建，但容器是常驻的，挂一次就够）
 ['tabs', 'subbar', 'subbar2'].forEach((id) => enableDragScroll($(id)));
+
+/* -------- 背景图（首页/设置页）--------
+   状态与示范图定义在文件上方（启动时要解析 ?bg=，那会儿还不能碰这两个符号）；
+   这里只放行为：有图时给 .screen 挂 hasbg —— 卡片/导航变半透明 + 文字加描边，
+   保证"图标和文字仍清楚"（图再花也压得住）。 */
+
+function applyBg() {
+  const el = $('bg');
+  if (el) {
+    el.style.backgroundImage = !appBg
+      ? ''
+      : (/gradient\(/.test(appBg) ? appBg : `url("${appBg}")`);
+    el.classList.toggle('on', !!appBg);
+  }
+  const sc = $('screen');
+  if (sc) sc.classList.toggle('hasbg', !!appBg);
+}
+
+function bgPick(url) {
+  appBg = url;
+  applyBg();
+  if ($('body').querySelector('.bgpresets')) viewSettings(); // 在设置页就重画
+  log(`背景图（仅演示，不影响 App）：${appBg ? '已应用' : '（已清除）'}`);
+}
+
+function bgApplyInput() {
+  const v = ($('bgUrl') ? $('bgUrl').value : '').trim();
+  if (!v) { log('背景图：请先粘一个图片 URL', 'err'); return; }
+  bgPick(v);
+}
+
+/** 图标加载失败 → 用"首字色块"顶替（和没配 iconUrl 的站点同一个样式） */
+function iconFallback(img) {
+  const tile = img.closest('.tile');
+  if (!tile) return;
+  const i = parseInt(tile.dataset.i, 10);
+  const s = SITES[i] || {};
+  const box = tile.querySelector('.box');
+  if (!box) return;
+  const d = document.createElement('div');
+  d.className = 'noimg';
+  d.style.background = '#' + (s.color || 'FF7043');
+  d.textContent = (s.name || '?')[0];
+  box.replaceChildren(d);
+}
 
 function viewGrid() {
   showNav(true);
   $('tabs').style.display = 'none';
   $('subbar').style.display = 'none';
   const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
-  setAppbar(`<div class="spacer"></div><h1>KPXX</h1><div class="spacer"></div>`);
+  setAppbar(kpxxBrand());
   $('body').className = 'body';
   $('body').onscroll = null; // 从列表页返回时别让旧的"滚到底加载"还跟着跑
+  applyBg(); // 背景层常驻：回首页时按当前状态同步
   $('body').innerHTML = `<div class="grid">${SITES.map((s, i) => `
     <div class="tile" data-i="${i}">
       <div class="box">
         ${s.iconUrl
-          ? `<img src="/icon?name=${encodeURIComponent(s.name)}" />`
+          ? `<img src="/icon?name=${encodeURIComponent(s.name)}" onerror="iconFallback(this)" />`
           : `<div class="noimg" style="background:#${s.color}">${esc(s.name[0] || '?')}</div>`}
       </div>
       <span>${esc(s.name)}</span>
     </div>`).join('')}</div>`;
+  // 图标加载失败（站点挂了/图床改了/ICO 解不开）→ 退回"首字色块"，
+  // 别留破图（用户要求：入口图标不至于显示不出来）
+  $('body').querySelectorAll('.tile img').forEach((im) => {
+    im.onerror = () => iconFallback(im);
+  });
   $('body').querySelectorAll('.tile').forEach((t) => {
     t.onclick = () => openSite(SITES[parseInt(t.dataset.i, 10)]);
   });
@@ -2868,29 +3075,138 @@ function viewSearch(site) {
 }
 
 /* -------- 设置页 -------- */
+/* -------- 设置页（改版：卡片分组 + 分段控件 + 开关 + 播放记录预览） -------- */
+/* 只做展示：这些值不影响 App（App 存在 shared_preferences 里）。
+   stCfg 用 let + 整体替换：点分段控件时换一个新对象，渲染和状态不会脱节 */
+let stCfg = { step: 10, buffer: 300, autoNext: true };
+/* 演示用的播放记录（真机上的记录是播放时自动写入的，模拟器只画样子）。
+   多给几条是为了演示"预览只显示前 3 条、点条数看全部" */
+const ST_RECORDS = [
+  { t: 'CZ0006 姐姐的身体 被血气方刚的弟弟侵犯', s: '麻豆社',
+    c: 'https://madou.club/covers/2023/07/0506bb5ad76832a-240x180.jpg',
+    p: 45, pos: '12:30', dur: '27:40', ago: '3分钟前', done: false },
+  { t: 'HongKongDoll 竖屏写真短片「晨」', s: '麻豆社',
+    c: 'https://madou.club/covers/2022/03/86a9547f3a24e86-240x180.jpg',
+    p: 100, pos: '', dur: '18:02', ago: '昨天', done: true },
+  { t: '强上妹妹 直捣黄龙 勇拿一血', s: '麻豆社',
+    c: 'https://madou.club/covers/2022/03/a57afaeaad460dd-240x180.jpg',
+    p: 8, pos: '1:12', dur: '22:05', ago: '09-29', done: false },
+  { t: 'MD0190-1 我是苏畅 我回来了 / 男友视角的湿蜜抽插之旅', s: '麻豆社',
+    c: 'https://madou.club/covers/2023/03/b5ffcd3cac8135c-240x180.jpg',
+    p: 72, pos: '18:04', dur: '25:10', ago: '09-28', done: false },
+  { t: 'MD0240 周处除三嗨 / 以暴制暴 惩治荒淫邪道', s: '麻豆社',
+    c: 'https://madou.club/covers/2022/03/86a9547f3a24e86-240x180.jpg',
+    p: 100, pos: '', dur: '31:47', ago: '09-27', done: true },
+];
+/* 预览只显示前 3 条（用户要求）；点标题后面的「N 条 ›」展开全部 */
+const ST_PREVIEW = 3;
+let stShowAll = false;
+
+function stSeg(which, opts, cur) {
+  return `<div class="seg">${opts.map((o) =>
+    `<div class="${o.v === cur ? 'on' : ''}" onclick="stPick('${which}',${o.v})">${o.label}</div>`
+  ).join('')}</div>`;
+}
+
+function stRecList(list) {
+  if (!list.length) {
+    return `<div class="snote" style="padding-bottom:2px">还没有记录；看过视频后自动记在这</div>`;
+  }
+  return list.map((r) => `
+    <div class="srec">
+      ${r.c ? `<img src="${px(r.c)}" loading="lazy">` : `<div class="noimg">🎬</div>`}
+      <div class="mid">
+        <div class="ti oneline">${esc(r.t)}</div>
+        <div class="bar ${r.done ? 'fin' : ''}"><i style="width:${r.p}%"></i></div>
+        <div class="meta">
+          <span class="${r.done ? 'done' : ''}">${r.done
+            ? '已看完 · ' + r.dur
+            : `已看 ${r.p}% · ${r.pos} / ${r.dur}`}</span>
+          <span>${esc(r.ago)}</span>
+        </div>
+        <div class="site">${esc(r.s || '')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function stPick(which, v) {
+  stCfg = { ...stCfg, [which]: v };
+  viewSettings();
+  log(`设置（仅演示，不影响 App）：${which} = ${v}`);
+}
+
+function stToggle() {
+  stCfg = { ...stCfg, autoNext: !stCfg.autoNext };
+  viewSettings();
+  log(`设置（仅演示，不影响 App）：自动播放下一集 = ${stCfg.autoNext ? '开' : '关'}`);
+}
+
+function stToggleAll() {
+  stShowAll = !stShowAll;
+  viewSettings();
+  log(`播放记录：${stShowAll ? '展开全部 ' + ST_RECORDS.length + ' 条' : '只显示前 ' + ST_PREVIEW + ' 条'}`);
+}
+
 function viewSettings() {
   showNav(true);
   $('tabs').style.display = 'none';
   setAppbar(`<div class="spacer"></div><h1>设置</h1><div class="spacer"></div>`);
-  $('body').className = 'body white';
+  $('body').className = 'body';
   $('body').onscroll = null;
+  // 预览只显示前 3 条；点条数展开全部（真机上点它是进"播放记录"页）
+  const recs = stShowAll ? ST_RECORDS : ST_RECORDS.slice(0, ST_PREVIEW);
+  applyBg(); // 背景层是常驻元素，切页时按当前状态同步一次
   $('body').innerHTML = `
-    <div class="stlist">
-      <div class="strow"><div class="t">快进/快退秒数</div>
-        <div class="s">双击画面左侧后退、右侧快进，一次跳转的时长（App 里可选 5/10/15，默认 10）</div></div>
-      <div class="chips">${[5, 10, 15].map((n) =>
-        `<div class="chip ${n === 10 ? 'on' : ''}">${n} 秒</div>`).join('')}</div>
-      <div class="strow"><div class="t">自动播放下一集</div>
-        <div class="s">一篇里有多个视频时，播完自动切下一个（默认关）</div></div>
-      <div class="strow"><div class="t">播放缓冲大小</div>
-        <div class="s">App 里可选 100MB / 200MB / 300MB / 500MB / 1G，默认 200MB（改完重进视频生效）</div></div>
-      <div class="chips">${[100, 200, 300, 500, 1024].map((n) =>
-        `<div class="chip ${n === 200 ? 'on' : ''}">${n >= 1024 ? '1G' : n + 'MB'}</div>`).join('')}</div>
-      <div class="strow"><div class="t">左右滑动</div>
-        <div class="s">按滑动距离快进/快退：滑满一屏 = 120 秒，松手才跳转</div></div>
-    </div>
-    <div class="hint" style="margin-top:20px;font-size:12px">
-      这里是模拟器，设置项只做展示，不影响 App
+    <div class="spage">
+      <div class="scard">
+        <div class="scard-hd"><div class="ic">⟲</div><div class="tt">播放记录</div>
+          <div class="go" onclick="stToggleAll()">${stShowAll
+            ? '收起' : ST_RECORDS.length + ' 条'} ›</div></div>
+        ${stRecList(recs)}
+      </div>
+
+      <div class="scard">
+        <div class="scard-hd"><div class="ic">▶</div><div class="tt">播放</div></div>
+        <div class="srow" style="padding-top:10px"><div class="lab">
+          <div class="t">快进 / 快退</div>
+          <div class="s">双击画面左侧后退、右侧快进，一次跳转的时长</div></div></div>
+        ${stSeg('step', [{ v: 5, label: '5 秒' }, { v: 10, label: '10 秒' }, { v: 15, label: '15 秒' }], stCfg.step)}
+        <div class="sdivider"></div>
+        <div class="srow">
+          <div class="lab"><div class="t">自动播放下一集</div>
+            <div class="s">一篇里有多个视频时，播完自动切下一个</div></div>
+          <div class="sw ${stCfg.autoNext ? 'on' : ''}" onclick="stToggle()"></div>
+        </div>
+        <div class="sdivider"></div>
+        <div class="srow"><div class="lab">
+          <div class="t">播放缓冲大小</div>
+          <div class="s">越大越抗卡、拖动越顺，但更吃内存</div></div></div>
+        ${stSeg('buffer', [{ v: 100, label: '100M' }, { v: 200, label: '200M' }, { v: 300, label: '300M' }, { v: 500, label: '500M' }, { v: 1024, label: '1G' }], stCfg.buffer)}
+        <div class="snote">改完重进视频生效；1G 在低内存机型上可能被杀进程</div>
+      </div>
+
+      <div class="scard">
+        <div class="scard-hd"><div class="ic">🖼</div><div class="tt">背景图</div></div>
+        <div class="srow" style="padding-top:10px"><div class="lab">
+          <div class="t">首页 / 设置页背景</div>
+          <div class="s">相册在网页里选不了 —— 这里用图片 URL 演示同一套铺图效果；
+            App 里是"从相册选图"，行为一致</div></div></div>
+        <input class="sinput" id="bgUrl" type="url" placeholder="粘贴图片 URL，如 https://…jpg"
+          value="${esc(appBg)}">
+        <div class="sbtnrow">
+          <div class="sbtn primary" onclick="bgApplyInput()">应用图片</div>
+          <div class="sbtn danger" onclick="bgPick('')">清除背景</div>
+        </div>
+        <div class="snote">随便点一张示范图试试：</div>
+        <div class="bgpresets">${BG_DEMO.map((u, i) =>
+          `<i style="background:${u};width:74px;height:44px;border-radius:10px;cursor:pointer;display:block" onclick="bgPick('${u}')"></i>`).join('')}</div>
+        <div class="snote" style="padding-bottom:2px">有背景图时，卡片和底部导航自动变半透明、
+          文字加描边 —— 无论图多花，图标和字都看得清</div>
+      </div>
+
+      <div class="snote" style="text-align:center;padding-top:2px">
+        模拟器里设置项只做展示（可点，但不影响 App）
+      </div>
     </div>`;
 }
 
@@ -2904,7 +3220,19 @@ $('nav').querySelectorAll('.item').forEach((it) => {
   };
 });
 // 先把外壳渲染出来（否则第一屏是空白，要等 /sites 回来才有东西）
-viewGrid();
+// ?nav=settings 直达设置页（截图/调试方便：不用手点底部导航）
+if (WANT_SETTINGS) {
+  const it = $('nav').querySelector('[data-nav="settings"]');
+  if (it) {
+    $('nav').querySelectorAll('.item').forEach((x) => x.classList.remove('on'));
+    it.classList.add('on');
+    viewSettings();
+  } else {
+    viewGrid();
+  }
+} else if (WANT_SITE < 0) {
+  viewGrid();
+}
 log('模拟器已就绪；站点清单来自 lib/sites.dart', 'ok');
 loadSitesWithRetry();
 </script>

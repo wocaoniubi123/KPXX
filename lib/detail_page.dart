@@ -229,7 +229,8 @@ class DetailPageState extends State<DetailPage> {
         ? 0
         : (_switcher?.index.value ?? 0).clamp(0, videos.length - 1).toInt();
     return Scaffold(
-      backgroundColor: Colors.white,
+      // 透明：详情页也吃根层背景图（播放器画面本身是视频纹理，不受影响）
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(widget.site.name),
         actions: [
@@ -760,7 +761,7 @@ class _TagListPageState extends State<TagListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: Colors.transparent, // 同上：吃根层背景图
       appBar: AppBar(title: Text(widget.title), centerTitle: true),
       body: _items.isEmpty
           ? Center(
