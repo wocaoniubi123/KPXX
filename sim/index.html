@@ -399,6 +399,66 @@
     background: #f1f2f5; color: #3c4043; cursor: pointer; }
   .sbtn.primary { background: #E8590C; color: #fff; font-weight: 600; }
   .sbtn.danger { background: #fdecec; color: #c62828; }
+  /* ---------- 背景图集（独立子页：缩略图 + 加入时间；当前那条打 ✓；左滑露出一条「删除」）----------
+     整页**没有白底**：行是透明的，背景图从行间透出来，行里的字走文中那套"深色图翻白 / 浅色图深字"。 */
+  .bgal { position: relative; overflow: hidden; }
+  .bgal-row { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: transparent;
+    cursor: pointer; user-select: none; touch-action: pan-y; transition: transform .18s ease; }
+    /* ↑ 没有 border-bottom：用户要求"去除中间的分割线"（原来有 1px #f0f0f2），行与行之间靠间距分开 */
+  .bgal-row.on { background: rgba(232,89,12,.12); box-shadow: inset 3px 0 0 #E8590C; }  /* 当前项：淡橙底 + 左侧橙条 */
+  .bgal-th { width: 64px; height: 110px; border-radius: 9px; flex: 0 0 auto;
+    background: center/cover no-repeat #eceff3; }   /* 竖版缩略图：图集页的行 + 设置页入口行共用 */
+  /* 设置页那张图集入口行：文字块要和 110px 高的缩略图**垂直居中对齐**、并和缩略图拉开点距离。
+     ⚠️ 它复用 .srec（播放记录那套），而 .srec 明确写了 `align-items: flex-start`（行 240，
+     记录行里封面比文字矮，所以顶对齐是对的）+ `gap: 10px` → 入口行照抄会把文字顶到最上面、
+     且贴着缩略图（用户实测指出）。只给这一行覆盖，不动播放记录的行。 */
+  .srec.bgentry { align-items: center; gap: 16px; }   /* 间距 10 → 16（用户要求文字往右一点） */
+  /* 两行文字（「背景图集」+「当前：…」）在本列内居中 —— 用户要求"这个居中"。
+     ⚠️ 光 text-align 不够：.meta 是 flex + justify-content: space-between（行 251，播放记录那套），
+     两段会被推到两边 → 这里把这一行的 .meta 改成居中排。 */
+  .srec.bgentry .mid { text-align: center; }
+  .srec.bgentry .meta { justify-content: center; gap: 8px; }
+
+  /* 图集页右上角「＋」（添加背景）：做成和左侧返回键同为 40px 的图标，
+     这样 h1{flex:1;text-align:center} 的标题不会被挤偏。
+     真机那边对应 AppBar 的 actions（IconButton(Icons.add)）。 */
+  .appbar .ic-r { color: #E8590C; font-size: 22px; font-weight: 600; }
+
+  /* 模拟"相册多选"的底部弹层（真机是系统相册 PHPicker 多选）。
+     挂在 #screen 里（.screen 是 position:relative + overflow:hidden）→ 只盖手机屏幕、不影响右侧日志面板。 */
+  .ovl { position: absolute; inset: 0; z-index: 30; background: rgba(0,0,0,.45);
+    display: flex; align-items: flex-end; }
+  .ovl .sheet { width: 100%; max-height: 78%; overflow: auto; background: #fff;
+    border-radius: 16px 16px 0 0; padding: 14px 16px 18px; }
+  .ovl h3 { margin: 0 0 4px; font-size: 16px; color: #1b1b1f; }
+  .ovl .hint { font-size: 11px; color: #9aa0a6; line-height: 1.5; margin-bottom: 10px; }
+  .ovl .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .ovl .cell { position: relative; aspect-ratio: 3 / 5; border-radius: 9px; cursor: pointer;
+    background: center/cover no-repeat #eceff3; border: 2px solid transparent; }
+  .ovl .cell.on { border-color: #E8590C; }
+  .ovl .cell.on::after { content: '✓'; position: absolute; right: 5px; bottom: 3px; color: #fff;
+    font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.7); }
+  .ovl .row2 { display: flex; gap: 10px; margin-top: 12px; }
+  .ovl .row2 > div { flex: 1; text-align: center; padding: 11px 0; border-radius: 9px;
+    font-size: 14px; font-weight: 600; cursor: pointer; }
+  .ovl .cancel { background: #f1f2f5; color: #3c4043; }
+  .ovl .ok { background: #E8590C; color: #fff; }
+  .ovl .ok.off { background: #EDEEF2; color: #b9bcc2; }
+  .bgal-ago { flex: 1; min-width: 0; font-size: 12px; color: #9aa0a6; }
+  .screen.hasbg .bgal-ago { color: #2f3642; }   /* 浅色图上灰字会糊 → 压深一档（同 .snote 那批） */
+  .bgal-ok { color: #E8590C; font-weight: 700; }
+  /* 「删除」在行底下垫着：行透明了会把它透出来 → 只有滑开/正在拖的时候才显 */
+  .bgal-del { position: absolute; z-index: 0; top: 0; right: 0; width: 64px; height: 100%;
+    background: #e5484d; color: #fff; font-size: 13px; font-weight: 600;
+    display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .bgal-row[data-open="1"] + .bgal-del, .bgal-row[data-drag="1"] + .bgal-del { opacity: 1; }
+  /* ---------- 背景图卡片里"照真机 1:1"的两个按钮（_bgCard 的 _button）----------
+     可用/主 = 橙底白字，不可用 = 浅灰底暗字。真机那两个按钮和模拟器专用按钮样式不同是故意的（那排是模拟器自己的）。 */
+  .abtn { flex: 1; text-align: center; font-size: 14px; font-weight: 600; padding: 11px 0;
+    border-radius: 12px; background: #E8590C; color: #fff; cursor: pointer; }
+  .abtn.off { background: #EDEEF2; color: rgba(0,0,0,.54); cursor: default; }
+  .screen.hasbg.darkbg .abtn.off { color: rgba(0,0,0,.54); }   /* 不可用=浅灰底 → 深色图下不翻白 */
 </style>
 </head>
 <body>
@@ -499,19 +559,44 @@ const BG_DEMO = [
   'linear-gradient(140deg,#05070c 0%,#12161f 55%,#2a2f3a 100%)',
 ];
 
+/* -------- 背景图集（自选背景收藏；存 localStorage，刷新不丢）--------
+   条目 = { v: 图片 URL 或 CSS 渐变串, t: 加入时间(ms) }；
+   sim_bg_cur = "当前应用的是哪条"（图集拿它打 ✓，刷新时也按它还原背景）。 */
+const BG_ALBUM_KEY = 'sim_bg_album';
+const BG_CUR_KEY = 'sim_bg_cur';
+const BG_ALBUM_MAX = 20;
+let bgAlbum = [];
+let bgCur = null;   // null = 没记过（还是内置默认图）；'' = 用户清掉了背景
+try {
+  bgAlbum = JSON.parse(localStorage.getItem(BG_ALBUM_KEY) || '[]');
+  if (!Array.isArray(bgAlbum)) bgAlbum = [];
+  bgCur = localStorage.getItem(BG_CUR_KEY);
+} catch (e) { bgAlbum = []; }
+
+/* ⚠️ 这里**不许预置、也不许自动删任何图片**！图集里放什么是用户自己的事 ——
+   早先版本干过两件蠢事：① 自动把 5 张测试图塞进图集；② 又写了个"一次性清理"把它们删掉，
+   结果把用户正在测的图集清空了。两段代码都已删除，现在**启动时不碰图集一个字**。
+   想用这 5 张测试图看布局：设置页 →「模拟器专用」区 →「载入 5 张测试图」按钮（手动点）。 */
+const BG_TEST_IMGS = ['alb1.jpg', 'alb2.jpg', 'alb3.jpg', 'alb4.jpg', 'alb5.jpg'];
+
 /** ?nav=settings：直达设置页（截图/调试用；站点清单加载完不许切回宫格） */
 const WANT_SETTINGS = /[?&]nav=settings\b/.test(location.search);
+/** ?albumpick=1：直达图集页并自动弹出「添加背景」弹层（截图/调试用，同样不许被站点清单加载抢回宫格） */
+const WANT_ALBUMPICK = /[?&]albumpick=1\b/.test(location.search);
 /** ?site=N：直达第 N 个站点的列表页（0 起；截图/调试用） */
 const WANT_SITE = (() => {
   const m = /[?&]site=(\d+)\b/.exec(location.search);
   return m ? parseInt(m[1], 10) : -1;
 })();
-/** ?bg=1|2|3：上来就套一张示范背景（截图/调试用，看背景效果不用手点） */
+/** ?bg=1|2|3：上来就套一张示范背景（截图/调试用，看背景效果不用手点）；
+    没有 ?bg= 就接着上次应用的那条（图集的 ✓ 才不会说谎） */
 {
   const m = /[?&]bg=(\d+)\b/.exec(location.search);
   if (m) {
     const i = parseInt(m[1], 10) - 1;
     if (BG_DEMO[i]) appBg = BG_DEMO[i];
+  } else if (bgCur !== null) {
+    appBg = bgCur;
   }
 }
 
@@ -528,6 +613,12 @@ async function reloadSites() {
     return;
   }
   // ?nav=settings 直达设置页时不抢回宫格（站点清单加载完本来会切走）
+  // ?albumpick=1 同理：站点清单回来后要重新进图集页并弹层（首次渲染时清单还没加载，页面会被覆盖）
+  if (WANT_ALBUMPICK) {
+    viewAlbum();
+    bgAlbumPick();
+    return;
+  }
   if (!WANT_SETTINGS) viewGrid();
 }
 
@@ -1576,6 +1667,7 @@ async function applyBg() {
 function bgPick(url) {
   appBg = url;
   applyBg();
+  bgCurSave();                                               // 记下"当前应用的是哪条"（图集 ✓ 用）
   if ($('body').querySelector('.bgpresets')) viewSettings(); // 在设置页就重画
   log(`背景图（仅演示，不影响 App）：${appBg ? '已应用' : '（已清除）'}`);
 }
@@ -1584,6 +1676,197 @@ function bgApplyInput() {
   const v = ($('bgUrl') ? $('bgUrl').value : '').trim();
   if (!v) { log('背景图：请先粘一个图片 URL', 'err'); return; }
   bgPick(v);
+}
+
+/** 真机的「从相册选择」：模拟器里没相册 → 只提示去用下面「模拟器专用」那块 */
+function bgPickGallery() {
+  log('背景图：模拟器没有相册 —— 用下面「模拟器专用」里的 URL 输入框 / 示范渐变代替');
+}
+
+/** 真机的「恢复默认」：清自选图 → 回内置图（不动图集） */
+function bgRestore() { bgPick('bg_default.jpg'); }
+
+/* -------- 背景图集：加 / 应用 / 删 --------
+   值可以是图片 URL，也可以是那几张示范渐变（方便一次塞好几张测）。 */
+function bgAlbumSave() { try { localStorage.setItem(BG_ALBUM_KEY, JSON.stringify(bgAlbum)); } catch (e) {} }
+function bgCurSave() { try { localStorage.setItem(BG_CUR_KEY, appBg); } catch (e) {} }
+
+/** 值 → CSS 背景图串（图片加 url()，渐变原样；applyBg 里是同一个判断） */
+const bgCss = (v) => (/gradient\(/.test(v) ? v : `url("${v}")`);
+
+/** 加入时间：用户要求**直接写年月日时**（不要"刚刚 / N分钟前"那种相对时间）→ 2026-10-01 18:53 */
+function bgStamp(ts) {
+  const d = new Date(ts || Date.now());
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** 加进图集（不自动应用）：满 20 张、或同一张已经在里面，都只 log 不加 */
+function bgAlbumAdd(v) {
+  v = (v || '').trim();
+  if (!v) { log('背景图集：输入框是空的，先粘图片 URL 或点一张示范渐变', 'err'); return; }
+  if (bgAlbum.some((x) => x.v === v)) { log('背景图集：这一张已经在图集里了，不重复加', 'err'); return; }
+  if (bgAlbum.length >= BG_ALBUM_MAX) { log(`背景图集：上限 ${BG_ALBUM_MAX} 张，先删几张再加`, 'err'); return; }
+  bgAlbum.unshift({ v, t: Date.now() });   // 新加的排最前
+  bgAlbumSave();
+  log(`背景图集：已加入（${bgAlbum.length}/${BG_ALBUM_MAX}）`, 'ok');
+  if ($('body').querySelector('.bgpresets')) viewSettings();   // 在设置页就把「N 张」刷一下
+}
+
+function bgAlbumAddInput() { bgAlbumAdd($('bgUrl') ? $('bgUrl').value : ''); }
+
+/** 模拟器专用：一键把 5 张测试图（`sim/alb1~5.jpg`）加进图集。
+    ⚠️ 只在用户点按钮时执行，**不做任何自动预置**（图集内容归用户自己）。 */
+function bgAlbumLoadTests() {
+  const miss = BG_TEST_IMGS.filter((v) => !bgAlbum.some((x) => x.v === v));
+  if (!miss.length) { log('背景图集：5 张测试图已经都在图集里了', 'err'); return; }
+  const add = miss.slice(0, Math.max(0, BG_ALBUM_MAX - bgAlbum.length));
+  for (const v of add) bgAlbum.unshift({ v, t: Date.now() });
+  bgAlbumSave();
+  log(`背景图集：已载入 ${add.length} 张测试图（共 ${bgAlbum.length}/${BG_ALBUM_MAX}）`,
+      add.length ? 'ok' : 'err');
+  if ($('body').querySelector('.bgpresets')) viewSettings();   // 在设置页就把「N 张」刷一下
+}
+
+/* -------- 图集页右上角「＋」：模拟相册多选（真机 = 系统相册 pickMultiImage） --------
+   模拟器没有真相册，用 sim/alb1~5.jpg 这 5 张测试图代替；选中的走 bgAlbumAdd()，
+   去重 / 20 张上限 / log 全复用它，不另写一套。 */
+let bgPickSel = [];
+function bgAlbumPick() { bgPickSel = []; bgPickRender(); }
+function bgPickToggle(v) {
+  const i = bgPickSel.indexOf(v);
+  if (i >= 0) bgPickSel.splice(i, 1); else bgPickSel.push(v);
+  bgPickRender();
+}
+function bgPickClose() { const o = document.querySelector('.ovl'); if (o) o.remove(); }
+function bgPickRender() {
+  let o = document.querySelector('.ovl');
+  if (!o) { o = document.createElement('div'); o.className = 'ovl'; $('screen').appendChild(o); }
+  o.innerHTML = `<div class="sheet">
+    <h3>添加背景</h3>
+    <div class="hint">模拟器没有真相册：这里用 sim/alb1~5.jpg 这 5 张测试图代替，可多选。
+      真机是系统相册多选（PHPicker），选完直接进图集。</div>
+    <div class="grid">${BG_TEST_IMGS.map((v) =>
+      `<i class="cell ${bgPickSel.includes(v) ? 'on' : ''}" data-v="${v}" style="background-image:url('${v}')"></i>`).join('')}</div>
+    <div class="row2">
+      <div class="cancel" onclick="bgPickClose()">取消</div>
+      <div class="ok ${bgPickSel.length ? '' : 'off'}" onclick="bgPickConfirm()">加入图集${bgPickSel.length ? `（${bgPickSel.length}）` : ''}</div>
+    </div></div>`;
+  o.querySelectorAll('.cell').forEach((el) =>
+    el.addEventListener('click', () => bgPickToggle(el.dataset.v)));
+}
+function bgPickConfirm() {
+  if (!bgPickSel.length) { log('背景图集：一张都没选', 'err'); return; }
+  const want = bgPickSel.slice();
+  want.forEach((v) => bgAlbumAdd(v));   // 复用：同图去重、上限 20、每条都有 log
+  bgPickClose();
+  viewAlbum();                          // 回到图集页并重画（✓/张数跟着更新）
+  log(`背景图集：本次选了 ${want.length} 张`, 'ok');
+}
+
+/** 从设置页进图集：设置页是底栏切过去的、本来不在返回栈里，
+    先把它压栈，back() 才回得到设置页（不然会一路弹到宫格页）。 */
+function bgAlbumOpen() { push(viewSettings); push(viewAlbum); }
+
+/** 点一下 = 立即应用（留在图集里，✓ 挪到这条） */
+function bgAlbumApply(i) {
+  const it = bgAlbum[i];
+  if (!it) return;
+  bgPick(it.v);
+  renderAlbum();
+}
+
+/** 删一条；删的正好是当前在用的 → 切回内置默认图 */
+function bgAlbumDel(i) {
+  const it = bgAlbum[i];
+  if (!it) return;
+  bgAlbum.splice(i, 1);
+  bgAlbumSave();
+  log(`背景图集：已删除第 ${i + 1} 条（剩 ${bgAlbum.length} 张）`);
+  if (it.v === appBg) {
+    bgPick('bg_default.jpg');
+    log('背景图集：删的就是当前那张 → 已切回内置默认图 bg_default.jpg');
+  }
+  renderAlbum();
+}
+
+function bgAlbumRows() {
+  if (!bgAlbum.length) {
+    return `<div class="snote" style="padding-bottom:2px">图集是空的 —— 点右上角「＋」添加背景
+      （模拟器里用 5 张测试图代替相册）；真机是从相册多选，选完直接进图集</div>`;
+  }
+  return bgAlbum.map((it, i) => `
+    <div class="bgal">
+      <div class="bgal-row ${it.v === appBg ? 'on' : ''}" data-i="${i}" data-open="0">
+        <i class="bgal-th" style="background-image:${esc(bgCss(it.v))}"></i>
+        <span class="bgal-ago">${esc(bgStamp(it.t))}</span>
+        ${it.v === appBg ? '<span class="bgal-ok">✓</span>' : ''}
+      </div>
+      <div class="bgal-del" onclick="bgAlbumDel(${i})">删除</div>
+    </div>`).join('');
+}
+
+/** 只重画列表容器（不动页面滚动位置） */
+function renderAlbum() {
+  const box = $('bgalList');
+  if (box) box.innerHTML = bgAlbumRows();
+}
+
+/** 左滑删除：横拖行内容向左位移，露出右侧红色「删除」；没拖动 = 点一下 → 立即应用。
+    指针事件（鼠标 / 触摸同一套）。⚠️ 别用 setPointerCapture：它会把随后的 click 重定向
+    （见 enableDragScroll 里的教训）。 */
+function bgAlbumSwipe(box) {
+  const W = 64;   // 「删除」按钮宽度 = 滑开的位移量（要跟 .bgal-del 的 width 一致）
+  let row = null, x0 = 0, base = 0, moved = 0, dx = 0;
+  const onMove = (e) => {
+    dx = e.clientX - x0;
+    if (Math.abs(dx) > moved) moved = Math.abs(dx);
+    if (moved > 3) row.dataset.drag = '1';   // 真开始拖了才把「删除」亮出来（免得点一下闪一下）
+    row.style.transform = `translateX(${Math.max(-W, Math.min(0, base + dx))}px)`;
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    const r = row;
+    row = null;
+    if (!r) return;
+    delete r.dataset.drag;
+    const open = moved < 8 ? false : (base + dx) < -W / 2;   // 过半停在滑开位；滑开的那条点一下=收回
+    r.style.transition = '';                                 // 交回 CSS 过渡，吸附回去
+    r.style.transform = open ? `translateX(${-W}px)` : '';
+    r.dataset.open = open ? '1' : '0';
+    if (moved < 8 && !base) bgAlbumApply(+r.dataset.i);
+  };
+  box.addEventListener('pointerdown', (e) => {
+    const r = e.target.closest('.bgal-row');
+    if (!r || row || e.button !== 0) return;   // 只认主键/手指（右键别把行拖住）
+    row = r; x0 = e.clientX; base = r.dataset.open === '1' ? -W : 0; moved = 0; dx = 0;
+    r.style.transition = 'none';
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+}
+
+/** 图集独立子页（设置页「背景图集（N 张）›」进来；顶部返回走 back()） */
+function viewAlbum() {
+  showNav(false);
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>背景图集</h1><div class="ic ic-r" onclick="bgAlbumPick()">＋</div>`);
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();   // 背景层常驻：切页时按当前状态同步（跟别的页一样）
+  $('body').innerHTML = `
+    <div class="spage">
+      <div class="scard" id="bgalList"></div>
+      <div class="snote">点一下立即应用；左滑一行露出「删除」——
+        删掉当前在用的那张会切回内置默认图</div>
+    </div>`;
+  renderAlbum();
+  bgAlbumSwipe($('bgalList'));
 }
 
 /** 图标加载失败 → 用"首字色块"顶替（和没配 iconUrl 的站点同一个样式） */
@@ -3286,6 +3569,9 @@ function viewSettings() {
   // 预览只显示前 3 条；点条数展开全部（真机上点它是进"播放记录"页）
   const recs = stShowAll ? ST_RECORDS : ST_RECORDS.slice(0, ST_PREVIEW);
   applyBg(); // 背景层是常驻元素，切页时按当前状态同步一次
+  // 背景图卡片：真机段的预览行（74×44）和图集入口（104×59）共用同一个背景串
+  const bgImgSt = appBg ? ` style="background-image:${esc(bgCss(appBg))}"` : '';
+  const bgCurTxt = !appBg ? '无背景' : (appBg === 'bg_default.jpg' ? '内置默认' : '自选图片');
   $('body').innerHTML = `
     <div class="spage">
       <div class="scard">
@@ -3317,14 +3603,29 @@ function viewSettings() {
 
       <div class="scard">
         <div class="scard-hd"><div class="ic">🖼</div><div class="tt">背景图</div></div>
-        <div class="srow" style="padding-top:10px"><div class="lab">
-          <div class="t">首页 / 设置页背景</div>
-          <div class="s">相册在网页里选不了 —— 这里用图片 URL 演示同一套铺图效果；
-            App 里是"从相册选图"，行为一致</div></div></div>
+        <!-- 图集入口（模拟器加的，真机没有）：左=当前背景缩略图，右=背景图集 / N 张 › / 当前状态 -->
+        <div class="srec bgentry" onclick="bgAlbumOpen()">
+          <i class="bgal-th"${bgImgSt}></i><div class="mid">
+            <div class="ti oneline">背景图集</div>
+            <div class="meta"><span>当前：${bgCurTxt}</span><span>${bgAlbum.length} 张 ›</span></div>
+          </div>
+        </div>
+        <div class="sbtnrow" style="padding-top:12px;gap:10px">
+          <div class="abtn" onclick="bgPickGallery()">从相册选择</div>
+          ${appBg === 'bg_default.jpg'
+            ? `<div class="abtn off">恢复默认</div>`
+            : `<div class="abtn" onclick="bgRestore()">恢复默认</div>`}
+        </div>
+        <div class="snote">从相册选择背景不保存在图集，想储存用就在图集里添加</div>
+        <!-- 模拟器专用控件（真机没有） -->
+        <div class="sdivider"></div>
+        <div class="snote" style="padding-bottom:6px">模拟器专用（真机是相册选图）</div>
+        <div class="sbtnrow"><div class="sbtn" onclick="bgAlbumLoadTests()">载入 5 张测试图</div></div>
         <input class="sinput" id="bgUrl" type="url" placeholder="粘贴图片 URL，如 https://…jpg"
           value="${esc(appBg)}">
         <div class="sbtnrow">
           <div class="sbtn primary" onclick="bgApplyInput()">应用图片</div>
+          <div class="sbtn" onclick="bgAlbumAddInput()">加入图集</div>
           <div class="sbtn danger" onclick="bgPick('')">清除背景</div>
         </div>
         <div class="snote">随便点一张示范图试试：</div>
@@ -3351,7 +3652,11 @@ $('nav').querySelectorAll('.item').forEach((it) => {
 });
 // 先把外壳渲染出来（否则第一屏是空白，要等 /sites 回来才有东西）
 // ?nav=settings 直达设置页（截图/调试方便：不用手点底部导航）
-if (WANT_SETTINGS) {
+// ?albumpick=1 直达图集页并自动弹出"添加背景"弹层（核验弹层用，不用手点）
+if (WANT_ALBUMPICK) {
+  viewAlbum();
+  bgAlbumPick();
+} else if (WANT_SETTINGS) {
   const it = $('nav').querySelector('[data-nav="settings"]');
   if (it) {
     $('nav').querySelectorAll('.item').forEach((x) => x.classList.remove('on'));

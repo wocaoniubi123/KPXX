@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
+import 'bg_album_page.dart';
 import 'detail_page.dart';
 import 'play_history_page.dart';
 import 'play_record_tile.dart';
@@ -156,31 +157,7 @@ class SettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _head(icon: Icons.image_outlined, title: '背景图'),
-          _row(title: '全屏背景', sub: '默认用内置图片；也可以从相册选一张（所有页面都铺）'),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: SizedBox(
-                    width: 74,
-                    height: 44,
-                    child: Image(
-                      image: AppBg.i.image,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true, // 换图时别闪白
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  custom ? '自选图片' : '内置默认',
-                  style: TextStyle(fontSize: 12, color: kTxtSub),
-                ),
-              ],
-            ),
-          ),
+          _albumEntry(context),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(
@@ -201,8 +178,70 @@ class SettingsPage extends StatelessWidget {
               ],
             ),
           ),
-          _note('选图会缩到 1440 宽存进沙盒（省内存）；换完立刻生效'),
+          _note('从相册选择背景不保存在图集，想储存用就在图集里添加'),
         ],
+      ),
+    );
+  }
+
+  /// 图集入口行（整行可点 → 图集页）。照模拟器 `.srec.bgentry` 定稿的样子：
+  /// 左 = **当前背景**的竖版缩略图（内置默认/单选/图集图，谁在用显示谁），
+  /// 右 = 「背景图集」+「当前：… / N 张 ›」两行；文字块与缩略图**垂直居中**，
+  /// 两行文字在文字列内**居中**，和缩略图间距 16（比播放记录行的 10 宽）。
+  Widget _albumEntry(BuildContext context) {
+    final sub = TextStyle(fontSize: 11, color: kTxtSub); // 同模拟器 .srec .meta
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const PageBg(child: BgAlbumPage())),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: SizedBox(
+                width: 64,
+                height: 110,
+                child: Container(
+                  color: const Color(0xFFECEFF3), // 没解码完时的底（同模拟器）
+                  child: Image(
+                    image: AppBg.i.image,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true, // 换图时别闪白
+                    // 64×110 的缩略图必须限制解码尺寸：不然每次重建都按原图
+                    // （自选图 1440 宽 ≈ 10MB 内存）整张解码。200 ≈ 64×3 倍屏
+                    cacheWidth: 200,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('背景图集',
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: kTxt)),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('当前：${AppBg.i.isDefault ? '内置默认' : '自选图片'}',
+                          style: sub),
+                      const SizedBox(width: 8),
+                      Text('${AppBg.i.album.length} 张 ›', style: sub),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
