@@ -44,7 +44,8 @@ class BgAlbumPage extends StatelessWidget {
         ],
       ),
       body: album.isEmpty
-          ? _note('图集是空的 —— 点右上角「＋」添加背景（从相册多选，选完直接进图集）')
+          ? _note('图集是空的 —— 点右上角「＋」添加背景（从相册多选，选完直接进图集）\n\n'
+              '[诊断] ${AppBg.i.diagnose()}')
           : ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 6),
               // 末项固定是底部说明（同模拟器图集页列表下面那行小字）
@@ -60,10 +61,10 @@ class BgAlbumPage extends StatelessWidget {
   /// 一行：缩略图 + 加入时间（+ 当前那条的 ✓）。
   /// 左滑的位移/吸附由 [_SwipeRow] 管，这里只负责内容和三个动作。
   Widget _row(BuildContext context, int i, BgItem it) {
-    final on = AppBg.i.currentPath == it.path;
+    final on = AppBg.i.currentPath == it.file;
     return _SwipeRow(
-      // 路径唯一（每次换图都写新文件名）→ 删掉一行时别把它滑开的状态留给下一行
-      key: ValueKey(it.path),
+      // 文件名唯一（每次换图都写新文件名）→ 删掉一行时别把它滑开的状态留给下一行
+      key: ValueKey(it.file),
       onTap: () => AppBg.i.applyAlbum(i),
       onExport: () => _export(context, it),
       onDelete: () => _del(context, i),
@@ -87,7 +88,8 @@ class BgAlbumPage extends StatelessWidget {
                         // ⚠️ 裸 Image(image:) 构造器没有 cacheWidth（CI 报过 "No named parameter"）→
                         // 用 ResizeImage 包一层 provider：竖版小图别按原图解码
                         // （1440 宽 ≈ 10MB/张，20 行会爆内存）
-                        image: ResizeImage(FileImage(File(it.path)), width: 200),
+                        image: ResizeImage(
+                            FileImage(File(AppBg.i.fileOf(it))), width: 200),
                         fit: BoxFit.cover,
                       ),
                     ),
@@ -148,7 +150,7 @@ class BgAlbumPage extends StatelessWidget {
           return;
         }
       }
-      await Gal.putImage(it.path);
+      await Gal.putImage(AppBg.i.fileOf(it));
       messenger.showSnackBar(const SnackBar(content: Text('已导出到相册')));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('导出失败：$e')));
