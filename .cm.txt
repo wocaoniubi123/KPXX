@@ -1,9 +1,0 @@
-﻿修转场重影：每个 push 的页面自己铺一层背景图（PageBg）
-
-根因：为了背景图透出来，全 App 的 Scaffold 都设成 Colors.transparent，
-转场时新页面就不再盖住旧页面 —— 两个页面叠在一起（用户截图：设置页和
-播放记录页文字/进度条全部重影，肉眼感觉是卡半秒+闪一下，实际是重影）。
-
-修法：app_background.dart 新增 PageBg（同一张背景图，走 ImageCache 不重复
-解码），把 15 处 MaterialPageRoute 的页面包一层。全屏播放页不包（Scaffold
-本来就是不透明纯黑，且视频上不该铺图）；showDialog 未动（自带 Material 底）。
