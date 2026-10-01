@@ -5,6 +5,7 @@ import 'fetched_image.dart';
 import 'home_page.dart';
 import 'models.dart';
 import 'player_widget.dart';
+import 'settings.dart';
 import 'sites.dart';
 import 'web_page.dart';
 
@@ -12,7 +13,26 @@ import 'web_page.dart';
 class DetailPage extends StatefulWidget {
   final SiteEntry site;
   final String baseUrl; // /archives/xxx/
-  const DetailPage({super.key, required this.site, required this.baseUrl});
+
+  /// 从「播放记录」点进来时传：续播位置。
+  /// 从站点入口（宫格/列表/相关推荐/标签…）进来一律不传 → null → 从头播（用户要求）。
+  final Duration? initialPosition;
+
+  /// 从「播放记录」点进来时传：篇内第几个视频（多视频文章续播用）
+  final int initialVideoIndex;
+
+  /// 列表页已经加载过的封面 URL（记播放记录当封面用，零额外请求）；
+  /// 从站点入口/文字链进来时可能为空 → 记录里退回正文首图
+  final String listCover;
+
+  const DetailPage({
+    super.key,
+    required this.site,
+    required this.baseUrl,
+    this.initialPosition,
+    this.initialVideoIndex = 0,
+    this.listCover = '',
+  });
 
   @override
   State<DetailPage> createState() => DetailPageState();
@@ -26,10 +46,73 @@ class DetailPageState extends State<DetailPage> {
   /// 篇内视频切换（多视频文章；详情页/内嵌播放器/全屏页共用同一份）
   VideoSwitcher? _switcher;
 
+  /// 内嵌播放器的 key：离开页面时要直接从它身上取最后位置（补写播放记录）
+  final GlobalKey<PlayerWidgetState> _playerKey =
+      GlobalKey<PlayerWidgetState>();
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  // ---------------------------------------------------------------------------
+  // 播放记录：详情页是唯一的归档点（播放器只管每 10 秒回调一次 + 离开时给最后位置）
+
+  /// 最后一次上报的进度（离开页面时补写用）
+  Duration? _lastPos;
+  Duration _lastDur = Duration.zero;
+  bool _lastFinished = false;
+
+  /// 播放器回调：位置/时长/播完都齐了才写（时长还没拿到就不记，免得进度算成 0）
+  void _reportProgress(Duration pos, Duration dur, bool finished) {
+    _lastPos = pos;
+    _lastDur = dur;
+    _lastFinished = finished;
+    if (dur <= Duration.zero) return;
+    _writeRecord(pos: pos, dur: dur, finished: finished);
+  }
+
+  /// 离开时补写：播放器实例还在（dispose 前调用），位置从它身上直接取
+  void _flushProgress() {
+    final kp = _playerKey.currentState?.player;
+    final pos = kp?.position ?? _lastPos;
+    final dur = kp?.value.duration ?? _lastDur;
+    if (pos == null || dur <= Duration.zero || pos <= Duration.zero) return;
+    _writeRecord(
+      pos: pos,
+      dur: dur,
+      finished: kp?.value.completed ?? _lastFinished,
+    );
+  }
+
+  void _writeRecord({
+    required Duration pos,
+    required Duration dur,
+    required bool finished,
+  }) {
+    final d = _detail;
+    if (d == null || d.videos.isEmpty) return; // 纯图文页不记
+    // 站点名要和 kSites 里的对得上（记录列表点回来时要靠它反查 SiteEntry）；
+    // 详情页收的 site 本来就是 kSites 里那一条，直接用它的 name
+    PlayHistory.i.touch(PlayRecord(
+      site: widget.site.name,
+      url: widget.baseUrl,
+      title: d.title,
+      cover: _coverOf(d),
+      videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
+      position: pos,
+      duration: dur,
+      finished: finished,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    ));
+  }
+
+  /// 记录列表的封面：优先用正文首图（详情页已经下载过、多半在内存缓存里），
+  /// 没有再退回列表页传来的封面；都没有就空着（卡片会自适应不显示封面区）
+  String _coverOf(ArticleDetail d) {
+    if (d.images.isNotEmpty) return d.images.first;
+    return widget.listCover;
   }
 
   Future<void> _load() async {
@@ -41,8 +124,14 @@ class DetailPageState extends State<DetailPage> {
       final d = await _api.detail(widget.baseUrl);
       if (!mounted) return;
       _switcher?.dispose();
-      _switcher = VideoSwitcher(d.videos.length)
+      final sw = VideoSwitcher(d.videos.length)
         ..index.addListener(_onVideoIndexChanged);
+      // 从播放记录进来：定位到上次看的第几集（越界就回第一集）
+      if (widget.initialVideoIndex > 0 &&
+          widget.initialVideoIndex < d.videos.length) {
+        sw.index.value = widget.initialVideoIndex;
+      }
+      _switcher = sw;
       setState(() => _detail = d);
       // 系列聚合：异步填充，失败静默（无选集不影响主内容）
       if (d.seriesPrefix.isNotEmpty) {
@@ -99,6 +188,7 @@ class DetailPageState extends State<DetailPage> {
 
   @override
   void dispose() {
+    _flushProgress(); // 离开详情页：把最后位置补写进播放记录（此时播放器还活着）
     _switcher?.dispose();
     super.dispose();
   }
@@ -169,6 +259,7 @@ class DetailPageState extends State<DetailPage> {
                     // 纯文字页（如小说）不显示空白播放器
                     if (videos.isNotEmpty || d.images.isNotEmpty)
                       PlayerWidget(
+                        key: _playerKey,
                       // 不换 key：换片由播放器内部复用同一实例开新源
                       // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
                         switcher: _switcher,
@@ -180,6 +271,9 @@ class DetailPageState extends State<DetailPage> {
                         lazyUrl:
                             videos.isEmpty ? null : videos[idx].lazyUrl,
                         onFetchSources: _api.videoSourcesAt,
+                        // 续播：只有从「播放记录」点进来才传（站点入口进来是 null）
+                        initialPosition: widget.initialPosition,
+                        onProgress: _reportProgress,
                       ),
                     Padding(
                       padding: const EdgeInsets.all(12),

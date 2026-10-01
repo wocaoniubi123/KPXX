@@ -3,6 +3,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'fetched_image.dart';
 import 'home_page.dart';
+import 'play_history_page.dart';
 import 'settings.dart';
 import 'sites.dart';
 import 'web_page.dart';
@@ -12,6 +13,7 @@ void main() {
   // 播放器引擎 media_kit(libmpv) 必须在 runApp 之前初始化
   MediaKit.ensureInitialized();
   AppSettings.i.load(); // 读设置（双击快进秒数）
+  PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
   runApp(const KpxxApp());
 }
 
@@ -193,6 +195,22 @@ class SettingsPage extends StatelessWidget {
         listenable: AppSettings.i,
         builder: (context, _) => ListView(
           children: [
+            // 播放记录：进去是独立页面（列表 + 单条删除 + 清空）
+            ListenableBuilder(
+              listenable: PlayHistory.i,
+              builder: (context, _) => ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('播放记录'),
+                subtitle: Text(PlayHistory.i.isEmpty
+                    ? '还没有记录；看过视频后自动记在这'
+                    : '${PlayHistory.i.records.length} 条 · 点一条从上次的进度继续看'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PlayHistoryPage()),
+                ),
+              ),
+            ),
+            const Divider(height: 32),
             const ListTile(
               title: Text('快进/快退秒数'),
               subtitle: Text('播放器里双击画面左侧后退、右侧快进，一次跳转的时长'),

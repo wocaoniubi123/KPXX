@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -93,3 +95,241 @@ class AppSettings extends ChangeNotifier {
     }
   }
 }
+
+/// 一条播放记录（同一部片只留一条，重复看就覆盖进度——用户要求）。
+class PlayRecord {
+  /// 站点名（从 kSites 里反查 SiteEntry 用，站点入口进去时必须就是原站点）
+  final String site;
+  final String url; // 详情页相对路径，如 /archives/273630/
+  final String title;
+  final String cover; // 原始 URL，显示时走 FetchedImage（该解密的自动解密）
+  final int videoIndex; // 篇内第几个视频（多视频文章用）
+  final Duration position; // 已看到哪
+  final Duration duration; // 总时长（0 = 还没拿到）
+
+  /// 播到结尾（或手动拉到最后）：留记录但标已看完，再点是重头播（用户要求）
+  final bool finished;
+  final int updatedAt; // 毫秒时间戳，列表按它倒序
+
+  const PlayRecord({
+    required this.site,
+    required this.url,
+    required this.title,
+    required this.cover,
+    required this.videoIndex,
+    required this.position,
+    required this.duration,
+    required this.finished,
+    required this.updatedAt,
+  });
+
+  /// 唯一键：同一站点同一篇 = 同一条
+  String get key => '$site|$url';
+
+  /// 观看进度 0~1（时长没拿到时按 0）
+  double get progress {
+    if (finished) return 1;
+    final d = duration.inMilliseconds;
+    if (d <= 0) return 0;
+    return (position.inMilliseconds / d).clamp(0.0, 1.0).toDouble();
+  }
+
+  Map<String, dynamic> toJson() => {
+        's': site,
+        'u': url,
+        't': title,
+        'c': cover,
+        'i': videoIndex,
+        'p': position.inSeconds, // 秒精度就够（JSON 也小）
+        'd': duration.inSeconds,
+        'f': finished,
+        'ts': updatedAt,
+      };
+
+  /// 解析容错：字段缺失/类型不对就退化（宁可丢一条，不能让整页崩）
+  static PlayRecord? fromJson(Map<String, dynamic> j) {
+    final site = j['s'], url = j['u'];
+    if (site is! String || url is! String || site.isEmpty || url.isEmpty) {
+      return null;
+    }
+    int sec(dynamic v) => v is int ? v : (v is num ? v.toInt() : 0);
+    return PlayRecord(
+      site: site,
+      url: url,
+      title: j['t'] is String ? j['t'] as String : '',
+      cover: j['c'] is String ? j['c'] as String : '',
+      videoIndex: sec(j['i']),
+      position: Duration(seconds: sec(j['p'])),
+      duration: Duration(seconds: sec(j['d'])),
+      finished: j['f'] == true,
+      updatedAt: sec(j['ts']),
+    );
+  }
+}
+
+/// 播放记录（持久化在 shared_preferences，一个 JSON 数组）。
+/// 写入策略（用户拍板）：进度每前进 ≥10 秒写一次 + 离开详情页时补写一次。
+class PlayHistory extends ChangeNotifier {
+  PlayHistory._();
+  static final PlayHistory i = PlayHistory._();
+
+  static const String _kKey = 'play_history';
+  static const int maxRecords = 100; // 超出淘汰最旧的
+
+  final Map<String, PlayRecord> _m = {}; // key -> 记录（不是列表：去重靠它）
+
+  /// 列表页看这个：按最近观看倒序
+  List<PlayRecord> get records =>
+      _m.values.toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+  bool get isEmpty => _m.isEmpty;
+
+  /// 这条记录上次真正落盘时的进度（用来判断"要不要写"）
+  final Map<String, int> _savedSec = {};
+
+  Future<void> load() async {
+    // 纯逻辑自检（debug 构建生效）：JSON 往返 / 字段退化 / 进度 / 节流阈值
+    assert(() {
+      _selfCheck();
+      return true;
+    }());
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_kKey);
+      if (raw == null || raw.isEmpty) return;
+      final list = jsonDecode(raw);
+      if (list is! List) return;
+      _m.clear();
+      for (final e in list) {
+        if (e is! Map) continue;
+        final r = PlayRecord.fromJson(Map<String, dynamic>.from(e));
+        if (r != null) _m[r.key] = r;
+      }
+      for (final r in _m.values) {
+        _savedSec[r.key] = r.position.inSeconds;
+      }
+      notifyListeners();
+    } catch (_) {
+      // 数据坏了就当空：不能因为一条坏记录让 App 起不来
+    }
+  }
+
+  PlayRecord? find(String site, String url) => _m['$site|$url'];
+
+  /// 播放中不断调这里。节流：进度比上次落盘前进 <10 秒且已有记录 → 只更新内存。
+  /// 进度回退（快退/从头看）同样会落盘（取绝对值判断），否则退出时会把新位置丢掉。
+  Future<void> touch(PlayRecord r) async {
+    final old = _m[r.key];
+    _m[r.key] = r;
+    notifyListeners(); // 列表/进度条实时刷新
+    final last = _savedSec[r.key];
+    final p = r.position.inSeconds;
+    if (last == null || (p - last).abs() >= 10) {
+      _savedSec[r.key] = p;
+      await _save();
+    }
+  }
+
+  /// 离开详情页时调：把最后的位置补写进去（不再重复判断节流）
+  Future<void> flush() => _save();
+
+  Future<void> remove(String key) async {
+    _m.remove(key);
+    _savedSec.remove(key);
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> clear() async {
+    _m.clear();
+    _savedSec.clear();
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> _save() async {
+    try {
+      // 超上限先淘汰最旧的（按 updatedAt）
+      if (_m.length > maxRecords) {
+        final sorted = _m.values.toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        for (final r in sorted.skip(maxRecords)) {
+          _m.remove(r.key);
+          _savedSec.remove(r.key);
+        }
+      }
+      final sp = await SharedPreferences.getInstance();
+      final arr = _m.values.map((r) => r.toJson()).toList();
+      await sp.setString(_kKey, jsonEncode(arr));
+    } catch (_) {
+      // 存失败不影响本次会话（下次 touch 还会再试）
+    }
+  }
+
+  /// 自检（debug 构建生效，release 自动剔除；`load()` 里跑一次）。
+  /// ⚠️ 覆盖的是**纯逻辑**：JSON 往返、去重键、字段退化、进度计算、
+  /// 落盘阈值那套算术。真正写盘/读盘是异步的（SharedPreferences），
+  /// 由真机 + 下次启动验证，不在这里假装测了。
+  static void _selfCheck() {
+    PlayRecord mk({
+      required String u,
+      required int p,
+      int d = 1200,
+      bool f = false,
+      int ts = 1,
+    }) =>
+        PlayRecord(
+          site: '麻豆社',
+          url: u,
+          title: '标题 $u',
+          cover: 'https://x/c.jpg',
+          videoIndex: 2,
+          position: Duration(seconds: p),
+          duration: Duration(seconds: d),
+          finished: f,
+          updatedAt: ts,
+        );
+
+    // 1) JSON 往返：每个字段都要原样回来
+    final a = mk(u: '/a.html', p: 123, f: true, ts: 1700000000000);
+    final b = PlayRecord.fromJson(jsonDecode(jsonEncode(a.toJson())));
+    assert(b != null, '往返不能丢记录');
+    assert(b!.site == a.site && b.url == a.url && b.title == a.title, '基本字段');
+    assert(b.cover == a.cover && b.videoIndex == a.videoIndex, '封面/集号');
+    assert(b.position == a.position, '位置（秒精度）');
+    assert(b.duration == a.duration && b.finished && b.updatedAt == a.updatedAt,
+        '时长/看完/时间戳');
+    assert(b.key == a.key, '去重键必须一致：${b.key}');
+
+    // 2) 字段缺失/类型错 → 不能抛异常（宁可丢一条，不能让整页崩）
+    assert(PlayRecord.fromJson(const {}) == null, '没有 site/url 的应丢弃');
+    assert(PlayRecord.fromJson(const {'s': 'x'}) == null, '只有 site 的应丢弃');
+    final messy = PlayRecord.fromJson(const {
+      's': '站',
+      'u': '/x/',
+      'p': '坏值',
+      'd': null,
+      'f': 'yes',
+      'ts': 5.0,
+    });
+    assert(messy != null && messy!.position == Duration.zero, '坏字段退化到 0');
+    assert(!messy.finished, 'f 不是 true 就当 false');
+    assert(messy.videoIndex == 0 && messy.updatedAt == 0, '非 int 数字退化');
+
+    // 3) 进度计算
+    assert(mk(u: '/p.html', p: 0).progress == 0, '没动过 = 0');
+    assert((mk(u: '/p.html', p: 600).progress - 0.5).abs() < 1e-9, '一半');
+    assert(mk(u: '/p.html', p: 600, f: true).progress == 1, '看完 = 满');
+    assert(mk(u: '/p.html', p: 10, d: 0).progress == 0, '没时长不瞎算');
+    assert(mk(u: '/p.html', p: 9999, d: 1200).progress == 1, '越界夹到 1');
+
+    // 4) 落盘阈值那套算术（touch 的节流判断就是它）：
+    //    差 <10 秒不写、≥10 秒写、**回退（快退）也要写**（取绝对值）
+    int gap(int pos, int saved) => (pos - saved).abs();
+    assert(gap(100, 100) < 10, '没动 → 不写');
+    assert(gap(105, 100) < 10, '前进 5 秒 → 不写');
+    assert(gap(110, 100) >= 10, '前进 10 秒 → 写');
+    assert(gap(60, 100) >= 10, '回退 40 秒 → 必须写');
+  }
+}
+

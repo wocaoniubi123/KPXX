@@ -214,6 +214,9 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   VideoController get videoController => _vc;
 
+  /// 当前播放位置（离开页面时补写播放记录用）
+  Duration get position => value.position;
+
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
@@ -497,6 +500,13 @@ class PlayerWidget extends StatefulWidget {
   /// 篇内视频切换状态（多视频文章才有；null = 单视频，没有"下一集"）
   final VideoSwitcher? switcher;
 
+  /// 从"播放记录"点进来时的续播位置：首次成功起播后跳到这（只生效一次）。
+  /// 从站点入口进来不传 → null → 完全按原行为从头播（用户要求）。
+  final Duration? initialPosition;
+
+  /// 进度上报（位置、总时长、是否播完）。详情页拿它写播放记录；不传就不上报。
+  final void Function(Duration pos, Duration dur, bool finished)? onProgress;
+
   const PlayerWidget({
     super.key,
     required this.sources,
@@ -506,14 +516,21 @@ class PlayerWidget extends StatefulWidget {
     this.lazyUrl,
     this.onFetchSources,
     this.switcher,
+    this.initialPosition,
+    this.onProgress,
   });
 
   @override
-  State<PlayerWidget> createState() => _PlayerWidgetState();
+  State<PlayerWidget> createState() => PlayerWidgetState();
 }
 
-class _PlayerWidgetState extends State<PlayerWidget>
-    with _SwipeSeek<PlayerWidget>, AutomaticKeepAliveClientMixin, _BrightnessVolume {
+/// 对外暴露一个 [player] getter：详情页离开时要从它身上取最后位置（写播放记录）
+class PlayerWidgetState extends State<PlayerWidget>
+    with
+        _SwipeSeek<PlayerWidget>,
+        AutomaticKeepAliveClientMixin,
+        _BrightnessVolume,
+        WidgetsBindingObserver {
   static const _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -533,6 +550,11 @@ class _PlayerWidgetState extends State<PlayerWidget>
   /// 正在按需取源（合集/黄果选集）：点击那一刻就亮提示，别等网络回来才弹
   bool _fetchingLazy = false;
   int _curIndex = 0; // 当前已打开的篇内序号（判断是否换片）
+  /// 续播位置（从播放记录进来）：首次成功起播后跳一次，之后置空不再用
+  late Duration? _restoreTo = widget.initialPosition;
+  /// 进度上报节流：每 10 秒一次（用户拍板），离开详情页时详情页再补一次 flush
+  Timer? _reportTimer;
+  Duration _repPos = Duration.zero;
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
   bool _controlsVisible = true;
@@ -545,6 +567,27 @@ class _PlayerWidgetState extends State<PlayerWidget>
 
   @override
   KpPlayer get swipePlayer => _kp!;
+
+  /// 当前播放器实例（详情页写播放记录时取位置用；未初始化时为 null）
+  KpPlayer? get player => _kp;
+
+  /// 切后台/被杀前补报一次进度：否则"最后看的 10 秒"会丢
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      final p = _kp?.value.position ?? Duration.zero;
+      if (p > Duration.zero) {
+        _repPos = p;
+        widget.onProgress?.call(
+          p,
+          _kp?.value.duration ?? Duration.zero,
+          _kp?.value.completed ?? false,
+        );
+      }
+    }
+  }
 
   @override
   KpPlayer get gesturePlayer => _kp!;
@@ -602,6 +645,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
     _syncPauseHook(); // switcher 可能是后到的，每次依赖变化都对一遍监听
     if (!_init) {
       _init = true;
+      // 切后台/被杀前补报一次播放进度（不注册就收不到生命周期回调）
+      WidgetsBinding.instance.addObserver(this);
       bvPrime(); // 预读系统亮度/音量做缓存
       // 微任务里再初始化：_initPlayer 结尾会 setState，不能在本元素 build 期间调用
       Future.microtask(_initPlayer);
@@ -614,6 +659,8 @@ class _PlayerWidgetState extends State<PlayerWidget>
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     _autoRetryTimer?.cancel();
+    _reportTimer?.cancel(); // 播放记录上报（详情页会在 dispose 时 flush 最后位置）
+    WidgetsBinding.instance.removeObserver(this);
     disposeBv();
     disposeSwipe();
     _kp?.shutdown();
@@ -624,6 +671,9 @@ class _PlayerWidgetState extends State<PlayerWidget>
   /// 注意顺序：先把播放器挂到界面上（画面/声音一有就出），
   /// 再等"就绪"——就绪只用来判断要不要换下一个源，不该拦住显示。
   Future<void> _initPlayer() async {
+    // 起播时把「当前篇内序号」对齐到 switcher：续播可能直接落在第 3 集，
+    // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
+    _curIndex = widget.switcher?.index.value ?? 0;
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
     if (_sources.isEmpty &&
         widget.lazyUrl != null &&
@@ -676,6 +726,16 @@ class _PlayerWidgetState extends State<PlayerWidget>
           final ok = await _openAndWait(kp, _sources[i]);
           if (!mounted) return;
           if (ok) {
+            // 续播：首次成功起播后跳到记录的进度（跳完就置空，换集不再跳）
+            final to = _restoreTo;
+            _restoreTo = null;
+            if (to != null && to > Duration.zero) {
+              try {
+                await kp.seek(to);
+              } catch (_) {
+                // 续播失败不影响播放，从头放就行
+              }
+            }
             _scheduleHide();
             return;
           }
@@ -754,6 +814,19 @@ class _PlayerWidgetState extends State<PlayerWidget>
     if (old != null) old.shutdown();
     _kp = kp;
     kp.addListener(_onTick);
+    // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
+    //（暂停/卡住时报上去没意义；离开详情页由详情页 flush 补最后一次）
+    _reportTimer?.cancel();
+    _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      final p = _kp?.value.position ?? Duration.zero;
+      if ((p - _repPos).abs() < const Duration(seconds: 5)) return;
+      _repPos = p;
+      widget.onProgress?.call(
+        p,
+        _kp?.value.duration ?? Duration.zero,
+        _kp?.value.completed ?? false,
+      );
+    });
   }
 
   /// 只在「出错 / 已开播」这两个状态翻转时重建：位置/缓冲的变化由控制条和

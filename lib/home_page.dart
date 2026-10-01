@@ -983,7 +983,11 @@ class ArticleCard extends StatelessWidget {
           }
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => DetailPage(site: site, baseUrl: article.url),
+              builder: (_) => DetailPage(
+                site: site,
+                baseUrl: article.url,
+                listCover: article.cover, // 记播放记录时的封面（零额外请求）
+              ),
             ),
           );
         },
