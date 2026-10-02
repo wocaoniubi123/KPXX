@@ -25,6 +25,15 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// xHamster：`/pornstars/…` 与 `/creators/…` 进他的视频列表 ✓；
+  /// `/shorts/…` 进竖屏短片瀑布流 ✓；其余走详情页 ✓。
+  @override
+  String? specialTap(String url) {
+    if (url.contains('/pornstars/') || url.contains('/creators/')) return 'list';
+    if (url.startsWith('/shorts/')) return 'shorts';
+    return null;
+  }
+
   /// 「色情明星」tab 用 xHamster 那套筛选行 ✓
   @override
   String get starRowKind => 'xh';

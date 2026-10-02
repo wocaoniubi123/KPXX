@@ -24,6 +24,11 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// Pornhub 的演员卡/演员标签（`/pornstar/…`、`/model/…`）→ 进他的视频列表 ✓
+  @override
+  String? specialTap(String url) =>
+      (url.startsWith('/pornstar/') || url.startsWith('/model/')) ? 'list' : null;
+
   /// 「色情明星」tab 用 Pornhub 那套筛选行 ✓
   @override
   String get starRowKind => 'ph';

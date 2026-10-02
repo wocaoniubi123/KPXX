@@ -1473,46 +1473,10 @@ class ArticleCard extends StatelessWidget {
           }
           // XVideos 的频道/演员卡（頻道、色情明星 列表）：进该频道/演员的
           // 「視頻」免费列表（站点顶上 RED 是收费的，不取）
-          if (site.template == SiteTemplate.xvideos &&
-              !article.url.contains('/video.')) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => PageBg(child: TagListPage(
-                  site: site,
-                  title: article.title,
-                  slug: article.url,
-                  isTag: false,
-                )),
-              ),
-            );
-            return;
-          }
-          // Pornhub 的演员卡（/pornstars 列表）和详情页里的演员标签：
-          // /pornstar/xxx、/model/xxx 点进的是**他的视频列表**，不是文章详情
-          // （和 XVideos 的演员卡同一套处理）
-          if (site.template == SiteTemplate.pornhub &&
-              (article.url.startsWith('/pornstar/') ||
-                  article.url.startsWith('/model/'))) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => PageBg(child: TagListPage(
-                  site: site,
-                  title: article.title,
-                  slug: article.url,
-                  isTag: false,
-                )),
-              ),
-            );
-            return;
-          }
-          // ⚠️ xHamster **明星卡** → 进**他/她的视频列表**（`/pornstars/<slug>`），**不是详情页** ✗
-          //  —— 用户 2026-10-03 实机报："点击明星卡片进的是详情页，不是明星视频列表" ✗。
-          //  ⚠️ 这个分支 **sim 里早就有**（`openTagList`），**App 漏搬**了 ✗ —— 又是一次"两端没同步" ✗。
-          //  `/pornstars/…` 与 `/creators/…` 都当"一个站内路径"进列表页 ✓
-          //  （`api.tag` → `_xhList` 内部再分流：演员列表 vs 演员本人的视频列表 ✓）。
-          if (site.template == SiteTemplate.xhamster &&
-              (article.url.contains('/pornstars/') ||
-                  article.url.contains('/creators/'))) {
+          // 卡片点击的**特殊去向**已下放到各站（specialTap ✓）——
+          // `list` = 进他/她的视频列表页 ✓（XVideos 频道/演员 · Pornhub 演员 · xHamster 明星 ✓）；
+          // `shorts` = 进竖屏短片瀑布流 ✓（xHamster 短片 ✓）；null = 走详情页 ✓。
+          if ((_api.ui?.specialTap(article.url) ?? '') == 'list') {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(child: TagListPage(
@@ -1527,8 +1491,7 @@ class ArticleCard extends StatelessWidget {
           }
           // ⚠️ xHamster 短片卡 → 进**竖屏瀑布流**（用户 2026-10-02 要求），**不是**详情页 ✗。
           // 只把"点的那条"传进去打头，往后的由瀑布流自己续拉（短片列表本身是随机的 ✓）。
-          if (site.template == SiteTemplate.xhamster &&
-              article.url.startsWith('/shorts/')) {
+          if ((_api.ui?.specialTap(article.url) ?? '') == 'shorts') {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(

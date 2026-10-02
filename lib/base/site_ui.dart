@@ -39,6 +39,12 @@ abstract class SiteUi {
   /// 选中短片 tab 时要重置短片随机种子 ✓。
   bool isShortsPath(String key) => false;
 
+  /// 点这张卡的**特殊去向**：`null` = 走详情页 ✓
+  /// `list` = 进"他/她的视频列表"页（TagListPage ✓）· `shorts` = 进竖屏短片瀑布流 ✓。
+  ///
+  /// ⚠️ 各站判定**不同** ✗，所以判定本身下放到站点 ✓（不是在 UI 里 if 模板 ✓）。
+  String? specialTap(String url) => null;
+
   /// 分类选择器是否按**分组**展示（xHamster 有 40 个演员分类分组 ✓）。
   bool get hasCatGroups => false;
   /// 列表页是否挂**本站筛选行**（照站点的那几个下拉 ✓）—— Hanime1 ✓

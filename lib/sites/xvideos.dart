@@ -19,6 +19,10 @@ class XvSite {
   XvSite(this._f);
 
   final SiteFetcher _f;
+
+  /// XVideos 的频道/演员卡（**不含** `/video.` 的真正视频页 ✓）→ 进"視頻"列表页 ✓
+  @override
+  String? specialTap(String url) => url.contains('/video.') ? null : 'list';
   // XVideos（tube 站）：列表/搜索/标签共用 thumb-block 卡片；详情页内嵌
   // setVideoHLS / setVideoUrlLow/High 直链（xvideos-cdn，无防盗链；secure 签名
   // 约 5 小时有效——过期走现有"失败→刷新详情"兜底）；相关推荐在页面内

@@ -1119,6 +1119,35 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 **1478/1495/1515/1532 = 卡片点击行为**（xv/ph/xh ✓）· 1824 = 搜索页筛选行（hanime1 ✓）。
 **⏭️ 下一轮（Round 21）**：先做 **1478/1495/1515/1532 那组"点击行为"** ✓（同类 ✓，大概率也做成站点事实 ✓）。
 
+
+--- 第 87 条续（Round 21）---
+✅ **"卡片点击行为" 4 处 → 2 处** ✓（**净删 37 行** ✓）：`home_page` **1871 → 1834 行** ✓；`SiteTemplate` **10 → 6 处** ✓（UI 进度 **13/19** ✓）。
+
+✅ **做法**：4 处里 **3 处的函数体一字不差** ✓（都是 `TagListPage(site, title, slug: article.url, isTag: false)` ✓），
+只有判定不同 ✓ → ✅ **判定下放成一个站点事实** ✓：
+`String? specialTap(String url)` —— `null` = 走详情页 ✓ · `'list'` = 视频列表页 ✓ · `'shorts'` = 竖屏短片瀑布流 ✓
+| 站 | 实现（照原文一字不差 ✓） |
+|---|---|
+| `XvSite` | `url.contains('/video.') ? null : 'list'` ✓ |
+| `PhSite` | `(url.startsWith('/pornstar/') \|\| url.startsWith('/model/')) ? 'list' : null` ✓ |
+| `XhSite` | `/pornstars/\|/creators/ → 'list'` ✓；`/shorts/ → 'shorts'` ✓ |
+
+⚠️⚠️ **本轮踩了 3 个坑（全被拦住、零损失 ✓，都值得记 ✗）**：
+1. ❌ **短片块的判定跨两行** ✗（`xhamster &&` 一行、`startsWith('/shorts/')` 下一行 ✓）→ 我按**单行**找 → 定位失败 ✓。
+   ✅ 教训：**多行条件要连下一行一起看** ✓。
+2. ❌❌ **splice 顺序错了** ✗ —— **这是我又犯的老毛病** ✗：先删了前面的 52 行 ✓ →
+   `iShorts` 这个**行号已失效** ✗ → 第二刀切错位置 ✓ → 少删 1 处 ✓ →
+   ✅ **判据报"剩余应为 6、实际 7"** ✓✓ **完全正确** ✓ → **拒写** ✓。
+   ✅ 教训：**多区间编辑必须从后往前** ✓（我在数据层搬迁里一直是这么做的 ✓，这次写 UI 脚本时忘了 ✗）。
+3. ❌ **我的"残留检查"写太宽** ✗（用 `SiteTemplate.(xvideos|pornhub|xhamster)` 广搜 ✓）→
+   把**别处的同类判定**（585 行 `/pornstars` 那处、725 行的 tab key 那处 ✓ —— 它们**本来就该留着** ✓）当成残留 ✓。
+   ✅ 教训：**残留检查要按"被删块的精确特征片段"** ✓（如 `url.contains('/creators/')` ✓），**不能按模板名广搜** ✗。
+
+**📈 进度**：轮次 **21/40**；数据层 **9/9** ✓✓；UI **13/19 处**（剩 6 ✓）。
+**剩下 6 处**：562/564（`_tabShowsFilterRowKey` 的 case ✓）· 585（`_themeForKey` ✓）· 611（Pornhub 星标 extra ✓）·
+725（`_xhStarTabKey` ✓）· 1822（搜索页筛选行 hanime1 ✓）。
+**⏭️ 下一轮（Round 22）**：做 585/611/725 那组（筛选行归属判定 ✓），再 562/564 + 1822 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
