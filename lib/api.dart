@@ -178,6 +178,15 @@ class Api {
               '${extra.map((e) => '${e.key}=${e.value}').join('&')}';
         }
         return _phList(php, page: page);
+      case SiteTemplate.xhamster:
+        // key / theme 都是**站内路径**（「色情明星」tab 自己的选择器也走 theme）：
+        //   · 「影片」tab：'/'、'/hd'、'/4k'、'/vr'
+        //   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
+        //   · 「色情明星」tab：默认 '/pornstars'；选中后 theme = '/pornstars/top/us'、
+        //     '/pornstars/all/countries'、'/pornstars/all/categories/<slug>'
+        //   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关）
+        // 走哪套解析由 _xhList 内部按路径判断。
+        return _xhList(theme ?? k, page: page);
     }
   }
 
@@ -209,6 +218,8 @@ class Api {
         return _mdCards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
       case SiteTemplate.pornhub:
         return _phList('/', page: page);
+      case SiteTemplate.xhamster:
+        return _xhList('/', page: page);
     }
   }
 
@@ -249,6 +260,10 @@ class Api {
         }
         return _mdCards(await _fetchText(
             page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+      case SiteTemplate.xhamster:
+        // 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表）；详情页标签也走这里。
+        // 全是站内路径，交给 _xhList 分流（它会避开"把演员页当演员列表解析"的坑）。
+        return _xhList(slug, page: page);
       case SiteTemplate.pornhub:
         // 详情页的标签是 `/video/search?search=<编码词>`；演员卡传来的是 `/pornstar/xxx`。
         // 两者对本站都只是"一个站内路径"→ 直接当列表抓（演员路径回来的是视频卡）。
@@ -293,6 +308,10 @@ class Api {
         // 搜索 = /video/search?search=<kw>（站点自己的搜索页形态；kw 是原始文本，自己编码）
         return _phList('/video/search?search=${Uri.encodeComponent(keyword)}',
             page: page);
+      case SiteTemplate.xhamster:
+        // ⚠️ 站点有搜索（'搜尋所有女優' 那个框），但**路径没实测过** → 先明确抛错，
+        // 不猜一个地址糊上去（猜错了会静默变成空列表，更难查）。
+        throw Exception('xHamster 搜索暂未接通（路径未实测）');
     }
   }
 
@@ -327,6 +346,8 @@ class Api {
         return _kmDetail(url);
       case SiteTemplate.madou:
         return _mdDetail(url);
+      case SiteTemplate.xhamster:
+        return _xhDetail(url);
     }
   }
 
@@ -2784,6 +2805,250 @@ class Api {
       tags: tags,
       related: relBox == null ? const [] : _phCards(doc, relBox),
       duration: doc.querySelector('div.duration')?.text.trim() ?? '',
+      seriesPrefix: '',
+    );
+  }
+  // ---------------------------------------------------------------------------
+  // xHamster（tw.xhamster.com）—— 见 DEVLOG 75~81
+  //
+  // ⚠️ 三条硬事实（都实测过，别照别的站的经验改）：
+  //  ① **必须用桌面 UA 取**：config 里的 Site.ua 是 iPhone UA，站点只给 **5 张卡/页**；
+  //     桌面 UA 给 **50+ 张**。但桌面版 DOM 里第 13 张起全是**骨架屏占位** →
+  //     真数据在**页面 JSON**里（跟 assignable / 相关推荐同一个套路）。
+  //  ② 「短片」走 **JSON 接口** `/api/v1/moments`（'/shorts' 页面本身客户端渲染，静态 HTML 0 卡片）。
+  //  ③ 视频 CDN **不校验 Referer 也不校验 UA**（与 Pornhub 相反）→ 播放不用加特判。
+
+  static const String _xhUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+  static const Map<String, String> _xhDesk = {'User-Agent': _xhUa};
+
+  /// 页面 JSON 里的字符串都是转义的（`https:\/\/`、中文 `\u516c`）→ 用 jsonDecode 还原。
+  static String _xhUn(String? s) {
+    if (s == null || s.isEmpty) return '';
+    try {
+      return jsonDecode('"' + s + '"') as String;
+    } catch (_) {
+      return s;
+    }
+  }
+
+  /// 秒 → 时长文本（1:12 / 1:02:03）。站点 JSON 里给的是秒。
+  static String _xhClock(int sec) {
+    if (sec <= 0) return '';
+    final h = sec ~/ 3600;
+    final m = (sec % 3600) ~/ 60;
+    final s = sec % 60;
+    final ss = s.toString().padLeft(2, '0');
+    if (h > 0) return '$h:${m.toString().padLeft(2, '0')}:$ss';
+    return '$m:$ss';
+  }
+
+  /// 列表：按路径分流（短片接口 / 演员卡 / 普通视频卡）。入参都是**站内路径**。
+  Future<List<Article>> _xhList(String path, {int page = 1}) async {
+    final p = path.isEmpty ? '/' : path;
+    // 「短片」不走 HTML，走 JSON 接口（翻页是 ?page=N，不是路径式）
+    if (p.startsWith('/shorts')) return _xhMoments(page);
+    final next = page > 1 ? (p == '/' ? '/$page' : '$p/$page') : p;
+    final html = await _fetchText(next, extraHeaders: _xhDesk);
+    // 演员卡列表：'/pornstars'、'/pornstars/all/…'、'/pornstars/top/…'
+    // ⚠️ '/pornstars/<名字>' 是**演员本人的页 → 视频列表**，不能走演员解析 ——
+    //    那种页里通常带一段"相似演员"的 JSON，一旦按演员解析就是一屏演员卡
+    //    （用户实报过"点图上这个人，进去又是明星卡片"）。
+    if (p == '/pornstars' ||
+        p.startsWith('/pornstars/all/') ||
+        p.startsWith('/pornstars/top/')) {
+      final stars = _xhStars(html);
+      if (stars.isNotEmpty) return stars;
+    }
+    return _xhCards(html);
+  }
+
+  /// 视频卡：从**页面 JSON** 解（DOM 里只有前 ~12 张真卡，其余是骨架屏）。
+  /// 字段顺序：id → duration(秒) → title → pageURL → thumbURL → imageURL。
+  static List<Article> _xhCards(String html) {
+    final out = <Article>[];
+    final seen = <String>{};
+    final re = RegExp(
+        r'"id":(\d+),\s*"duration":(\d+),[\s\S]{0,600}?"title":"((?:[^"\\]|\\.)*)"'
+        r'[\s\S]{0,900}?"pageURL":"((?:[^"\\]|\\.)*)"'
+        r'[\s\S]{0,300}?"thumbURL":"((?:[^"\\]|\\.)*)"'
+        r'[\s\S]{0,300}?"imageURL":"((?:[^"\\]|\\.)*)"');
+    for (final m in re.allMatches(html)) {
+      final url =
+          _xhUn(m.group(4)).replaceFirst(RegExp(r'^https?://[^/]+'), '');
+      final title = _xhUn(m.group(3)).replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (url.isEmpty || title.isEmpty || !seen.add(url)) continue;
+      out.add(Article(
+        title: title,
+        url: url,
+        cover: _xhUn(m.group(6)), // imageURL = 1280×720 大图
+        meta: '',
+        badge: _xhClock(int.tryParse(m.group(2) ?? '') ?? 0),
+      ));
+    }
+    return out;
+  }
+
+  /// 演员卡：'/pornstars' 系页面里 **DOM 一张卡都没有**（整页客户端渲染），
+  /// 数据在页面 JSON 的 `"pornstars":[{…}]` 里：videoCount → name → pageURL → logoThumbUrl。
+  /// 点进去是他/她的**视频列表**（'/pornstars/<slug>'）。
+  static List<Article> _xhStars(String html) {
+    final out = <Article>[];
+    final seen = <String>{};
+    final re = RegExp(
+        r'"videoCount":(\d+)[\s\S]{0,400}?"name":"((?:[^"\\]|\\.)*)"'
+        r'[\s\S]{0,300}?"pageURL":"((?:[^"\\]|\\.)*)"'
+        r'[\s\S]{0,300}?"logoThumbUrl":"((?:[^"\\]|\\.)*)"');
+    for (final m in re.allMatches(html)) {
+      final name = _xhUn(m.group(2)).replaceAll(RegExp(r'\s+'), ' ').trim();
+      final url =
+          _xhUn(m.group(3)).replaceFirst(RegExp(r'^https?://[^/]+'), '');
+      if (name.isEmpty || url.isEmpty || !seen.add(url)) continue;
+      out.add(Article(
+        title: name,
+        url: url,
+        cover: _xhUn(m.group(4)),
+        meta: '${m.group(1)} 部',
+        badge: '',
+      ));
+    }
+    return out;
+  }
+
+  /// 「短片」：JSON 接口 `/api/v1/moments`（无需 cookie）。
+  /// ⚠️ 每页只有 5~6 条、单次要 2~5s，而且**页大小调不大**（itemsOnPage/limit/perPage/
+  /// size/count/pageSize 全试过无效）→ **并发抓 4 页再合并**，否则就是"5 条…等好几秒…又 5 条"
+  /// （用户实报过）。调用方传的 page 当"批次号"。
+  Future<List<Article>> _xhMoments(int page) async {
+    const batch = 4;
+    final from = (page - 1) * batch + 1;
+    final bodies = await Future.wait([
+      for (var i = 0; i < batch; i++)
+        () async {
+          try {
+            return await _fetchText(
+                from + i > 1
+                    ? '/api/v1/moments?page=${from + i}'
+                    : '/api/v1/moments',
+                extraHeaders: _xhDesk);
+          } catch (_) {
+            return '';
+          }
+        }(),
+    ]);
+    final out = <Article>[];
+    final seen = <String>{};
+    for (final html in bodies) {
+      if (html.isEmpty) continue;
+      final j = _xhJson(html);
+      final items = j == null ? null : j['items'];
+      if (items is! List) continue;
+      for (final it in items) {
+        if (it is! Map) continue;
+        final url = _xhUn((it['pageURL'] ?? '').toString())
+            .replaceFirst(RegExp(r'^https?://[^/]+'), '');
+        final title = _xhUn((it['title'] ?? '').toString())
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (url.isEmpty || title.isEmpty || !seen.add(url)) continue;
+        final landing = it['landing'];
+        out.add(Article(
+          title: title,
+          url: url,
+          cover:
+              (it['posterUrl'] ?? it['thumbUrl'] ?? it['cover'] ?? '').toString(),
+          meta: (landing is Map ? (landing['name'] ?? '') : '').toString(),
+          badge: '',
+        ));
+      }
+    }
+    return out;
+  }
+
+  static Map<String, dynamic>? _xhJson(String s) {
+    try {
+      final v = jsonDecode(s);
+      return v is Map<String, dynamic> ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 详情。⚠️ 标题在 h1 里但被 Vue 注释包着（`<!--[--><!--[!-->真标题<!---->`）→ 先剥注释。
+  /// 源：静态 HTML 里唯一的 `.m3u8`（5 档 144p~1080p；4K 站多 2160p）。
+  /// **短片例外**：'/shorts/…' 只用站点默认那条（用户 2026-10-02："短片的话你就使用网站
+  /// 默认给的分辨率就行"）→ 不展开档位、不做清晰度选择器。
+  Future<ArticleDetail> _xhDetail(String url) async {
+    final html = await _fetchText(url, extraHeaders: _xhDesk);
+    final doc = hp.parse(html);
+
+    var title = '';
+    final h1 = doc.querySelector('h1');
+    if (h1 != null) {
+      title = h1.text
+          .replaceAll(RegExp(r'<!--[\s\S]*?-->'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+    }
+    if (title.isEmpty) {
+      title = (doc.querySelector('title')?.text ?? '')
+          .replaceAll(
+              RegExp(r'\s*[|\-–]\s*xHamster\s*$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+    }
+
+    final durSec = int.tryParse(
+            RegExp(r'"duration":(\d+)').firstMatch(html)?.group(1) ?? '') ??
+        0;
+    final og = doc.querySelector('meta[property="og:image"]');
+    final poster = og?.attributes['content'] ?? '';
+
+    final tags = <MapEntry<String, String>>[];
+    for (final a in doc.querySelectorAll('a[href*="/categories/"]')) {
+      final name = (a.attributes['aria-label'] ?? a.text)
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final href = a.attributes['href'] ?? '';
+      final parts = href.split('/categories/');
+      final slug =
+          parts.length > 1 ? parts[1].split('?').first.split('#').first : '';
+      if (name.isEmpty || slug.isEmpty) continue;
+      if (tags.any((t) => t.value == name)) continue;
+      tags.add(MapEntry(slug, name));
+    }
+
+    // 源：页面里唯一那条 .m3u8
+    // ⚠️ 字符类里**别放单引号**：这是 Dart 的原始字符串 r'...'，中间出现 ' 会被当成
+    //    字符串结束、把余下部分拆成"非原始字符串"拼接 → `\s` 变非法转义、编译直接报错。
+    //    （上面 madou 那处也是同样写法：`r'https?://[^"\s\\]+\.m3u8[^"\s\\]*'`。）
+    final m = RegExp(r'https://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(html);
+    var srcs = <String>[];
+    if (m != null) {
+      final master = m.group(0)!;
+      if (url.startsWith('/shorts/')) {
+        srcs = [master]; // 短片：站点默认那条，交给播放器自己选档
+      } else {
+        final variants = await _hlsVariants(master);
+        srcs = (variants != null && variants.isNotEmpty) ? variants : [master];
+      }
+    }
+
+    // 相关推荐：DOM 里没有卡片，数据在页面 JSON 里（跟视频卡同一套结构）
+    final related =
+        _xhCards(html).where((a) => !a.url.startsWith('/shorts/')).toList();
+
+    return ArticleDetail(
+      title: title,
+      time: '',
+      images: poster.isEmpty ? const [] : [poster],
+      intro: '',
+      videos: srcs.isEmpty
+          ? const []
+          : [ArticleVideo(label: '视频', ordinal: 1, sources: srcs)],
+      tags: tags,
+      related: related.length > 20 ? related.sublist(0, 20) : related,
+      duration: _xhClock(durSec),
       seriesPrefix: '',
     );
   }

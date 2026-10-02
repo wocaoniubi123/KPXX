@@ -60,8 +60,17 @@ class DetailPageState extends State<DetailPage> {
   /// Pornhub `.../1080P_4000K_xxx.mp4/master.m3u8`（大写 P + 下划线）、
   /// XVideos `.../hls-720p.m3u8`（小写 p，后跟 `.`/`?` 等非数字）。
   /// 抠不到（单档/无档位信息）返回 ''。
-  static String _qualityOf(String u) =>
-      RegExp(r'(\d{3,4})[pP](?![0-9])').firstMatch(u)?.group(1) ?? '';
+  ///
+  /// ⚠️ 2026-10-02 xHamster 实锤：**必须先取路径最后一段（文件名）再匹配** ——
+  /// 它的 URL 里带着 `media=hls4/multi=256x144:144p,426x240:240p,854x480:480p,…`
+  /// 这种**解析参数**，直接对整个 URL 匹配会**先命中参数里的 `144p`**，
+  /// 结果 5 档被全部认成 144P（实测：1080p/720p/480p/240p/144p → 全报 144P）。
+  /// 只看文件名对其它站也更稳（XV 的 `hls-720p.m3u8`、PH 的 `1080P_4000K_…` 照样命中）。
+  static String _qualityOf(String u) {
+    final path = u.split('?').first;
+    final name = path.substring(path.lastIndexOf('/') + 1);
+    return RegExp(r'(\d{3,4})[pP](?![0-9])').firstMatch(name)?.group(1) ?? '';
+  }
 
   /// 这一集**实际有的**档位（去重、数字从大到小）。多数站没有多档 → 返回空
   static List<String> _qualitiesOf(List<String> srcs) {

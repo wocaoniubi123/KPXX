@@ -28,6 +28,15 @@ const UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
   'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
+/** ⚠️ xHamster 专用：**必须用桌面 UA 取**（2026-10-02 实测；早先侦察给出的"UA 无影响"结论是错的 ✗）。
+ *  iPhone UA → 服务端只给**5 张卡/页**（移动版列表，280KB）；桌面 UA → **51 张/页**（桌面列表，457KB）。
+ *  两边卡片字段也不同：桌面 = `.thumb-list__item.video-thumb` + `[data-role="video-duration"]`
+ *  + `img[src]` 是 1280×720；移动 = `[data-role="mobile-video-thumb"]` + `time[datetime]`。
+ *  详情页两种 UA 都拿得到 m3u8 / 相关推荐 JSON / 标题，但为保持一致也走桌面 UA。 */
+const DESKTOP_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/131.0.0.0 Safari/537.36';
+
 /** 文件里 `const List<SiteTab> _xxx = [ ... ]` 形式的具名子分类表（供下面的引用解析） */
 function parseNamedTabLists(src) {
   const map = new Map();
@@ -539,7 +548,9 @@ async function fetchSite(name, path) {
       try {
         // 超时给宽一点：51fans1 这类站冷启动要 3s+，加上浏览器同时拉一堆封面图，
         // 6s 会偶发"代理连接超时"（App 侧是 8s，站点点慢就会一直加载失败）
-        const r = await fetchUrl('https://' + h + path, 0, 12000);
+        // ⚠️ xHamster 必须用桌面 UA 取：一页 51 张 vs 移动版 5 张（见上面 DESKTOP_UA）
+        const uaHdr = site.template === 'xhamster' ? { 'User-Agent': DESKTOP_UA } : null;
+        const r = await fetchUrl('https://' + h + path, 0, 12000, null, uaHdr);
         if (r.status === 200) {
           if (preferred.get(name) !== h) console.log(`[站点] ${name} 用 ${h}${path}`);
           preferred.set(name, h);
