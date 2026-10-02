@@ -24,6 +24,12 @@ class PornaSite {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  /// 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签）✓，
+  /// 其余是搜索关键词（视频页的 keywords ✓）
+  Future<List<Article>> tag(String slug, {required int page}) =>
+      list(slug.startsWith('/') ? slug : 'search:$slug', page: page);
+
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home(String first, {required int page}) => list(first, page: page);
 

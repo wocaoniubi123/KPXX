@@ -201,47 +201,25 @@ class Api {
   Future<List<Article>> tag(String slug, {int page = 1}) async {
     switch (site.template) {
       case SiteTemplate.wordpress:
-        final path = page <= 1 ? '/tag/$slug/' : '/tag/$slug/page/$page/';
-        return _wpSite.parseArticles(await _fetchText(path));
+        return _wpSite.tag(slug, page: page);
       case SiteTemplate.huangguo:
-        // 专题等路径型（点"专题"卡片进来）走页面列表；标签页是普通列表页（没有分页）
-        if (slug.startsWith('/')) return _hgSite.pageList(slug, page: page);
-        if (page > 1) return [];
-        return _hgSite.parseCards(hp.parse(await _fetchText('/tag/$slug/')));
+        return _hgSite.tag(slug, page: page);
       case SiteTemplate.porna:
-        // 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签），
-        // 其余是搜索关键词（视频页的 keywords）
-        return _pornaSite.list(slug.startsWith('/') ? slug : 'search:$slug',
-            page: page);
+        return _pornaSite.tag(slug, page: page);
       case SiteTemplate.pektino:
-        // "标签" = 主题筛选（走同一个接口，全时段）
-        return _pkSite.list('all', slug, page: page);
+        return _pkSite.tag(slug, page: page);
       case SiteTemplate.hanime1:
-        // 详情页标签：站内 /search? 路径直接请求（?query= / ?tags[]= 两种链接）；
-        // 其余当搜索词
-        if (slug.startsWith('/search')) return _hnSite.searchAt(slug, page: page);
-        return _hnSite.search(slug, page: page);
+        return _hnSite.tag(slug, page: page);
       case SiteTemplate.xvideos:
-        // 详情页标签 = /tags/{slug}（翻页规则同分类页）
-        return _xvSite.list('/tags/$slug', page: page);
+        return _xvSite.tag(slug, page: page);
       case SiteTemplate.kmsvip:
-        return const []; // 站点没有标签功能
+        return _kmSite.tag(slug, page: page);
       case SiteTemplate.madou:
-        // 详情页的标签是裸 slug（/tag/{slug}）；以 / 开头的是卡片上的分类路径
-        if (slug.startsWith('/')) {
-          return _mdSite.cards(
-              await _fetchText(page <= 1 ? slug : '$slug/page/$page'));
-        }
-        return _mdSite.cards(await _fetchText(
-            page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+        return _mdSite.tag(slug, page: page);
       case SiteTemplate.xhamster:
-        // 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表）；详情页标签也走这里。
-        // 全是站内路径，交给 _xhList 分流（它会避开"把演员页当演员列表解析"的坑）。
-        return _xhSite.list(slug, page: page);
+        return _xhSite.tag(slug, page: page);
       case SiteTemplate.pornhub:
-        // 详情页的标签是 `/video/search?search=<编码词>`；演员卡传来的是 `/pornstar/xxx`。
-        // 两者对本站都只是"一个站内路径"→ 直接当列表抓（演员路径回来的是视频卡）。
-        return _phSite.list(slug, page: page);
+        return _phSite.tag(slug, page: page);
     }
   }
 

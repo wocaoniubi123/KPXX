@@ -17,6 +17,16 @@ class MadouSite {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  /// 详情页的标签是裸 slug（/tag/{slug} ✓）；以 / 开头的是卡片上的分类路径 ✓
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    if (slug.startsWith('/')) {
+      return cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'));
+    }
+    return cards(await _f.text(
+        page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+  }
+
   /// 首页第 N 页 = /page/N（没有 /page/1 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) async =>
       cards(await _f.text(page <= 1 ? '/' : '/page/$page'));

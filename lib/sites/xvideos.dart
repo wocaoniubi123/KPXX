@@ -20,6 +20,9 @@ class XvSite {
 
   final SiteFetcher _f;
 
+  /// 详情页标签 = /tags/{slug}（翻页规则同分类页 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) => list('/tags/$slug', page: page);
+
   /// 首页 = Newest 列表（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) => list('/new', page: page);
 

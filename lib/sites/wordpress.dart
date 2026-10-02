@@ -18,6 +18,12 @@ class WpSite {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final path = page <= 1 ? '/tag/$slug/' : '/tag/$slug/page/$page/';
+    return parseArticles(await _f.text(path));
+  }
+
   /// 首页最新列表（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) async {
     final path = page <= 1 ? '/' : '/page/$page/';

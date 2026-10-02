@@ -25,6 +25,11 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  /// 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表 ✓）；详情页标签也走这里 ✓。
+  /// 全是站内路径，交给 list 分流（它会避开"把演员页当演员列表解析"的坑 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
+
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) => list('/', page: page);
 

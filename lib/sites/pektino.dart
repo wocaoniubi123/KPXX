@@ -19,6 +19,9 @@ class PektinoSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// "标签" = 主题筛选（走同一个接口，全时段 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) => list('all', slug, page: page);
+
   /// 首页 = 每日榜（和站点首页一致 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) => list('timely', '', page: page);
 

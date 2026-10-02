@@ -1243,6 +1243,31 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 ⚠️ 注意 `tag` 里有几个 case 会**调用别的方法**（如 `_mdSite.tags``_hgSite.pageList` ✓）与 **`site.categories`** ✗ →
 照 `home` 的做法：**能用参数传的就传参数** ✓，别把 `Site` 传进去 ✗。
 
+
+--- 第 87 条续（Round 26）---
+✅✅ **`tag` 分发器 10 / 10 下放完成** ✓✓：**`api.dart` 440 → 418 行** ✓（-22 ✓）；
+10 项括号净变化全 0 ✓；case 总数 **50 ✓**；tag 委托数 **10 ✓**。10 个站点类各有 `tag(...)` ✓。
+
+🔴 **本轮抓到一个【真编译错误】✗✓（重要）**：
+`lib/sites/kmsvip.dart` **缺 `import '../base/fetch.dart';`** ✗ —— 而它有 `final SiteFetcher _f;` ✗
+→ **`SiteFetcher` 类型解析不到 → 编译必挂** ✓✓。
+- **根因**：Round 12 用 `mover3.js` 搬它时，那个 case 的代码用的是 `http.post` ✗（**不是** `_f.text` ✓）
+  → 我的**自动 import 规则**（`need(/_f\./)` ✓）**没触发** ✗ → 漏了 ✓。
+- **已修** ✓（补上 import ✓）。
+- ⚠️ **教训**：自动 import 规则只看"body 里有没有用到 `_f.`" ✗ —— **"字段类型"也算用** ✓
+  （`final SiteFetcher _f;` 这行的类型就要求 import ✓）。→ ✅ **以后按"字段声明的类型"也要计入** ✓。
+
+⚠️ **我写的 import 检查器有误报** ✗（**别信它 ✗，要逐项确认** ✓）：
+- ① `seriesPrefix: ''` 被当成"用了 `seriesPrefix()` 函数" ✗ —— 其实它是 **`ArticleDetail` 的命名参数** ✓
+- ② `lib/base/*.dart` 报"缺自己文件的 import" ✗（自引用 ✓）
+- ✅ 用 grep **逐项确认真伪**后，**只有 kmsvip 那一条是真的** ✓✓
+→ ✅ **教训：检查器要能区分"符号做参数名"和"符号做函数调用"** ✗，**自引用要跳过** ✓。
+
+**📈 进度**：轮次 **26/40**；数据层 **9/9** ✓✓；UI **19/19 + detail_page** ✓✓；
+**分发器下放 30 / 50 个 case**（`category` ✓ `home` ✓ `tag` ✓；剩 `search`/`detail` 各 10 ✓）。
+**⏭️ 下一轮（Round 27）**：下放 **`search` 分发器**（10 个 case ✓）—— ⚠️ 注意它有几处会**抛异常**
+（如 kmsvip 的"该站点没有搜索功能" ✓、xhamster 的"搜索暂未接通" ✓）→ 异常消息要不要一起下放，先看清再定 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

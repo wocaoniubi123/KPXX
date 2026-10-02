@@ -23,6 +23,14 @@ class HuangguoSite {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  /// 专题等路径型（点"专题"卡片进来）走页面列表 ✓；标签页是普通列表页（没有分页 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    if (slug.startsWith('/')) return pageList(slug, page: page);
+    if (page > 1) return [];
+    return parseCards(hp.parse(await _f.text('/tag/$slug/')));
+  }
+
   /// 首页 = 第一个频道的「最新」（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home(String first, {required int page}) =>
       list(first, sort: 'latest', page: page);

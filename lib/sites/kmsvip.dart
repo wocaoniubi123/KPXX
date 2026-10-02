@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
+import '../base/fetch.dart';
 import '../config.dart';
 import '../models.dart';
 
@@ -17,6 +18,9 @@ class KmSite {
   KmSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）
+  Future<List<Article>> tag(String slug, {required int page}) async => const [];
 
   /// 首页 = listHot（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home({required int page}) =>

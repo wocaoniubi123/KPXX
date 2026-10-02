@@ -21,6 +21,13 @@ class HanimeSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+  /// 详情页标签：站内 /search? 路径直接请求（?query= / ?tags[]= 两种链接 ✓）；其余当搜索词 ✓
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    if (slug.startsWith('/search')) return searchAt(slug, page: page);
+    return search(slug, page: page);
+  }
+
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
   Future<List<Article>> home(String first, {required int page}) => list(first, page: page);
 
