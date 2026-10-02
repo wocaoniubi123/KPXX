@@ -15,6 +15,7 @@ import 'sites/pornhub.dart';
 import 'sites/pektino.dart';
 import 'sites/hanime1.dart';
 import 'sites/xvideos.dart';
+import 'sites/porna.dart';
 import 'sites/xhamster.dart';
 import 'sites.dart';
 
@@ -49,6 +50,9 @@ class Api {
   http.Client get _client => _f.client;
 
   String get base => 'https://$_host';
+
+  /// 91porna/蜜桃/黑料/ms/小说（共用子系统）专属实现（2026-10-03 ✓）
+  late final PornaSite _pornaSite = PornaSite(_f);
 
   /// XVideos 本站专属实现（2026-10-03 站点独立改造）✓
   late final XvSite _xvSite = XvSite(_f);
@@ -111,7 +115,7 @@ class Api {
         // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
         return _huangguoList(key, sort: k == key ? 'latest' : k, page: page);
       case SiteTemplate.porna:
-        return _pornaList(k, page: page);
+        return _pornaSite.list(k, page: page);
       case SiteTemplate.pektino:
         // 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range；
         // 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入
@@ -185,7 +189,7 @@ class Api {
         return _huangguoList(first, sort: 'latest', page: page);
       case SiteTemplate.porna:
         final first = site.categories.isEmpty ? '' : site.categories.first.key;
-        return _pornaList(first, page: page);
+        return _pornaSite.list(first, page: page);
       case SiteTemplate.pektino:
         // 首页 = 每日榜（和站点首页一致）
         return _pkSite.list('timely', '', page: page);
@@ -221,7 +225,7 @@ class Api {
       case SiteTemplate.porna:
         // 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签），
         // 其余是搜索关键词（视频页的 keywords）
-        return _pornaList(slug.startsWith('/') ? slug : 'search:$slug',
+        return _pornaSite.list(slug.startsWith('/') ? slug : 'search:$slug',
             page: page);
       case SiteTemplate.pektino:
         // "标签" = 主题筛选（走同一个接口，全时段）
@@ -273,7 +277,7 @@ class Api {
         final html = await _fetchText('/search/?keyword=$kw');
         return _parseHuangguoCards(hp.parse(html));
       case SiteTemplate.porna:
-        return _pornaList('search:$keyword', page: page);
+        return _pornaSite.list('search:$keyword', page: page);
       case SiteTemplate.pektino:
         // 站点搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条）
         return _pkSite.list('all', keyword, page: page);
@@ -314,10 +318,10 @@ class Api {
         return _huangguoDetail(url);
       case SiteTemplate.porna:
         // 四种详情页：短视频 / 黑料图文 / 小说 / 普通视频
-        if (url.startsWith('/melonshort/video/')) return _melonDetail(url);
-        if (url.startsWith('/heiliao-chigua/')) return _heiliaoDetail(url);
-        if (url.startsWith('/novels/')) return _novelDetail(url);
-        return _pornaDetail(url);
+        if (url.startsWith('/melonshort/video/')) return _pornaSite.melonDetail(url);
+        if (url.startsWith('/heiliao-chigua/')) return _pornaSite.heiliaoDetail(url);
+        if (url.startsWith('/novels/')) return _pornaSite.novelDetail(url);
+        return _pornaSite.detail(url);
       case SiteTemplate.pektino:
         return _pkSite.detail(url);
       case SiteTemplate.hanime1:
@@ -338,25 +342,7 @@ class Api {
   // ---------------------------------------------------------------------------
   // WordPress 系（含 51fans1 的兼容分支）
 
-  /// 卡片时间：站点带时分秒就一起显示；只有月-日（51fans1 列表）也照原样显示。
-  static String _metaDate(String raw) {
-    final t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (t.isEmpty) return '';
-    final cn = RegExp(r'\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?')
-        .firstMatch(t);
-    if (cn != null) return cn.group(0)!;
-    // 51fans1 的列表卡片只有"9月29日"（没有年）
-    final cnMd = RegExp(r'\d{1,2}\s*月\s*\d{1,2}\s*日').firstMatch(t);
-    if (cnMd != null) return cnMd.group(0)!;
-    final iso = RegExp(r'\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:\s*\d{1,2}:\d{2}(?::\d{2})?)?')
-        .firstMatch(t);
-    if (iso != null) return iso.group(0)!;
-    final md = RegExp(r'^\d{1,2}-\d{1,2}$').firstMatch(t);
-    if (md != null) return md.group(0)!;
-    final rel = RegExp(r'\d{1,2}\s*(?:分钟|小时|天)前').firstMatch(t);
-    if (rel != null) return rel.group(0)!;
-    return '';
-  }
+
 
   /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
   static String _toRelPath(String href) {
@@ -408,7 +394,7 @@ class Api {
         url: _toRelPath(a.attributes['href'] ?? ''),
         cover: cover,
         // 卡片标题下面只显示时间：这行原来是"作者 • 日期 • 分类"，作者和分类都不要
-        meta: _metaDate(info?.text ?? ''),
+        meta: metaDate(info?.text ?? ''),
       ));
     }
 
@@ -431,7 +417,7 @@ class Api {
                     ?.text ??
                 '')
             .trim();
-        if (meta.isEmpty || _metaDate(meta).isEmpty) {
+        if (meta.isEmpty || metaDate(meta).isEmpty) {
           final desk = (el
                       .querySelector('.xqbj-list-rows-bottom-tags-text.is-desktop')
                       ?.text ??
@@ -443,7 +429,7 @@ class Api {
           title: title,
           url: _toRelPath(a.attributes['href'] ?? ''),
           cover: cover,
-          meta: _metaDate(meta),
+          meta: metaDate(meta),
         ));
       }
     }
@@ -480,7 +466,7 @@ class Api {
     }
     if (time.isEmpty) {
       // 51fans1：.novel-info 里"2026-08-08 11:39:00发布"
-      time = _metaDate(doc.querySelector('.novel-info')?.text ?? '');
+      time = metaDate(doc.querySelector('.novel-info')?.text ?? '');
     }
 
     final categories = <String>[];
@@ -640,7 +626,7 @@ class Api {
       videos: videos,
       tags: tags,
       related: related,
-      seriesPrefix: _seriesPrefix(title),
+      seriesPrefix: seriesPrefix(title),
     );
   }
 
@@ -730,7 +716,7 @@ class Api {
         title: title,
         url: href,
         cover: img?.attributes['data-src'] ?? '',
-        meta: _metaDate(date),
+        meta: metaDate(date),
       ));
     }
     final seen = <String>{};
@@ -808,7 +794,7 @@ class Api {
         sources: [src],
       ));
     }
-    final time = _metaDate(doc.querySelector('.hg-post-detail')?.text ?? '');
+    final time = metaDate(doc.querySelector('.hg-post-detail')?.text ?? '');
     final tags = <MapEntry<String, String>>[];
     for (final a in doc.querySelectorAll('.hg-post-detail a[href*="/tag/"]')) {
       final href = a.attributes['href'] ?? '';
@@ -827,7 +813,7 @@ class Api {
       videos: videos, // ← 之前是 const []（"吃瓜帖是图文"探测不到位）
       tags: tags,
       related: _parseHuangguoCards(doc).where((x) => x.url != url).take(12).toList(),
-      seriesPrefix: _seriesPrefix(title),
+      seriesPrefix: seriesPrefix(title),
     );
   }
 
@@ -1031,558 +1017,11 @@ class Api {
       videos: videos,
       tags: tags,
       related: related.where((a) => a.url != url).take(12).toList(),
-      seriesPrefix: _seriesPrefix(title),
+      seriesPrefix: seriesPrefix(title),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // 91porna
-
-  /// 列表：按路径分三种页面类型（都是服务端渲染，取到就能用）：
-  /// - `/melonshort*`            → 91短视频：`article.video-card`（封面右下角有时长角标）
-  /// - `/heiliao-chigua*`、`/黑料吃瓜/*` → 黑料吃瓜：`a[href^=/heiliao-chigua/]` 图文卡
-  /// - 其余（/comic/index/*、/comic/av/*、搜索） → `div.video-item`
-  /// [key]：站内路径或 "search:关键词"。
-  Future<List<Article>> _pornaList(String key, {int page = 1}) async {
-    // 关键词里的空格站点用 + 分隔（encodeQueryComponent 正好把空格编成 +）
-    final path = key.startsWith('search:')
-        ? '/comic/index/search?keyword=${Uri.encodeQueryComponent(key.substring(7))}'
-        : key;
-    final url = page <= 1
-        ? path
-        : '$path${path.contains('?') ? '&' : '?'}page=$page';
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-    if (path.startsWith('/melonshort')) return _melonCards(doc);
-    // ⚠️ 只看路径部分：搜索关键词里也可能出现"黑料"（%E9%BB%91%E6%96%99），
-    // 用整个 path 判断会把搜索结果页错认成黑料页（而且要用完整的"黑料吃瓜"编码）
-    final p0 = path.split('?').first;
-    // 精选合集：/moviesets、/moviesets/{rank|category|people|brand} 是"合集卡"页面；
-    // 再深一层（/moviesets/xxx/yyy）才是该合集的视频列表（走下面的 video-item）
-    if (p0.startsWith('/moviesets')) {
-      final segs = p0.split('/').where((x) => x.isNotEmpty).toList();
-      if (segs.length <= 2) return _msCards(doc);
-    }
-    // 色情小说列表（/novels、/novels/{分类}/new）
-    if (p0 == '/novels' || p0.startsWith('/novels/')) return _novelCards(doc);
-    if (p0.contains('heiliao') || p0.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) {
-      return _heiliaoCards(doc);
-    }
-    return _pornaCards(doc);
-  }
-
-  /// 精选合集的"合集卡"（a.ms-card → /moviesets/{type}/{slug}）
-  List<Article> _msCards(Document doc) {
-    final out = <Article>[];
-    for (final a in doc.querySelectorAll('a.ms-card')) {
-      final href = a.attributes['href'] ?? '';
-      final title = (a.querySelector('.ms-card__title')?.text ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (href.isEmpty || title.isEmpty) continue;
-      final img = a.querySelector('img[data-src]') ?? a.querySelector('img');
-      final meta = (a.querySelector('.ms-card__meta')?.text ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      out.add(Article(
-        title: title,
-        url: href,
-        cover: img?.attributes['data-src'] ?? '',
-        meta: meta, // 形如"视频数量：53"
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// 色情小说的文字卡（没有封面，标题在 .dx-title，时间/作者在卡片文字里）
-  List<Article> _novelCards(Document doc) {
-    final out = <Article>[];
-    for (final a in doc.querySelectorAll('a[href^="/novels/"]')) {
-      final href = a.attributes['href'] ?? '';
-      if (!RegExp(r'^/novels/\d+$').hasMatch(href)) continue; // 跳过分类链接
-      final title = (a.querySelector('h2.dx-title')?.text ?? a.querySelector('.dx-title')?.text ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (title.isEmpty) continue;
-      out.add(Article(
-        title: title,
-        url: href,
-        cover: '',
-        meta: _metaDate(a.text),
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// 91短视频的卡片
-  List<Article> _melonCards(Document doc) {
-    final out = <Article>[];
-    for (final el in doc.querySelectorAll('article.video-card')) {
-      final a = el.querySelector('a.video-card-link') ?? el.querySelector('a');
-      if (a == null) continue;
-      final title = (el.querySelector('h3.title')?.text ?? '').trim();
-      if (title.isEmpty) continue;
-      final img = el.querySelector('img[data-src]') ?? el.querySelector('img');
-      final dur = (el.querySelector('span.badge-duration')?.text ?? '').trim();
-      out.add(Article(
-        title: title,
-        url: a.attributes['href'] ?? '',
-        cover: img?.attributes['data-src'] ?? '',
-        meta: '',
-        badge: RegExp(r'\d{1,2}:\d{2}(?::\d{2})?').firstMatch(dur)?.group(0) ?? '',
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// 黑料吃瓜的图文卡（标题/封面/时间都在卡片里）
-  List<Article> _heiliaoCards(Document doc) {
-    final out = <Article>[];
-    for (final a in doc.querySelectorAll('a[href^="/heiliao-chigua/"]')) {
-      final title = (a.querySelector('.post-item-title')?.text ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (title.isEmpty) continue;
-      final poster = a.querySelector('.post-item-poster');
-      final desc = a.querySelector('.post-item-desc')?.text ?? '';
-      out.add(Article(
-        title: title,
-        url: a.attributes['href'] ?? '',
-        cover: poster?.attributes['data-src'] ?? '',
-        // desc 形如"今日爆料 • 2026-09-29 • 分类1,分类2" → 只留时间
-        meta: _metaDate(desc),
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  List<Article> _pornaCards(Document doc) {
-    final out = <Article>[];
-    for (final el in doc.querySelectorAll('div.video-item')) {
-      // 普通视频是 /comic/index/detail?video_key=xxx，日本AV 是 /comic/index/avdetail?video_key=xxx
-      final a = el.querySelector('a[href*="/comic/index/detail"]') ??
-          el.querySelector('a[href*="/comic/index/avdetail"]');
-      if (a == null) continue;
-      final href = a.attributes['href'] ?? '';
-      final img = el.querySelector('img[data-src]') ?? el.querySelector('img');
-      String title = '';
-      for (final d in el.querySelectorAll('div')) {
-        if ((d.className ?? '').contains('line-clamp-2')) {
-          title = d.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-          break;
-        }
-      }
-      if (title.isEmpty) title = (img?.attributes['alt'] ?? '').trim();
-      if (title.isEmpty) continue;
-      // 时长角标：右下角那个黑底 div（形如 1:00:39 / 12:34）
-      var duration = '';
-      for (final d in el.querySelectorAll('div')) {
-        final t = d.text.trim();
-        if (RegExp(r'^\d{1,2}:\d{2}(?::\d{2})?$').hasMatch(t)) {
-          duration = t;
-          break;
-        }
-      }
-      out.add(Article(
-        title: title,
-        url: href,
-        cover: img?.attributes['data-src'] ?? '',
-        meta: '',
-        badge: duration,
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// 91短视频详情：页面里 `<script id="ms-bootstrap">` 的 `first_screen.list`
-  /// 带全部字段（signed `video_url`、cover、video_duration 秒、publish_time），
-  /// 当前视频按 URL 里的 id 找；同一数组里其余的就是"相关推荐"。
-  Future<ArticleDetail> _melonDetail(String url) async {
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-    Map<String, dynamic>? boot;
-    final raw = doc.querySelector('script#ms-bootstrap')?.text ?? '';
-    if (raw.isNotEmpty) {
-      try {
-        final j = jsonDecode(raw);
-        if (j is Map<String, dynamic>) boot = j;
-      } catch (_) {
-        // 解析不了当无数据
-      }
-    }
-    final items = <Map<String, dynamic>>[];
-    final fs = boot?['first_screen'];
-    if (fs is Map && fs['list'] is List) {
-      for (final v in fs['list'] as List) {
-        if (v is Map<String, dynamic>) items.add(v);
-      }
-    }
-    final id = int.tryParse(
-        RegExp(r'/melonshort/video/(\d+)').firstMatch(url)?.group(1) ?? '');
-    Map<String, dynamic>? cur;
-    for (final v in items) {
-      if (int.tryParse('${v['id']}') == id) {
-        cur = v;
-        break;
-      }
-    }
-    cur ??= items.isNotEmpty ? items.first : null;
-
-    final videos = <ArticleVideo>[];
-    final src = '${cur?['video_url'] ?? ''}';
-    if (src.isNotEmpty) {
-      videos.add(ArticleVideo(label: '视频 1', ordinal: 1, sources: [src]));
-    }
-    final related = <Article>[];
-    for (final v in items) {
-      if (identical(v, cur)) continue;
-      final t = '${v['title'] ?? ''}'.trim();
-      if (t.isEmpty) continue;
-      related.add(Article(
-        title: t,
-        url: '/melonshort/video/${v['id']}',
-        cover: '${v['cover'] ?? ''}',
-        meta: '',
-        badge: secClock('${v['video_duration'] ?? ''}'),
-      ));
-      if (related.length >= 12) break;
-    }
-    final title = '${cur?['title'] ?? ''}'.trim();
-    return ArticleDetail(
-      title: title.isEmpty ? url : title,
-      time: '${cur?['publish_time'] ?? ''}'.trim(),
-      categories: const [],
-      images: const [],
-      intro: '${cur?['desc'] ?? ''}'.replaceAll(RegExp(r'\s+'), ' ').trim(),
-      videos: videos,
-      tags: const [],
-      related: related,
-      seriesPrefix: _seriesPrefix(title),
-      duration: secClock('${cur?['video_duration'] ?? ''}'),
-    );
-  }
-
-  /// 色情小说详情：标题（og:title 去掉站点后缀）+ 正文（article.markdown-body 全文）+ 插图
-  Future<ArticleDetail> _novelDetail(String url) async {
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-    var title =
-        (doc.querySelector('meta[property="og:title"]')?.attributes['content'] ?? '')
-            .trim();
-    title = title.replaceAll(RegExp(r'\s*-\s*91博客色情小说\s*$'), '');
-    if (title.isEmpty) title = url;
-    final body = (doc.querySelector('article.markdown-body')?.text ?? '').trim();
-    final desc =
-        (doc.querySelector('meta[name="description"]')?.attributes['content'] ?? '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-    final images = <String>[];
-    for (final img in doc.querySelectorAll('article.markdown-body img[data-src]')) {
-      final src = img.attributes['data-src'] ?? '';
-      if (src.startsWith('http') && !images.contains(src)) images.add(src);
-    }
-    return ArticleDetail(
-      title: title,
-      time: _metaDate(doc.querySelector('.markdown-body')?.text ?? ''),
-      categories: const [],
-      images: images,
-      // 有正文就用正文（小说就是来看字的），没有退回摘要
-      intro: body.isNotEmpty ? body : desc,
-      videos: const [], // 小说没有视频
-      tags: const [],
-      related: const [],
-      seriesPrefix: _seriesPrefix(title),
-    );
-  }
-
-  /// 黑料吃瓜详情：图文帖 + **正文里的视频**。
-  /// 视频不是 `<video>`/dplayer，而是正文里一块 `ql-video-mse`，地址由
-  /// `/index/melon_detail_play.js?img=&u=<页面内嵌 token>&t=<时间戳/2100>` 换回来，
-  /// 且响应是**打包过的 JS**（把 m3u8 拆成字典碎片），所以要解包后再抠地址。
-  /// 标签是元信息行里指向 `/黑料吃瓜/xxx` 的分类链接。
-  Future<ArticleDetail> _heiliaoDetail(String url) async {
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-    final title = (doc.querySelector('h1')?.text ?? '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    final intro =
-        (doc.querySelector('meta[name="description"]')?.attributes['content'] ?? '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-    var time = doc.querySelector('time')?.attributes['datetime'] ?? '';
-    if (time.isEmpty) {
-      time = _metaDate(doc.querySelector('.dx-text')?.text ?? '');
-    }
-    final images = <String>[];
-    for (final img in doc.querySelectorAll('article.ql-editor img[data-src]')) {
-      final src = img.attributes['data-src'] ?? '';
-      if (src.startsWith('http') && !images.contains(src)) images.add(src);
-    }
-    // 正文里的视频（一篇可能有多个）
-    final videos = <ArticleVideo>[];
-    var order = 0;
-    for (final m in RegExp(r'parseInt\|([0-9a-f]{60,400})\|').allMatches(html)) {
-      order++;
-      final src = await _pornaPlayUrlByToken(m.group(1)!, 'melon_detail_play');
-      if (src.isEmpty) continue;
-      videos.add(ArticleVideo(
-        label: '视频 $order',
-        ordinal: order,
-        sources: [src],
-      ));
-    }
-    // 标签：`/黑料吃瓜/xxx` 分类链接（点进去是该分类的图文列表）
-    final tags = <MapEntry<String, String>>[];
-    for (final a in doc.querySelectorAll('a.border-link')) {
-      final href = a.attributes['href'] ?? '';
-      final name = a.text.trim();
-      if (href.isEmpty || name.isEmpty || name.length > 20) continue;
-      if (!href.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) continue;
-      if (!tags.any((e) => e.key == href)) tags.add(MapEntry(href, name));
-    }
-    return ArticleDetail(
-      title: title.isEmpty ? url : title,
-      time: time,
-      categories: const [],
-      images: images,
-      intro: intro,
-      videos: videos,
-      tags: tags,
-      related: _heiliaoCards(doc).where((a) => a.url != url).take(12).toList(),
-      seriesPrefix: _seriesPrefix(title),
-    );
-  }
-
-  /// 详情：
-  /// - 标题/简介/时长/时间/标签 来自页面内嵌的 LD+JSON（VideoObject）
-  /// - 播放地址要再请求 `/index/detail_play`：参数 img=封面路径、u=页面里内嵌的
-  ///   160 位 hex token、t=时间戳/2100（照抄前端 JS 的算法），响应里就是 m3u8。
-  Future<ArticleDetail> _pornaDetail(String url) async {
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-
-    // LD+JSON
-    Map<String, dynamic>? videoObj;
-    for (final s in doc.querySelectorAll('script[type="application/ld+json"]')) {
-      try {
-        final j = jsonDecode(s.text);
-        final graph = (j is Map<String, dynamic>) ? j['@graph'] : null;
-        if (graph is List) {
-          for (final n in graph) {
-            if (n is Map<String, dynamic> && n['@type'] == 'VideoObject') {
-              videoObj = n;
-            }
-          }
-        }
-      } catch (_) {
-        // 忽略坏 JSON
-      }
-    }
-
-    final title = ('${videoObj?['name'] ?? ''}').trim().isNotEmpty
-        ? '${videoObj!['name']}'.trim()
-        : ((doc.querySelector('meta[property="og:title"]')?.attributes['content'] ??
-                '')
-            .trim());
-    final intro = '${videoObj?['description'] ?? ''}'
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    final duration = _pornaDuration('${videoObj?['duration'] ?? ''}');
-    final time = '${videoObj?['uploadDate'] ?? videoObj?['datePublished'] ?? ''}';
-
-    // 封面：og:image（LD+JSON 里也有）
-    var cover = doc
-            .querySelector('meta[property="og:image"]')
-            ?.attributes['content'] ??
-        '';
-    final thumbs = videoObj?['thumbnailUrl'];
-    if (cover.isEmpty && thumbs is List && thumbs.isNotEmpty) {
-      cover = '${thumbs.first}';
-    }
-
-    // 标签：LD+JSON keywords（点击 → 关键词搜索）
-    final tags = <MapEntry<String, String>>[];
-    final kws = videoObj?['keywords'];
-    if (kws is List) {
-      for (final k in kws) {
-        final t = '$k'.trim();
-        if (t.isNotEmpty) tags.add(MapEntry(t, t));
-      }
-    }
-
-    // 播放地址：/index/detail_play
-    final videos = <ArticleVideo>[];
-    final src = await _pornaPlayUrl(html, cover);
-    if (src.isNotEmpty) {
-      videos.add(ArticleVideo(label: '视频 1', ordinal: 1, sources: [src]));
-    }
-
-    return ArticleDetail(
-      title: title.isEmpty ? url : title,
-      time: time,
-      categories: const [],
-      images: const [], // 这站没有剧照（封面就是视频封面）
-      intro: intro,
-      videos: videos,
-      tags: tags,
-      related: _pornaCards(doc).where((a) => a.url != url).take(12).toList(),
-      seriesPrefix: _seriesPrefix(title),
-      duration: duration,
-    );
-  }
-
-  /// 拿 91porna 的播放地址：请求 `/index/detail_play`（黑料帖是 `/index/melon_detail_play.js`），
-  /// 响应是打包过的 JS，从中解出 m3u8。
-  Future<String> _pornaPlayUrl(String html, String cover) async {
-    // img 参数 = 封面路径（去掉域名和查询串）
-    var img = '';
-    if (cover.isNotEmpty) {
-      final u = Uri.tryParse(cover);
-      img = u?.path ?? '';
-    }
-    if (img.isEmpty) {
-      // 视频详情是 upload_01/…，日本AV 是 md-204/dcc-file/…
-      final m = RegExp(r'(?:upload_01|md-\d+)/[^"\s]+\.(?:jpe?g|png|webp)')
-          .firstMatch(html);
-      img = m == null ? '' : '/${m.group(0)}';
-    }
-    if (img.isEmpty) return '';
-    // u 参数 = 页面里内嵌的 hex token。长度不固定（视频页 160 位、日本AV 页 352 位），
-    // 而且不一定紧跟在 parseInt| 后面，所以按"候选列表逐个试"：
-    // 拿到第一个能换出 m3u8 的就用。
-    final tokens = <String>{
-      for (final m in RegExp(r'parseInt\|([0-9a-f]{60,400})\|').allMatches(html))
-        m.group(1)!,
-      for (final m in RegExp(r'\|([0-9a-f]{120,400})\|').allMatches(html))
-        m.group(1)!,
-      for (final m in RegExp(r'\b([0-9a-f]{120,400})\b').allMatches(html))
-        m.group(1)!,
-    }.take(6);
-    for (final token in tokens) {
-      final t = DateTime.now().millisecondsSinceEpoch ~/ 1000 ~/ 2100;
-      final path =
-          '/index/detail_play?img=${Uri.encodeComponent(img)}&ads=&u=$token&h=&t=$t';
-      final src = await _playUrlFromScript(path);
-      if (src.isNotEmpty) return src;
-    }
-    return '';
-  }
-
-  /// 请求换源脚本并抠出 m3u8。
-  /// 响应有两种形态：明文（k 数组里就是完整地址）和打包（地址被拆成字典碎片）——
-  /// 后者要先 `_unpackJs` 解包（黑料帖的 melon_detail_play 就是这种）。
-  Future<String> _playUrlFromScript(String path) async {
-    String js;
-    try {
-      js = await _fetchText(path);
-    } catch (_) {
-      return '';
-    }
-    final m = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(js);
-    if (m != null) return m.group(0)!;
-    final plain = _unpackJs(js);
-    if (plain == null) return '';
-    final m2 = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(plain);
-    return m2?.group(0) ?? '';
-  }
-
-  /// 黑料帖正文里的视频（`melon_detail_play` 换源，参数只有 token）
-  Future<String> _pornaPlayUrlByToken(String token, String script) {
-    final t = DateTime.now().millisecondsSinceEpoch ~/ 1000 ~/ 2100;
-    return _playUrlFromScript('/index/$script?img=&u=$token&t=$t');
-  }
-
-  /// 解开站点前端用的 JS 打包格式（Dean Edwards packer）：
-  /// `eval(function(p,a,c,k,e,d){…}('p文本',a,c,'k1|k2|…'.split('|'),0,{}))`
-  /// 站点用它把播放地址拆碎藏起来（melon/detail_play 的响应就是这种）。
-  /// 解不出来返回 null。
-  static String? _unpackJs(String src) {
-    final head = RegExp(
-            r"eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\}\('([\s\S]*?)',(\d+),(\d+),'([\s\S]*?)'\.split\('\|'\)")
-        .firstMatch(src);
-    if (head == null) return null;
-    final a = int.tryParse(head.group(2)!);
-    final c = int.tryParse(head.group(3)!);
-    if (a == null || c == null) return null;
-    // p 是 JS 字符串字面量：把转义还原
-    var p = head.group(1)!;
-    final buf = StringBuffer();
-    for (var i = 0; i < p.length; i++) {
-      final ch = p[i];
-      if (ch == '\\' && i + 1 < p.length) {
-        final n = p[i + 1];
-        // JS 字符串字面量里的常见转义（打包后的 p 文本靠它还原）
-        const map = {
-          'n': '\n',
-          't': '\t',
-          'r': '\r',
-          "'": "'",
-          '\\': '\\',
-          '"': '"',
-        };
-        if (map.containsKey(n)) {
-          buf.write(map[n]);
-          i++;
-          continue;
-        }
-      }
-      buf.write(ch);
-    }
-    p = buf.toString();
-    final dict = head.group(4)!.split('|');
-
-    // 生成 token：base-a 编码（数字>35 用大写字母，10..35 用小写字母）
-    String enc(int n) {
-      final first = n < a ? '' : enc(n ~/ a);
-      final d = n % a;
-      final second = d > 35
-          ? String.fromCharCode(d + 29)
-          : (d < 10 ? '$d' : String.fromCharCode('a'.codeUnitAt(0) + d - 10));
-      return '$first$second';
-    }
-
-    // 从高位到低位依次替换（跟 packer 自己的顺序一致）
-    for (var i = c - 1; i >= 0; i--) {
-      if (i >= dict.length || dict[i].isEmpty) continue;
-      final tok = enc(i);
-      p = p.replaceAll(RegExp('\\b$tok\\b'), dict[i]);
-    }
-    return p;
-  }
-
-  /// PT1H39S → 1:00:39；PT3M27S → 3:27
-  static String _pornaDuration(String iso) {
-    final m = RegExp(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?').firstMatch(iso);
-    if (m == null) return '';
-    final h = int.tryParse(m.group(1) ?? '') ?? 0;
-    final mi = int.tryParse(m.group(2) ?? '') ?? 0;
-    final s = int.tryParse(m.group(3) ?? '') ?? 0;
-    if (h == 0 && mi == 0 && s == 0) return '';
-    final mm = mi.toString().padLeft(h > 0 ? 2 : 1, '0');
-    final ss = s.toString().padLeft(2, '0');
-    return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
-  }
 
   // ---------------------------------------------------------------------------
   // 公共小工具
@@ -1953,12 +1392,7 @@ class Api {
     return cn[t] ?? 0;
   }
 
-  /// 标题中含"第 N 集"则提取系列前缀，否则空串。
-  static String _seriesPrefix(String title) {
-    final m = RegExp(r'第\s*\d+\s*集').firstMatch(title);
-    if (m == null) return '';
-    return title.substring(0, m.start).trim();
-  }
+
 
   // ---------------------------------------------------------------------------
 }

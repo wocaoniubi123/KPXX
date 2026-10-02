@@ -762,6 +762,75 @@ Hanime1 的调用点参数表**各不相同**（`list(key, page:, extra:)` / `li
 `api.dart` 累计 **3051 → 1964 行**（**瘦 1087 行** ✓，三分之一的站点代码已出仓 ✓）。
 **⏭️ 下一轮（Round 7）**：搬 **91porna**（`_pornaCards/_pornaDetail/_pornaDuration/_pornaList/_pornaPlayUrl/_pornaPlayUrlByToken` ✓）。
 
+--- 第 87 条续（Round 7）---
+⚠️ **本轮没搬第 6 个站 —— 我主动停手了** ✓（诚实记录 ✓）：
+1. 侦察发现 **91porna 的代码又是交错的** ✗：`_pornaCards`(1175) 与 `_pornaDetail`(1381) 之间夹着
+   **别的站**的代码 ✓（`_pornaPlayUrlByToken` 被 melon 段调用 ✓）—— 和 XVideos 那次同一种情况 ✓。
+2. 我想写"通用搬家器 v2"一劳永逸 ✗（按前缀找定义 + 跳过注释的括号配对 + 硬判据"范围内不得包住别站函数"），
+   **写到一半发现自己在疲劳状态下越写越复杂** ✗ → **判断：现在跑它，风险大于收益** ✗
+   （一个写错就可能毁掉 1964 行的文件 ✗）→ ✅ **删掉脚本，不跑** ✓（`G:\ZCode\move2.js` 已删 ✓）。
+3. ✅ **改做一件零风险、高价值的事**：**本地存档点** ✓ —— 见下 ✓。
+
+✅ **本地存档点：`b90028d`**（**只 commit，未 push** ✓ —— 按用户"一次性推"的要求 ✓）
+- 新增 `lib/base/fetch.dart` **136 行** ✓（`SiteFetcher` + `hlsVariants` + `secClock`）
+- 新增 `lib/sites/xhamster.dart` **319 行** · `pornhub.dart` **183** · `pektino.dart` **171** ·
+  `hanime1.dart` **210** · `xvideos.dart` **328** ✓
+- `api.dart` **3051 → 1964 行** ✓（每站一个 `late final XxxSite` 委托 ✓ + 公开成员转发 ✓）
+- `home_page.dart`（重置按钮删除 + 选中项泄漏修复 ✓）与 `DEVLOG.md` 一并入档 ✓
+- ⚠️ **意义**：DEVLOG 里立的"出事就 `git checkout` **秒回滚**"**前提是有一个干净提交** ✓ —— 现在有了 ✓✓
+- ⚠️ `sim/alb*.jpg`（早就存在、与本次无关 ✓）**没入档** ✓
+
+**📈 进度**：数据层 **5 / 10**（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅）；
+`api.dart` **1964 行**（累计瘦 **1087 行** ✓）。UI 层 19 处分派**尚未开始** ✓。
+**⏭️ 下一轮（Round 8）**：搬 **91porna** —— ⚠️ **回到手工锚定流程** ✓（"下一个段头往上找 `  }`" ✓ +
+两段拼接 ✓ + 外部依赖扫描 ✓），**不再造新工具** ✗（本轮的教训 ✓）。
+
+--- 第 87 条续（Round 8）---
+⚠️⚠️ **本轮又是"侦察轮"，没写代码 —— 但侦察结果改了计划（重要 ✓）**：
+
+**发现：`api.dart` 的 1039~1585 区段是"一个子系统服务 5 个站点"** ✗，不是 1 个站 ✓：
+```
+_pornaList(1046) ← 分发器（按路径分流）
+  卡片解析：_msCards(1075) · _novelCards(1102) · _melonCards(1126) · _heiliaoCards(1151) · _pornaCards(1175)
+  详情解析：_melonDetail(1220) · _novelDetail(1286) · _heiliaoDetail(1323) · _pornaDetail(1381)
+  共用机器：_pornaPlayUrl(1457) · _playUrlFromScript(1495) · _pornaPlayUrlByToken(1511) · _unpackJs(1520) · _pornaDuration(1575)
+```
+- 连撞三次意外 ✗：① 91porna 被切三段 ✓ → ② 它和 melon **共用** `_melonCards`（`list()` 里直接调 ✓）
+  → ③ 再往外看，**黑料/ms/小说** 也在这团里 ✓，且 `_metaDate`/`_seriesPrefix` 是**全站公用** helper ✗
+- 三轮的**判据全部拦下了错误写入** ✓（"范围里包住别站函数" ✓ / "未处理的外部依赖" ✓）—— **零损失** ✓✓
+
+**📌 计划修订（下一轮按这个做 ✓）**：
+1. `_metaDate`(342) 与 `_seriesPrefix`(1957) **上移到 `lib/base/`** ✓ —— 实测 **20+ 处**在用（411/434/446/483/643/733/811/830/1034/1115/1165/1280/1306/1314/1335/1373/1450… ✓），
+   和 `secClock`/`hlsVariants` 同一性质 ✓
+2. 这团 5 站**先整体搬**到 `lib/sites/porna.dart` ✓（**一个文件装 5 个站的解析 ✓** + 文件头写清关系 ✓）——
+   ⚠️ **不硬拆成 5 个文件** ✗：它们共用 `_pornaList` 的分发与 `_playUrlFromScript`/`_unpackJs`/`_pornaDuration` ✗，
+   硬拆必然跨文件调不到 ✓。**后续要细分，得先把共用件抽出来** ✓（留作待办 ✓）
+3. **每轮只做一件事** ✓ + 每步都跑三条判据 ✓（本轮证明它们真管用 ✓）
+
+**📈 进度**：数据层 **5 / 10** 家族（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅）；
+`api.dart` **1964 行** ✓（累计瘦 1087 ✓）。存档点 `b90028d` ✓（本地未推 ✓）。
+**⏭️ 下一轮（Round 9）**：先上移 `_metaDate`/`_seriesPrefix` → 再把 1039~1585 整团搬进 `porna.dart` ✓。
+
+
+--- 第 87 条续（Round 9）---
+✅ **Round 8 的修订计划执行完毕**（一次成功 ✓，判据全绿才写盘 ✓）：
+1. **上移底座**：`_metaDate`(原 342) 与 `_seriesPrefix`(原 1957) → **新建 `lib/base/fmt.dart`（34 行 ✓）**，
+   `api.dart` 里**全部调用改名**（`metaDate(` / `seriesPrefix(` ✓）—— 实测 20+ 处在用 ✓，属底座 ✓。
+   文件头写清"这里是**与站点无关**的文本/时间格式化 ✓"。
+2. **整团搬运**：`api.dart` 原 **1021~1567（547 行）** → **`lib/sites/porna.dart`（574 行 ✓）**，
+   含 **5 个站**的解析（91porna · 蜜桃/黑料 · ms · 小说 ✓）+ 共用机器（`playUrlFromScript`/`unpackJs`/`pornaDuration` ✓）。
+   **8 处调用**改 `_pornaSite.*` ✓（与扫描到的 8 处**完全一致** ✓）。
+   文件头写清**为什么 5 站一个文件** ✗（共用 `list()` 分发器与换源机器 ✓，硬拆必跨文件调不到 ✓），
+   并把"后续细分需先抽共用件"记为**待办** ✓。
+3. **判据全过**：15 个成员齐 ✓ / 段内无别站 ✓ / 未处理外部依赖 **无** ✓ / 删完末行 `}` ✓ / 无残留旧名调用 ✓ /
+   其它站符号完好（`_hgPostCards` `_kmList` `_wpDetail` `_mdCards` + 6 个站点委托 ✓）。
+
+**📈 进度（里程碑）**：数据层 **6 / 10 家族** ✓（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅
+porna+蜜桃+黑料+ms+小说 ✅）；**`api.dart` 3051 → 1398 行**（累计瘦 **1653 行** ✓ —— 站点代码出仓**过半** ✓✓）。
+底座文件：`fetch.dart`(136) + `fmt.dart`(34) ✓。
+**⏭️ 下一轮（Round 10）**：搬 **黄果短剧**（`_huangguoList/_huangguoDetail/_hgPageList/_hgPostCards/_hgPostDetail/_hgArticle/_hgInitialData/_hgTopicCards/_hgRankCards` ✓）
+—— ⚠️ 搬前先扫：① 段是否被切开 ✗ ② 段里有没有混别站 ✗ ③ 有没有公开成员（要留转发 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
