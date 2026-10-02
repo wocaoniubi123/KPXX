@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -2910,6 +2911,9 @@ class Api {
         cover: _xhUn(m.group(4)),
         meta: '${m.group(1)} 部',
         badge: '',
+        // 演员是**竖版头像**（用户 2026-10-02："色情明星要竖版显示"）；列表一行 3 个
+        // （见 home_page 的 cols 条件，与 Pornhub 的 /pornstars 同一处理）。
+        coverAspect: 3 / 4,
       ));
     }
     return out;
@@ -2918,10 +2922,25 @@ class Api {
   /// 「短片」：JSON 接口 `/api/v1/moments`（无需 cookie）。
   /// ⚠️ 每页只有 5~6 条、单次要 2~5s，而且**页大小调不大**（itemsOnPage/limit/perPage/
   /// size/count/pageSize 全试过无效）→ **并发抓 4 页再合并**，否则就是"5 条…等好几秒…又 5 条"
-  /// （用户实报过）。调用方传的 page 当"批次号"。
+  /// （用户实报过）。
+  /// ⚠️ **随机**（用户 2026-10-02："短片的卡片列表每次进去也要随机。不然你老是显示第一批短片
+  /// 意义在哪里？？？"）—— 站点接口是**固定分页序**，所以只打乱是不够的 ✗（池子还是那几条）：
+  /// **起始页取随机 1~48**（该范围实测有内容 🔍），列表内往后顺延；每批打乱；按 url 去重。
+  /// `resetShortsRandom()` 让下一次取数**重新随机**（切 tab 回来时调，与 sim 行为一致 ✓）。
+  static final Random _rand = Random();
+
+  int? _xhShortsFrom;
+
+  void resetShortsRandom() {
+    _xhShortsFrom = null;
+  }
+
   Future<List<Article>> _xhMoments(int page) async {
+    if (page < 1) return const []; // page 只是调用方的批次号，真正的页由 _xhShortsFrom 决定
     const batch = 4;
-    final from = (page - 1) * batch + 1;
+    _xhShortsFrom ??= 1 + (_rand.nextInt(48)); // 首次（或 reset 后）随机选起始页
+    final from = _xhShortsFrom!;
+    _xhShortsFrom = from + batch; // 同一份列表内往后顺延
     final bodies = await Future.wait([
       for (var i = 0; i < batch; i++)
         () async {
@@ -2959,9 +2978,14 @@ class Api {
               (it['posterUrl'] ?? it['thumbUrl'] ?? it['cover'] ?? '').toString(),
           meta: (landing is Map ? (landing['name'] ?? '') : '').toString(),
           badge: '',
+          // 短片是**竖版**（抖音/Reels 形态）→ 跟竖屏站一样 3:4、一行 2 个
+          // （home_page 的 cols 条件里不含 /shorts，默认就是 2 列 ✓）
+          coverAspect: 3 / 4,
         ));
       }
     }
+    // 每批**打乱**（配合随机起始页 → 每次进来的都是新局面 ✓，与 sim 的 shuffleArr 同一语义）
+    out.shuffle(_rand);
     return out;
   }
 

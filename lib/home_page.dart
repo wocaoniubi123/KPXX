@@ -7,6 +7,7 @@ import 'app_background.dart';
 import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
+import 'shorts_feed_page.dart';
 import 'sites.dart';
 
 /// 单个站点的内容页：顶部分类 tab（可带子分类）+ 双列卡片列表。
@@ -501,7 +502,27 @@ class _HomePageState extends State<HomePage>
     _tab = TabController(length: _cats.length, vsync: this);
     // 子分类行跟着当前分类变，切 tab 要重画
     _tab.addListener(() {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      // ⚠️ 用户 2026-10-02："短片列表每次切换到别的 tab 再回去都要重新随机取一份"
+      //   （"比如我切到影片，再切到短片，数据就要重新随机取一份"）
+      // 默认 `_feedFor` 是 putIfAbsent **缓存**列表 → 切回去还是那批 ✗，而短片本来就是
+      // "随机批次"，缓存等于把随机性废掉 ✗ → 每次**切到**短片 tab 就丢掉它的缓存 +
+      // 重新随机起始页（与 sim 侧 `listState.delete(key)` + `xhMomentsBatchFrom = 0` 同一套 ✓）。
+      // ⚠️ 必须挂在这里、不能挂在 `_feedFor`：那个函数每次 build 都可能被调用 ✗，
+      //    在那儿删缓存会变成"每次重画都重拉" ✗。
+      // `indexIsChanging` 挡掉切换动画中间那一次，避免重复触发。
+      if (!_tab.indexIsChanging) {
+        final i = _tab.index;
+        if (i >= 0 && i < _cats.length) {
+          final c = _cats[i];
+          if (widget.site.template == SiteTemplate.xhamster &&
+              c.key.startsWith('/shorts')) {
+            _api.resetShortsRandom();
+            _feeds.removeWhere((k, _) => k.startsWith('${c.key}|'));
+          }
+        }
+      }
+      setState(() {});
     });
   }
 
@@ -541,7 +562,13 @@ class _HomePageState extends State<HomePage>
         key,
         () => _CategoryFeed(
             c.key, s1.isEmpty ? null : s1, s2.isEmpty ? null : s2, _api)
-          ..theme = _theme
+          // ⚠️ 取数用的"覆盖路径"：xHamster 的**「色情明星」tab 用它自己那套** `_xhStar`
+          //（演员分类 / 榜單），其余 tab 才用站点级 `_theme`（「分类」tab 的 388 视频分类）。
+          // 两者混用就是把 388 挂到演员 tab 上的那个 bug ✗（用户 2026-10-02 抓到）。
+          ..theme = (widget.site.template == SiteTemplate.xhamster &&
+                  c.key == '/pornstars')
+              ? _xhStar
+              : _theme
           ..duration = _duration
           ..sort = _sort
           // Pornhub 的「色情明星」tab：四个筛选拼成 ?o=/?performerType=/?t=/更多组
@@ -568,7 +595,75 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  /// Pornhub 的色情明星筛选行（照站点四个控件）
+  /// xHamster「色情明星」tab **自己的**选中路径（演员分类 / 榜單），与站点级 `_theme`
+  /// （「分类」tab 的 388 视频分类）**分开存放** ✗ —— 用户 2026-10-02 明确：
+  /// "色情明星的分类选择要显示正确的明星"（那 388 个是视频分类，挂到演员 tab 上是错的 ✗）。
+  String? _xhStar;
+
+  /// xHamster「色情明星」的筛选行：一个按钮 → 弹窗里两段（榜單 3 / 演员分类 40）
+  Widget _xhStarRow() {
+    final sel = _xhStar == null ? null : _tabNameOf([...xhStarNav, ...xhStarCats], _xhStar!);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              filterBtn(sel ?? '明星分類', _xhStar != null, _openXhStarDialog),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openXhStarDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('明星分類', style: TextStyle(fontSize: 16)),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 榜單（3 项，对应站点顶部导航）
+                  _filterChips(xhStarNav, () => Navigator.pop(ctx), true),
+                  const SizedBox(height: 12),
+                  // 演员分类（40 项，站点演员页 chip 原顺序）
+                  _filterChips(xhStarCats, () => Navigator.pop(ctx), true),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
+  /// 选了明星分类/榜單 → 丢掉这个 tab 的旧列表（否则还在显示老结果 ✗）并重画
+  void _reloadXhStar() {
+    final key = _xhStarTabKey;
+    if (key != null) _feeds.removeWhere((k, _) => k.startsWith('$key|'));
+  }
+
+  /// 「色情明星」tab 在 `_feeds` 里的 key 前缀（= `/pornstars|`），拿不到就 null
+  String? get _xhStarTabKey {
+    if (widget.site.template != SiteTemplate.xhamster) return null;
+    for (final c in _cats) {
+      if (c.key == '/pornstars') return c.key;
+    }
+    return null;
+  }
+  /// Pornhub 的色情明星筛选行（照站点四个控件）：
   Widget _phStarRow() => _PhStarBar(filters: _phStar, onChanged: _applyPhStar);
 
   /// Hanime1：把当前筛选应用到所有列表 + 重建
@@ -671,7 +766,11 @@ class _HomePageState extends State<HomePage>
 
   /// 筛选弹窗里的一组标签胶囊（主题区 / 语言区共用）。
   /// after：选完后的收尾动作（弹窗场景 = 关闭弹窗）。
-  Widget _filterChips(List<SiteTab> items, [VoidCallback? after]) {
+  /// 标签芯片组。[starSel] = true 时它服务的是 xHamster「色情明星」tab 的**独立选中项**
+  /// `_xhStar`（演员分类），而不是站点级 `_theme`（视频分类）—— 两者**绝不能混** ✗
+  /// （用户 2026-10-02："色情明星的分类选择要显示正确的明星"）。
+  Widget _filterChips(List<SiteTab> items, [VoidCallback? after, bool starSel = false]) {
+    bool sel(SiteTab t) => starSel ? _xhStar == t.key : _theme == t.key;
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -680,8 +779,13 @@ class _HomePageState extends State<HomePage>
           InkWell(
             borderRadius: BorderRadius.circular(8),
             onTap: () {
-              _theme = _theme == t.key ? null : t.key;
-              _applyFilters();
+              if (starSel) {
+                setState(() => _xhStar = _xhStar == t.key ? null : t.key);
+                _reloadXhStar();
+              } else {
+                _theme = _theme == t.key ? null : t.key;
+                _applyFilters();
+              }
               after?.call();
             },
             child: Container(
@@ -689,23 +793,16 @@ class _HomePageState extends State<HomePage>
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 // 同 _chipsRow：未选中透明底 + 细描边（图能透出来）
-                color: _theme == t.key
-                    ? const Color(0xFFE8590C)
-                    : Colors.transparent,
-                border: _theme == t.key
-                    ? null
-                    : Border.all(color: const Color(0x593C3C3C)),
+                color: sel(t) ? const Color(0xFFE8590C) : Colors.transparent,
+                border: sel(t) ? null : Border.all(color: const Color(0x593C3C3C)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 t.name,
                 style: TextStyle(
                     fontSize: 12,
-                    fontWeight:
-                        _theme == t.key ? FontWeight.w600 : FontWeight.w400,
-                    color: _theme == t.key
-                        ? Colors.white
-                        : const Color(0xFF2C2C2C)),
+                    fontWeight: sel(t) ? FontWeight.w600 : FontWeight.w400,
+                    color: sel(t) ? Colors.white : const Color(0xFF2C2C2C)),
               ),
             ),
           ),
@@ -821,9 +918,18 @@ class _HomePageState extends State<HomePage>
           // 站点上没有这行；色情明星 tab 有自己那一行（见下）。
           // 判定不用 tab 显示名：PH 的「分类」= key 是 /video **且没有子分类**的那个
           // （「视频」tab 的 key 也是 /video，但它带 9 个子项）。
+          // ⚠️ xHamster 同理（用户 2026-10-02 实机抓到"你又把分类选择乱挂到别的tab了" ✗）：
+          // 那一行 388 分类选择**只属于「分类」tab**（key = /categories/... 且无子分类）；
+          // 「影片」tab（key `/`，带 4 个子项）和「色情明星」「短片」tab 都不该出现它 ✗。
+          // sim 侧本来就是这么做的（xhBar 只在 cat.name === '分类' 时挂上 ✓）。
           if (widget.site.filters != null &&
-              (widget.site.template != SiteTemplate.pornhub ||
-                  (cur?.key == '/video' && cur!.subs.isEmpty)))
+              (widget.site.template == SiteTemplate.pornhub
+                  ? (cur?.key == '/video' && cur!.subs.isEmpty)
+                  : widget.site.template == SiteTemplate.xhamster
+                      ? (cur != null &&
+                          cur.key.startsWith('/categories/') &&
+                          cur.subs.isEmpty)
+                      : true))
             _filterRow(widget.site.filters!),
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
           if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),
@@ -831,6 +937,12 @@ class _HomePageState extends State<HomePage>
           if (widget.site.template == SiteTemplate.pornhub &&
               cur?.key == '/pornstars')
             _phStarRow(),
+          // xHamster「色情明星」tab 的筛选行（榜單 3 + 演员分类 40）
+          // ⚠️ 用户 2026-10-02："色情明星的分类选择要显示正确的明星" —— 这里给的是**演员分类**
+          // （`/pornstars/all/categories/<slug>`），**不是**「分类」tab 那 388 个视频分类 ✗。
+          if (widget.site.template == SiteTemplate.xhamster &&
+              cur?.key == '/pornstars')
+            _xhStarRow(),
           Expanded(
             child: TabBarView(
               controller: _tab,
@@ -1068,7 +1180,15 @@ class _FeedViewState extends State<_FeedView>
                           !widget.feed.slug.startsWith('/chigua')) ||
                       // Pornhub「色情明星」tab 是演员卡（竖版头像）→ 跟竖屏站一样一行 3 个
                       (widget.site.template == SiteTemplate.pornhub &&
-                          widget.feed.slug == '/pornstars'))
+                          widget.feed.slug == '/pornstars') ||
+                      // xHamster 同理（用户 2026-10-02："色情明星要竖版显示"）。
+                      // ⚠️ 只有**演员列表**才是演员卡：`/pornstars`、`/pornstars/all/…`、
+                      // `/pornstars/top/…`；而 `/pornstars/<名字>` 是**那个演员的视频列表** ✗
+                      // —— 跟 sim 侧同一套判定（sim 的 isStarList），别写成"凡 /pornstars 开头" ✗
+                      (widget.site.template == SiteTemplate.xhamster &&
+                          (widget.feed.slug == '/pornstars' ||
+                              widget.feed.slug.startsWith('/pornstars/all/') ||
+                              widget.feed.slug.startsWith('/pornstars/top/'))))
                   ? 3
                   : 2,
               // Pektino：瀑布流（横竖混排按顺序填充两列，不留空档；照站点）
@@ -1263,6 +1383,24 @@ class ArticleCard extends StatelessWidget {
                   slug: article.url,
                   isTag: false,
                 )),
+              ),
+            );
+            return;
+          }
+          // ⚠️ xHamster 短片卡 → 进**竖屏瀑布流**（用户 2026-10-02 要求），**不是**详情页 ✗。
+          // 只把"点的那条"传进去打头，往后的由瀑布流自己续拉（短片列表本身是随机的 ✓）。
+          if (site.template == SiteTemplate.xhamster &&
+              article.url.startsWith('/shorts/')) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PageBg(
+                  child: ShortsFeedPage(
+                    api: Api(site: site),
+                    site: site,
+                    items: <Article>[article],
+                    start: 0,
+                  ),
+                ),
               ),
             );
             return;

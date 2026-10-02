@@ -428,6 +428,66 @@ const List<SiteTab> _phCats = [
 /// 完整数据藏在页面的 Vue props JSON（`assignable`）里 → 这一份是**离线抄下来硬编码**的
 /// （跟 `_phCats` 同一套路数：站点加了新标签得手动更新）。
 /// 分组顺序照站点：製作 → 行動 → 戀物癖 → 指示 → 年齡 → 種族 → 身體 → 頭髮 → 人數 → 性玩具 → 服飾 → 設想 → 位置
+/// xHamster「色情明星」tab **自己那套**筛选清单（用户 2026-10-02 明确要求：
+/// "色情明星的分类选择要显示正确的明星"）。
+/// ⚠️ **跟 `_xhCats` 那 388 个视频分类是两回事** —— 用户为这个混用发过火 ✗：
+/// 388 个是「分类」tab 的**视频分类**；这里是**演员分类**（站点演员页自己的 40 个 chip，
+/// 逐条实测 slug 可用 ✓）。两个清单的路径前缀都不一样：
+///   视频分类  `/categories/<slug>`
+///   演员分类  `/pornstars/all/categories/<slug>`
+/// 榜單三项（色情明星 / 在US受歡迎 / 按國家）与站点顶部导航一致 ✓。
+const List<SiteTab> xhStarNav = [
+  SiteTab('/pornstars', '色情明星'),
+  SiteTab('/pornstars/top/us', '在US受歡迎'),
+  SiteTab('/pornstars/all/countries', '按國家'),
+];
+
+/// 演员分类 40 个（站点演员页 chip 的原顺序，逐条实测 slug 可用 ✓）。
+/// 名字取自 `_xhCats` 同一张表；german/japanese/french/british 四个表里没有，
+/// 照站点 chip 写死（sim 的 `XH_STAR_CATS` 同源）。
+const List<SiteTab> xhStarCats = [
+  SiteTab('/pornstars/all/categories/creampie', '中出'),
+  SiteTab('/pornstars/all/categories/asian', '亞洲'),
+  SiteTab('/pornstars/all/categories/dildo', '假雞巴'),
+  SiteTab('/pornstars/all/categories/cartoon', '卡通'),
+  SiteTab('/pornstars/all/categories/blowjob', '口交'),
+  SiteTab('/pornstars/all/categories/celebrity', '名人'),
+  SiteTab('/pornstars/all/categories/bbw', '大美人'),
+  SiteTab('/pornstars/all/categories/femdom', '女主導'),
+  SiteTab('/pornstars/all/categories/lesbian', '女同性戀'),
+  SiteTab('/pornstars/all/categories/milf', '媽媽我想做愛'),
+  SiteTab('/pornstars/all/categories/cumshot', '射精畫面'),
+  SiteTab('/pornstars/all/categories/vintage', '復古'),
+  SiteTab('/pornstars/all/categories/german', '德國'),
+  SiteTab('/pornstars/all/categories/mature', '成熟'),
+  SiteTab('/pornstars/all/categories/cuckold', '戴綠帽'),
+  SiteTab('/pornstars/all/categories/handjob', '手淫'),
+  SiteTab('/pornstars/all/categories/massage', '按摩'),
+  SiteTab('/pornstars/all/categories/swingers', '換妻者'),
+  SiteTab('/pornstars/all/categories/japanese', '日本'),
+  SiteTab('/pornstars/all/categories/amateur', '業餘'),
+  SiteTab('/pornstars/all/categories/hairy', '毛茸茸'),
+  SiteTab('/pornstars/all/categories/beach', '沙灘'),
+  SiteTab('/pornstars/all/categories/french', '法式'),
+  SiteTab('/pornstars/all/categories/squirting', '潮吹'),
+  SiteTab('/pornstars/all/categories/hardcore', '硬核'),
+  SiteTab('/pornstars/all/categories/cfnm', '穿衣女與裸體男'),
+  SiteTab('/pornstars/all/categories/bdsm', '綁縛與調教'),
+  SiteTab('/pornstars/all/categories/webcam', '網絡攝像頭'),
+  SiteTab('/pornstars/all/categories/granny', '老奶奶'),
+  SiteTab('/pornstars/all/categories/old-young', '老少配'),
+  SiteTab('/pornstars/all/categories/anal', '肛交'),
+  SiteTab('/pornstars/all/categories/footjob', '腳交'),
+  SiteTab('/pornstars/all/categories/british', '英國佬'),
+  SiteTab('/pornstars/all/categories/hentai', '變態'),
+  SiteTab('/pornstars/all/categories/interracial', '跨種族'),
+  SiteTab('/pornstars/all/categories/gangbang', '輪姦'),
+  SiteTab('/pornstars/all/categories/casting', '選角'),
+  SiteTab('/pornstars/all/categories/arab', '阿拉伯風情'),
+  SiteTab('/pornstars/all/categories/bisexual', '雙性戀'),
+  SiteTab('/pornstars/all/categories/teen', '青少年'),
+];
+
 const List<SiteTab> _xhCats = [
   // ── 製作（24 个）
   SiteTab('/categories/3d', '3D'),
