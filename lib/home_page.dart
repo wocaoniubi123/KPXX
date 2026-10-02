@@ -1098,6 +1098,14 @@ class _CategoryFeed extends ChangeNotifier {
   bool _started = false; // 拉过至少一次（切筛选时决定要不要马上重拉）
   bool error = false;
 
+  /// ⚠️ 错误的**原文**（用户 2026-10-03 实机"短片一直转圈"排查时加的）：
+  /// 光有 `error` 这个 bool ✗，界面上分不清"还在转圈"和"已经失败" ✓。
+  String errorText = '';
+
+  /// 是否已经拉到底 —— 界面用它区分"还在加载"与"真的一条都没有" ✓，
+  /// 免得"拿到 0 条但没抛异常"时**永远转圈** ✗。
+  bool get done => _done;
+
   _CategoryFeed(this.slug, this.sub, this.sub2, this._api);
 
   /// 切筛选：清了重拉（对"已经加载过"的列表立即拉；没露过面的保持懒加载）
@@ -1150,7 +1158,10 @@ class _CategoryFeed extends ChangeNotifier {
         if (next.length < 8) _done = true;
       }
       error = false;
-    } catch (_) {
+    } catch (e) {
+      // ⚠️ 把**原文**留下来（不只是 bool ✗）—— 用户 2026-10-03："短片一直转圈圈"，
+      //    而界面上看不到任何原因，就是因为它只存了个 bool ✓。
+      errorText = e.toString();
       error = true;
       _done = true; // 失败不自动重试（避免死循环），靠用户下拉刷新
     } finally {
@@ -1204,6 +1215,10 @@ class _FeedViewState extends State<_FeedView>
         await feed.ensureMore();
       },
       child: feed.items.isEmpty
+          // ⚠️ **永远不能无限转圈**（用户 2026-10-03 实机："短片一直转圈圈" ✗）：
+          //   原来的逻辑是"error 为真才显示失败，否则转圈" ✗ —— 而"拿到 0 条但没抛异常"
+          //   这种就落进了转圈分支、永远转下去 ✗。而且 `error` 只是个 bool ✓、**具体原因没存** ✗。
+          //   现在按三态渲染：出错 → 显示**错误原文**；拉完了但 0 条 → 明说 0 条；否则才转圈 ✓。
           ? (feed.error
               ? ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -1211,22 +1226,39 @@ class _FeedViewState extends State<_FeedView>
                     Padding(
                       padding: const EdgeInsets.only(top: 120),
                       child: Center(
-                          child: Text('加载失败，请下拉重试',
-                              style:
-                                  TextStyle(color: kTxtSub, fontSize: 14))),
+                          child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                            '加载失败：${feed.errorText.isEmpty ? '未知原因' : feed.errorText}',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: kTxtSub, fontSize: 14)),
+                      )),
                     ),
                   ],
                 )
-              : ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [
-                    Padding(
-                      padding: EdgeInsets.only(top: 120),
-                      child: Center(
-                          child: CircularProgressIndicator()),
-                    ),
-                  ],
-                ))
+              : (feed.done
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 120),
+                          child: Center(
+                              child: Text('没有数据（接口返回 0 条）',
+                                  style: TextStyle(
+                                      color: kTxtSub, fontSize: 14))),
+                        ),
+                      ],
+                    )
+                  : ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.only(top: 120),
+                          child:
+                              Center(child: CircularProgressIndicator()),
+                        ),
+                      ],
+                    )))
           : RowsGrid(
               // 竖屏封面站（黄果）**一行 3 个**；但吃瓜社区（/chigua*）的帖子卡
               // 是横版大图（站点桌面就是 2 列网格）→ 走 2 列；横屏站本来 2 列
