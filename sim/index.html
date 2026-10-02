@@ -2136,11 +2136,8 @@ function hanimeRel(href) {
   try { const u = new URL(href); return u.pathname + u.search; } catch (e) { return href; }
 }
 
-/** 分类列表：/search?genre=X&page=N（网格卡：a > div.video-card-inner > img + 标题） */
-async function hanimeFetch(site, genre, page) {
-  const q = ['genre=' + encodeURIComponent(genre), ...(page > 1 ? ['page=' + page] : []), ...hnParams()];
-  const path = '/search?' + q.join('&');
-  const doc = parseHtml(await getHtml(site, path));
+/** 网格卡（div.video-card-inner）：裏番 / 泡麵番 / 新番預告 这几个分类页用这套模板 */
+function hanimeGridCards(doc) {
   const out = [];
   for (const a of doc.querySelectorAll('a[href*="/watch?v="]')) {
     const inner = a.querySelector('div.video-card-inner');
@@ -2154,11 +2151,12 @@ async function hanimeFetch(site, genre, page) {
   return out;
 }
 
-/** 搜索 / 站内标签（?query= 与 ?tags[]=）共用的横排卡解析（含时长/上传者/时间） */
-async function hanimeSearchAt(site, basePath, page) {
-  const extra = [...(page > 1 ? ['page=' + page] : []), ...hnParams()];
-  const path = basePath + (extra.length ? (basePath.includes('?') ? '&' : '?') + extra.join('&') : '');
-  const doc = parseHtml(await getHtml(site, path));
+/** 横排卡（div.video-item-container）：搜索页 / 站内标签页，
+ *  **以及另外 7 个分类页**（Motion Anime / 3DCG / 2.5D / 2D動畫 / AI生成 / MMD / Cosplay）
+ *  ⚠️ meta **一律留空**（用户 2026-10-01 拍板）：站点的 div.subtitle 是「上传者 • 上传时间」，
+ *  而卡片那行只该放单一信息（§8.2.1-2）——用户决定**两个都不显示**，分类页和**搜索页**都取消。
+ *  时长角标（div.duration）照 §8-4 保留。 */
+function hanimeRowCards(doc) {
   const out = [];
   for (const el of doc.querySelectorAll('div.video-item-container')) {
     const a = el.querySelector('a.video-link');
@@ -2168,10 +2166,28 @@ async function hanimeSearchAt(site, basePath, page) {
     const t = ((el.querySelector('div.title')?.textContent || '') || (el.getAttribute('title') || '')).trim();
     if (!t) continue;
     const dur = (el.querySelector('div.duration')?.textContent || '').trim();
-    const sub = (el.querySelector('div.subtitle')?.textContent || '').replace(/\s+/g, ' ').trim();
-    out.push({ title: t, url: hanimeRel(href), cover: img ? (img.getAttribute('src') || '') : '', meta: sub, badge: dur });
+    out.push({ title: t, url: hanimeRel(href), cover: img ? (img.getAttribute('src') || '') : '', meta: '', badge: dur });
   }
   return out;
+}
+
+/** 分类列表：/search?genre=X&page=N（**两套模板都认**）
+ *  ⚠️ 站点对分类页用了两套卡片模板（2026-10-01 用户实报"泡麵番后面的分类都没数据"）：
+ *  裏番/泡麵番/新番預告 = 网格卡；Motion Anime/3DCG/2.5D/2D動畫/AI生成/MMD/Cosplay = 横排卡。
+ *  实测两种布局**互斥**（同一页不会混），所以网格卡非空就直接返回。 */
+async function hanimeFetch(site, genre, page) {
+  const q = ['genre=' + encodeURIComponent(genre), ...(page > 1 ? ['page=' + page] : []), ...hnParams()];
+  const path = '/search?' + q.join('&');
+  const doc = parseHtml(await getHtml(site, path));
+  const grid = hanimeGridCards(doc);
+  return grid.length ? grid : hanimeRowCards(doc);
+}
+
+/** 搜索 / 站内标签（?query= 与 ?tags[]=）共用的横排卡解析（含时长/上传者/时间） */
+async function hanimeSearchAt(site, basePath, page) {
+  const extra = [...(page > 1 ? ['page=' + page] : []), ...hnParams()];
+  const path = basePath + (extra.length ? (basePath.includes('?') ? '&' : '?') + extra.join('&') : '');
+  return hanimeRowCards(parseHtml(await getHtml(site, path)));
 }
 
 /** 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低） */
@@ -2186,6 +2202,10 @@ function hanimeDetail(html, url) {
   }
   const og = doc.querySelector('meta[property="og:image"]');
   const poster = og ? (og.getAttribute('content') || '') : '';
+  // 时长：<meta property="og:video:duration" content="1188">（秒）→ 19:48（§8.2-4）。
+  // ⚠️ 站点页面 UI 上没有时长，只有这个 meta —— 有就填、没有留空（用现成的 secClock）
+  const ogDur = doc.querySelector('meta[property="og:video:duration"]');
+  const duration = secClock(ogDur ? (ogDur.getAttribute('content') || '') : '');
   const srcs = [];
   for (const s of doc.querySelectorAll('video source')) {
     const u = s.getAttribute('src') || '';
@@ -2201,7 +2221,7 @@ function hanimeDetail(html, url) {
     const t = (a.textContent || '').replace(/\s+/g, ' ').replace(/\s*\(\d+\)\s*$/, '').replace(/#/g, '').trim();
     if (t) tags.push({ slug: hanimeRel(href), name: t });
   }
-  return { title, time: '', images: poster ? [poster] : [], intro, videos, tags, related: [], duration: '' };
+  return { title, time: '', images: poster ? [poster] : [], intro, videos, tags, related: [], duration };
 }
 
 /* Hanime1 筛选（照站点四个下拉：標籤/排序方式/發佈日期/時長；主分类页和搜索页都有） */

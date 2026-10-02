@@ -1780,12 +1780,8 @@ class Api {
     return '$base${base.contains('?') ? '&' : '?'}${parts.join('&')}';
   }
 
-  /// 分类列表：/search?genre={genre}&page=N&筛选（网格卡）
-  Future<List<Article>> _hanimeList(String genre,
-      {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    final path =
-        _hnQuery('/search?genre=${Uri.encodeComponent(genre)}', page, extra);
-    final doc = hp.parse(await _fetchText(path));
+  /// 网格卡（`div.video-card-inner`）：裏番 / 泡麵番 / 新番預告 这几个分类页用这套模板
+  static List<Article> _hnGridCards(Document doc) {
     final out = <Article>[];
     for (final a in doc.querySelectorAll('a[href*="/watch?v="]')) {
       final inner = a.querySelector('div.video-card-inner');
@@ -1805,11 +1801,13 @@ class Api {
     return out;
   }
 
-  /// 搜索 / 站内标签（?query= 与 ?tags[]= 两种路径）共用的横排卡解析
-  Future<List<Article>> _hanimeSearchAt(String basePath,
-      {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    final path = _hnQuery(basePath, page, extra);
-    final doc = hp.parse(await _fetchText(path));
+  /// 横排卡（`div.video-item-container`）：搜索页、站内标签页，
+  /// **以及另外 7 个分类页**（Motion Anime / 3DCG / 2.5D / 2D動畫 / AI生成 / MMD / Cosplay）
+  ///
+  /// ⚠️ `meta` **一律留空**（用户 2026-10-01 拍板）：站点的 `div.subtitle` 是
+  /// 「上传者 • 上传时间」，而卡片那行只该放单一信息（§8.2.1-2）—— 用户决定**两个都不显示**，
+  /// **分类页和搜索页都取消**。时长角标（`div.duration`）照 §8-4 保留。
+  static List<Article> _hnRowCards(Document doc) {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('div.video-item-container')) {
       final a = el.querySelector('a.video-link');
@@ -1824,13 +1822,33 @@ class Api {
         title: t,
         url: _hnRel(href),
         cover: el.querySelector('img.main-thumb')?.attributes['src'] ?? '',
-        meta: (el.querySelector('div.subtitle')?.text ?? '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim(), // 上传者 • 时间
+        meta: '',
         badge: el.querySelector('div.duration')?.text.trim() ?? '',
       ));
     }
     return out;
+  }
+
+  /// 分类列表：/search?genre={genre}&page=N&筛选（**两套模板都认**）
+  ///
+  /// ⚠️ 站点对分类页用了两套卡片模板（2026-10-01 用户实报"泡麵番后面的分类都没数据"）：
+  /// 裏番 / 泡麵番 / 新番預告 = 网格卡；Motion Anime / 3DCG / 2.5D / 2D動畫 / AI生成 /
+  /// MMD / Cosplay = 横排卡。实测这 10 个分类页的布局是**互斥**的（同一页不会混），
+  /// 所以网格卡非空就直接返回。
+  Future<List<Article>> _hanimeList(String genre,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final path =
+        _hnQuery('/search?genre=${Uri.encodeComponent(genre)}', page, extra);
+    final doc = hp.parse(await _fetchText(path));
+    final grid = _hnGridCards(doc);
+    return grid.isNotEmpty ? grid : _hnRowCards(doc);
+  }
+
+  /// 搜索 / 站内标签（?query= 与 ?tags[]= 两种路径）共用的横排卡解析
+  Future<List<Article>> _hanimeSearchAt(String basePath,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final path = _hnQuery(basePath, page, extra);
+    return _hnRowCards(hp.parse(await _fetchText(path)));
   }
 
   /// 搜索：关键词走 /search?query=
@@ -1873,6 +1891,13 @@ class Api {
     final poster =
         doc.querySelector('meta[property="og:image"]')?.attributes['content'] ??
             '';
+    // 时长：<meta property="og:video:duration" content="1188">（秒）→ 19:48，显示在详情页
+    // 标题下那行（§8.2-4）。⚠️ 站点页面 UI 上并不显示时长，只有这个 meta ——
+    // 有就填、没有留空（§8 三原则①），走公共的 _secClock（和黄果/91短视频同一条路径）
+    final duration = _secClock(doc
+            .querySelector('meta[property="og:video:duration"]')
+            ?.attributes['content'] ??
+        '');
     // 播放源：<source src="…-480p/720p/1080p.mp4?secure=…" size="…">，按清晰度降序
     final pairs = <MapEntry<int, String>>[];
     for (final s in doc.querySelectorAll('video source')) {
@@ -1913,7 +1938,7 @@ class Api {
       tags: tags,
       related: const [], // 相关推荐是 AJAX POST，v1 未接
       seriesPrefix: '',
-      duration: '',
+      duration: duration,
     );
   }
 
