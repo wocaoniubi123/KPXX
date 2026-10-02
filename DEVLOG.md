@@ -831,6 +831,31 @@ porna+蜜桃+黑料+ms+小说 ✅）；**`api.dart` 3051 → 1398 行**（累计
 **⏭️ 下一轮（Round 10）**：搬 **黄果短剧**（`_huangguoList/_huangguoDetail/_hgPageList/_hgPostCards/_hgPostDetail/_hgArticle/_hgInitialData/_hgTopicCards/_hgRankCards` ✓）
 —— ⚠️ 搬前先扫：① 段是否被切开 ✗ ② 段里有没有混别站 ✗ ③ 有没有公开成员（要留转发 ✓）。
 
+
+--- 第 87 条续（Round 10）---
+✅ **黄果短剧搬完**（第三次尝试才成 ✓，前两次都被判据拦下 ✓ 零损失 ✓）：
+- `api.dart` **1398 → 1013 行** ✓；`lib/sites/huangguo.dart` **415 行** ✓；
+  新底座 `lib/base/parse.dart` **31 行**（`dplayerSources` 上移 ✓）；**7 处调用**全改 ✓。
+
+⚠️⚠️ **本轮两件重要发现 + 判据第三次升级**：
+1. **共享函数里有站点分支** ✗：`_fetchSourcesAt`（全站共享的换源函数 ✓）里写着
+   `if (site.template == SiteTemplate.huangguo)` ✗ —— **"站点逻辑散在公共函数里"的典型** ✓
+   （正是用户要清掉的那类 ✓）。本次先改成调 `_hgSite.initialData(...)` ✓；
+   **把该分支彻底下放 = 待办** ✓（要动共享换源函数的结构，风险较大，留到后面单做 ✓）。
+2. **第 4 个共享 helper** ✗：`_dplayerSources`（DPlayer 配置解析 ✓，**2 站在用** ✓）→ 上移 `lib/base/parse.dart` ✓。
+   **新底座文件诞生的理由**：`fetch`=网络 · `fmt`=文本/时间 · `parse`=共享解析器 ✓。
+3. ✅ **判据升级（重要 ✓）**：新增 **"被搬的范围里不得含共享函数的【定义】"** ✓ ——
+   ⚠️ 但**第一版写成"出现即报"**✗，结果把合法的**调用**（`_fetchText(` ✓）当成违规 ✗ **误报** ✓；
+   ✅ 改成**只匹配定义行**（`^\s{2,}…\s+名字\s*[({]` ✓）才正确 ✓。
+   ✅ 本轮它成功拦下一次**真事故** ✗：边界算成 634~1067 时，**把共享的 `videoSourcesAt`/`_fetchSourcesAt` 也圈进去了** ✗
+   → 收窄到 **634~1022**（共享块之前 ✓）才对 ✓。
+
+**📈 进度**：数据层 **7 / 10 家族** ✓（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅
+porna团(5站) ✅ 黄果 ✅）；**`api.dart` 3051 → 1013 行**（累计瘦 **2038 行** ✓ —— **三分之二出仓** ✓✓）。
+底座：`fetch.dart`(136) · `fmt.dart`(34) · `parse.dart`(31) ✓。
+**⏭️ 下一轮（Round 11）**：搬 **快猫 kmsvip**（`_kmList/_kmDetail/_kmPost/_kmHex/_kmAes/_kmIv/_kmBytes` ✓，AES 加密那套 ✓）
+—— 搬前照例扫三件套 ✓ + 用"只查共享函数定义"的新判据 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
