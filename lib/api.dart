@@ -2650,6 +2650,11 @@ class Api {
         : _phCards(doc);
   }
 
+  /// Dart 没有 JS 那种「`a || b` 取第一个非空」——这就是它的替身（两边都空回 ''）。
+  /// ⚠️ 2026-10-02 CI 报 `A value of type 'String' can't be assigned to a variable of
+  /// type 'bool'`：我照 JS 惯用写了 `String || String`，Dart 的 `||` **只吃 bool**。
+  String _or(String a, String b) => a.isNotEmpty ? a : b;
+
   /// 视频卡。选择器用 `[data-video-vkey]`（**不要求是 li**）：分类/搜索页的卡是 <li>，
   /// 但演员页的视频卡不是 li（实测 `li[data-video` 在演员页 0 条）。
   /// 标题取 `img[alt]` —— 卡片里第一个 <a> 是"已观看"角标，取它会拿到"已观看"三个字。
@@ -2660,8 +2665,8 @@ class Api {
       final a = el.querySelector('a[href*="view_video.php?viewkey="]');
       if (a == null) continue;
       final img = el.querySelector('img.videoThumb') ?? el.querySelector('img');
-      final title = ((img?.attributes['alt'] ?? '') ||
-              (el.querySelector('a.thumbnailTitle')?.text ?? ''))
+      final title = _or(img?.attributes['alt'] ?? '',
+              el.querySelector('a.thumbnailTitle')?.text ?? '')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (title.isEmpty) continue;
@@ -2672,8 +2677,8 @@ class Api {
       out.add(Article(
         title: title,
         url: a.attributes['href'] ?? '',
-        cover: (img?.attributes['src'] ?? '') ||
-            (poster?.attributes['data-poster'] ?? ''),
+        cover: _or(img?.attributes['src'] ?? '',
+            poster?.attributes['data-poster'] ?? ''),
         meta: '',
         badge: durEl?.text.trim() ?? '',
       ));
@@ -2688,16 +2693,16 @@ class Api {
       final href = el.querySelector('a[href]')?.attributes['href'] ?? '';
       if (!RegExp(r'/(pornstar|model)/').hasMatch(href)) continue;
       final img = el.querySelector('img');
-      final name = ((el.querySelector('.performerCardName')?.text ?? '') ||
-              (img?.attributes['alt'] ?? ''))
+      final name = _or(el.querySelector('.performerCardName')?.text ?? '',
+              img?.attributes['alt'] ?? '')
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (name.isEmpty) continue;
       out.add(Article(
         title: name,
         url: href,
-        cover: (img?.attributes['src'] ?? '') ||
-            (img?.attributes['data-thumb_url'] ?? ''),
+        cover: _or(img?.attributes['src'] ?? '',
+            img?.attributes['data-thumb_url'] ?? ''),
         meta: '',
         badge: el.querySelector('.rank_number')?.text.trim() ?? '',
         coverAspect: 3 / 4, // 演员是竖版头像（列表一行 3 个，见 home_page 的星 tab 分支）
