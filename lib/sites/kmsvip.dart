@@ -18,6 +18,10 @@ class KmSite {
 
   final SiteFetcher _f;
 
+  /// 首页 = listHot（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home({required int page}) =>
+      list('/api/videos/listHot', page: page);
+
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
   Future<List<Article>> category(String key, {required int page}) =>

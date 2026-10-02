@@ -20,6 +20,9 @@ class XvSite {
 
   final SiteFetcher _f;
 
+  /// 首页 = Newest 列表（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home({required int page}) => list('/new', page: page);
+
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
   /// 主分类 key = /best、/new、/channels-index、/pornstars-index（见 list ✓）

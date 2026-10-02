@@ -17,6 +17,10 @@ class MadouSite {
 
   final SiteFetcher _f;
 
+  /// 首页第 N 页 = /page/N（没有 /page/1 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home({required int page}) async =>
+      cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
+
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
   Future<List<Article>> category(String k,

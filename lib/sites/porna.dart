@@ -24,6 +24,9 @@ class PornaSite {
 
   final SiteFetcher _f;
 
+  /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home(String first, {required int page}) => list(first, page: page);
+
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
   Future<List<Article>> category(String key, {required int page}) => list(key, page: page);

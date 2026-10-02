@@ -24,6 +24,9 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home({required int page}) => list('/', page: page);
+
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 列表 key 本身就是站内路径 ✓；「分类」tab 选中的分类是 theme（/video?c=27 ✓）。
   /// 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key ✓）

@@ -1226,6 +1226,23 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 **⏭️ 下一轮（Round 25）**：下放 **`home` 分发器**（10 个 case ✓）——
 ⚠️ 注意它和 `category` 有互相调用（`category` 里 madou 会回调 `home` ✓）→ **改的时候要保证 `home` 仍在 `Api` 上可用** ✓。
 
+
+--- 第 87 条续（Round 25）---
+✅✅ **`home` 分发器 10 / 10 下放完成** ✓✓（一次通过 ✓）：
+- **10 个站点类**各有 `home(...)` ✓（body 原样搬 ✓）：`wordpress` ✓ `huangguo` ✓ `porna` ✓ `pektino` ✓ `hanime1` ✓
+  `xvideos` ✓ `kmsvip` ✓ `madou` ✓ `pornhub` ✓ `xhamster` ✓
+- **`api.dart` 444 → 440 行** ✓（-4 ✓ —— 这个分发器本来就只有 31 行 ✓）；case 总数 **50 ✓**；home 委托数 **10 ✓**；括号 0 → 0 ✓。
+
+✅ **设计取舍** ✓：`home` 里有 3 个 case 要用 `site.categories.first.key` ✗ ——
+✅ 做法是**在 `Api.home` 里先算好 `first`** ✓，再当**参数**传给站点 ✓（比把整个 `Site` 传进去更干净 ✓，
+站点方法不需要知道 `Site` 的结构 ✓）。其余 7 个站不传`first`（用不到 ✓）。
+
+**📈 进度**：轮次 **25/40**；数据层 **9/9** ✓✓；UI **19/19 + detail_page** ✓✓；
+**分发器下放 20 / 50 个 case**（`category` ✓ `home` ✓ 完成；剩 `tag`/`search`/`detail` 各 10 ✓）。
+**⏭️ 下一轮（Round 26）**：下放 **`tag` 分发器**（10 个 case ✓）——
+⚠️ 注意 `tag` 里有几个 case 会**调用别的方法**（如 `_mdSite.tags``_hgSite.pageList` ✓）与 **`site.categories`** ✗ →
+照 `home` 的做法：**能用参数传的就传参数** ✓，别把 `Site` 传进去 ✗。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

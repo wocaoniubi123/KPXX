@@ -18,6 +18,12 @@ class WpSite {
 
   final SiteFetcher _f;
 
+  /// 首页最新列表（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home({required int page}) async {
+    final path = page <= 1 ? '/' : '/page/$page/';
+    return parseArticles(await _f.text(path));
+  }
+
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// k 以 `/` 开头 = 站内路径型（如 51fans1 的 `/order/hot/` ✓）；否则是分类 slug ✓
   Future<List<Article>> category(String k, {required int page}) async {

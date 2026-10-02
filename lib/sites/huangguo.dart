@@ -23,6 +23,10 @@ class HuangguoSite {
 
   final SiteFetcher _f;
 
+  /// 首页 = 第一个频道的「最新」（原 `Api.home` 的 case body 原样搬来 ✓）
+  Future<List<Article>> home(String first, {required int page}) =>
+      list(first, sort: 'latest', page: page);
+
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   Future<List<Article>> category(String key, String k, {required int page}) async {
     // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）

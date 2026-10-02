@@ -170,34 +170,30 @@ class Api {
 
   /// 首页最新列表（无分类 tab 的站点用；有 tab 的都直接进分类页）
   Future<List<Article>> home({int page = 1}) async {
+    // ⚠️ 首页逻辑已**下放各站** ✓（见 lib/sites/*.dart 的 home ✓）——
+    // 这里只做接线：先算好「第一个分类」（3 个站要用 ✓），再分派 ✓。
+    final first = site.categories.isEmpty ? '' : site.categories.first.key;
     switch (site.template) {
       case SiteTemplate.wordpress:
-        final path = page <= 1 ? '/' : '/page/$page/';
-        return _wpSite.parseArticles(await _fetchText(path));
+        return _wpSite.home(page: page);
       case SiteTemplate.huangguo:
-        final first = site.categories.isEmpty ? '' : site.categories.first.key;
-        return _hgSite.list(first, sort: 'latest', page: page);
+        return _hgSite.home(first, page: page);
       case SiteTemplate.porna:
-        final first = site.categories.isEmpty ? '' : site.categories.first.key;
-        return _pornaSite.list(first, page: page);
+        return _pornaSite.home(first, page: page);
       case SiteTemplate.pektino:
-        // 首页 = 每日榜（和站点首页一致）
-        return _pkSite.list('timely', '', page: page);
+        return _pkSite.home(page: page);
       case SiteTemplate.hanime1:
-        final first = site.categories.isEmpty ? '' : site.categories.first.key;
-        return _hnSite.list(first, page: page);
+        return _hnSite.home(first, page: page);
       case SiteTemplate.xvideos:
-        // 首页 = Newest 列表
-        return _xvSite.list('/new', page: page);
+        return _xvSite.home(page: page);
       case SiteTemplate.kmsvip:
-        return _kmSite.list('/api/videos/listHot', page: page);
+        return _kmSite.home(page: page);
       case SiteTemplate.madou:
-        // 首页第 N 页 = /page/N（没有 /page/1）
-        return _mdSite.cards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
+        return _mdSite.home(page: page);
       case SiteTemplate.pornhub:
-        return _phSite.list('/', page: page);
+        return _phSite.home(page: page);
       case SiteTemplate.xhamster:
-        return _xhSite.list('/', page: page);
+        return _xhSite.home(page: page);
     }
   }
 
