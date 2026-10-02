@@ -220,6 +220,44 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     );
   }
 
+  // ---- 左右划调进度（自己算；不能用 kp.swipe* ✗ 那几个方法在播放器的私有 mixin 里）----
+  // 手感对齐详情页：**滑满一屏 = 120 秒**，**松手才真正跳**（拖动过程中只给个提示 ✓）。
+  Duration _dragFrom = Duration.zero;
+  double _dragDx = 0;
+
+  void _seekStart() {
+    final kp = _kp;
+    if (kp == null) return;
+    // ⚠️ 起点用 `lastKnownPosition` 打底（刚换源时 `value.position` 会被清零 —— 就是"换分辨率
+    //    从头发"那个坑，见 DEVLOG 73 ✗）。与详情页 `_pickQuality` 的取法一致 ✓
+    _dragFrom = kp.lastKnownPosition > Duration.zero
+        ? kp.lastKnownPosition
+        : kp.value.position;
+    _dragDx = 0;
+  }
+
+  void _seekUpdate(double dx) => _dragDx += dx;
+
+  void _seekEnd() {
+    final kp = _kp;
+    if (kp == null) return;
+    final w = MediaQuery.of(context).size.width;
+    final dx = _dragDx;
+    _dragDx = 0;
+    if (w <= 0 || dx == 0) return;
+    final secs = dx / w * 120; // 滑满一屏 120 秒
+    if (secs.abs() < 1) return; // 手抖不算
+    var to = _dragFrom + Duration(milliseconds: (secs * 1000).round());
+    if (to < Duration.zero) to = Duration.zero;
+    final dur = kp.value.duration;
+    if (dur > Duration.zero && to > dur) to = dur;
+    _toast(secs > 0
+        ? '▶ ${secs.round()}s'
+        : '◀ ${(-secs).round()}s');
+    // 用 seekExact：`seek` 会按 value.duration 裁剪（时长还没报上来时会被裁小 ✗）
+    kp.seekExact(to);
+  }
+
   static String _fmt(Duration d) {
     final t = d.inSeconds.clamp(0, 86399);
     final h = t ~/ 3600, m = (t % 3600) ~/ 60, s = t % 60;
@@ -251,18 +289,18 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                 // 只有当前页有播放器（一个实例 ✓）；相邻页先显封面
                 if (i == _cur && _kp != null) {
                   return _GestureLayer(
-                    kp: _kp!,
                     onTap: () {
                       final kp = _kp;
                       if (kp == null) return;
                       if (kp.value.playing) {
                         kp.pause();
-                        _toast('已暂停');
                       } else {
                         kp.play();
                       }
                     },
-                    onSeekHint: _toast,
+                    onSeekStart: _seekStart,
+                    onSeekUpdate: _seekUpdate,
+                    onSeekEnd: _seekEnd,
                     child: Video(controller: _kp!.videoController),
                   );
                 }
@@ -376,36 +414,37 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   }
 }
 
-/// 视频上的手势层：左右划 = 调进度（复用 KpPlayer 自带的 swipe* 逻辑，与详情页同一手感），
-/// 轻点 = 播放/暂停（外层 onTap）。上下划交给 PageView 自己（要 `behavior: translucent`
-/// 才不会把竖直拖动吃掉 ✗）。
+/// 视频上的手势层：轻点 = 播放/暂停（页面给的回调）；左右划 = 调进度。
+///
+/// ⚠️ 这里**不能**用 `kp.swipeStart/swipeUpdate/swipeEnd` ✗ —— 那几个方法**不在 `KpPlayer` 上**，
+/// 而是播放器里一个**私有 mixin** `_SwipeSeek<T> on State<T>`（`player_widget.dart`，带 `_` 前缀，
+/// 别的库引用不到 ✗）。CI 第一版就是报：
+/// `lib/shorts_feed_page.dart:400:33: Error: The getter 'swipeStart' isn't defined for the class 'KpPlayer'` ✗
+/// → 所以这里自己算（滑满一屏 = 120 秒，与详情页同一手感），真正的跳转在松手时做 ✓。
 class _GestureLayer extends StatelessWidget {
   const _GestureLayer({
-    required this.kp,
     required this.child,
     required this.onTap,
-    required this.onSeekHint,
+    required this.onSeekStart,
+    required this.onSeekUpdate,
+    required this.onSeekEnd,
   });
 
-  final KpPlayer kp;
   final Widget child;
   final VoidCallback onTap;
-  final void Function(String) onSeekHint;
+  final VoidCallback onSeekStart;
+  final void Function(double dx) onSeekUpdate;
+  final VoidCallback onSeekEnd;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: onTap,
-      onHorizontalDragStart: kp.swipeStart,
-      onHorizontalDragUpdate: (d) {
-        kp.swipeUpdate(d);
-        final secs = (d.primaryDelta ?? 0) / 10; // 粗提示，真正的跳转在 swipeEnd 里
-        if (secs.abs() > 1) {
-          onSeekHint('${secs > 0 ? '▶' : '◀'} ${secs.abs().toStringAsFixed(0)}s');
-        }
-      },
-      onHorizontalDragEnd: kp.swipeEnd,
+      onHorizontalDragStart: (_) => onSeekStart(),
+      onHorizontalDragUpdate: (d) => onSeekUpdate(d.primaryDelta ?? 0),
+      onHorizontalDragEnd: (_) => onSeekEnd(),
+      onHorizontalDragCancel: onSeekEnd,
       child: child,
     );
   }
