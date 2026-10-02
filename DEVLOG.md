@@ -907,6 +907,24 @@ porna团(5站) ✅ 黄果 ✅）；**`api.dart` 3051 → 1013 行**（累计瘦 
 **⏭️ 下一轮（Round 13）**：**用 v3 真正搬快猫** ✓（给 v3 加"写盘 + 改 api.dart 调用 + 删区间"三步 ✓，判据照旧 ✓）
 —— 然后 **麻豆社 / wordpress 系**也用 v3 ✓（预计快很多 ✓）。
 
+
+--- 第 87 条续（Round 13）---
+✅ **快猫 kmsvip 搬完 —— 而且是第一个"工具驱动"的搬迁** ✓✓（验证了 v3 的写盘模式 ✓）：
+- 给 `tools/mover3.js` 加了 **写盘模式** ✓（默认仍只干跑 ✓，必须显式 `WRITE=1` ✓）：
+  ① 按代码**实际用到的符号**自动生成 import ✓（`Uint8List`→`dart:typed_data` ✓、`Encrypter/AES/IV`→`package:encrypt` ✓、
+  `http.`→`package:http` ✓、`Site.`→`config` ✓、`hp.`→`html/parser` ✓ … **不手写 import** ✗ 避免漏 ✓）；
+  ② 入口**改名映射** `RENAME=_kmList:list,_kmDetail:detail` ✓（长的先换 ✗）；
+  ③ 删区间（从后往前 ✓）+ 改 api.dart 调用 + 加字段/import ✓；④ 终检（末行 } / 无残留旧名 ✓）。
+- 结果：`api.dart` **1013 → 904 行** ✓；`lib/sites/kmsvip.dart` **134 行** ✓；3 处调用改 `_kmSite.*` ✓。
+- 干跑 + 写盘**两次输出完全一致** ✓（可复现 ✓）。
+
+**📈 进度**：数据层 **8 / 10 家族** ✓（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅ porna团(5站) ✅
+黄果 ✅ 快猫 ✅）；**`api.dart` 3051 → 904 行**（累计瘦 **2147 行** ✓ —— **约七成**出仓 ✓✓）。
+底座：`fetch.dart`(136) · `fmt.dart`(34) · `parse.dart`(31) ✓。工具：`tools/mover3.js` ✓（已验证 ✓）。
+**⏭️ 下一轮（Round 14）**：搬 **麻豆社**（`_mdCards/_mdTags/_mdDetail/_mdPlayUrl/_mdLastSeg` ✓）+
+剩下的小站家族（`_toRelPath`/`_playUrlFromScript` 等要看归属 ✓）—— **全部用 mover3 走** ✓
+（`EXPECT` 显式清单 + `RENAME` 映射 ✓），预计一轮能过 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

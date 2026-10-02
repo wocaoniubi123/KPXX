@@ -185,6 +185,79 @@ const bad = [...used].filter((u) => !defined.has(u) && !BASE.includes(u));
 console.log('  未处理的外部依赖: ' + (bad.join(', ') || '无 ✓'));
 if (bad.length) { console.log('  ❌ 放弃'); process.exit(1); }
 
-console.log('  ⚠️ 通过所有判据 —— 但**本次只打印、不写盘** ✓（mover3 先做干跑验证 ✓）');
 console.log('  入口名（供 api.dart 改调用用）: ' + uniq.map((t) => t.name).join(', '));
 console.log('  区间数: ' + merged.length + '  成员数: ' + uniq.length);
+
+// ================= 写盘模式（必须显式 WRITE=1 ✓；默认只干跑 ✓） =================
+if (process.env.WRITE !== '1') {
+  console.log('  ⚠️ 干跑结束（**未写盘** ✓）。确认无误后加 WRITE=1 再跑 ✓。');
+  process.exit(0);
+}
+const CLS = process.env.CLS || (id.charAt(0).toUpperCase() + id.slice(1) + 'Site');
+const SITEVAR = process.env.SITEVAR || ('_' + id + 'Site');
+const RENAME = (process.env.RENAME || '').split(',').map((s) => s.trim()).filter(Boolean)
+  .map((s) => s.split(':')).filter((a) => a.length === 2).sort((a, b3) => b3[0].length - a[0].length);
+let b2 = body;
+for (const [from, to] of RENAME) b2 = b2.replace(new RegExp('(^|[^_\\w])' + from + '\\b', 'g'), '$1' + to);
+
+// 自动 import（按代码里**实际用到**的符号 ✓，避免漏 import ✗）
+const imps = new Set();
+const need = (re, line) => { if (re.test(b2)) imps.add(line); };
+need(/Uint8List|Uint32List/, "import 'dart:typed_data';");
+need(/utf8\.|jsonDecode|jsonEncode|LineSplitter|base64/, "import 'dart:convert';");
+need(/Random\(/, "import 'dart:math';");
+need(/Encrypter|AES\(|IV\(|Encrypted\(|Key\(/, "import 'package:encrypt/encrypt.dart';");
+need(/md5|sha1|sha256/, "import 'package:crypto/crypto.dart';");
+need(/http\./, "import 'package:http/http.dart' as http;");
+need(/Site\.(ua|httpClient)/, "import '../config.dart';");
+need(/hp\./, "import 'package:html/parser.dart' as hp;");
+need(/Document\b|Element\b|querySelector/, "import 'package:html/dom.dart';");
+need(/Article\(|ArticleDetail\(|ArticleVideo\(|ArticleTag/, "import '../models.dart';");
+need(/_f\./, "import '../base/fetch.dart';");
+need(/metaDate\(|seriesPrefix\(/, "import '../base/fmt.dart';");
+need(/dplayerSources\(/, "import '../base/parse.dart';");
+const rank = (x) => x.startsWith("import 'dart:") ? 0 : x.startsWith("import 'package:") ? 1 : 2;
+const sorted = [...imps].sort((a, b3) => rank(a) - rank(b3) || a.localeCompare(b3));
+const H2 = [
+  '// ' + id + ' —— **本站专属**的一切 ✓', '//',
+  '// ⚠️ 用户 2026-10-03 决策：取消全站共享，站点相关的一切改成站点独立专属 ✓；底座保持公用 ✓。',
+  '// 由 `tools/mover3.js` 从 `api.dart` 的 `Api` 里**原样搬**出（**不重写逻辑** ✓ 行为不变 ✓），',
+  '// 仅做等价替换：`_fetchText(`→`_f.text(`、`_secClock(`→`secClock(` 等 ✓；入口方法改名为公开 ✓。',
+  '// ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。',
+  '', ...sorted, '',
+  '/// ' + id + ' 本站专属实现（取数走公用底座 [SiteFetcher] ✓）',
+  'class ' + CLS + ' {', '  ' + CLS + '(this._f);', '', '  final SiteFetcher _f;', '',
+].join(nl);
+fs.writeFileSync(OUT, H2 + b2 + nl + '}' + nl, 'utf8');
+console.log('  ✓ 写出 ' + OUT);
+
+// 删区间（从后往前 ✗）+ 改 api.dart
+const outLines = lines.slice();
+for (let k = merged.length - 1; k >= 0; k--) outLines.splice(merged[k].start, merged[k].endLine - merged[k].start + 1);
+let api2 = outLines.join('\n');
+for (const [from, to] of RENAME) {
+  api2 = api2.replace(new RegExp('(^|[^_\\w])' + from + '\\b(\\s*\\()', 'g'), '$1' + SITEVAR + '.' + to + '$2');
+}
+const fa2 = "  String get base => 'https://$_host';";
+if (!api2.includes('late final ' + CLS + ' ' + SITEVAR)) {
+  api2 = api2.replace(fa2, fa2 + nl + nl + '  /// ' + id + ' 本站专属实现（2026-10-03 站点独立改造）✓' + nl +
+    '  late final ' + CLS + ' ' + SITEVAR + ' = ' + CLS + '(_f);');
+}
+const impLine2 = "import 'sites/xhamster.dart';";
+if (!api2.includes("import 'sites/" + id + ".dart';")) api2 = api2.replace(impLine2, "import 'sites/" + id + ".dart';" + nl + impLine2);
+
+// 终检
+const tail2 = api2.trimEnd().split('\n');
+const leftovers = [];
+api2.split('\n').forEach((l, i) => {
+  const t = l.trim();
+  if (t.startsWith('//') || t.startsWith('///') || t.startsWith('*')) return;
+  for (const [from] of RENAME) if (new RegExp('(^|[^_\\w])' + from + '\\s*\\(').test(l)) leftovers.push((i + 1) + ':' + from);
+});
+const okTail = tail2[tail2.length - 1].trim() === '}';
+console.log('  api.dart 末行: ' + JSON.stringify(tail2[tail2.length - 1].trim()));
+console.log('  残留旧名调用: ' + (leftovers.join(', ') || '无 ✓'));
+if (!okTail || leftovers.length) { console.log('  ❌ 终检不过：新文件已写、api.dart **未改** ✗ 请人工检查'); process.exit(1); }
+fs.writeFileSync(A, api2, 'utf8');
+console.log('');
+console.log('  ✓✓ ' + id + ' 搬完：api.dart → ' + api2.split('\n').length + ' 行');
