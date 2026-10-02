@@ -2544,6 +2544,13 @@ async function xhMoments(site, page) {
   // ⚠️ 每次拉取都**覆盖**成最新批次（缓冲里那几页下一批才进来，够翻就行）。
   // 顺序**打乱**（用户 2026-10-02："短片的卡片列表每次进去也要随机"）→ 每次进 tab 都是新局面。
   const out = shuffleArr(parse(p1).concat(parse(p2)));
+  // ⚠️ **空批次兜底**（用户 2026-10-03 实机报"短片没数据" ✗）：随机起始页可能整个是空的
+  //（当初"1~48 页都有内容"只是🔍推断、**没实测** ✗）→ 退回第 1 页重来，别让列表整个空掉 ✗。
+  // 与 App 端 `_xhMoments` 的兜底同一套语义 ✓（铁律：两端一起改）。
+  if (!out.length && from !== 1) {
+    xhMomentsBatchFrom = 1;
+    return xhMoments(site, page);
+  }
   if (out.length) window.__shortsItems = out;
   return out;
 }

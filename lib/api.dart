@@ -2937,10 +2937,22 @@ class Api {
 
   Future<List<Article>> _xhMoments(int page) async {
     if (page < 1) return const []; // page 只是调用方的批次号，真正的页由 _xhShortsFrom 决定
+    // ⚠️ 随机起始页（1~48），但**空批次必须退回第 1 页** —— 用户 2026-10-03 实机报
+    // "短片没数据" ✓：随机页可能整个是空的（当初"1~48 页都有内容"只是🔍推断、**没实测** ✗）。
+    var from = _xhShortsFrom ?? (1 + _rand.nextInt(48));
+    var out = await _xhMomentsAt(from);
+    if (out.isEmpty && from != 1) {
+      from = 1;
+      out = await _xhMomentsAt(1);
+    }
+    _xhShortsFrom = from + 4; // 同一份列表内往后顺延
+    return out;
+  }
+
+  /// 抓"从 from 开始的 4 页"并合并（**并发**：每页才 5~6 条、单次要 2~5s，
+  /// 串行就是"5 条…等好几秒…又 5 条" ✗）。每批打乱 + 按 url 去重。
+  Future<List<Article>> _xhMomentsAt(int from) async {
     const batch = 4;
-    _xhShortsFrom ??= 1 + (_rand.nextInt(48)); // 首次（或 reset 后）随机选起始页
-    final from = _xhShortsFrom!;
-    _xhShortsFrom = from + batch; // 同一份列表内往后顺延
     final bodies = await Future.wait([
       for (var i = 0; i < batch; i++)
         () async {

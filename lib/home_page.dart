@@ -643,6 +643,17 @@ class _HomePageState extends State<HomePage>
           ),
         ),
         actions: [
+          // ⚠️ **重置按钮**（用户 2026-10-03："明星分类标签选了，没有重置按钮" ✗）：
+          // 选中后再点同一个 chip 虽然也能取消，但弹窗选完即关、用户不容易发现 ✓ → 给个明确的
+          // 「重置」：清掉选中项 + 丢掉该 tab 的列表缓存（列表会退回 /pornstars 全部明星 ✓）。
+          TextButton(
+            onPressed: () {
+              setState(() => _xhStar = null);
+              _reloadXhStar();
+              Navigator.pop(ctx);
+            },
+            child: const Text('重置'),
+          ),
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
         ],
       ),
@@ -825,11 +836,30 @@ class _HomePageState extends State<HomePage>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 主题区（40 个，照站点弹窗原顺序）
-                  _filterChips(f.themes, () => Navigator.pop(ctx)),
-                  const SizedBox(height: 8),
-                  // 语言区（10 个，照站点弹窗下半区）
-                  _filterChips(f.languages, () => Navigator.pop(ctx)),
+                  // ⚠️ xHamster：388 个分类要**按站点原顺序分 13 组显示**（製作/行動/戀物癖/指示/年齡/
+                  //   種族/身體/頭髮/人數/性玩具/服飾/設想/位置）—— 用户 2026-10-03 实机报：
+                  //   "弹窗没有显示制作/行动/恋物癖… 所有标签全部挤在一块了" ✗
+                  //   （App 原先用的是**拍平**的 `_xhCats`，分组只在注释里 ✗）。
+                  //   分组数据 `xhCatGroups` 与 sim 的 `XH_CATS` **脚本同源生成** ✓（同顺序同内容 ✓）。
+                  if (widget.site.template == SiteTemplate.xhamster &&
+                      f.themes.isNotEmpty)
+                    for (final g in xhCatGroups) ...[
+                      Padding(
+                        padding: EdgeInsets.only(
+                            top: g == xhCatGroups.first ? 0 : 14, bottom: 6),
+                        child: Text(g.key,
+                            style: const TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600)),
+                      ),
+                      _filterChips(g.value, () => Navigator.pop(ctx)),
+                    ]
+                  else ...[
+                    // 主题区（照站点弹窗原顺序）
+                    _filterChips(f.themes, () => Navigator.pop(ctx)),
+                    const SizedBox(height: 8),
+                    // 语言区（照站点弹窗下半区）
+                    _filterChips(f.languages, () => Navigator.pop(ctx)),
+                  ],
                 ],
               ),
             ),
@@ -949,8 +979,13 @@ class _HomePageState extends State<HomePage>
               children: [
                 for (final c in _cats)
                   _FeedView(
+                    // ⚠️ key 必须**带上"选中项"** —— 用户 2026-10-03 实机报"选了分类按钮不显示对应的
+                    //   明星" ✗。原 key 只有 分类/子分类，**不含 `_theme` / `_xhStar`** → 换了选中项
+                    //   key 不变 → State 被复用，而 `_FeedViewState` **没有 didUpdateWidget** ✗
+                    //   → 列表永远不会重新加载（「分类」tab 选那 388 个也一样不刷新 ✗）。
+                    //   把两个选中项都写进 key：一变就换 State → 重新拉 ✓
                     key: ValueKey(
-                        '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}'),
+                        '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}|${_theme ?? ''}|${_xhStar ?? ''}'),
                     feed: _feedFor(c),
                     site: widget.site,
                   ),
@@ -1375,6 +1410,26 @@ class ArticleCard extends StatelessWidget {
           if (site.template == SiteTemplate.pornhub &&
               (article.url.startsWith('/pornstar/') ||
                   article.url.startsWith('/model/'))) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PageBg(child: TagListPage(
+                  site: site,
+                  title: article.title,
+                  slug: article.url,
+                  isTag: false,
+                )),
+              ),
+            );
+            return;
+          }
+          // ⚠️ xHamster **明星卡** → 进**他/她的视频列表**（`/pornstars/<slug>`），**不是详情页** ✗
+          //  —— 用户 2026-10-03 实机报："点击明星卡片进的是详情页，不是明星视频列表" ✗。
+          //  ⚠️ 这个分支 **sim 里早就有**（`openTagList`），**App 漏搬**了 ✗ —— 又是一次"两端没同步" ✗。
+          //  `/pornstars/…` 与 `/creators/…` 都当"一个站内路径"进列表页 ✓
+          //  （`api.tag` → `_xhList` 内部再分流：演员列表 vs 演员本人的视频列表 ✓）。
+          if (site.template == SiteTemplate.xhamster &&
+              (article.url.contains('/pornstars/') ||
+                  article.url.contains('/creators/'))) {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(child: TagListPage(
