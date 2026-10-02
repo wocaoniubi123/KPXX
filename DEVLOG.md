@@ -1204,6 +1204,28 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 **⏭️ 下一轮（Round 24）**：把 `category` 剩下 **7 个 case** 也下放 ✓（wordpress/huangguo/pektino/xvideos/madou/pornhub/xhamster ✓），
 每个 case 的 body 原样搬进对应站点类 ✓（含 madou 那处调用 `home(page: page)` 的兜底 ✗ —— 单独想清楚怎么处理 ✓）。
 
+
+--- 第 87 条续（Round 24）---
+✅✅ **`category` 分发器 10 / 10 个 case 全部下放完成** ✓✓：
+- **10 个站点类**各有 `category(...)` 方法 ✓（body **原样搬** ✓ 不重写 ✓）：
+  `wordpress` ✓ `huangguo` ✓ `porna` ✓ `pektino` ✓ `hanime1` ✓ `xvideos` ✓ `kmsvip` ✓ `madou` ✓ `pornhub` ✓ `xhamster` ✓
+- **`api.dart` 482 → 444 行** ✓（-38 ✓）；case 总数 **50 ✓**；category 委托数 **10 ✓**；7 项括号净变化全 0 ✓。
+
+✅ **madou 那个"回调 `Api.home`"的坑，处理方式** ✓：站点方法**显式收一个 `home` 回调** ✓
+（`category(k, {page, required home})` ✓）—— ✅ 比在 `Api` 里留 `if (k.isEmpty)` 更干净 ✓（判定归站 ✓），
+而且**依赖是显式的** ✓（谁调它就传什么 ✓）。
+
+⚠️⚠️ **又踩一个"工具类"的坑（值得记 ✗）**：**JS 字符串转义** ✗ ——
+站点方法里含 Dart 的 `'?'` / `$k` 这类 ✓，我一开始用 **JS 单引号**包它们 ✗ →
+**Dart 的 `'?'` 直接把 JS 字符串截断** ✗ → 脚本 **SyntaxError、根本没执行** ✓（安全 ✓）。
+✅ **改用 JS 双引号** ✓✓（Dart 代码里全用单引号 ✓ → 不冲突 ✓）。
+→ ✅ **教训：往 Dart 文件里写代码时，JS 侧一律用双引号字符串** ✓（反之亦然 ✓）。
+
+**📈 进度**：轮次 **24/40**；数据层 **9/9** ✓✓；UI **19/19 + detail_page** ✓✓；
+**分发器下放 10 / 50 个 case**（`category` 完成 ✓，剩 `home`/`tag`/`search`/`detail` 各 10 ✓）。
+**⏭️ 下一轮（Round 25）**：下放 **`home` 分发器**（10 个 case ✓）——
+⚠️ 注意它和 `category` 有互相调用（`category` 里 madou 会回调 `home` ✓）→ **改的时候要保证 `home` 仍在 `Api` 上可用** ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

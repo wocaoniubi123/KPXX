@@ -20,6 +20,11 @@ class XvSite {
 
   final SiteFetcher _f;
 
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
+  /// 主分类 key = /best、/new、/channels-index、/pornstars-index（见 list ✓）
+  Future<List<Article>> category(String k, {required int page}) => list(k, page: page);
+
   /// XVideos 的频道/演员卡（**不含** `/video.` 的真正视频页 ✓）→ 进"視頻"列表页 ✓
   @override
   String? specialTap(String url) => url.contains('/video.') ? null : 'list';

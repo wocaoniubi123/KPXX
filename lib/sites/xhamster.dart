@@ -25,6 +25,15 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// key / theme 都是**站内路径** ✓（「色情明星」tab 自己的选择器也走 theme ✓）：
+  ///   · 「影片」tab：'/'、'/hd'、'/4k'、'/vr'
+  ///   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
+  ///   · 「色情明星」tab：默认 '/pornstars'；选中后 '/pornstars/top/us' 等
+  ///   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关 ✓）
+  Future<List<Article>> category(String key, String? theme, {required int page}) =>
+      list(theme ?? key, page: page);
+
   /// xHamster 只有 `/categories/*` tab 挂筛选行（且无子分类时 ✓）
   @override
   bool showsFilterRow(String key, {required bool hasSubs}) => key.startsWith('/categories/') && !hasSubs;

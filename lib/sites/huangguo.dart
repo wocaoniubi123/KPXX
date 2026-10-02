@@ -22,6 +22,14 @@ class HuangguoSite {
   HuangguoSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  Future<List<Article>> category(String key, String k, {required int page}) async {
+    // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
+    if (k.startsWith('/')) return pageList(k, page: page);
+    // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
+    return list(key, sort: k == key ? 'latest' : k, page: page);
+  }
   // 黄果短剧（huangguoai）
 
   /// 黄果的"路径型"列表页（不是 JSON 接口那套）：

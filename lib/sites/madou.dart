@@ -16,6 +16,25 @@ class MadouSite {
   MadouSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
+  Future<List<Article>> category(String k,
+      {required int page, required Future<List<Article>> Function({int page}) home}) async {
+    // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
+    // （/likes /week /month 三个榜单 + /tags 标签云）
+    if (k.isEmpty) return home(page: page);
+    if (k == '/tags') return tags(await _f.text('/tags'));
+    if (k.startsWith('/')) {
+      // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
+      return page > 1 ? const [] : cards(await _f.text(k));
+    }
+    // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
+    // （站点对未编码的中文路径实测 400，编码后 200）
+    final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
+    return cards(await _f.text(
+        page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
+  }
   /// 卡片解析（首页/分类/搜索/标签/榜单共用）
   List<Article> cards(String html) {
     final doc = hp.parse(html);

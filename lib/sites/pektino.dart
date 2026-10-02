@@ -19,6 +19,21 @@ class PektinoSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range ✓；
+  /// 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入 ✓
+  Future<List<Article>> category(String key,
+      {required int page, String? theme, String? duration, String? sort}) async {
+    final r = key.endsWith('/weekly')
+        ? 'weekly'
+        : key.endsWith('/monthly')
+            ? 'monthly'
+            : key.endsWith('/all')
+                ? 'all'
+                : 'timely';
+    return list(r, theme ?? '', page: page, duration: duration, sort: sort);
+  }
+
   /// 列表走瀑布流（逐条按分辨率混排，不留空档 ✓）
   @override
   bool get masonry => true;

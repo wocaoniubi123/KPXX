@@ -134,75 +134,37 @@ class Api {
     final k = l2 ?? l1 ?? key;
     switch (site.template) {
       case SiteTemplate.wordpress:
-        final path = k.startsWith('/')
-            // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
-            ? (page <= 1 ? k : '$k$page/')
-            : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
-        return _wpSite.parseArticles(await _fetchText(path));
+        // 列表逻辑已下放本站 ✓（见 lib/sites/wordpress.dart 的 category ✓）
+        return _wpSite.category(k, page: page);
       case SiteTemplate.huangguo:
-        // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
-        if (k.startsWith('/')) return _hgSite.pageList(k, page: page);
-        // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
-        return _hgSite.list(key, sort: k == key ? 'latest' : k, page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/huangguo.dart 的 category ✓）
+        return _hgSite.category(key, k, page: page);
       case SiteTemplate.porna:
         // 列表逻辑已下放本站 ✓（见 lib/sites/porna.dart 的 category ✓）
         return _pornaSite.category(k, page: page);
       case SiteTemplate.pektino:
-        // 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range；
-        // 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入
-        final r = key.endsWith('/weekly')
-            ? 'weekly'
-            : key.endsWith('/monthly')
-                ? 'monthly'
-                : key.endsWith('/all')
-                    ? 'all'
-                    : 'timely';
-        return _pkSite.list(r, theme ?? '',
-            page: page, duration: duration, sort: sort);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/pektino.dart 的 category ✓）
+        return _pkSite.category(key,
+            page: page, theme: theme, duration: duration, sort: sort);
       case SiteTemplate.hanime1:
         // 列表逻辑已下放本站 ✓（见 lib/sites/hanime1.dart 的 category ✓）
         return _hnSite.category(key, page: page, extra: extra);
       case SiteTemplate.xvideos:
-        // 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先；
-        // 主分类 key = /best、/new、/channels-index、/pornstars-index（见 _xvList）
-        return _xvSite.list(k, page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/xvideos.dart 的 category ✓）
+        return _xvSite.category(k, page: page);
       case SiteTemplate.kmsvip:
         // 列表逻辑已下放本站 ✓（见 lib/sites/kmsvip.dart 的 category ✓）
         return _kmSite.category(key, page: page);
       case SiteTemplate.madou:
-        // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
-        // （/likes /week /month 三个榜单 + /tags 标签云）
-        // 空 key = 「首页」tab（站点导航第一项）→ 走首页那条路
-        if (k.isEmpty) return home(page: page);
-        if (k == '/tags') return _mdSite.tags(await _fetchText('/tags'));
-        if (k.startsWith('/')) {
-          // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
-          // （同 huangguo 标签页的做法）
-          return page > 1 ? const [] : _mdSite.cards(await _fetchText(k));
-        }
-        // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
-        // （站点对未编码的中文路径实测 400，编码后 200）
-        final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
-        return _mdSite.cards(await _fetchText(
-            page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
+        // 列表逻辑已下放本站 ✓（见 lib/sites/madou.dart 的 category ✓）
+        // ⚠️ 「首页」tab（空 key）由本站回调 Api.home 兜底 ✓
+        return _mdSite.category(k, page: page, home: home);
       case SiteTemplate.pornhub:
-        // 列表 key 本身就是站内路径；「分类」tab 选中的分类是 theme（/video?c=27，见 _phCats）。
-        // 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key）。
-        var php = theme ?? k;
-        if (extra != null && extra.isNotEmpty) {
-          php += '${php.contains('?') ? '&' : '?'}'
-              '${extra.map((e) => '${e.key}=${e.value}').join('&')}';
-        }
-        return _phSite.list(php, page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/pornhub.dart 的 category ✓）
+        return _phSite.category(k, theme, page: page, extra: extra);
       case SiteTemplate.xhamster:
-        // key / theme 都是**站内路径**（「色情明星」tab 自己的选择器也走 theme）：
-        //   · 「影片」tab：'/'、'/hd'、'/4k'、'/vr'
-        //   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
-        //   · 「色情明星」tab：默认 '/pornstars'；选中后 theme = '/pornstars/top/us'、
-        //     '/pornstars/all/countries'、'/pornstars/all/categories/<slug>'
-        //   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关）
-        // 走哪套解析由 _xhList 内部按路径判断。
-        return _xhSite.list(theme ?? k, page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/xhamster.dart 的 category ✓）
+        return _xhSite.category(key, theme, page: page);
     }
   }
 

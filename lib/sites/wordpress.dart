@@ -17,6 +17,16 @@ class WpSite {
   WpSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// k 以 `/` 开头 = 站内路径型（如 51fans1 的 `/order/hot/` ✓）；否则是分类 slug ✓
+  Future<List<Article>> category(String k, {required int page}) async {
+    final path = k.startsWith('/')
+        // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
+        ? (page <= 1 ? k : '$k$page/')
+        : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
+    return parseArticles(await _f.text(path));
+  }
   /// 列表页 / 搜索页通用的文章卡片解析。
   /// 先按 WordPress 模板（article[itemscope]）找，找不到再按 51fans1（.xqbj-list-rows）。
   List<Article> parseArticles(String html) {

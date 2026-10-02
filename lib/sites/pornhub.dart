@@ -24,6 +24,19 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+  /// 列表 key 本身就是站内路径 ✓；「分类」tab 选中的分类是 theme（/video?c=27 ✓）。
+  /// 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key ✓）
+  Future<List<Article>> category(String k, String? theme,
+      {required int page, List<MapEntry<String, String>>? extra}) async {
+    var php = theme ?? k;
+    if (extra != null && extra.isNotEmpty) {
+      php += '${php.contains('?') ? '&' : '?'}'
+          '${extra.map((e) => '${e.key}=${e.value}').join('&')}';
+    }
+    return list(php, page: page);
+  }
+
   /// Pornhub 只有 `/video` tab 挂筛选行（且无子分类时 ✓）
   @override
   bool showsFilterRow(String key, {required bool hasSubs}) => key == '/video' && !hasSubs;
