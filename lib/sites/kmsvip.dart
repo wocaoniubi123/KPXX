@@ -17,6 +17,11 @@ class KmSite {
   KmSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
+  /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
+  Future<List<Article>> category(String key, {required int page}) =>
+      list(key == '1' ? '/api/videos/listAll' : '/api/videos/listHot', page: page);
   static final _kmAes =
       Encrypter(AES(Key(utf8.encode('625202f9149maomi')), mode: AESMode.cbc));
   static final _kmIv = IV(utf8.encode('5efd3f6060emaomi'));

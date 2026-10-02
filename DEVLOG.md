@@ -1176,6 +1176,34 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 ⚠️ 这是**最后一块站点分派** ✓；要先想清设计（大概率是"每站一个 handler 对象/方法" ✓），
 **先看清楚再动手** ✗（不重蹈"猜缩进/猜结构"的覆辙 ✓）。
 
+
+--- 第 87 条续（Round 23）---
+✅ **开始处理最后一块站点分派：`api.dart` 的 5 个公开分发器** ✓（`category`/`home`/`tag`/`search`/`detail` ✓）。
+
+✅ **先看清了结构**（没猜 ✓）：这 5 个分发器**不薄** ✗ —— 每个 case 都带**站点专属路径逻辑** ✓
+（wordpress 的 `/category/$k/$page/` ✓、pektino 的 range 解析 ✓、madou 的中文编码 ✓、pornhub 的查询串拼接 ✓ …）
+→ ✅ 正是该下放的东西 ✓。
+
+⚠️⚠️ **一个必须先记住的约束** ✗：**Dart 的 enum `switch` 必须穷尽** ✗ →
+**不能直接把 case 删掉** ✗（会编译错"没有覆盖所有枚举值" ✓）→
+✅ **做法：case 留着、只把 body 换成一行委托** ✓✓（等 50 个 case 全委托完，再整体换成接口 ✓）。
+
+⚠️ **更正一个我说错的数** ✗：这 5 个分发器是 **5 × 10 = 50 个 case** ✓ —— 我在 Round 22 报了 "55" ✗，
+本轮编写判据时按 55 核对 ✗ → **判据报"50 ≠ 55"→ 拒写** ✓ → 复查确认**实际就是 50** ✓（我的数错了 ✓，判据是对的 ✓）。
+
+✅ **本轮试点 3 个最简单的 case** ✓（`kmsvip` / `porna` / `hanime1` ✓）：
+各站点类新增 `category(...)` 方法 ✓（body **原样搬** ✓ 不重写 ✓）；`api.dart` 对应 case 改为一行委托 ✓。
+- `KmSite.category(key, {page})` ✓ · `PornaSite.category(key, {page})` ✓ · `HanimeSite.category(key, {page, extra})` ✓
+- `api.dart` **484 → 482 行** ✓；case 数校验 **50 ✓**（case 全保留 ✓）
+
+⚠️ **诚实说明收益** ✗：这一步**行数几乎不变** ✓ —— 收益是"**逻辑归站**"（判断/路径拼接都在站点文件里 ✓），
+不是"瘦身" ✓。行数要到"50 个 case 全委托完、`switch` 整体换成接口"那一步才会明显下降 ✓。
+
+**📈 进度**：轮次 **23/40**；数据层 **9/9** ✓✓；UI 层 **19/19 + detail_page** ✓✓；
+**分发器下放 3 / 50 个 case** ✓。
+**⏭️ 下一轮（Round 24）**：把 `category` 剩下 **7 个 case** 也下放 ✓（wordpress/huangguo/pektino/xvideos/madou/pornhub/xhamster ✓），
+每个 case 的 body 原样搬进对应站点类 ✓（含 madou 那处调用 `home(page: page)` 的兜底 ✗ —— 单独想清楚怎么处理 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

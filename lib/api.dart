@@ -145,7 +145,8 @@ class Api {
         // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
         return _hgSite.list(key, sort: k == key ? 'latest' : k, page: page);
       case SiteTemplate.porna:
-        return _pornaSite.list(k, page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/porna.dart 的 category ✓）
+        return _pornaSite.category(k, page: page);
       case SiteTemplate.pektino:
         // 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range；
         // 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入
@@ -159,18 +160,15 @@ class Api {
         return _pkSite.list(r, theme ?? '',
             page: page, duration: duration, sort: sort);
       case SiteTemplate.hanime1:
-        // 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre=
-        // extra = 筛选行（sort/date/duration/tags[]）
-        return _hnSite.list(key, page: page, extra: extra);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/hanime1.dart 的 category ✓）
+        return _hnSite.category(key, page: page, extra: extra);
       case SiteTemplate.xvideos:
         // 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先；
         // 主分类 key = /best、/new、/channels-index、/pornstars-index（见 _xvList）
         return _xvSite.list(k, page: page);
       case SiteTemplate.kmsvip:
-        // key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）
-        return _kmSite.list(
-            key == '1' ? '/api/videos/listAll' : '/api/videos/listHot',
-            page: page);
+        // 列表逻辑已下放本站 ✓（见 lib/sites/kmsvip.dart 的 category ✓）
+        return _kmSite.category(key, page: page);
       case SiteTemplate.madou:
         // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
         // （/likes /week /month 三个榜单 + /tags 标签云）

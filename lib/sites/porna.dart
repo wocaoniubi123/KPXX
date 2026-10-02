@@ -23,6 +23,10 @@ class PornaSite {
   PornaSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
+  /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
+  Future<List<Article>> category(String key, {required int page}) => list(key, page: page);
   // 91porna
 
   /// 列表：按路径分三种页面类型（都是服务端渲染，取到就能用）：
