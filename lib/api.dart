@@ -2016,9 +2016,11 @@ class Api {
     return _xvCards(html);
   }
 
-  /// 拉 HLS 主列表并选「分辨率最高」的子列表地址（相对地址按 master 解析）。
-  /// 不是主列表 / 请求失败 → null（调用方保留原地址，不至于不能播）。
-  Future<String?> _pickTopHlsVariant(String masterUrl) async {
+  /// 拉 HLS 主列表，返回**每个档的子列表地址**（按分辨率/码率**从高到低**）。
+  /// 不是主列表（单档的）/ 请求失败 → null（调用方保留原地址，不至于不能播）。
+  /// ⚠️ 2026-10-02 改：原来只留最高档（`_pickTopHlsVariant`），现在**全留着**给详情页的
+  /// 「清晰度」行选 —— 顺序仍是"最高档在最前"，所以**默认播最高档**这点没变。
+  Future<List<String>?> _hlsVariants(String masterUrl) async {
     try {
       final mu = Uri.parse(masterUrl);
       final r = await _client
@@ -2032,8 +2034,7 @@ class Api {
       final text = utf8.decode(r.bodyBytes);
       if (!text.contains('#EXT-X-STREAM-INF')) return null; // 单档列表
       final lines = const LineSplitter().convert(text);
-      var best = -1;
-      String? bestUri;
+      final found = <MapEntry<int, String>>[]; // 分 → 子列表地址
       for (var i = 0; i + 1 < lines.length; i++) {
         if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
         final res = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(lines[i]);
@@ -2046,13 +2047,13 @@ class Api {
             : int.parse(res.group(1)!) * int.parse(res.group(2)!);
         final uri = lines[i + 1].trim();
         if (uri.isEmpty || uri.startsWith('#')) continue;
-        if (score > best) {
-          best = score;
-          bestUri = uri;
-        }
+        final abs = mu.resolve(uri).toString();
+        if (found.any((f) => f.value == abs)) continue;
+        found.add(MapEntry(score, abs));
       }
-      if (bestUri == null) return null;
-      return mu.resolve(bestUri).toString();
+      if (found.isEmpty) return null;
+      found.sort((a, b) => b.key.compareTo(a.key)); // 高 → 低
+      return [for (final f in found) f.value];
     } catch (_) {
       return null;
     }
@@ -2355,12 +2356,17 @@ class Api {
       final u = re.firstMatch(html)?.group(1) ?? '';
       if (u.isNotEmpty && !srcs.contains(u)) srcs.add(u);
     }
-    // HLS 主列表 → 直接换成「分辨率最高的子列表」地址：mpv 播 master 时挑哪档
-    // 不可靠（老 libmpv 默认第一档=480p，且 mpv 不做 ABR 上爬）。失败保留原地址。
+    // HLS 主列表 → 展开成**各个档的子列表地址**（高→低）。原来只换「最高档」一条，
+    // 因为 mpv 播 master 时挑哪档不可靠（老 libmpv 默认第一档=480p，且不做 ABR 上爬）；
+    // 现在全留着：第一条仍是最高档（默认播它），详情页的「清晰度」行可换档（换档后
+    // 由 detail_page 把选中的那档排到最前）。失败保留原地址。
     final hlsIdx = srcs.indexWhere((s) => s.contains('.m3u8'));
     if (hlsIdx >= 0) {
-      final top = await _pickTopHlsVariant(srcs[hlsIdx]);
-      if (top != null) srcs[hlsIdx] = top;
+      final variants = await _hlsVariants(srcs[hlsIdx]);
+      if (variants != null && variants.isNotEmpty) {
+        srcs.removeAt(hlsIdx);
+        srcs.insertAll(hlsIdx, variants);
+      }
     }
     final videos = <ArticleVideo>[];
     if (srcs.isNotEmpty) {

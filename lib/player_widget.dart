@@ -659,7 +659,9 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 走和「换集」同一套重开流程（见 didUpdateWidget 里那段），**不重建实例** ——
   /// 重建会让全屏页手里攥着的旧实例失效（黑屏）。
   /// 传进来的列表**顺序就是尝试顺序**：选中的档放最前，失败会自动往下试。
-  void switchSources(List<String> srcs) {
+  /// [resumeTo] 传了就在新源起播后跳到这个位置（换档保留播放进度用，走的是本类
+  /// 既有的续播机制 `_restoreTo`）。
+  void switchSources(List<String> srcs, {Duration? resumeTo}) {
     final list = srcs.where((s) => s.isNotEmpty).toList();
     if (list.isEmpty) return;
     _sources = list;
@@ -672,6 +674,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     _autoRetrying = false;
     _kp?.pause(); // 换档：先把旧源停住，别和新源抢声音
     _fetchingLazy = false;
+    if (resumeTo != null && resumeTo > Duration.zero) _restoreTo = resumeTo;
     _initPlayer();
   }
 

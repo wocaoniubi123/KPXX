@@ -56,9 +56,12 @@ class DetailPageState extends State<DetailPage> {
   /// 没有 720P 就是最高档 —— 见 api.dart 的 `_phDetail`）。只有多档的视频才有意义。
   String? _quality;
 
-  /// 从源 URL 里抠清晰度数字（Pornhub 的源形如 `.../1080P_4000K_xxx.mp4/master.m3u8`）
+  /// 从源 URL 里抠清晰度数字。兼容两种命名：
+  /// Pornhub `.../1080P_4000K_xxx.mp4/master.m3u8`（大写 P + 下划线）、
+  /// XVideos `.../hls-720p.m3u8`（小写 p，后跟 `.`/`?` 等非数字）。
+  /// 抠不到（单档/无档位信息）返回 ''。
   static String _qualityOf(String u) =>
-      RegExp(r'(\d+)P_').firstMatch(u)?.group(1) ?? '';
+      RegExp(r'(\d{3,4})[pP](?![0-9])').firstMatch(u)?.group(1) ?? '';
 
   /// 这一集**实际有的**档位（去重、数字从大到小）。多数站没有多档 → 返回空
   static List<String> _qualitiesOf(List<String> srcs) {
@@ -254,10 +257,13 @@ class DetailPageState extends State<DetailPage> {
   }
 
   /// 换档：记住选择，再让播放器用**同一个实例**换一批源重开（不换集、不重建实例）。
-  /// 播放位置不保留 —— 与模拟器行为一致（换档 = 重新起播）。
+  /// **保留播放进度**：先记下当前位置，交给播放器在新源起播后跳过去（用户 2026-10-02
+  /// 要求；原来 PH 是照模拟器"换档重新起播"，现在两边都保留位置）。
   void _pickQuality(String q, List<String> srcs) {
+    final st = _playerKey.currentState;
+    final pos = st?.player?.position;
     setState(() => _quality = q);
-    _playerKey.currentState?.switchSources(_orderByQuality(srcs, q));
+    st?.switchSources(_orderByQuality(srcs, q), resumeTo: pos);
   }
 
   /// 篇内序号变了整页重建（播放器据此换源，列表高亮跟着变）
