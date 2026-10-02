@@ -52,6 +52,38 @@ class DetailPageState extends State<DetailPage> {
   final GlobalKey<PlayerWidgetState> _playerKey =
       GlobalKey<PlayerWidgetState>();
 
+  /// 「清晰度」用户手选的档（null = 用 Api 给的默认档：那已经是 720P 优先，
+  /// 没有 720P 就是最高档 —— 见 api.dart 的 `_phDetail`）。只有多档的视频才有意义。
+  String? _quality;
+
+  /// 从源 URL 里抠清晰度数字（Pornhub 的源形如 `.../1080P_4000K_xxx.mp4/master.m3u8`）
+  static String _qualityOf(String u) =>
+      RegExp(r'(\d+)P_').firstMatch(u)?.group(1) ?? '';
+
+  /// 这一集**实际有的**档位（去重、数字从大到小）。多数站没有多档 → 返回空
+  static List<String> _qualitiesOf(List<String> srcs) {
+    final byQ = <String, int>{};
+    for (final u in srcs) {
+      final q = _qualityOf(u);
+      if (q.isNotEmpty) byQ[q] = int.parse(q);
+    }
+    final ks = byQ.keys.toList()..sort((a, b) => byQ[b]!.compareTo(byQ[a]!));
+    return ks;
+  }
+
+  /// 播放器实际会先用哪一档 = 源列表第一条的清晰度（Api 已按"720P 优先"排好）
+  static String _firstQuality(List<String> srcs) =>
+      srcs.isEmpty ? '' : _qualityOf(srcs.first);
+
+  /// 交给播放器的源：选中的档排最前（播放器按顺序逐个试，失败自动往下走）
+  static List<String> _orderByQuality(List<String> srcs, String? q) {
+    if (q == null || q.isEmpty) return srcs;
+    return [
+      ...srcs.where((u) => _qualityOf(u) == q),
+      ...srcs.where((u) => _qualityOf(u) != q),
+    ];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -174,6 +206,60 @@ class DetailPageState extends State<DetailPage> {
     return fresh.videos[i].sources;
   }
 
+  /// 「清晰度」那一段（只有多档才画；其它站返回空盒子，不占位）。
+  /// 位置照模拟器定稿：标题/选集之后、剧照之前。
+  Widget _qualitySection(List<ArticleVideo> videos, int idx) {
+    if (videos.isEmpty) return const SizedBox.shrink();
+    final srcs = videos[idx].sources;
+    final qs = _qualitiesOf(srcs);
+    if (qs.length < 2) return const SizedBox.shrink();
+    // 手选的档要是这一集没有（换集后可能发生），就退回"播放器实际会用的那档"
+    final active = (_quality != null && qs.contains(_quality))
+        ? _quality!
+        : _firstQuality(srcs);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        Text('清晰度',
+            style: TextStyle(
+                fontSize: 15, fontWeight: FontWeight.bold, color: kTxt)),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final q in qs)
+              OutlinedButton(
+                // 已选中的那颗点自己不做任何事（免得无谓重开一次）
+                onPressed: () {
+                  if (q == active) return;
+                  _pickQuality(q, srcs);
+                },
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  side: BorderSide(color: kChipBorder),
+                ),
+                // 选中态照 App 里筛选按钮的老规矩：橙色 + " ●"
+                child: Text(q == active ? '${q}P ●' : '${q}P',
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: q == active ? const Color(0xFFE8590C) : kTxt)),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 换档：记住选择，再让播放器用**同一个实例**换一批源重开（不换集、不重建实例）。
+  /// 播放位置不保留 —— 与模拟器行为一致（换档 = 重新起播）。
+  void _pickQuality(String q, List<String> srcs) {
+    setState(() => _quality = q);
+    _playerKey.currentState?.switchSources(_orderByQuality(srcs, q));
+  }
+
   /// 篇内序号变了整页重建（播放器据此换源，列表高亮跟着变）
   void _onVideoIndexChanged() {
     if (mounted) setState(() {});
@@ -277,7 +363,9 @@ class DetailPageState extends State<DetailPage> {
                       // 不换 key：换片由播放器内部复用同一实例开新源
                       // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
                         switcher: _switcher,
-                        sources: videos.isEmpty ? const [] : videos[idx].sources,
+                        sources: videos.isEmpty
+                            ? const []
+                            : _orderByQuality(videos[idx].sources, _quality),
                         referer: _api.base,
                         poster: d.images.isNotEmpty ? d.images.first : '',
                         onRefreshSources: _refreshSources,
@@ -452,6 +540,9 @@ class DetailPageState extends State<DetailPage> {
                             const SizedBox(height: 14),
                             _buildSeriesStrip(),
                           ],
+                          // 清晰度：横排胶囊、**只列这一集实际有的档**（高→低），默认选中
+                          // 播放器实际会用的那档；只有一档（或没有档位信息）时不占位。
+                          _qualitySection(videos, idx),
                           // 剧照：横向小图，点开看大图
                           if (d.images.isNotEmpty) ...[
                             const SizedBox(height: 14),

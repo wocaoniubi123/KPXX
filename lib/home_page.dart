@@ -598,41 +598,49 @@ class _HomePageState extends State<HomePage>
               children: [
                 // 单选 → 选中后按钮直接显示那个标签名（Hanime1 是多选，那边保持原样）
                 filterBtn(
-                  _theme == null ? '筛选' : _tabNameOf(f.themes, _theme!),
+                  _theme == null
+                      ? f.themeEmptyLabel // PH 上是「分类选择」，其余默认「筛选」
+                      : _tabNameOf(f.themes, _theme!),
                   _theme != null,
                   () => _openFilterDialog(f),
                 ),
-                const SizedBox(width: 6),
-                // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）
-                filterBtn(
-                  _duration == '0,0' ? '时长' : _nameOf(f.durations, _duration),
-                  _duration != '0,0',
-                  () => pickOptionDialog(
-                    context,
-                    '时长',
-                    [for (final d in f.durations) MapEntry(d.key, d.value)],
-                    _duration,
-                    (v) {
-                      _duration = v;
-                      _applyFilters();
-                    },
+                // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）。
+                // ⚠️ 站点没给这组选项就**不画这个按钮**：Pornhub 的 durations/sorts 都是空列表
+                // → 它只剩一个「分类选择」；Pektino 两组都非空 → 行为一字不变。
+                if (f.durations.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  filterBtn(
+                    _duration == '0,0' ? '时长' : _nameOf(f.durations, _duration),
+                    _duration != '0,0',
+                    () => pickOptionDialog(
+                      context,
+                      '时长',
+                      [for (final d in f.durations) MapEntry(d.key, d.value)],
+                      _duration,
+                      (v) {
+                        _duration = v;
+                        _applyFilters();
+                      },
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                filterBtn(
-                  _sort == 'favorite' ? '排序' : _nameOf(f.sorts, _sort),
-                  _sort != 'favorite',
-                  () => pickOptionDialog(
-                    context,
-                    '排序',
-                    [for (final s in f.sorts) MapEntry(s.key, s.value)],
-                    _sort,
-                    (v) {
-                      _sort = v;
-                      _applyFilters();
-                    },
+                ],
+                if (f.sorts.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  filterBtn(
+                    _sort == 'favorite' ? '排序' : _nameOf(f.sorts, _sort),
+                    _sort != 'favorite',
+                    () => pickOptionDialog(
+                      context,
+                      '排序',
+                      [for (final s in f.sorts) MapEntry(s.key, s.value)],
+                      _sort,
+                      (v) {
+                        _sort = v;
+                        _applyFilters();
+                      },
+                    ),
                   ),
-                ),
+                ],
                 // 一键重置放**最后**、用**红字**（用户 2026-10-02 要求）；有筛选生效时才出现
                 if (_theme != null ||
                     _duration != '0,0' ||
@@ -807,10 +815,14 @@ class _HomePageState extends State<HomePage>
             ),
           // 筛选器（多级分类：主题/时长/排序——站点把它们放在"每天/每周"这些
           // 主分类页面里，照站点做一行筛选控件）
-          // ⚠️ Pornhub 的「色情明星」tab 用另一套筛选（下面那行），这里跳过它
+          // ⚠️ Pornhub 只在**「分类」tab** 显示这一行，而且只有一个按钮（时长/排序
+          // 在 _filterRow 里按"该站没这组选项就不画"自动没了）；首页/视频 tab
+          // 站点上没有这行；色情明星 tab 有自己那一行（见下）。
+          // 判定不用 tab 显示名：PH 的「分类」= key 是 /video **且没有子分类**的那个
+          // （「视频」tab 的 key 也是 /video，但它带 9 个子项）。
           if (widget.site.filters != null &&
-              !(widget.site.template == SiteTemplate.pornhub &&
-                  cur?.key == '/pornstars'))
+              (widget.site.template != SiteTemplate.pornhub ||
+                  (cur?.key == '/video' && cur!.subs.isEmpty)))
             _filterRow(widget.site.filters!),
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
           if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),

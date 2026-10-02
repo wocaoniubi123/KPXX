@@ -655,6 +655,26 @@ class PlayerWidgetState extends State<PlayerWidget>
     }
   }
 
+  /// 从外部换一批源并重开（详情页的「清晰度」选择用）。
+  /// 走和「换集」同一套重开流程（见 didUpdateWidget 里那段），**不重建实例** ——
+  /// 重建会让全屏页手里攥着的旧实例失效（黑屏）。
+  /// 传进来的列表**顺序就是尝试顺序**：选中的档放最前，失败会自动往下试。
+  void switchSources(List<String> srcs) {
+    final list = srcs.where((s) => s.isNotEmpty).toList();
+    if (list.isEmpty) return;
+    _sources = list;
+    _nextFired = false;
+    _errShown = false;
+    _error = null;
+    _autoRetryTimer?.cancel();
+    _autoRetryTimer = null;
+    _autoRetries = 0;
+    _autoRetrying = false;
+    _kp?.pause(); // 换档：先把旧源停住，别和新源抢声音
+    _fetchingLazy = false;
+    _initPlayer();
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();

@@ -157,12 +157,18 @@ class SiteFilters {
   /// [themes] 那一组在 UI 上叫什么（弹窗标题 / 按钮文字）。
   /// Pektino 照站点叫「主题」；Pornhub 的这组是**分类清单**，所以要显示「分类」。
   final String themeLabel;
+
+  /// 那一组**还没选**时按钮上的文案（选中后显示选中项的名字）。
+  /// Pektino 用默认的「筛选」；Pornhub 的分类清单照站点/模拟器写「分类选择」。
+  final String themeEmptyLabel;
+
   const SiteFilters({
     required this.themes,
     required this.languages,
     required this.durations,
     required this.sorts,
     this.themeLabel = '主题',
+    this.themeEmptyLabel = '筛选',
   });
 }
 
@@ -1033,20 +1039,22 @@ const List<SiteEntry> kSites = [
       SiteTab('/video', '分类'),
       // 色情明星：站点顶栏第 5 项。进去是**演员卡列表**（61 个/页，名字+头像+排名），
       // 点演员 → 演员页（`/pornstar/xxx`、`/model/xxx`）——**那是他的视频列表**，不是视频详情。
-      // 筛选（用户 2026-10-02 点名要的）：排序（`?o=`，7 项，见 _phStarSorts）
-      // + 演员类型（`?performerType=`，见 _phStarTypes）；「更多筛选设置」那 9 组
-      // （性别/种族/纹身/发色/穿环/罩杯/胸型/时间区段）的 URL 参数**还没确认**（站点是 JS 提交）。
+      // 筛选（用户 2026-10-02 点名要的）：排序（`?o=`，7 项，见 phStarSorts）
+      // + 演员类型（`?performerType=`，见 phStarTypes）+ 时间区段（`?t=`，见 phStarTimes）
+      // + 「更多筛选设置」7 组（见 phStarMore，组各自的 URL 参数名已从站点实测确认）。
       SiteTab('/pornstars', '色情明星'),
     ],
     // 「分类」**不做平铺 tab**（站点顶栏那个是下拉、不是列表页）：做成列表页上的
     // 筛选按钮 → 点开**弹窗**选，候选 = /categories 页的 102 个（见 _phCats）。
-    // 按钮与弹窗标题用 themeLabel，显示成「分类」而不是默认的「主题」。
+    // 按钮与弹窗标题用 themeLabel 显示成「分类」；**没选时**按钮写「分类选择」
+    // （themeEmptyLabel，照模拟器定稿）；durations/sorts 给空列表 → 那两个按钮不画。
     filters: SiteFilters(
       themes: _phCats,
       languages: const [],
       durations: const [],
       sorts: const [],
       themeLabel: '分类',
+      themeEmptyLabel: '分类选择',
     ),
     color: Color(0xFFFF9000),
   ),
