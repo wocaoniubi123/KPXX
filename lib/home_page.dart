@@ -1017,7 +1017,7 @@ class _HomePageState extends State<HomePage>
           //（用户 2026-10-03："Pornhub 分类 tab 选了之后，色情明星 tab 也变了" ✗）
           if (_tabShowsFilterRow(cur)) _filterRow(widget.site.filters!),
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
-          if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),
+          if (_api.ui?.hasFilterRow ?? false) _hnFilterRow(),
           // Pornhub「色情明星」tab 的筛选行（排序 / 类型 / 时间 / 更多筛选设置）
           if (widget.site.template == SiteTemplate.pornhub &&
               cur?.key == '/pornstars')
@@ -1303,20 +1303,16 @@ class _FeedViewState extends State<_FeedView>
               cols: ((widget.site.portraitCovers &&
                           !widget.feed.slug.startsWith('/chigua')) ||
                       // Pornhub「色情明星」tab 是演员卡（竖版头像）→ 跟竖屏站一样一行 3 个
-                      (widget.site.template == SiteTemplate.pornhub &&
-                          widget.feed.slug == '/pornstars') ||
+                      (_api.ui?.isStarList(widget.feed.slug) ?? false) ||
                       // xHamster 同理（用户 2026-10-02："色情明星要竖版显示"）。
                       // ⚠️ 只有**演员列表**才是演员卡：`/pornstars`、`/pornstars/all/…`、
                       // `/pornstars/top/…`；而 `/pornstars/<名字>` 是**那个演员的视频列表** ✗
                       // —— 跟 sim 侧同一套判定（sim 的 isStarList），别写成"凡 /pornstars 开头" ✗
-                      (widget.site.template == SiteTemplate.xhamster &&
-                          (widget.feed.slug == '/pornstars' ||
-                              widget.feed.slug.startsWith('/pornstars/all/') ||
-                              widget.feed.slug.startsWith('/pornstars/top/'))))
+                      (_api.ui?.isStarList(widget.feed.slug) ?? false))
                   ? 3
                   : 2,
               // Pektino：瀑布流（横竖混排按顺序填充两列，不留空档；照站点）
-              masonry: widget.site.template == SiteTemplate.pektino,
+              masonry: _api.ui?.masonry ?? false,
               physics: const AlwaysScrollableScrollPhysics(),
               count: feed.items.length,
               // 滚动到尾部才构造 → 在那时触发翻页（懒加载）
@@ -1845,8 +1841,7 @@ class _SearchPageState extends State<SearchPage> {
                     : RowsGrid(
                         // 跟列表页同一套：竖屏站一行 3 个
                         cols: widget.site.portraitCovers ? 3 : 2,
-                        masonry:
-                            widget.site.template == SiteTemplate.pektino,
+                        masonry: _api.ui?.masonry ?? false,
                         count: _results.length,
                         tail: () {
                           if (_done) {
