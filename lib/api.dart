@@ -2823,6 +2823,19 @@ class Api {
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   static const Map<String, String> _xhDesk = {'User-Agent': _xhUa};
 
+  /// 短片 **JSON 接口**专用的请求头（用户 2026-10-03 实机"短片一直转圈"排查时加的）。
+  /// ⚠️ 推断 🔍：页面能拿到、`/api/…` 拿不到 —— 这种"只有接口不通"的情况，常见原因是
+  /// **Cloudflare 对 `/api/` 路径单列了更严的规则**（浏览器真发 XHR 时不带 `text/html` 的 Accept、
+  /// 而是 `application/json` + `X-Requested-With` + 同源 Referer）✗。
+  /// 这里照真浏览器的 XHR 补齐；**是不是这条原因，等装上带错误提示的包就知道** ✓。
+  static const Map<String, String> _xhApi = {
+    'User-Agent': _xhUa,
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': 'https://tw.xhamster.com/shorts',
+  };
+
   /// 页面 JSON 里的字符串都是转义的（`https:\/\/`、中文 `\u516c`）→ 用 jsonDecode 还原。
   static String _xhUn(String? s) {
     if (s == null || s.isEmpty) return '';
@@ -2938,42 +2951,81 @@ class Api {
   Future<List<Article>> _xhMoments(int page) async {
     if (page < 1) return const []; // page 只是调用方的批次号，真正的页由 _xhShortsFrom 决定
     // ⚠️ 随机起始页（1~48），但**空批次必须退回第 1 页** —— 用户 2026-10-03 实机报
-    // "短片没数据" ✓：随机页可能整个是空的（当初"1~48 页都有内容"只是🔍推断、**没实测** ✗）。
+    // "短片没数据" ✓：随机页可能整个是空的。
     var from = _xhShortsFrom ?? (1 + _rand.nextInt(48));
-    var out = await _xhMomentsAt(from);
+    var out = <Article>[];
+    Object? lastErr;
+    try {
+      out = await _xhMomentsAt(from);
+    } catch (e) {
+      lastErr = e;
+    }
     if (out.isEmpty && from != 1) {
       from = 1;
-      out = await _xhMomentsAt(1);
+      try {
+        out = await _xhMomentsAt(1);
+        lastErr = null; // 兜底成功就不算错
+      } catch (e) {
+        lastErr = e;
+      }
     }
     _xhShortsFrom = from + 4; // 同一份列表内往后顺延
+    // ⚠️ **别把失败吞掉**（用户实机现象是"一直转圈" ✓）：原先 `catch → ''` 让失败变成"0 条"，
+    //    界面既没数据、也没错误提示，只剩转圈 ✗。现在把原因**抛出去**，让列表页显示出来 ✓
+    //    （`_CategoryFeed.ensureMore` 会 catch → `error = true` → 界面显示失败 ✓）。
+    if (out.isEmpty && lastErr != null) {
+      throw Exception('短片接口失败：$lastErr');
+    }
+    // ②/③ 类失败（响应到了但不是 JSON / 解不出条目）→ 把**证据**抛给界面 ✓
+    if (out.isEmpty && _xhLastHint.isNotEmpty) {
+      throw Exception('短片接口失败：$_xhLastHint');
+    }
     return out;
   }
 
   /// 抓"从 from 开始的 4 页"并合并（**并发**：每页才 5~6 条、单次要 2~5s，
   /// 串行就是"5 条…等好几秒…又 5 条" ✗）。每批打乱 + 按 url 去重。
+  /// ⚠️ 这里**不吞异常**：失败就往上抛，让界面能显示出来（见 `_xhMoments` 的说明 ✗）。
+  ///
+  /// ⚠️ 用户 2026-10-03 的关键指正：**App 是直连架构**（DEVLOG 铁律 3 / 第 324 行写着 ✓），
+  /// 而我以前拿"走系统代理"的 curl 结果当 App 的结论 ✗（第 471 行已经因为同一件事被骂过一次 ✗）。
+  /// 既然「影片/分类」tab 在直连下**能出数据** ✓，域名与 `_fetchText` 就是通的 ✓ →
+  /// 短片的问题只能在这段代码里 ✓。所以这里把**三种失败情形**都留出可显示的原因 ✓，
+  /// 装机一次就能定性：① 请求失败（异常原文）② 200 但**不是 JSON**（抓到的是啥，附前 80 字）
+  /// ③ 是 JSON 但**解析出 0 条** ✓。
+  static String _xhLastHint = '';
+
   Future<List<Article>> _xhMomentsAt(int from) async {
     const batch = 4;
     final bodies = await Future.wait([
       for (var i = 0; i < batch; i++)
-        () async {
-          try {
-            return await _fetchText(
-                from + i > 1
-                    ? '/api/v1/moments?page=${from + i}'
-                    : '/api/v1/moments',
-                extraHeaders: _xhDesk);
-          } catch (_) {
-            return '';
-          }
-        }(),
+        _fetchText(
+            from + i > 1
+                ? '/api/v1/moments?page=${from + i}'
+                : '/api/v1/moments',
+            extraHeaders: _xhApi),
     ]);
+    _xhLastHint = '';
     final out = <Article>[];
     final seen = <String>{};
+    var sawBody = false;
     for (final html in bodies) {
       if (html.isEmpty) continue;
+      sawBody = true;
       final j = _xhJson(html);
-      final items = j == null ? null : j['items'];
-      if (items is! List) continue;
+      if (j == null) {
+        // ② 200 但**不是 JSON**（比如被换成了一张挑战页/HTML）→ 留证据 ✓
+        if (_xhLastHint.isEmpty) {
+          final snip = html.length > 80 ? html.substring(0, 80) : html;
+          _xhLastHint = '响应不是 JSON（前 80 字）：${snip.replaceAll(RegExp(r'\s+'), ' ')}';
+        }
+        continue;
+      }
+      final items = j['items'];
+      if (items is! List) {
+        if (_xhLastHint.isEmpty) _xhLastHint = 'JSON 里没有 items 字段';
+        continue;
+      }
       for (final it in items) {
         if (it is! Map) continue;
         final url = _xhUn((it['pageURL'] ?? '').toString())
@@ -2998,6 +3050,10 @@ class Api {
     }
     // 每批**打乱**（配合随机起始页 → 每次进来的都是新局面 ✓，与 sim 的 shuffleArr 同一语义）
     out.shuffle(_rand);
+    // ③ 响应非空、但一条可用条目都没解出来 → 也留个原因 ✓（装机一眼可见 ✓）
+    if (out.isEmpty && _xhLastHint.isEmpty && sawBody) {
+      _xhLastHint = '响应非空但解析出 0 条（字段名可能变了）';
+    }
     return out;
   }
 

@@ -612,6 +612,15 @@ class _HomePageState extends State<HomePage>
             scrollDirection: Axis.horizontal,
             child: Row(children: [
               filterBtn(sel ?? '明星分類', _xhStar != null, _openXhStarDialog),
+              // ⚠️ 「重置」要放在**选择器按钮后面**（用户 2026-10-03："重置是让你加到这个选择器
+              //   按钮后面，跟分类tab下面的那个一样" ✗）—— 不能只放在弹窗里 ✓
+              if (_xhStar != null) ...[
+                const SizedBox(width: 6),
+                filterBtn('重置', false, () {
+                  setState(() => _xhStar = null);
+                  _reloadXhStar();
+                }),
+              ],
             ]),
           ),
         ),
@@ -710,6 +719,16 @@ class _HomePageState extends State<HomePage>
                   _theme != null,
                   () => _openFilterDialog(f),
                 ),
+                // ⚠️ 「重置」放在**选择器按钮后面**（用户 2026-10-03："重置在选择器按钮后面，
+                //   跟分类tab下面的那个一样" ✓）—— 选了才出现，一点回"全部"并重拉 ✓
+                if (_theme != null) ...[
+                  const SizedBox(width: 6),
+                  filterBtn('重置', false, () {
+                    setState(() => _theme = null);
+                    _applyFilters();
+                    _feeds.clear(); // 回"全部"必须重拉（否则还是旧筛选那份列表 ✗）
+                  }),
+                ],
                 // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）。
                 // ⚠️ 站点没给这组选项就**不画这个按钮**：Pornhub 的 durations/sorts 都是空列表
                 // → 它只剩一个「分类选择」；Pektino 两组都非空 → 行为一字不变。
