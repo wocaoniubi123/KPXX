@@ -688,6 +688,7 @@ function parseArticles(html, site) {
   if (tpl === 'huangguo') return hgCards(doc);
   if (tpl === 'porna') return pornaCards(doc);
   if (tpl === 'madou') return madouCards(doc);
+  if (tpl === 'pornhub') return phCards(doc);
   const out = [];
   for (const el of doc.querySelectorAll('article[itemscope]')) {
     const cls = el.className || '';
@@ -1004,6 +1005,7 @@ async function parseDetail(html, site, url) {
   if (tpl === 'hanime1') return hanimeDetail(html, url);
   if (tpl === 'xvideos') return xvDetail(html, url);
   if (tpl === 'madou') return await madouDetail(html, url);
+  if (tpl === 'pornhub') return phDetail(html, url);
   return await wpDetail(html, site, url);
 }
 
@@ -2081,6 +2083,10 @@ async function fetchList(site, cat, subKey, page) {
     // key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）
     return kmList(site, cat.key === '1' ? '/api/videos/listAll' : '/api/videos/listHot', page);
   }
+  if (tpl === 'pornhub') {
+    // 主分类/子分类的 key 都是站内路径（'/'、'/video'、'/video?c=27'…），照原样请求
+    return phFetchList(site, subKey || cat.key, page);
+  }
   if (tpl === 'madou') {
     // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
     // （/likes /week /month 三个榜单 + /tags 标签云）
@@ -2222,6 +2228,310 @@ function hanimeDetail(html, url) {
     if (t) tags.push({ slug: hanimeRel(href), name: t });
   }
   return { title, time: '', images: poster ? [poster] : [], intro, videos, tags, related: [], duration };
+}
+
+/* ---------- Pornhub（cn.pornhub.com）：**按移动版 DOM 解析** ----------
+   App 的全局 UA 是 iPhone Safari，站点会返回移动版；桌面 UA 下是另一套
+   （li.pcVideoListItem + a[title] + var.duration），字段名不同，别混用。
+   中文是域名自带的（<html lang="cn">），不用选语言。 */
+
+/** 列表卡：li[data-video-vkey] → 标题 **img[alt]** / 时长 div.bgEffect.time / 封面 img[src]
+ *  ⚠️ 标题不能取 `a.thumbnailTitle` 或第一个 `a`：首页那套卡片标题在
+ *  `div.vidTitleWrapper > .title > a.thumbnailTitle`，而 /video 列表页那套**没有这个 class**，
+ *  它的第一个 `<a class="imageLink">` 文本是**「已观看」**（观看历史角标）——
+ *  两套唯一共有的标题来源是封面图的 `alt`（实测就是标题）。 */
+function phCards(doc, scope) {
+  const out = [];
+  // ⚠️ 用 `[data-video-vkey]`（**不带 li**）：分类/搜索页的卡片是 <li>，但**演员页**
+  // （/pornstar/xxx）的视频卡不是 li —— 实测 `li[data-video` 在演员页是 0 条。
+  // [scope] 传了就在该子树里找（详情页的「相关推荐」用 #relatedVideos，
+  // 免得把页面里别的视频块一起扫进来）。
+  for (const li of (scope || doc).querySelectorAll('[data-video-vkey]')) {
+    const aLink = li.querySelector('a[href*="view_video.php?viewkey="]');
+    if (!aLink) continue;
+    const href = aLink.getAttribute('href') || '';
+    const img = li.querySelector('img.videoThumb') || li.querySelector('img');
+    const t = (((img && img.getAttribute('alt')) || '')
+      || (li.querySelector('a.thumbnailTitle')?.textContent || ''))
+      .replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    const durEl = li.querySelector('div.bgEffect.time') || li.querySelector('div.time') ||
+      li.querySelector('[class*="duration"]');
+    const dur = durEl ? (durEl.textContent || '').trim() : '';
+    const p = li.querySelector('a[data-poster]');
+    const cover = (img ? (img.getAttribute('src') || '') : '')
+      || (p ? (p.getAttribute('data-poster') || '') : '');
+    out.push({ title: t, url: href, cover, meta: '', badge: dur });
+  }
+  return out;
+}
+
+/** 演员卡（/pornstars 页）：`.performerCard` → 名字（performerCardName 或 img[alt]）、
+ *  头像 pornstarThumb、排名 `.rank_number`（1/2/3…，站点在这个位置给的就是它 → 当角标）。 */
+function phStarCards(doc) {
+  const out = [];
+  for (const el of doc.querySelectorAll('.performerCard')) {
+    const a = el.querySelector('a[href]');
+    if (!a) continue;
+    const href = a.getAttribute('href') || '';
+    if (!/\/(pornstar|model)\//.test(href)) continue;
+    const img = el.querySelector('img');
+    const name = ((el.querySelector('.performerCardName')?.textContent || '')
+      || (img && img.getAttribute('alt')) || '').replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    out.push({
+      title: name,
+      url: href,
+      cover: img ? (img.getAttribute('src') || img.getAttribute('data-thumb_url') || '') : '',
+      meta: '',
+      badge: (el.querySelector('.rank_number')?.textContent || '').trim(),
+    });
+  }
+  return out;
+}
+
+/** 分类列表：key = 站内路径（'/'、'/video'、'/video?c=27'、'/recommended'…）；翻页 ?page=N。
+ *  ⚠️ 分类筛选（phFilter.cat）生效时**覆盖** key —— 站点的分类筛选就是跳到 /video?c=NN。
+ *  ⚠️ 站点首页（'/'）自己的分页链接指向 /video?page=N（实测），所以第 2 页起换成 /video。
+ *  ⚠️ `/pornstars` 返回的是**演员卡**（不是视频卡），单独解析。 */
+async function phFetchList(site, key, page) {
+  let base = phFilter.cat || key || '/';
+  const bare = base.split('?')[0];
+  // 色情明星页：演员类型 + 排序都是 URL 参数（照站点 ?performerType= / ?o=）
+  if (bare === '/pornstars') {
+    const qs = [];
+    if (phStar.type) qs.push('performerType=' + phStar.type);
+    if (phStar.sort) qs.push('o=' + phStar.sort);
+    if (phStar.time) qs.push('t=' + phStar.time);
+    for (const [g, v] of Object.entries(phStar.more)) if (v) qs.push(g + '=' + v);
+    base = '/pornstars' + (qs.length ? '?' + qs.join('&') : '');
+  }
+  if (base === '/' && page > 1) base = '/video';
+  if (page > 1) base += (base.includes('?') ? '&' : '?') + 'page=' + page;
+  const doc = parseHtml(await getHtml(site, base));
+  return bare === '/pornstars' ? phStarCards(doc) : phCards(doc);
+}
+
+/** 搜索：/video/search?search=kw（&page=N） */
+async function phSearch(site, kw, page) {
+  let p = '/video/search?search=' + encodeURIComponent(kw);
+  if (page > 1) p += '&page=' + page;
+  return phCards(parseHtml(await getHtml(site, p)));
+}
+
+/** 详情：标题 <h1>（移动版常为空 → 退回 <title> 剥"- Pornhub.com"后缀）；
+ *  时长 div.duration；播放源 = mediaDefinitions 里的 master.m3u8（每档一条，页面顺序）。 */
+function phDetail(html, url) {
+  const doc = parseHtml(html);
+  let title = (doc.querySelector('h1')?.textContent || '').replace(/\s+/g, ' ').trim();
+  if (!title) {
+    title = (doc.querySelector('title')?.textContent || '')
+      .replace(/\s*-\s*Pornhub\.com\s*$/i, '').replace(/\s+/g, ' ').trim();
+  }
+  const dur = (doc.querySelector('div.duration')?.textContent || '').trim();
+  // 源：只取 mediaDefinitions 里带 height 的那几条，**按清晰度从高到低排序**再交给播放器
+  // （页面原始顺序是乱的，实测 1080/240/480/720）。详情页横排展示、默认播 720P；
+  // 若以后调整默认档，改 curQuality 一处即可（sim 和 App 要保持一致）。
+  const pairs = [];
+  for (const m of html.matchAll(/"height":(\d+)[^}]*?"videoUrl":"(https:[^"]*?master\.m3u8[^"]*)"/g)) {
+    const u = m[2].replace(/\\\//g, '/');
+    if (!pairs.some((p) => p.u === u)) pairs.push({ h: +m[1], u });
+  }
+  pairs.sort((a, b) => b.h - a.h);
+  const srcs = pairs.map((p) => p.u);
+  // 标签：播放器下方那排 `a.isTag`（实测一页约 25 个）。href 是 /video/search?search=<编码词>，
+  // 显示名在 <span> 里（站点已按中文站翻译过，如"口交/巨乳/高潮"）。点标签 → 进该搜索词的列表
+  // （tagListItems 的 pornhub 分支认得以 / 开头的 slug）。
+  const tags = [...doc.querySelectorAll('a.isTag[href]')].map((a) => ({
+    slug: a.getAttribute('href') || '',
+    name: (a.textContent || '').replace(/^#/, '').replace(/\s+/g, ' ').trim(),
+  })).filter((t) => t.name && t.slug);
+  // 相关推荐：页面里是**静态的** `#relatedVideos`（实测，不用额外请求），卡片结构和列表页一样
+  const relBox = doc.querySelector('#relatedVideos');
+  const related = relBox ? phCards(doc, relBox) : [];
+  return {
+    title: title || url, time: '', images: [], intro: '',
+    videos: srcs.length ? [{ ordinal: 1, label: '视频', sources: srcs }] : [],
+    tags, related, duration: dur,
+  };
+}
+
+/* Pornhub 的「分类」清单（102 个，照站点 /categories 页原序原名；与 lib/sites.dart 的
+   _phCats 对齐——模拟器侧硬编码，站点不常改）。顶栏「分类」下拉里只有十几个热门项，
+   不是这个清单；「性取向/视频内语言」那几个筛选器不在里面（用户点名去过）。
+   单选 → 按钮显示选中的那个名字（Hanime1 那种多选保持原样，不显示）。 */
+const PH_CATS = [
+  ['/video?c=17', '黑人女'], ['/video?c=6', '大号美女'], ['/video?c=492', '女性自慰'],
+  ['/video?c=7', '巨屌'], ['/video?c=22', '手淫'], ['/transgender', '跨性别'],
+  ['/categories/pornstar', '色情明星'], ['/video?c=115', '独家'], ['/video?c=25', '跨种族'],
+  ['/video?c=59', '贫乳'], ['/categories/teen', '18-25歲'], ['/video?c=65', '3P'],
+  ['/video?c=105', '60帧'], ['/video?c=241', 'Cosplay'], ['/sfw', '上班时观赏'],
+  ['/video?c=2', '乱交群欢'], ['/video?c=1', '亚洲人'], ['/interactive', '交互式'],
+  ['/video?c=542', '佩戴式阳具'], ['/video?c=99', '俄国人'], ['/video?c=24', '公众野战'],
+  ['/video?c=15', '内射中出'], ['/video?c=732', '内嵌字幕'], ['/video?c=21', '劲爆重口味'],
+  ['/video?c=86', '卡通'], ['/video?c=101', '印度人'], ['/video?c=76', '双性恋男'],
+  ['/video?c=72', '双龙入洞'], ['/video?c=13', '口交'], ['/video?c=43', '古典派'],
+  ['/video?c=57', '合集'], ['/video?c=12', '名人'], ['/categories/college', '大学'],
+  ['/video?c=27', '女同'], ['/popularwithwomen', '女性之选'], ['/video?c=502', '女性高潮'],
+  ['/video?c=242', '娇妻偷吃'], ['/video?c=16', '射精'], ['/video?c=8', '巨乳'],
+  ['/video?c=482', '已认证情侣'], ['/video?c=139', '已认证模特'], ['/video?c=138', '已认证素人'],
+  ['/video?c=102', '巴西人'], ['/video?c=95', '德国人'], ['/video?c=23', '性玩具'],
+  ['/video?c=18', '恋物癖'], ['/video?c=93', '恋足'], ['/video?c=97', '意大利人'],
+  ['/video?c=20', '手交'], ['/video?c=91', '抽烟'], ['/video?c=26', '拉丁裔美女'],
+  ['/video?c=19', '拳交'], ['/video?c=592', '指交'], ['/video?c=78', '按摩'],
+  ['/video?c=10', '捆绑'], ['/video?c=100', '捷克人'], ['/video?c=32', '搞笑'],
+  ['/video?c=211', '撒尿'], ['/video?c=891', '播客'], ['/video?c=111', '日本人'],
+  ['/video?c=88', '校园'], ['/video?c=55', '欧洲人'], ['/video?c=94', '法国人'],
+  ['/video?c=522', '浪漫'], ['/video?c=11', '深发女'], ['/video?c=201', '滑稽模仿'],
+  ['/video?c=69', '潮吹'], ['/video?c=89', '火辣保姆'], ['/video?c=28', '熟女'],
+  ['/video?c=35', '爆菊'], ['/video?c=141', '片场直击'], ['/video?c=92', '男性自慰'],
+  ['/video?c=31', '真人实拍'], ['/video?c=41', '第一视角'], ['/video?c=67', '粗暴性爱'],
+  ['/video?c=3', '素人'], ['/video?c=42', '红毛'], ['/video?c=562', '纹身女'],
+  ['/video?c=444', '继家庭幻想'], ['/video?c=181', '老少欢'], ['/video?c=53', '聚会'],
+  ['/video?c=512', '肌肉男'], ['/video?c=4', '肥臀'], ['/video?c=33', '脱衣舞'],
+  ['/described-video', '自述视频'], ['/video?c=131', '舔屄'], ['/categories/hentai', '色情日漫'],
+  ['/video?c=96', '英国人'], ['/vr', '虚拟现实'], ['/video?c=61', '视频激情'],
+  ['/video?c=81', '角色扮演'], ['/video?c=90', '试镜'], ['/video?c=881', '赌博'],
+  ['/video?c=80', '轮交'], ['/video?c=29', '辣妈'], ['/video?c=9', '金发女'],
+  ['/video?c=98', '阿拉伯人'], ['/video?c=14', '集体颜射'], ['/video?c=103', '韩国人'],
+  ['/video?c=121', '音乐'], ['/categories/babe', '风情少女'], ['/hd', '高清色情片'],
+];
+let phFilter = { cat: null };
+const phCatName = (k) => pkName(PH_CATS, k);
+
+/** Pornhub 的分类筛选行：一个按钮（无选中时显示「分类选择」，选中后显示分类名）。
+ *  点开 =**胶囊网格**弹窗（照 Pektino「按标签筛选」的样式，用户 2026-10-02 要求）。 */
+function phFilterBarHtml() {
+  return `<div class="pkbar" id="phbar" style="padding:8px 10px 0">
+    <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
+      <button id="phCatBtn" style="flex:none">${phFilter.cat ? phCatName(phFilter.cat) : '分类选择'}</button>
+      ${phFilter.cat ? '<button id="phReset" style="flex:none;color:#e03131">重置</button>' : ''}
+    </div></div>
+  </div>`;
+}
+
+/** 分类弹窗（挂在手机壳屏幕内，只覆盖手机屏）：**胶囊网格**、单选、选完即关。
+ *  102 个分类照站点 /categories 页原序，样式与 Pektino 的标签弹窗一致。 */
+let phReload = null; // phBindBar 赋的重拉函数（弹窗里选完分类用）
+function phOpenCatDlg() {
+  const screen = document.querySelector('.screen');
+  let dlg = document.getElementById('phdlg');
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = 'phdlg';
+    dlg.style.cssText =
+      'display:none;position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.style.display = 'none'; });
+    screen.appendChild(dlg);
+  }
+  const tags = PH_CATS.map(([k, n]) =>
+    `<span class="pktag${phFilter.cat === k ? ' on' : ''}" data-k="${hnEscAttr(k)}">${n}</span>`).join('');
+  dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:92%;max-height:76%;overflow:auto;padding:14px 14px 12px;box-shadow:0 10px 34px rgba(0,0,0,.22)">
+    <div style="display:flex;align-items:center;margin-bottom:10px">
+      <div style="font-size:15px;font-weight:600">分类选择</div>
+      <div style="flex:1"></div>
+      <span id="phdlgX" style="font-size:18px;color:#888;cursor:pointer;line-height:1">✕</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${tags}</div>
+  </div>`;
+  dlg.style.display = 'flex';
+  dlg.querySelector('#phdlgX').onclick = () => { dlg.style.display = 'none'; };
+  dlg.querySelectorAll('.pktag').forEach((el) => {
+    el.onclick = () => {
+      phFilter.cat = (phFilter.cat === el.dataset.k) ? null : el.dataset.k; // 再点同一个 = 取消
+      if (phReload) phReload();
+      dlg.style.display = 'none'; // 选完关掉弹窗（照 Pektino）
+    };
+  });
+}
+
+/** 绑定分类筛选行；reload = 重拉当前列表 */
+function phBindBar(reload) {
+  phReload = reload;
+  $('phCatBtn').onclick = () => phOpenCatDlg();
+  const rs = $('phReset');
+  if (rs) rs.onclick = () => { phFilter.cat = null; reload(); };
+}
+
+/* ---------- Pornhub「色情明星」页（/pornstars）的筛选 ----------
+   照站点右上角那四个控件（用户 2026-10-02 要求）：最受欢迎 ▾ / 色情明星和模特 ▾ / 每月 ▾
+   / + 更多筛选设置。参数形态**全部来自桌面版页面的 <a href> 实测**（?o= / ?performerType=
+   / ?t= / ?gender= / ?ethnicity= / ?tattoos= / ?hair= / ?piercings= / ?cup= / ?breasttype=），
+   与 lib/sites.dart 的 _phStarSorts/_phStarTypes/_phStarTimes/_phStarMore 对齐。 */
+const PH_STAR_SORTS = [['', '最受欢迎'], ['mv', '最多次观看'], ['t', '最热门'], ['ms', '最多订阅'],
+  ['a', '按字母排序'], ['nv', '视频数量'], ['r', '随机']];
+const PH_STAR_TYPES = [['', '色情明星和模特'], ['pornstar', '色情明星'], ['amateur', '素人模特']];
+const PH_STAR_TIMES = [['w', '每周'], ['', '每月'], ['a', '每年']];
+const PH_STAR_MORE = [
+  ['性别', 'gender', [['', '全部'], ['male', '男性'], ['female', '女性'], ['m2f', '变性女'], ['f2m', '变性男']]],
+  ['种族', 'ethnicity', [['', '全部'], ['asian', 'Asian'], ['black', 'Black'], ['indian', 'Indian'],
+    ['latin', 'Latin'], ['middle+eastern', 'Middle Eastern'], ['mixed', 'Mixed'], ['white', 'White'], ['other', 'Other']]],
+  ['纹身', 'tattoos', [['', '全部'], ['yes', 'Yes'], ['no', 'No']]],
+  ['发色', 'hair', [['', '全部'], ['auburn', 'Auburn'], ['bald', 'Bald'], ['black', 'Black'], ['blonde', 'Blonde'],
+    ['brunette', 'Brunette'], ['grey', 'Grey'], ['red', 'Red'], ['various', 'Various'], ['other', 'Other']]],
+  ['穿环', 'piercings', [['', '全部'], ['yes', 'Yes'], ['no', 'No']]],
+  ['罩杯', 'cup', [['', '全部'], ['a', 'A'], ['b', 'B'], ['c', 'C'], ['d', 'D'], ['e', 'E'], ['f-z', 'F-Z']]],
+  ['胸型', 'breasttype', [['', '全部'], ['natural', 'Natural'], ['fake', 'Fake']]],
+];
+let phStar = { sort: '', type: '', time: '', more: {} }; // more: { gender: 'male', ... } 空值不拼进 URL
+
+/** 通用胶囊弹窗（单选，选中即回调 + 关闭）。可选 sections = 多组（"更多筛选设置"用）。 */
+function phChipDlg(dlgId, title, sections, onPick) {
+  const screen = document.querySelector('.screen');
+  let dlg = document.getElementById(dlgId);
+  if (!dlg) {
+    dlg = document.createElement('div');
+    dlg.id = dlgId;
+    dlg.style.cssText =
+      'display:none;position:absolute;inset:0;background:rgba(0,0,0,.35);z-index:60;align-items:center;justify-content:center';
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.style.display = 'none'; });
+    screen.appendChild(dlg);
+  }
+  const body = sections.map((sec) => `
+    ${sec.label ? `<div style="font-size:13px;color:#888;margin:10px 0 6px">${sec.label}</div>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${sec.items.map(([k, n]) =>
+      `<span class="pktag${sec.current === k ? ' on' : ''}" data-g="${sec.group || ''}" data-k="${hnEscAttr(k)}">${n}</span>`).join('')}</div>`).join('');
+  dlg.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:92%;max-height:76%;overflow:auto;padding:14px 14px 12px;box-shadow:0 10px 34px rgba(0,0,0,.22)">
+    <div style="display:flex;align-items:center;margin-bottom:4px">
+      <div style="font-size:15px;font-weight:600">${title}</div>
+      <div style="flex:1"></div>
+      <span class="phx" style="font-size:18px;color:#888;cursor:pointer;line-height:1">✕</span>
+    </div>${body}</div>`;
+  dlg.style.display = 'flex';
+  dlg.querySelector('.phx').onclick = () => { dlg.style.display = 'none'; };
+  dlg.querySelectorAll('.pktag').forEach((el) => {
+    el.onclick = () => { onPick(el.dataset.g, el.dataset.k); dlg.style.display = 'none'; };
+  });
+}
+
+/** 色情明星页的筛选行：四个控件（三个下拉 + 更多筛选设置） */
+function phStarBarHtml() {
+  const nMore = Object.keys(phStar.more).filter((k) => phStar.more[k]).length;
+  const any = phStar.sort || phStar.type || phStar.time || nMore;
+  return `<div class="pkbar" id="phstarbar" style="padding:8px 10px 0">
+    <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
+      <button id="phSortBtn" style="flex:none">${phStar.sort ? pkName(PH_STAR_SORTS, phStar.sort) : '最受欢迎'}</button>
+      <button id="phTypeBtn" style="flex:none">${phStar.type ? pkName(PH_STAR_TYPES, phStar.type) : '色情明星和模特'}</button>
+      <button id="phTimeBtn" style="flex:none">${phStar.time ? pkName(PH_STAR_TIMES, phStar.time) : '每月'}</button>
+      <button id="phMoreBtn" style="flex:none">+ 更多筛选设置${nMore ? ' (' + nMore + ')' : ''}</button>
+      ${any ? '<button id="phStarReset" style="flex:none;color:#e03131">重置</button>' : ''}
+    </div></div>
+  </div>`;
+}
+
+/** 绑定色情明星页筛选；reload = 重拉列表 */
+function phStarBindBar(reload) {
+  $('phSortBtn').onclick = () => phChipDlg('phsd1', '排序', [{ items: PH_STAR_SORTS, current: phStar.sort }],
+    (g, k) => { phStar.sort = k; reload(); });
+  $('phTypeBtn').onclick = () => phChipDlg('phsd2', '色情明星和模特', [{ items: PH_STAR_TYPES, current: phStar.type }],
+    (g, k) => { phStar.type = k; reload(); });
+  $('phTimeBtn').onclick = () => phChipDlg('phsd3', '时间区段', [{ items: PH_STAR_TIMES, current: phStar.time }],
+    (g, k) => { phStar.time = k; reload(); });
+  $('phMoreBtn').onclick = () => phChipDlg('phsd4', '更多筛选设置',
+    PH_STAR_MORE.map(([label, group, items]) => ({ label, group, items, current: phStar.more[group] || '' })),
+    (g, k) => { if (g) { if (k) phStar.more[g] = k; else delete phStar.more[g]; } reload(); });
+  const rs = $('phStarReset');
+  if (rs) rs.onclick = () => { phStar = { sort: '', type: '', time: '', more: {} }; reload(); };
 }
 
 /* Hanime1 筛选（照站点四个下拉：標籤/排序方式/發佈日期/時長；主分类页和搜索页都有） */
@@ -2577,10 +2887,10 @@ const pkSortLabel = () => pkFilter.sort === 'favorite' ? '排序' : pkName(PK_SO
 function pkFilterBarHtml() {
   return `<div class="pkbar" id="pkbar" style="padding:8px 10px 0">
     <div style="overflow-x:auto"><div style="display:flex;align-items:center;gap:6px;width:max-content">
-      <button id="pkThemeBtn" style="flex:none">筛选${pkFilter.theme ? ' ●' : ''}</button>
-      ${(pkFilter.theme || pkFilter.dur !== '0,0' || pkFilter.sort !== 'favorite') ? '<button id="pkReset" style="flex:none">重置</button>' : ''}
+      <button id="pkThemeBtn" style="flex:none">${pkFilter.theme ? pkName(PK_THEMES, pkFilter.theme) : '筛选'}</button>
       <button id="pkDurBtn" style="flex:none">${pkDurLabel()}${pkFilter.dur !== '0,0' ? ' ●' : ''}</button>
       <button id="pkSortBtn" style="flex:none">${pkSortLabel()}${pkFilter.sort !== 'favorite' ? ' ●' : ''}</button>
+      ${(pkFilter.theme || pkFilter.dur !== '0,0' || pkFilter.sort !== 'favorite') ? '<button id="pkReset" style="flex:none;color:#e03131">重置</button>' : ''}
     </div></div>
   </div>`;
 }
@@ -2819,12 +3129,23 @@ function viewList(site, idx, scrollTop) {
   // 吃瓜社区（/chigua*）的帖子卡是横版大图（站点桌面就是 2 列网格）→
   // 不吃竖屏站的 3 列/3:4，走默认的 2 列 + 16:9
   const widePost = String(cat.key || '').startsWith('/chigua');
-  const portrait = (site.portraitCovers && !widePost) ? ' portrait' : '';
+  // Pornhub 的「色情明星」tab：卡片是**方形头像**（234×234）→ 走竖版封面（用户 2026-10-02 要求）。
+  // ⚠️ 只认这个 tab：点明星后进的「他的视频列表」是视频卡（16:9），不该竖版——
+  // 那边的 cat.name 是演员名，不是「色情明星」，所以判不中，正好。
+  const starTab = site.template === 'pornhub' && cat.name === '色情明星';
+  const portrait = ((site.portraitCovers || starTab) && !widePost) ? ' portrait' : '';
   $('body').className = 'body';
   // Pektino：主分类页面顶部有筛选行（多级分类：主题/语言/时长/排序）；
   // 卡片不拉平（横竖混排，照站点）
   const pkBar = site.template === 'pektino' ? pkFilterBarHtml() : '';
   const hnBar = site.template === 'hanime1' ? hnFilterBarHtml() : '';
+  // Pornhub：分类筛选行**只在「分类」tab 显示**（用户 2026-10-02：首页/视频下面不显示它）。
+  // ⚠️ 判断只能用 tab **名字**：首页 key=`/`、视频和分类的 key 都是 `/video`，用 key 分不开。
+  if (site.template === 'pornhub' && cat.name !== '分类') phFilter.cat = null; // 离开分类 tab 就清掉筛选
+  const phBar = (site.template === 'pornhub' && cat.name === '分类') ? phFilterBarHtml() : '';
+  // 色情明星 tab 有自己的筛选（排序/类型/时间/更多），同样只在它自己下面显示
+  if (site.template === 'pornhub' && cat.name !== '色情明星') phStar = { sort: '', type: '', time: '', more: {} };
+  const phStarBar = (site.template === 'pornhub' && cat.name === '色情明星') ? phStarBarHtml() : '';
   // 换页面时把筛选弹窗收掉（它们挂在手机屏里，不随页面重渲染消失）
   if (site.template !== 'pektino') {
     const d = document.getElementById('pkdlg');
@@ -2834,8 +3155,12 @@ function viewList(site, idx, scrollTop) {
     const d = document.getElementById('hndlg');
     if (d) d.style.display = 'none';
   }
+  if (site.template !== 'pornhub') {
+    const d = document.getElementById('phdlg');
+    if (d) d.style.display = 'none';
+  }
   const pkCls = site.template === 'pektino' ? ' pk' : '';
-  $('body').innerHTML = `${pkBar}${hnBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
+  $('body').innerHTML = `${pkBar}${hnBar}${phBar}${phStarBar}<div class="cards${portrait}${pkCls}" id="cards"></div>
     <div style="text-align:center;padding:12px;color:#999" id="more"></div>`;
   if (site.template === 'pektino') {
     pkBindBar(() => {
@@ -2845,6 +3170,20 @@ function viewList(site, idx, scrollTop) {
   }
   if (site.template === 'hanime1') {
     hnBindBar(site, () => {
+      listState.delete(key); // 筛选变了：清了缓存重拉
+      viewList(site, site.categories.indexOf(cat));
+    });
+  }
+  // 只有「分类」tab 才渲染了这个按钮（见上面 phBar 的条件），绑之前先确认它在
+  if (site.template === 'pornhub' && $('phCatBtn')) {
+    phBindBar(() => {
+      listState.delete(key); // 筛选变了：清了缓存重拉
+      viewList(site, site.categories.indexOf(cat));
+    });
+  }
+  // 色情明星 tab 的四个筛选控件（整条 bar 一起渲染，确认 bar 在即可安全绑定）
+  if (site.template === 'pornhub' && $('phstarbar')) {
+    phStarBindBar(() => {
       listState.delete(key); // 筛选变了：清了缓存重拉
       viewList(site, site.categories.indexOf(cat));
     });
@@ -2952,6 +3291,12 @@ function renderCards(cat, st) {
         openTagList(siteNow, a.title, a.url, false);
         return;
       }
+      // Pornhub 演员卡（/pornstar/xxx、/model/xxx）：进该演员的**视频列表**（用户 2026-10-02
+      // 明确要求——不是详情页；和上面 xvideos 的频道/演员卡一个处理）
+      if (siteNow && siteNow.template === 'pornhub' && a.url && /\/(pornstar|model)\//.test(a.url)) {
+        openTagList(siteNow, a.title, a.url, false);
+        return;
+      }
       openDetail(a, cat, $('body').scrollTop);
     };
   });
@@ -3016,6 +3361,19 @@ async function viewDetail(article, cat, scrollTop) {
     d = tpl0 === 'kmsvip'
       ? await kmDetail(article.url)
       : await parseDetail(await getHtml(site, article.url), site, article.url);
+    // ⚠️ Pornhub：PH 的 CDN 子域里 **hm-h 走 Cloudflare**（实测对我们的请求一律 410），
+    // 而站点每次抓详情是**随机分配**子域 —— 所以**进详情时就检查一次**，命中黑名单就重抓换个源，
+    // 省得等播放失败才补救（播放那层还留了一道兜底，见 playVideo 的错误处理）。
+    if ((site && site.template) === 'pornhub') {
+      const hostOf = (x) => {
+        try { const s = ((x.videos || [])[0] || {}).sources || []; return s.length ? new URL(s[0]).host : ''; }
+        catch (_) { return ''; }
+      };
+      for (let i = 0; i < 2 && /^hm-h\./.test(hostOf(d)); i++) {
+        log(`源落在 hm-h（Cloudflare 会挡），第 ${i + 1} 次重取…`, 'dim');
+        d = await parseDetail(await getHtml(site, article.url), site, article.url);
+      }
+    }
     log(`详情：${d.videos.length} 个视频 / ${d.images.length} 张剧照 / 简介 ${d.intro ? d.intro.length : 0} 字`, 'ok');
   } catch (e) {
     $('body').innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
@@ -3050,6 +3408,15 @@ async function viewDetail(article, cat, scrollTop) {
           ${d.videos.map((v, i) => `<div class="vrow ${i === 0 ? 'on' : ''}" data-i="${i}">
             <div class="num">${v.ordinal}</div><div class="t">${esc(v.label)}</div></div>`).join('')}
         </div>`}
+        </div>` : ''}
+      ${(d.videos[0] && d.videos[0].sources && d.videos[0].sources.length > 1) ? `
+        <div class="sec"><h3>清晰度</h3>
+          <div class="vchips" id="qrow">
+            ${d.videos[0].sources.map((u) => {
+              const q = qOf(u);
+              return `<div class="vchip${q === curQuality(d.videos[0].sources) ? ' on' : ''}" data-q="${q}">${q}P</div>`;
+            }).join('')}
+          </div>
         </div>` : ''}
       ${d.intro ? `<div class="sec"><h3>简介</h3><div class="intro">${esc(d.intro)}</div></div>` : ''}
       ${d.images.length ? `<div class="sec"><h3>剧照</h3><div class="stills" id="stills">
@@ -3113,8 +3480,21 @@ async function viewDetail(article, cat, scrollTop) {
       };
     });
   }
+  // 清晰度切换：只换档、不换集（重播当前这一集）
+  const qrow = $('qrow');
+  if (qrow) {
+    qrow.querySelectorAll('.vchip').forEach((c) => {
+      c.onclick = () => {
+        window.__curQ = c.dataset.q;
+        qrow.querySelectorAll('.vchip').forEach((x) => x.classList.remove('on'));
+        c.classList.add('on');
+        playVideo(d.videos[window.__curVi || 0], site);
+      };
+    });
+  }
   // 播放器控件条（上一集/下一集）要用：记住当前篇内的视频列表与序号
   window.__curDetail = d;
+  window.__curUrl = article.url; // 源不可达时重取详情要用（见 playVideo 的错误处理）
   window.__curSite = site;
   window.__curVi = 0;
   if (d.videos.length) playVideo(d.videos[0], site);
@@ -3180,6 +3560,19 @@ async function fetchLazySources(site, url) {
   return task;
 }
 
+/** 从源 URL 里抠清晰度数字（'1080' / '720' …）；抠不到返回 '' */
+const qOf = (u) => (String(u).match(/(\d+)P_/) || [])[1] || '';
+
+/** 当前该用哪一档：用户手选的优先；否则**默认 720P**（用户 2026-10-02 定）；
+ *  该档不存在就退回列表里最高的那档（列表由 phDetail 按清晰度从高到低排好） */
+function curQuality(srcs) {
+  const list = srcs || [];
+  const q = window.__curQ;
+  if (q && list.some((u) => qOf(u) === q)) return q;
+  if (list.some((u) => qOf(u) === '720')) return '720';
+  return qOf(list[0]) || '';
+}
+
 async function playVideo(v, site) {
   const video = $('v');
   if (!video) return;
@@ -3196,7 +3589,10 @@ async function playVideo(v, site) {
     }
     v = { ...v, sources: got };
   }
-  const src = v && v.sources && v.sources[0];
+  // 源：按选中的清晰度挑（默认 720P，见 curQuality）；列表是 phDetail 排好的高→低
+  const srcs = (v && v.sources) || [];
+  const wantQ = curQuality(srcs);
+  const src = srcs.find((u) => qOf(u) === wantQ) || srcs[0];
   if (!src) {
     $('pstate').textContent = '该视频没有可用源';
     log('视频无源（dplayer 配置里 video/video_h265 都为空）', 'err');
@@ -3207,21 +3603,56 @@ async function playVideo(v, site) {
   const url = video.canPlayType('application/vnd.apple.mpegurl') ? src : src;
   // mp4（Pektino 的推文原视频）直接给 video 元素；只有 m3u8 才走 hls.js
   if (!/\.mp4(\?|$)/i.test(url) && await ensureHls() && window.Hls.isSupported()) {
+    // ⚠️ 这里**不要**用 xhrSetup 改 URL 去走 /vproxy：hls.js 解析清单里的相对 URI 时，
+    // base 用的是「它实际请求的那个 URL」，一改就会把相对路径解析到模拟器自己身上
+    // （2026-10-02 实测：子清单被请求成 http://localhost:8787/index-v1-a1.m3u8 → levelLoadError）。
+    // 正确做法在服务端：server.mjs 的 streamM3u8 把清单里每个 URI 换成 /vproxy 的绝对地址，
+    // 客户端这边完全无感（跨域、Referer 都由 Node 那边解决）。
     const hls = new window.Hls({ maxBufferLength: 30, maxMaxBufferLength: 120 });
     curPlayer = hls;
-    hls.loadSource(url);
+    // ⚠️ phncdn（Pornhub）：**第一次请求就要走 /vproxy**。否则 hls.js 拿着原始 CDN 地址
+    // 一路直连：master/子清单能过（CDN 给 CORS、m3u8 不要 Referer），但**分片**挑站点
+    // Referer（浏览器只能带 localhost）→ 必然 404 → fragLoadError（2026-10-02 实测定位）。
+    // 进中转后：Referer 由 Node 写、清单里的 URI 由 streamM3u8 换成 /vproxy 绝对地址，
+    // 后面每一层自动继续走中转。
+    const playUrl = /phncdn\.com/.test(url)
+      ? location.origin + '/vproxy?url=' + encodeURIComponent(url)
+      : url;
+    hls.loadSource(playUrl);
     hls.attachMedia(video);
     hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
       $('pstate').textContent = '';
       video.play().catch(() => {});
     });
     hls.on(window.Hls.Events.ERROR, (_, data) => {
-      if (data.fatal) {
-        $('pstate').textContent = '播放出错：' + (data.details || '');
-        log('hls 致命错误：' + data.details, 'err');
-      } else {
-        log('hls：' + data.details, 'dim');
+      if (!data.fatal) { log('hls：' + data.details, 'dim'); return; }
+      // ⚠️ PH 的 CDN 子域会变（em-h/im-h 畅通，hm-h 走 Cloudflare、对我们的请求一律 410）。
+      // 站点每次抓详情随机分配子域 → 命中 hm-h 时**重抓一次详情换个源**再试（最多 2 次）。
+      const q = window.__curQ || '';
+      if (/phncdn/.test(url) && (v.__retry || 0) < 2 && /manifest|level|frag/i.test(data.details || '')) {
+        v.__retry = (v.__retry || 0) + 1;
+        $('pstate').textContent = '源不可达，换一个源重试…';
+        log(`第 ${v.__retry} 次换源重试`, 'dim');
+        (async () => {
+          try {
+            const html2 = await getHtml(site, window.__curUrl);
+            const d2 = phDetail(html2, window.__curUrl);
+            const v2 = (d2.videos || [])[0];
+            if (v2 && v2.sources && v2.sources.length) {
+              v2.__retry = v.__retry;   // 带着计数继续（避免无限循环）
+              window.__curDetail = d2;  // 同步给清晰度行/上一集下一集，否则它们还拿着旧源的 URL
+              const keepQ = q; window.__curQ = ''; // 重试时先按默认档挑（新源可能没有原来那档）
+              await playVideo(v2, site);
+              window.__curQ = keepQ;
+              return;
+            }
+          } catch (e) { log('换源失败：' + (e && e.message), 'err'); }
+          $('pstate').textContent = '播放出错：' + (data.details || '') + '（换源也没成功）';
+        })();
+        return;
       }
+      $('pstate').textContent = '播放出错：' + (data.details || '');
+      log('hls 致命错误：' + data.details, 'err');
     });
   } else {
     // mp4（Pektino 的推文原视频）走**服务端中转**：内置浏览器直连 video.twimg.com
@@ -3423,6 +3854,12 @@ async function tagListItems(site, slug, isTag, page) {
     if (slug.startsWith('/')) return xvProfileVideos(site, slug, page);
     return xvListAt(site, '/tags/' + slug, page);
   }
+  if (tpl === 'pornhub') {
+    // 演员卡（/pornstar/xxx、/model/xxx）→ 该演员的**视频列表**（不是详情页）；
+    // slug 可能已经带查询串（如 /pornstar/x?o=mv），分页要接 & 不是 ?
+    const p = page <= 1 ? slug : slug + (slug.includes('?') ? '&' : '?') + 'page=' + page;
+    return phCards(parseHtml(await getHtml(site, p)));
+  }
   if (tpl === 'kmsvip') return []; // 站点没有标签功能
   if (tpl === 'madou') {
     // 详情页的标签是裸 slug（/tag/{slug}）；以 / 开头的是卡片上的分类路径
@@ -3454,6 +3891,7 @@ async function searchItems(site, kw, page) {
   if (tpl === 'pektino') return pektinoFetch(site, 'all', kw, page, true);
   if (tpl === 'hanime1') return hanimeSearchAt(site, '/search?query=' + encodeURIComponent(kw), page);
   if (tpl === 'xvideos') return xvSearchAt(site, kw, page);
+  if (tpl === 'pornhub') return phSearch(site, kw, page);
   if (tpl === 'madou') {
     // 搜索 = /?s={kw}；翻页参数是 **paged**（不是 page），照站点原样
     const encM = encodeURIComponent(kw);

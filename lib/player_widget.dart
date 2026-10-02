@@ -790,9 +790,16 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// Pektino→video.twimg.com），拿站点域名当 Referer 会被 CDN 拒
   /// （video.twimg.com 对 pektino.com 直接 403）。全站回归实测：各 CDN 对
   /// 「源自身域名」均放行（m3u8/分片/密钥全 200）；视频与站点同域时新旧等价。
+  /// **唯一例外**：Pornhub 的 phncdn.com 分片要站点域名（2026-10-02，见下面的分支）。
   String _playReferer(String url) {
     final u = Uri.tryParse(url);
     if (u != null && u.hasScheme && u.host.isNotEmpty) {
+      // ⚠️ Pornhub 的 CDN（phncdn.com）是**反例**：HLS **分片**要「站点域名」当 Referer，
+      // 拿源自身域名会被伪装成 404（2026-10-02 实测；sim/server.mjs 里同一套判断）。
+      // 其余站照旧走下面的「源自身域名」（Pektino→video.twimg.com 拿站点域名会被拒，别改成通用）。
+      if (u.host == 'phncdn.com' || u.host.endsWith('.phncdn.com')) {
+        return 'https://cn.pornhub.com/';
+      }
       return '${u.scheme}://${u.host}/';
     }
     return '${widget.referer}/';

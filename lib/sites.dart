@@ -50,6 +50,24 @@ enum SiteTemplate {
   /// 详情正文只有一个玩家 iframe（dash.madou.club 的分享页）：
   /// 分享页里 token + m3u8 路径拼出唯一播放源（见 api.dart _mdDetail）。
   madou,
+
+  /// Pornhub（cn.pornhub.com，用户指定）：**中文站是域名自带的**
+  /// （`<html class="language-cn" lang="cn">`，标题/导航/分类名全中文，不用选语言）。
+  ///
+  /// ⚠️ **按移动版 DOM 解析**（App 的全局 UA 就是 iPhone Safari，站点会返回移动版）：
+  /// 卡片 = `li[data-video-vkey]`；标题 `a.thumbnailTitle`；时长 `div.bgEffect.time`
+  /// （`4:00`）；封面 `a[data-poster]`（带 `hdnea=st=…~exp=…~hmac=…` 签名，约 24h）。
+  /// 桌面 UA 下站点给的是**另一套**（`li.pcVideoListItem` + `a[title]` + `var.duration`
+  /// + `img[src]`），字段名不同，别混用。
+  ///
+  /// 翻页 `?page=N`（首页 `/`、`/video?page=N`、分类 `/video?c=NN&page=N`）；
+  /// 搜索 `/video/search?search=kw`；详情 `/view_video.php?viewkey=xxx`。
+  ///
+  /// ⚠️ 详情页视频源：`mediaDefinitions` 里有 4 档 HLS（240/480/720/1080，每档一个
+  /// `master.m3u8`，带 `h=`/`e=` 签名）+ 一个 `/video/get_media?s=<base64>` 接口。
+  /// **2026-10-02 实测：HLS 直连一律 410 Gone、get_media 返回 `[]`**（疑与会话/登录态
+  /// 绑定，纯 HTTP 拿不到）——见 DEVLOG 第 70 条，这块**待解**。
+  pornhub,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -135,11 +153,16 @@ class SiteFilters {
   final List<SiteTab> languages;
   final List<MapEntry<String, String>> durations;
   final List<MapEntry<String, String>> sorts;
+
+  /// [themes] 那一组在 UI 上叫什么（弹窗标题 / 按钮文字）。
+  /// Pektino 照站点叫「主题」；Pornhub 的这组是**分类清单**，所以要显示「分类」。
+  final String themeLabel;
   const SiteFilters({
     required this.themes,
     required this.languages,
     required this.durations,
     required this.sorts,
+    this.themeLabel = '主题',
   });
 }
 
@@ -264,6 +287,196 @@ const List<SiteTab> _mdScreens = [
   SiteTab('/likes', '点赞排行'),
   SiteTab('/week', '7天热门'),
   SiteTab('/month', '30天热门'),
+];
+
+/// Pornhub 的**全部分类**（102 个）——用户 2026-10-02 要求「分类」做成**弹窗选择**，
+/// 内容照站点 `/categories` 页（「热门色情片类型」+「所有色情片类型」）**原序原名**。
+/// ⚠️ 顶栏「分类」下拉里只有它推荐的十几个热门项，**不是**这个清单；
+/// ⚠️ 也不要再往里塞「性取向 / 视频内语言」的筛选项（异性恋 / 男同 / 跨性别 / 女女萨福系 / chinese）
+/// —— 用户点名去掉过。key 直接是站内路径，列表按它请求（`/video?c=NN`、少数是 `/categories/xxx`
+/// 或 `/vr` `/hd` `/sfw` `/interactive` 这类特殊入口）。
+const List<SiteTab> _phCats = [
+  SiteTab('/video?c=17', '黑人女'),
+  SiteTab('/video?c=6', '大号美女'),
+  SiteTab('/video?c=492', '女性自慰'),
+  SiteTab('/video?c=7', '巨屌'),
+  SiteTab('/video?c=22', '手淫'),
+  SiteTab('/transgender', '跨性别'),
+  SiteTab('/categories/pornstar', '色情明星'),
+  SiteTab('/video?c=115', '独家'),
+  SiteTab('/video?c=25', '跨种族'),
+  SiteTab('/video?c=59', '贫乳'),
+  SiteTab('/categories/teen', '18-25歲'),
+  SiteTab('/video?c=65', '3P'),
+  SiteTab('/video?c=105', '60帧'),
+  SiteTab('/video?c=241', 'Cosplay'),
+  SiteTab('/sfw', '上班时观赏'),
+  SiteTab('/video?c=2', '乱交群欢'),
+  SiteTab('/video?c=1', '亚洲人'),
+  SiteTab('/interactive', '交互式'),
+  SiteTab('/video?c=542', '佩戴式阳具'),
+  SiteTab('/video?c=99', '俄国人'),
+  SiteTab('/video?c=24', '公众野战'),
+  SiteTab('/video?c=15', '内射中出'),
+  SiteTab('/video?c=732', '内嵌字幕'),
+  SiteTab('/video?c=21', '劲爆重口味'),
+  SiteTab('/video?c=86', '卡通'),
+  SiteTab('/video?c=101', '印度人'),
+  SiteTab('/video?c=76', '双性恋男'),
+  SiteTab('/video?c=72', '双龙入洞'),
+  SiteTab('/video?c=13', '口交'),
+  SiteTab('/video?c=43', '古典派'),
+  SiteTab('/video?c=57', '合集'),
+  SiteTab('/video?c=12', '名人'),
+  SiteTab('/categories/college', '大学'),
+  SiteTab('/video?c=27', '女同'),
+  SiteTab('/popularwithwomen', '女性之选'),
+  SiteTab('/video?c=502', '女性高潮'),
+  SiteTab('/video?c=242', '娇妻偷吃'),
+  SiteTab('/video?c=16', '射精'),
+  SiteTab('/video?c=8', '巨乳'),
+  SiteTab('/video?c=482', '已认证情侣'),
+  SiteTab('/video?c=139', '已认证模特'),
+  SiteTab('/video?c=138', '已认证素人'),
+  SiteTab('/video?c=102', '巴西人'),
+  SiteTab('/video?c=95', '德国人'),
+  SiteTab('/video?c=23', '性玩具'),
+  SiteTab('/video?c=18', '恋物癖'),
+  SiteTab('/video?c=93', '恋足'),
+  SiteTab('/video?c=97', '意大利人'),
+  SiteTab('/video?c=20', '手交'),
+  SiteTab('/video?c=91', '抽烟'),
+  SiteTab('/video?c=26', '拉丁裔美女'),
+  SiteTab('/video?c=19', '拳交'),
+  SiteTab('/video?c=592', '指交'),
+  SiteTab('/video?c=78', '按摩'),
+  SiteTab('/video?c=10', '捆绑'),
+  SiteTab('/video?c=100', '捷克人'),
+  SiteTab('/video?c=32', '搞笑'),
+  SiteTab('/video?c=211', '撒尿'),
+  SiteTab('/video?c=891', '播客'),
+  SiteTab('/video?c=111', '日本人'),
+  SiteTab('/video?c=88', '校园'),
+  SiteTab('/video?c=55', '欧洲人'),
+  SiteTab('/video?c=94', '法国人'),
+  SiteTab('/video?c=522', '浪漫'),
+  SiteTab('/video?c=11', '深发女'),
+  SiteTab('/video?c=201', '滑稽模仿'),
+  SiteTab('/video?c=69', '潮吹'),
+  SiteTab('/video?c=89', '火辣保姆'),
+  SiteTab('/video?c=28', '熟女'),
+  SiteTab('/video?c=35', '爆菊'),
+  SiteTab('/video?c=141', '片场直击'),
+  SiteTab('/video?c=92', '男性自慰'),
+  SiteTab('/video?c=31', '真人实拍'),
+  SiteTab('/video?c=41', '第一视角'),
+  SiteTab('/video?c=67', '粗暴性爱'),
+  SiteTab('/video?c=3', '素人'),
+  SiteTab('/video?c=42', '红毛'),
+  SiteTab('/video?c=562', '纹身女'),
+  SiteTab('/video?c=444', '继家庭幻想'),
+  SiteTab('/video?c=181', '老少欢'),
+  SiteTab('/video?c=53', '聚会'),
+  SiteTab('/video?c=512', '肌肉男'),
+  SiteTab('/video?c=4', '肥臀'),
+  SiteTab('/video?c=33', '脱衣舞'),
+  SiteTab('/described-video', '自述视频'),
+  SiteTab('/video?c=131', '舔屄'),
+  SiteTab('/categories/hentai', '色情日漫'),
+  SiteTab('/video?c=96', '英国人'),
+  SiteTab('/vr', '虚拟现实'),
+  SiteTab('/video?c=61', '视频激情'),
+  SiteTab('/video?c=81', '角色扮演'),
+  SiteTab('/video?c=90', '试镜'),
+  SiteTab('/video?c=881', '赌博'),
+  SiteTab('/video?c=80', '轮交'),
+  SiteTab('/video?c=29', '辣妈'),
+  SiteTab('/video?c=9', '金发女'),
+  SiteTab('/video?c=98', '阿拉伯人'),
+  SiteTab('/video?c=14', '集体颜射'),
+  SiteTab('/video?c=103', '韩国人'),
+  SiteTab('/video?c=121', '音乐'),
+  SiteTab('/categories/babe', '风情少女'),
+  SiteTab('/hd', '高清色情片'),
+];
+
+/// Pornhub「色情明星」页（/pornstars）的筛选 —— 用户 2026-10-02 要求照站点右上角
+/// 那四个控件做：最受欢迎 ▾ / 色情明星和模特 ▾ / 每月 ▾ / + 更多筛选设置。
+/// 参数形态全部是 URL 查询串（桌面版页面里 `<a href="/pornstars?…">` 实测出来的，
+/// **不是猜的**）：`?o=` 排序、`?performerType=` 类型、`?t=` 时间区段。
+/// key 空串 = 该控件的默认值（站点默认：最受欢迎 / 色情明星和模特 / 每月）。
+const List<SiteTab> phStarSorts = [
+  SiteTab('', '最受欢迎'),
+  SiteTab('mv', '最多次观看'),
+  SiteTab('t', '最热门'),
+  SiteTab('ms', '最多订阅'),
+  SiteTab('a', '按字母排序'),
+  SiteTab('nv', '视频数量'),
+  SiteTab('r', '随机'),
+];
+const List<SiteTab> phStarTypes = [
+  SiteTab('', '色情明星和模特'),
+  SiteTab('pornstar', '色情明星'),
+  SiteTab('amateur', '素人模特'),
+];
+const List<SiteTab> phStarTimes = [
+  SiteTab('w', '每周'),
+  SiteTab('', '每月'),
+  SiteTab('a', '每年'),
+];
+
+/// 「+ 更多筛选设置」里那 7 组（照站点筛选面板；组内第一个空 key 都代表"全部"）。
+/// ⚠️ 每组的 `key` 是**URL 参数名**（gender/ethnicity/tattoos/hair/piercings/cup/breasttype，
+/// 从站点筛选面板的链接实测），`name` 才是中文显示名。
+const List<SiteTab> phStarMore = [
+  SiteTab('gender', '性别', [
+    SiteTab('', '全部'),
+    SiteTab('male', '男性'),
+    SiteTab('female', '女性'),
+    SiteTab('m2f', '变性女'),
+    SiteTab('f2m', '变性男'),
+  ]),
+  SiteTab('ethnicity', '种族', [
+    SiteTab('', '全部'),
+    SiteTab('asian', 'Asian'),
+    SiteTab('black', 'Black'),
+    SiteTab('indian', 'Indian'),
+    SiteTab('latin', 'Latin'),
+    SiteTab('middle+eastern', 'Middle Eastern'),
+    SiteTab('mixed', 'Mixed'),
+    SiteTab('white', 'White'),
+    SiteTab('other', 'Other'),
+  ]),
+  SiteTab('tattoos', '纹身',
+      [SiteTab('', '全部'), SiteTab('yes', 'Yes'), SiteTab('no', 'No')]),
+  SiteTab('hair', '发色', [
+    SiteTab('', '全部'),
+    SiteTab('auburn', 'Auburn'),
+    SiteTab('bald', 'Bald'),
+    SiteTab('black', 'Black'),
+    SiteTab('blonde', 'Blonde'),
+    SiteTab('brunette', 'Brunette'),
+    SiteTab('grey', 'Grey'),
+    SiteTab('red', 'Red'),
+    SiteTab('various', 'Various'),
+    SiteTab('other', 'Other'),
+  ]),
+  SiteTab('piercings', '穿环',
+      [SiteTab('', '全部'), SiteTab('yes', 'Yes'), SiteTab('no', 'No')]),
+  SiteTab('cup', '罩杯', [
+    SiteTab('', '全部'),
+    SiteTab('a', 'A'),
+    SiteTab('b', 'B'),
+    SiteTab('c', 'C'),
+    SiteTab('d', 'D'),
+    SiteTab('e', 'E'),
+    SiteTab('f-z', 'F-Z'),
+  ]),
+  SiteTab('breasttype', '胸型', [
+    SiteTab('', '全部'),
+    SiteTab('natural', 'Natural'),
+    SiteTab('fake', 'Fake'),
+  ]),
 ];
 
 const List<SiteEntry> kSites = [
@@ -779,5 +992,62 @@ const List<SiteEntry> kSites = [
       SiteTab('/tags', '热门标签'),
       SiteTab('筛选', '筛选', _mdScreens),
     ],
+  ),
+
+
+
+  // Pornhub（cn.pornhub.com，用户指定）：**中文站是域名自带的**（`<html lang="cn">`，
+  // 标题/导航/分类名全中文），按**移动版 DOM** 解析（见 SiteTemplate.pornhub 的注释）。
+  //
+  // 分类 = **渲染后 DOM 实测的站点顶栏导航**（`li.menu item-1..8`，与用户截图核对过）：
+  //   ① 首页 `/`（视频列表）→ 接
+  //   ② 视频 `/video` + 9 个子项（探索/推荐/最热门/最多次观看/最高分/热门自制/短片/频道/最新）→ 接
+  //   ③ 分类 `/categories` + 19 个热门分类子项（熟女/18-25歲/辣妈/…/潮吹）→ 接
+  //   ④ Live Cams `#`、⑥ Virtual Girls `#`（**直播，href 就是 `#` 的异步加载**）→ 不接
+  //   ⑤ 色情明星 `/pornstars`（**演员列表，不是视频库**）→ 不接
+  //   ⑦ 社区 `/community`、⑧ 照片及动图 `/albums`（**非视频**）→ 不接
+  // ⚠️ 踩过的坑（2026-10-02 用户当场指出）：之前把 `li.menu` **下拉里的东西**当成了主分类——
+  // 那 12 个（异性恋/男同/精选色情片/LIVE…）其实**全是「分类」下拉里的子项**。
+  // 主分类只看**顶栏那 8 个**，别再照着页面里任意一组链接猜。
+  SiteEntry(
+    name: 'Pornhub',
+    template: SiteTemplate.pornhub,
+    iconUrl: '/favicon.ico',
+    hosts: ['cn.pornhub.com'],
+    categories: [
+      SiteTab('/', '首页'),
+      SiteTab('/video', '视频', [
+        SiteTab('/video', '探索视频'),
+        SiteTab('/recommended', '推荐视频'),
+        SiteTab('/video?o=ht', '最热门'),
+        SiteTab('/video?o=mv', '最多次观看'),
+        SiteTab('/video?o=tr', '最高分'),
+        SiteTab('/video?p=homemade&o=tr', '热门自制'),
+        SiteTab('/shorties', '短片'),
+        SiteTab('/channels', '频道'),
+        SiteTab('/video?o=cm', '最新'),
+      ]),
+      // ⚠️ 「分类」**是主分类 tab，必须保留**（用户 2026-10-02 指出：首页 / 视频 / 分类 三个都在）——
+      // 只是它**不要平铺子项**：站点顶栏那个「分类」是下拉，我们让它进**全部视频**，
+      // 再由列表页顶部的「分类」筛选按钮弹窗选那 102 个（见下面的 filters / _phCats）。
+      SiteTab('/video', '分类'),
+      // 色情明星：站点顶栏第 5 项。进去是**演员卡列表**（61 个/页，名字+头像+排名），
+      // 点演员 → 演员页（`/pornstar/xxx`、`/model/xxx`）——**那是他的视频列表**，不是视频详情。
+      // 筛选（用户 2026-10-02 点名要的）：排序（`?o=`，7 项，见 _phStarSorts）
+      // + 演员类型（`?performerType=`，见 _phStarTypes）；「更多筛选设置」那 9 组
+      // （性别/种族/纹身/发色/穿环/罩杯/胸型/时间区段）的 URL 参数**还没确认**（站点是 JS 提交）。
+      SiteTab('/pornstars', '色情明星'),
+    ],
+    // 「分类」**不做平铺 tab**（站点顶栏那个是下拉、不是列表页）：做成列表页上的
+    // 筛选按钮 → 点开**弹窗**选，候选 = /categories 页的 102 个（见 _phCats）。
+    // 按钮与弹窗标题用 themeLabel，显示成「分类」而不是默认的「主题」。
+    filters: SiteFilters(
+      themes: _phCats,
+      languages: const [],
+      durations: const [],
+      sorts: const [],
+      themeLabel: '分类',
+    ),
+    color: Color(0xFFFF9000),
   ),
 ];

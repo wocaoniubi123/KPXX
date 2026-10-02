@@ -169,6 +169,15 @@ class Api {
         final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
         return _mdCards(await _fetchText(
             page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
+      case SiteTemplate.pornhub:
+        // 列表 key 本身就是站内路径；「分类」tab 选中的分类是 theme（/video?c=27，见 _phCats）。
+        // 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key）。
+        var php = theme ?? k;
+        if (extra != null && extra.isNotEmpty) {
+          php += '${php.contains('?') ? '&' : '?'}'
+              '${extra.map((e) => '${e.key}=${e.value}').join('&')}';
+        }
+        return _phList(php, page: page);
     }
   }
 
@@ -198,6 +207,8 @@ class Api {
       case SiteTemplate.madou:
         // 首页第 N 页 = /page/N（没有 /page/1）
         return _mdCards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
+      case SiteTemplate.pornhub:
+        return _phList('/', page: page);
     }
   }
 
@@ -238,6 +249,10 @@ class Api {
         }
         return _mdCards(await _fetchText(
             page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+      case SiteTemplate.pornhub:
+        // 详情页的标签是 `/video/search?search=<编码词>`；演员卡传来的是 `/pornstar/xxx`。
+        // 两者对本站都只是"一个站内路径"→ 直接当列表抓（演员路径回来的是视频卡）。
+        return _phList(slug, page: page);
     }
   }
 
@@ -274,6 +289,10 @@ class Api {
         final kw = Uri.encodeComponent(keyword);
         return _mdCards(await _fetchText(
             page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
+      case SiteTemplate.pornhub:
+        // 搜索 = /video/search?search=<kw>（站点自己的搜索页形态；kw 是原始文本，自己编码）
+        return _phList('/video/search?search=${Uri.encodeComponent(keyword)}',
+            page: page);
     }
   }
 
@@ -302,6 +321,8 @@ class Api {
         return _hanimeDetail(url);
       case SiteTemplate.xvideos:
         return _xvDetail(url);
+      case SiteTemplate.pornhub:
+        return _phDetail(url);
       case SiteTemplate.kmsvip:
         return _kmDetail(url);
       case SiteTemplate.madou:
@@ -2606,5 +2627,153 @@ class Api {
     final m = RegExp(r'第\s*\d+\s*集').firstMatch(title);
     if (m == null) return '';
     return title.substring(0, m.start).trim();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pornhub（cn.pornhub.com）
+  //
+  // ⚠️ 全部按**移动版 DOM**解析（App 的 UA 是 iPhone Safari）。桌面版是另一套结构，
+  //    两套选择器不能混用 —— 2026-10-02 我混用后才误判"站点没有源"。
+  // ⚠️ 列表类的 key 就是**站内路径**（sites.dart 的 pornhub 条目直接写路径）：
+  //    '/'、'/video'、'/recommended'、'/video?o=ht'、'/shorties'、'/video?c=27'、
+  //    '/pornstars'（演员卡）、'/pornstar/xxx'（该演员的视频）、'/video/search?search=<kw>'。
+
+  /// 列表（视频卡；'/pornstars' 是演员卡）。翻页 = `?page=N`。
+  Future<List<Article>> _phList(String path, {int page = 1}) async {
+    var p = path.isEmpty ? '/' : path;
+    // 首页第 2 页起站点自己指向 /video（实测），照它换
+    if (page > 1 && p.split('?').first == '/') p = '/video';
+    if (page > 1) p += '${p.contains('?') ? '&' : '?'}page=$page';
+    final doc = hp.parse(await _fetchText(p));
+    return p.split('?').first == '/pornstars'
+        ? _phStarCards(doc)
+        : _phCards(doc);
+  }
+
+  /// 视频卡。选择器用 `[data-video-vkey]`（**不要求是 li**）：分类/搜索页的卡是 <li>，
+  /// 但演员页的视频卡不是 li（实测 `li[data-video` 在演员页 0 条）。
+  /// 标题取 `img[alt]` —— 卡片里第一个 <a> 是"已观看"角标，取它会拿到"已观看"三个字。
+  /// [scope] 传了就在该子树里找（详情页的「相关推荐」= `#relatedVideos`）。
+  List<Article> _phCards(Document doc, [Element? scope]) {
+    final out = <Article>[];
+    for (final el in (scope ?? doc).querySelectorAll('[data-video-vkey]')) {
+      final a = el.querySelector('a[href*="view_video.php?viewkey="]');
+      if (a == null) continue;
+      final img = el.querySelector('img.videoThumb') ?? el.querySelector('img');
+      final title = ((img?.attributes['alt'] ?? '') ||
+              (el.querySelector('a.thumbnailTitle')?.text ?? ''))
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (title.isEmpty) continue;
+      final durEl = el.querySelector('div.bgEffect.time') ??
+          el.querySelector('div.time') ??
+          el.querySelector('[class*="duration"]');
+      final poster = el.querySelector('a[data-poster]');
+      out.add(Article(
+        title: title,
+        url: a.attributes['href'] ?? '',
+        cover: (img?.attributes['src'] ?? '') ||
+            (poster?.attributes['data-poster'] ?? ''),
+        meta: '',
+        badge: durEl?.text.trim() ?? '',
+      ));
+    }
+    return out;
+  }
+
+  /// 演员卡（`/pornstars`）：`.performerCard` → 名字、头像、排名角标（`.rank_number`）。
+  List<Article> _phStarCards(Document doc) {
+    final out = <Article>[];
+    for (final el in doc.querySelectorAll('.performerCard')) {
+      final href = el.querySelector('a[href]')?.attributes['href'] ?? '';
+      if (!RegExp(r'/(pornstar|model)/').hasMatch(href)) continue;
+      final img = el.querySelector('img');
+      final name = ((el.querySelector('.performerCardName')?.text ?? '') ||
+              (img?.attributes['alt'] ?? ''))
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (name.isEmpty) continue;
+      out.add(Article(
+        title: name,
+        url: href,
+        cover: (img?.attributes['src'] ?? '') ||
+            (img?.attributes['data-thumb_url'] ?? ''),
+        meta: '',
+        badge: el.querySelector('.rank_number')?.text.trim() ?? '',
+        coverAspect: 3 / 4, // 演员是竖版头像（列表一行 3 个，见 home_page 的星 tab 分支）
+      ));
+    }
+    return out;
+  }
+
+  /// 抓到的源是否落在**被 Cloudflare 挡的子域**上。
+  /// 实测：`hm-h.phncdn.com` 对新浪云外的所有非浏览器请求一律 410（`Server: cloudflare`
+  /// + `__cf_bm`），而 `em-h`/`im-h` 畅通；子域是**每次抓页面随机分配**的 → 命中就重抓。
+  bool _phBadHost(String html) {
+    final m = RegExp(r'"videoUrl":"(https:[^"]*?master\.m3u8[^"]*)"').firstMatch(html);
+    return m != null && m.group(1)!.contains('hm-h.phncdn.com');
+  }
+
+  /// 详情。`videos[0].sources` = 各档 master.m3u8，**720P 排最前** = 默认播 720P
+  /// （播放器按 sources 顺序逐个试，所以"顺序"就是"默认档 + 降级顺序"；见 player_widget
+  /// 的 `_openAndWait` 循环）。页面里 `mediaDefinitions` 的原始顺序是乱的
+  /// （实测 1080/240/480/720），先按 height 排高→低再挑。
+  Future<ArticleDetail> _phDetail(String url) async {
+    var html = await _fetchText(url);
+    for (var i = 0; i < 2 && _phBadHost(html); i++) {
+      html = await _fetchText(url);
+    }
+    final doc = hp.parse(html);
+    var title =
+        (doc.querySelector('h1')?.text ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (title.isEmpty) {
+      title = (doc.querySelector('title')?.text ?? '')
+          .replaceFirst(
+              RegExp(r'\s*-\s*Pornhub\.com\s*$', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+    }
+    final pairs = <MapEntry<int, String>>[];
+    for (final m in RegExp(
+            r'"height":(\d+)[^}]*?"videoUrl":"(https:[^"]*?master\.m3u8[^"]*)"')
+        .allMatches(html)) {
+      final u = m.group(2)!.replaceAll(r'\/', '/');
+      if (!pairs.any((p) => p.value == u)) {
+        pairs.add(MapEntry(int.parse(m.group(1)!), u));
+      }
+    }
+    pairs.sort((a, b) => b.key.compareTo(a.key)); // 高 → 低
+    final all = pairs.map((p) => p.value).toList();
+    final srcs = <String>[
+      ...all.where((u) => u.contains('720P_')), // 默认档放最前
+      ...all.where((u) => !u.contains('720P_')),
+    ];
+    // 标签：播放器下方那排 `a.isTag`（实测一页约 25 个），href 是
+    // /video/search?search=<编码词>，显示名在 <span>（站点已翻译成中文）
+    final tags = <MapEntry<String, String>>[];
+    for (final a in doc.querySelectorAll('a.isTag[href]')) {
+      final name = a.text
+          .replaceFirst(RegExp(r'^#'), '')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      final slug = a.attributes['href'] ?? '';
+      if (name.isNotEmpty && slug.isNotEmpty) tags.add(MapEntry(slug, name));
+    }
+    // 相关推荐：页面里是**静态的** `#relatedVideos`（实测，不用额外请求）
+    final relBox = doc.querySelector('#relatedVideos');
+    return ArticleDetail(
+      title: title.isEmpty ? url : title,
+      time: '',
+      categories: const [],
+      images: const [],
+      intro: '',
+      videos: srcs.isEmpty
+          ? const []
+          : [ArticleVideo(label: '视频', ordinal: 1, sources: srcs)],
+      tags: tags,
+      related: relBox == null ? const [] : _phCards(doc, relBox),
+      duration: doc.querySelector('div.duration')?.text.trim() ?? '',
+      seriesPrefix: '',
+    );
   }
 }

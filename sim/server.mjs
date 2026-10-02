@@ -300,9 +300,18 @@ function streamVideo(req, res, targetUrl) {
     res.end('URL 不合法');
     return;
   }
+  // HLS 清单（.m3u8）：**必须先改名里的 URI 再交出去** —— hls.js 解析相对 URI 时用的 base
+  // 是它**实际请求的那个 URL**（`/vproxy?url=…`），相对路径会被解析到模拟器自己头上
+  // （2026-10-02 实测：子清单被请求成 `http://localhost:8787/index-v1-a1.m3u8` → levelLoadError）。
+  // 这里读全文、把每个 URI 行换成"指向本机 /vproxy 的绝对地址"，于是后面每一层都会自动再过一遍这里。
+  if (/\.m3u8($|\?)/i.test(u.pathname)) return streamM3u8(req, res, u);
+
   const hdrs = {
     'User-Agent': UA,
-    Referer: `${u.protocol}//${u.host}/`,
+    // ⚠️ Pornhub 的 CDN（phncdn.com）是**反例**：HLS **分片**要「站点域名」当 Referer，
+    // 拿源自身域名会被伪装成 404（2026-10-02 实测；App 侧 player_widget.dart 同理）。
+    // 其余站照旧用源自身域名（Pektino→video.twimg.com 用站点域名会被拒）。
+    Referer: /(^|\.)phncdn\.com$/.test(u.host) ? 'https://cn.pornhub.com/' : `${u.protocol}//${u.host}/`,
     'Accept-Encoding': 'identity',
     Accept: '*/*',
     ...(req.headers.range ? { Range: req.headers.range } : {}),
@@ -400,6 +409,62 @@ function streamVideo(req, res, targetUrl) {
   preq.on('error', (e) => {
     if (!settled) fail(e);
   });
+}
+
+/** HLS 清单中转：读全文 → 把每个 URI 行换成"本机 /vproxy 的绝对地址" → 返回。
+ *  这样 hls.js 不需要任何 xhrSetup，它眼里所有 URL 都是绝对地址，相对路径的 base 问题不存在。
+ *  ⚠️ **直连和代理两条路都要试**：PH 的 CDN 每次给的子域不同（em-h/im-h/km-h/hm-h…），
+ *  实测有的子域直连通、有的只有代理通（反之也有）——只走一条会随机 manifestLoadError。
+ *  非 m3u8 的内容不经过这里（走上面的流式转发，支持 Range）。 */
+function streamM3u8(req, res, u) {
+  const host = req.headers.host || 'localhost:8787';
+  const hdrs = {
+    'User-Agent': UA,
+    // 和 streamVideo 一致：phncdn 要站点域名当 Referer
+    Referer: /(^|\.)phncdn\.com$/.test(u.host) ? 'https://cn.pornhub.com/' : `${u.protocol}//${u.host}/`,
+    Accept: '*/*',
+    'Accept-Encoding': 'identity',
+  };
+  const emit = (body) => {
+    const base = u.toString();
+    const dir = base.slice(0, base.lastIndexOf('/') + 1);
+    const out = String(body).split('\n').map((line) => {
+      const t = line.trim();
+      if (!t || t.startsWith('#')) return line; // 注释/空行原样
+      const abs = /^https?:\/\//i.test(t) ? t : new URL(t, dir).toString();
+      return `http://${host}/vproxy?url=${encodeURIComponent(abs)}`;
+    }).join('\n');
+    res.writeHead(200, { ...cors, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+    res.end(out);
+  };
+  const fail = (msg) => {
+    res.writeHead(502, { ...cors, 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('m3u8 中转失败：' + msg);
+  };
+  // 先直连
+  const GET = u.protocol === 'https:' ? https : http;
+  const preq = GET.get(u, { headers: hdrs }, (pres) => {
+    if ((pres.statusCode || 0) !== 200) {
+      pres.resume();
+      viaProxyM3u8('status=' + pres.statusCode);
+      return;
+    }
+    const chunks = [];
+    pres.on('data', (c) => chunks.push(c));
+    pres.on('end', () => emit(Buffer.concat(chunks).toString('utf8')));
+  });
+  preq.setTimeout(15000, () => { try { preq.destroy(); } catch (_) {} });
+  preq.on('error', (e) => viaProxyM3u8((e && e.message) || String(e)));
+  // 直连不成 → 走代理再试一次
+  function viaProxyM3u8(why) {
+    fetchUrl(u.toString(), 0, 20000).then((r) => {
+      if (r.status !== 200) {
+        fail('直连: ' + why + ' / 代理: status=' + r.status);
+        return;
+      }
+      emit(String(r.body));
+    }).catch((e2) => fail('直连: ' + why + ' / 代理: ' + ((e2 && e2.message) || e2)));
+  }
 }
 
 /** 带重定向跟随的请求（最多 5 跳），返回 { status, headers, body }。

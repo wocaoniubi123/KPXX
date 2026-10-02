@@ -286,6 +286,178 @@ class _HnTagDialogState extends State<_HnTagDialog> {
   }
 }
 
+/// Pornhub「色情明星」tab 的筛选状态（照站点右上角那四个控件）：
+/// 最受欢迎 ▾ / 色情明星和模特 ▾ / 每月 ▾ / + 更多筛选设置。
+/// 值都直接是**URL 参数值**（o / performerType / t，选项见 sites.dart 的 phStar*），
+/// 空串 = 该控件的默认（站点默认就是最受欢迎 / 色情明星和模特 / 每月）。
+class _PhStarFilters {
+  String sort = '';
+  String type = '';
+  String time = '';
+
+  /// 参数名（gender/ethnicity/tattoos/hair/piercings/cup/breasttype）→ 选中值
+  final Map<String, String> more = {};
+
+  /// 拼成 `extra`（Api 的 pornhub 分支会把它接在 /pornstars 后面）
+  List<MapEntry<String, String>> toParams() => [
+        if (sort.isNotEmpty) MapEntry('o', sort),
+        if (type.isNotEmpty) MapEntry('performerType', type),
+        if (time.isNotEmpty) MapEntry('t', time),
+        for (final e in more.entries)
+          if (e.value.isNotEmpty) MapEntry(e.key, e.value),
+      ];
+
+  /// 「更多筛选设置」里选中了几个（按钮高亮用）
+  int get moreCount => more.values.where((v) => v.isNotEmpty).length;
+}
+
+/// Pornhub 色情明星筛选行（四个控件，照站点；前三个单选、选完即关）
+class _PhStarBar extends StatelessWidget {
+  final _PhStarFilters filters;
+  final VoidCallback onChanged;
+  const _PhStarBar({required this.filters, required this.onChanged});
+
+  /// 控件按钮上的文字：选中的显示选项名，没选显示默认名
+  String _label(List<SiteTab> opts, String cur, String dft) {
+    for (final o in opts) {
+      if (o.key == cur) return cur.isEmpty ? dft : o.name;
+    }
+    return dft;
+  }
+
+  Future<void> _pick(BuildContext context, String title, List<SiteTab> opts,
+          String cur, void Function(String) apply) =>
+      pickOptionDialog(
+        context,
+        title,
+        [for (final o in opts) MapEntry(o.key, o.name)],
+        cur,
+        (v) {
+          apply(v);
+          onChanged();
+        },
+      );
+
+  Future<void> _pickMore(BuildContext context) async {
+    final sel = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => _PhMoreDialog(init: Map.of(filters.more)),
+    );
+    if (sel != null) {
+      filters.more
+        ..clear()
+        ..addAll(sel);
+      onChanged();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final f = filters;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            filterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
+                () => _pick(context, '排序', phStarSorts, f.sort,
+                    (v) => f.sort = v)),
+            const SizedBox(width: 6),
+            filterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
+                () => _pick(context, '类型', phStarTypes, f.type,
+                    (v) => f.type = v)),
+            const SizedBox(width: 6),
+            filterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
+                () => _pick(context, '时间区段', phStarTimes, f.time,
+                    (v) => f.time = v)),
+            const SizedBox(width: 6),
+            filterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pornhub「+ 更多筛选设置」：7 组（性别/种族/纹身/发色/穿环/罩杯/胸型），
+/// 组内单选、组间独立；確定写回、清除全空、取消不改。
+class _PhMoreDialog extends StatefulWidget {
+  final Map<String, String> init;
+  const _PhMoreDialog({required this.init});
+  @override
+  State<_PhMoreDialog> createState() => _PhMoreDialogState();
+}
+
+class _PhMoreDialogState extends State<_PhMoreDialog> {
+  late final Map<String, String> _sel = Map.of(widget.init);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('更多筛选设置'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final g in phStarMore) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 6),
+                child: Text(g.name,
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFF666666))),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final o in g.subs)
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        if (o.key.isEmpty) {
+                          _sel.remove(g.key); // 「全部」= 该组不传参数
+                        } else {
+                          _sel[g.key] = o.key;
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: (_sel[g.key] ?? '') == o.key
+                              ? const Color(0xFFE8590C)
+                              : const Color(0xFFF0F0F2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(o.name,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: (_sel[g.key] ?? '') == o.key
+                                    ? Colors.white
+                                    : const Color(0xFF444444))),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context, <String, String>{}),
+            child: const Text('清除')),
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        TextButton(
+            onPressed: () => Navigator.pop(context, _sel),
+            child: const Text('確定')),
+      ],
+    );
+  }
+}
+
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
@@ -307,6 +479,9 @@ class _HomePageState extends State<HomePage>
 
   // ---- Hanime1 的筛选器（照站点：標籤/排序方式/發佈日期/時長）----
   final _hn = _HnFilters();
+
+  // ---- Pornhub「色情明星」tab 的筛选器（排序/类型/时间/更多）----
+  final _phStar = _PhStarFilters();
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -359,7 +534,11 @@ class _HomePageState extends State<HomePage>
           ..theme = _theme
           ..duration = _duration
           ..sort = _sort
-          ..extra = _hn.toParams());
+          // Pornhub 的「色情明星」tab：四个筛选拼成 ?o=/?performerType=/?t=/更多组
+          ..extra = (widget.site.template == SiteTemplate.pornhub &&
+                  c.key == '/pornstars')
+              ? _phStar.toParams()
+              : _hn.toParams());
   }
 
   /// 切筛选：所有分类的列表都重拉（筛选是页面级状态，照站点）
@@ -369,6 +548,18 @@ class _HomePageState extends State<HomePage>
       f.applyFilters(theme: _theme, duration: _duration, sort: _sort);
     }
   }
+
+  /// Pornhub 色情明星：把当前筛选应用到所有列表 + 重建
+  void _applyPhStar() {
+    setState(() {});
+    final p = _phStar.toParams();
+    for (final f in _feeds.values) {
+      f.applyExtra(p);
+    }
+  }
+
+  /// Pornhub 的色情明星筛选行（照站点四个控件）
+  Widget _phStarRow() => _PhStarBar(filters: _phStar, onChanged: _applyPhStar);
 
   /// Hanime1：把当前筛选应用到所有列表 + 重建
   void _applyHn() {
@@ -395,26 +586,12 @@ class _HomePageState extends State<HomePage>
             scrollDirection: Axis.horizontal, // 兜底：极窄屏也不换行（可横滑）
             child: Row(
               children: [
-                filterBtn('筛选', _theme != null, () => _openFilterDialog(f)),
-                // 有筛选生效时给个一键重置（不然切来切去总带着老标签）
-                if (_theme != null ||
-                    _duration != '0,0' ||
-                    _sort != 'favorite') ...[
-                  const SizedBox(width: 6),
-                  OutlinedButton(
-                    onPressed: () {
-                      _theme = null;
-                      _duration = '0,0';
-                      _sort = 'favorite';
-                      _applyFilters();
-                    },
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    child: const Text('重置', style: TextStyle(fontSize: 13)),
-                  ),
-                ],
+                // 单选 → 选中后按钮直接显示那个标签名（Hanime1 是多选，那边保持原样）
+                filterBtn(
+                  _theme == null ? '筛选' : _nameOf(f.themes, _theme!),
+                  _theme != null,
+                  () => _openFilterDialog(f),
+                ),
                 const SizedBox(width: 6),
                 // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）
                 filterBtn(
@@ -446,6 +623,26 @@ class _HomePageState extends State<HomePage>
                     },
                   ),
                 ),
+                // 一键重置放**最后**、用**红字**（用户 2026-10-02 要求）；有筛选生效时才出现
+                if (_theme != null ||
+                    _duration != '0,0' ||
+                    _sort != 'favorite') ...[
+                  const SizedBox(width: 6),
+                  OutlinedButton(
+                    onPressed: () {
+                      _theme = null;
+                      _duration = '0,0';
+                      _sort = 'favorite';
+                      _applyFilters();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      foregroundColor: Colors.red,
+                    ),
+                    child: const Text('重置', style: TextStyle(fontSize: 13)),
+                  ),
+                ],
               ],
             ),
           ),
@@ -600,9 +797,17 @@ class _HomePageState extends State<HomePage>
             ),
           // 筛选器（多级分类：主题/时长/排序——站点把它们放在"每天/每周"这些
           // 主分类页面里，照站点做一行筛选控件）
-          if (widget.site.filters != null) _filterRow(widget.site.filters!),
+          // ⚠️ Pornhub 的「色情明星」tab 用另一套筛选（下面那行），这里跳过它
+          if (widget.site.filters != null &&
+              !(widget.site.template == SiteTemplate.pornhub &&
+                  cur?.key == '/pornstars'))
+            _filterRow(widget.site.filters!),
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
           if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),
+          // Pornhub「色情明星」tab 的筛选行（排序 / 类型 / 时间 / 更多筛选设置）
+          if (widget.site.template == SiteTemplate.pornhub &&
+              cur?.key == '/pornstars')
+            _phStarRow(),
           Expanded(
             child: TabBarView(
               controller: _tab,
@@ -836,8 +1041,11 @@ class _FeedViewState extends State<_FeedView>
           : RowsGrid(
               // 竖屏封面站（黄果）**一行 3 个**；但吃瓜社区（/chigua*）的帖子卡
               // 是横版大图（站点桌面就是 2 列网格）→ 走 2 列；横屏站本来 2 列
-              cols: (widget.site.portraitCovers &&
-                      !widget.feed.slug.startsWith('/chigua'))
+              cols: ((widget.site.portraitCovers &&
+                          !widget.feed.slug.startsWith('/chigua')) ||
+                      // Pornhub「色情明星」tab 是演员卡（竖版头像）→ 跟竖屏站一样一行 3 个
+                      (widget.site.template == SiteTemplate.pornhub &&
+                          widget.feed.slug == '/pornstars'))
                   ? 3
                   : 2,
               // Pektino：瀑布流（横竖混排按顺序填充两列，不留空档；照站点）
@@ -1006,6 +1214,24 @@ class ArticleCard extends StatelessWidget {
           // 「視頻」免费列表（站点顶上 RED 是收费的，不取）
           if (site.template == SiteTemplate.xvideos &&
               !article.url.contains('/video.')) {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PageBg(child: TagListPage(
+                  site: site,
+                  title: article.title,
+                  slug: article.url,
+                  isTag: false,
+                )),
+              ),
+            );
+            return;
+          }
+          // Pornhub 的演员卡（/pornstars 列表）和详情页里的演员标签：
+          // /pornstar/xxx、/model/xxx 点进的是**他的视频列表**，不是文章详情
+          // （和 XVideos 的演员卡同一套处理）
+          if (site.template == SiteTemplate.pornhub &&
+              (article.url.startsWith('/pornstar/') ||
+                  article.url.startsWith('/model/'))) {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(child: TagListPage(
