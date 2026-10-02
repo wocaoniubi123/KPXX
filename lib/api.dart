@@ -9,6 +9,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import 'base/fetch.dart';
+import 'base/site_ui.dart';
 import 'config.dart';
 import 'models.dart';
 import 'sites/pornhub.dart';
@@ -54,6 +55,19 @@ class Api {
   http.Client get _client => _f.client;
 
   String get base => 'https://$_host';
+
+  /// 本站的 UI 事实（2026-10-03 站点独立改造）✓
+  ///
+  /// ✅ **全项目唯一一处"哪个模板对应哪个站点类"的选择** ✓ ——
+  /// 站点专属的判断/UI 全在各 lib/sites/<站>.dart 里 ✓，这里只做接线 ✓；
+  /// 没实现 SiteUi 的站点返回 null ✓ → 调用处 `?? 默认值` ✓ = 改造前行为 ✓。
+  SiteUi? get ui => switch (site.template) {
+        SiteTemplate.xhamster => _xhSite,
+        SiteTemplate.pornhub => _phSite,
+        SiteTemplate.pektino => _pkSite,
+        SiteTemplate.hanime1 => _hnSite,
+        _ => null,
+      };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
   late final WpSite _wpSite = WpSite(_f);

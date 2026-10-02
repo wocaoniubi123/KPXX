@@ -12,13 +12,18 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
+import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Hanime1 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class HanimeSite {
+class HanimeSite implements SiteUi {
   HanimeSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 列表页挂本站筛选行（照站点的下拉 ✓）
+  @override
+  bool get hasFilterRow => true;
   // Hanime1.me（H動漫）：分类列表=网格卡（/search?genre=）、搜索=横排卡（/search?query=）、
   // 详情页 watch?v= 内嵌多档直链 mp4（vdownload.hembed.com，secure 签名约 12 小时有效；
   // 过期时播放器失败 → 详情页的刷新机制会重新调 detail 拿新签名）。

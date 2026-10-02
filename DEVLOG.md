@@ -1019,6 +1019,30 @@ pageList · parseArticles · parseCards · postDetail · resetShortsRandom · se
 **⏭️ 下一轮（Round 17）**：实现 `lib/base/site_ui.dart` + 4 个站点类实现它 + `Api.ui` ✓
 （**先只加、不删** ✓ —— 保证这一步编译通过 ✓；19 处替换留到再下一轮 ✓）。
 
+
+--- 第 87 条续（Round 17）---
+✅ **UI 层的"接口 + 每站实现 + 单点选择"骨架搭好** ✓（**只增不减** ✓ —— 19 处替换留到下一轮 ✓，所以**行为零变化** ✓）：
+- **新增 `lib/base/site_ui.dart`（18 行 ✓）**：`abstract class SiteUi` ✓
+  —— ⚠️ **故意不 import flutter** ✗：全是纯 Dart 布尔事实（`masonry` ✓ `portraitStarCards` ✓
+  `hasStarFilterRow` ✓ `hasFilterRow` ✓），**默认值就是"没这个特性"** ✓ →
+  ✅ **不涉及该特性的站点一行都不用写** ✓（ponytail 懒人阶梯 ✓）
+- **4 个站点类 implements SiteUi** ✓，各**只覆盖自己那条** ✓：
+  `PektinoSite.masonry` ✓ · `PhSite/XhSite.portraitStarCards + hasStarFilterRow` ✓ · `HanimeSite.hasFilterRow` ✓
+- **`api.dart` 加 `SiteUi? get ui`** ✓（**全项目唯一一处"模板→站点类"的选择** ✓）→ 470 → **484 行** ✓
+
+⚠️ **两个坑（都记下 ✗）**：
+1. **第一版脚本被 CRLF 卡住** ✗：站点文件是 CRLF ✓，我的锚点写 `\n` ✗ → 判据报"找不到字段锚点"→
+   **安全中止、没写盘** ✓。修法：**读进来先统一成 `\n` 处理 ✓，写回时按原样还原 CRLF** ✓。
+   （**教训**：动这些文件时**必须显式处理行尾** ✗ —— 这和之前"别用 Get-Content 往返 UTF-8"是同一类坑 ✓）
+2. ⚠️ **本地无法编译验证** ✗（无 Flutter SDK ✓）→ **这一轮的"可编译"只能靠结构判断 + CI 兜底** ✓。
+   本轮做法：**只加不删** ✓ + 不新增跨文件依赖（只多一个 `../base/site_ui.dart` ✓）+
+   默认值 = 改造前的判断 ✓ → 🔍[推断] 编译风险低 ✓，但**真正确认要等构建** ✓。
+
+**📈 进度**：轮次 **17/40**；数据层 **9/9** ✓✓；UI 层 **骨架完成 / 19 处替换待做** ✓。
+**⏭️ 下一轮（Round 18）**：把 `home_page` 的 19 处 `SiteTemplate` 换成 `api.ui?.xxx ?? 默认值` ✓ ——
+⚠️ **逐处对应关系**（照 Round 16 的 5 类 ✓）：A 筛选行挂载 → `hasFilterRow`/`hasStarFilterRow` ✓；
+B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E 其余 → 按需再加字段 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

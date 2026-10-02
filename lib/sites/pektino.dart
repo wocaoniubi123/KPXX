@@ -10,13 +10,18 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
+import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Pektino 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class PektinoSite {
+class PektinoSite implements SiteUi {
   PektinoSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 列表走瀑布流（逐条按分辨率混排，不留空档 ✓）
+  @override
+  bool get masonry => true;
 
   // ---- 对外入口（原方法私有 ✗ 跨文件调不到 → 包一层公开 ✓，签名与调用点一字不差 ✓）----
   Future<List<Article>> list(String range, String category,

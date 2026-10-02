@@ -15,13 +15,22 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
+import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Pornhub 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class PhSite {
+class PhSite implements SiteUi {
   PhSite(this._f);
 
   final SiteFetcher _f;
+
+  /// "色情明星"tab 是竖版头像卡 → 一行 3 个 ✓
+  @override
+  bool get portraitStarCards => true;
+
+  /// "色情明星"tab 挂本站专用筛选行 ✓
+  @override
+  bool get hasStarFilterRow => true;
 
   Future<List<Article>> list(String path, {int page = 1}) =>
       _phList(path, page: page);
