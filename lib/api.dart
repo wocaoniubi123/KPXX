@@ -229,7 +229,7 @@ class Api {
         // 专题等路径型（点"专题"卡片进来）走页面列表；标签页是普通列表页（没有分页）
         if (slug.startsWith('/')) return _hgSite.pageList(slug, page: page);
         if (page > 1) return [];
-        return _parseHuangguoCards(hp.parse(await _fetchText('/tag/$slug/')));
+        return _hgSite.parseCards(hp.parse(await _fetchText('/tag/$slug/')));
       case SiteTemplate.porna:
         // 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签），
         // 其余是搜索关键词（视频页的 keywords）
@@ -283,7 +283,7 @@ class Api {
         if (page > 1) return []; // 黄果搜索单页（页面上没有分页入口）
         final kw = Uri.encodeComponent(keyword);
         final html = await _fetchText('/search/?keyword=$kw');
-        return _parseHuangguoCards(hp.parse(html));
+        return _hgSite.parseCards(hp.parse(html));
       case SiteTemplate.porna:
         return _pornaSite.list('search:$keyword', page: page);
       case SiteTemplate.pektino:

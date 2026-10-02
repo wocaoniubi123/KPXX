@@ -925,6 +925,31 @@ porna团(5站) ✅ 黄果 ✅）；**`api.dart` 3051 → 1013 行**（累计瘦 
 剩下的小站家族（`_toRelPath`/`_playUrlFromScript` 等要看归属 ✓）—— **全部用 mover3 走** ✓
 （`EXPECT` 显式清单 + `RENAME` 映射 ✓），预计一轮能过 ✓。
 
+
+--- 第 87 条续（Round 14）---
+✅ **抓出并修掉一个"潜伏的编译错误"** ✗✓（本轮最有价值的产出 ✓ —— 不修的话**这个包必挂** ✓）：
+
+**错误**：`api.dart:232/286` 调用 `_parseHuangguoCards(...)` ✗，但**定义不在 api.dart** ✗ ——
+它是 **Round 10 随黄果段搬走的** ✓，现在是 `HuangguoSite` 的**私有**方法（`huangguo.dart:258` ✗）→
+**跨文件调不到** ✗ → `flutter build` 会直接报"未定义的标识符" ✓。
+**修法**：`huangguo.dart` 里改名为**公开** `parseCards`（4 处 ✓）；`api.dart` 两处改 `_hgSite.parseCards(` ✓。
+
+⚠️⚠️ **教训（重要 ✓）**：
+1. **Round 10 的"残留调用"检查只查站点前缀** ✗（`_hg*`/`_huangguo*` ✓）→ **漏了 `_parseHuangguoCards`** ✗
+   （它的名字里**没有站点前缀** ✗）。→ ✅ **搬完之后必须做一次"用到但没定义"的【全量】检查** ✓，
+   **不能只看前缀** ✗，**且要包含 helper 类名字** ✓。
+2. ⚠️ **我写的检查脚本两次都不可靠** ✗：第一版（undef.js）报"无嫌疑" ✗ 但**漏了真的** ✗；
+   第二版（audit.js）"嫌疑列表"是空的 ✗（字段名 `_hgSite` 对不上文件名 `huangguo` ✗）。
+   → ✅ **最终靠"直接 grep 每个站点文件的公开方法 + 与 api.dart 的调用逐个对照"才确认** ✓✓
+   （**别信间接推断的脚本** ✗ —— 这条和 Round 4 的"必须去类自己的定义里核"是同一类教训 ✓）。
+3. ✅ **核对结果**：`api.dart` 的 **54 处委托调用**，逐个对照 8 个站点文件后**全部有公开定义** ✓✓。
+
+**📈 进度（未变）**：数据层 **8 / 10** ✓；`api.dart` **904 行** ✓（本轮只动了 2 处调用 + 1 处改名 ✓）。
+**`api.dart` 里还剩**：麻豆社（`_mdCards/_mdDetail/_mdTags/_mdPlayUrl/_mdLastSeg` ✓）+
+wordpress 系（`_wpDetail` ✓ `_parseArticles` ✓ `_toRelPath` ✓）+ 共享（`_fetchSourcesAt` `_lazyCache` `_cleanSubTitle` `_videoOrdinal` ✓）。
+**⏭️ 下一轮（Round 15）**：用 mover3 搬**麻豆社 + wordpress 系** ✓（`EXPECT` 列全 ✓）；
+**并加一条新判据**：搬完后**全量扫"用到但没定义"** ✓（把本轮教训固化进工具 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

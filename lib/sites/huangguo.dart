@@ -62,7 +62,7 @@ class HuangguoSite {
     if (p.startsWith('/ranks')) return _hgRankCards(doc);
     // 专题列表页（/topics/）上是"专题卡"，专题自己的页面（/topics/xxx/）才是视频网格
     if (p == '/topics/') return _hgTopicCards(doc);
-    return _parseHuangguoCards(doc);
+    return parseCards(doc);
   }
 
   /// 专题卡（a.hg-topic-card → /topics/xxx/）：点开是该专题下的视频列表
@@ -203,7 +203,7 @@ class HuangguoSite {
       intro: intro,
       videos: videos, // ← 之前是 const []（"吃瓜帖是图文"探测不到位）
       tags: tags,
-      related: _parseHuangguoCards(doc).where((x) => x.url != url).take(12).toList(),
+      related: parseCards(doc).where((x) => x.url != url).take(12).toList(),
       seriesPrefix: seriesPrefix(title),
     );
   }
@@ -255,7 +255,7 @@ class HuangguoSite {
 
 
   /// 详情页里的卡片（相关推荐 / 标签页 / 搜索结果都是这套结构）
-  List<Article> _parseHuangguoCards(Document doc) {
+  List<Article> parseCards(Document doc) {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('div.hg-drama-card')) {
       final a = el.querySelector('a.hg-drama-card__cover-link') ??
@@ -378,7 +378,7 @@ class HuangguoSite {
     }
 
     // 相关推荐：详情页「猜你喜欢」区（排除广告 aside.hg-ssp-slot）
-    final related = _parseHuangguoCards(doc);
+    final related = parseCards(doc);
 
     // 标签：内嵌 JSON 的 tagLinks（[{name, url}]）
     final tags = <MapEntry<String, String>>[];
