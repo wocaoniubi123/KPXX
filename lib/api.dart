@@ -264,15 +264,9 @@ class Api {
       case SiteTemplate.wordpress:
         return _wpSite.detail(url);
       case SiteTemplate.huangguo:
-        // 吃瓜社区的帖子是图文帖（/archives/N/），跟视频详情不是一套
-        if (url.startsWith('/archives/')) return _hgSite.postDetail(url);
-        return _hgSite.detail(url);
+        return _hgSite.detailOf(url);
       case SiteTemplate.porna:
-        // 四种详情页：短视频 / 黑料图文 / 小说 / 普通视频
-        if (url.startsWith('/melonshort/video/')) return _pornaSite.melonDetail(url);
-        if (url.startsWith('/heiliao-chigua/')) return _pornaSite.heiliaoDetail(url);
-        if (url.startsWith('/novels/')) return _pornaSite.novelDetail(url);
-        return _pornaSite.detail(url);
+        return _pornaSite.detailOf(url);
       case SiteTemplate.pektino:
         return _pkSite.detail(url);
       case SiteTemplate.hanime1:

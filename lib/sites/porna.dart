@@ -24,6 +24,15 @@ class PornaSite {
 
   final SiteFetcher _f;
 
+  /// 详情入口：**按路径分流**到四种详情解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
+  /// 四种详情页：短视频 / 黑料图文 / 小说 / 普通视频 ✓
+  Future<ArticleDetail> detailOf(String url) {
+    if (url.startsWith('/melonshort/video/')) return melonDetail(url);
+    if (url.startsWith('/heiliao-chigua/')) return heiliaoDetail(url);
+    if (url.startsWith('/novels/')) return novelDetail(url);
+    return detail(url);
+  }
+
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
   Future<List<Article>> search(String keyword, {required int page}) =>
       list('search:$keyword', page: page);

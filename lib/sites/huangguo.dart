@@ -23,6 +23,13 @@ class HuangguoSite {
 
   final SiteFetcher _f;
 
+  /// 详情入口：**按路径分流**到不同的解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
+  /// 吃瓜社区的帖子是图文帖（/archives/N/ ✓），跟视频详情不是一套 ✓
+  Future<ArticleDetail> detailOf(String url) {
+    if (url.startsWith('/archives/')) return postDetail(url);
+    return detail(url);
+  }
+
   /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
   Future<List<Article>> search(String keyword, {required int page}) async {
     if (page > 1) return [];
