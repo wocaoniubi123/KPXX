@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+// ⚠️ `SystemUiOverlayStyle` 在 services 库里 —— **material.dart 不导出它**
+// （2026-10-02 我漏了这个 import，CI 直接报 "Type 'SystemUiOverlayStyle' not found"）。
+import 'package:flutter/services.dart';
 
 import 'app_bg.dart';
 

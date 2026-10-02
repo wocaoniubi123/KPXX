@@ -146,10 +146,11 @@ class AppBg extends ChangeNotifier {
     // 这里挂在"背景明暗"**唯一**的落点上，跟页内文字用同一个信号：
     //   · iOS 看 statusBarBrightness（**语义反直觉**：dark = 状态栏内容是白的）
     //   · Android 看 statusBarIconBrightness
-    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-      statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-    ));
+    // 这里用预置常量 `.light`（= 白色内容）/`.dark`（= 深色内容），不自己拼构造函数 ——
+    // 那两个常量就是"白内容/深内容"的完整样式，语义正好对上，也少一处 API 名字写错的风险。
+    SystemChrome.setSystemUIOverlayStyle(
+      dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+    );
     notifyListeners();
   }
 
