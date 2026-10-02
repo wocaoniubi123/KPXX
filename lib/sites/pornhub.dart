@@ -24,6 +24,10 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// Pornhub 的「色情明星列表」判定（照原逻辑一字不差 ✓）
+  @override
+  bool isStarList(String slug) => slug == '/pornstars';
+
   /// "色情明星"tab 是竖版头像卡 → 一行 3 个 ✓
   @override
   bool get portraitStarCards => true;

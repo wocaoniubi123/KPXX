@@ -25,6 +25,15 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// xHamster 的「色情明星列表」判定（照原逻辑一字不差 ✓）
+  /// ⚠️ 注意：只有**演员列表**才是演员卡（`/pornstars`、`/pornstars/all/…`、
+  /// `/pornstars/top/…` ✓）；`/pornstars/<名字>` 是**那个演员的视频列表** ✗。
+  @override
+  bool isStarList(String slug) =>
+      slug == '/pornstars' ||
+      slug.startsWith('/pornstars/all/') ||
+      slug.startsWith('/pornstars/top/');
+
   /// "色情明星"tab 是竖版头像卡 → 一行 3 个 ✓
   @override
   bool get portraitStarCards => true;

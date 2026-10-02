@@ -23,6 +23,13 @@ abstract class SiteUi {
   /// "色情明星"tab 是否挂**专用筛选行**（排序/类型/时间/更多 ✓）—— Pornhub / xHamster ✓
   bool get hasStarFilterRow => false;
 
+  /// **本站**的「色情明星列表」判定（决定那类 tab 是否按竖版头像卡渲染 ✓）
+  ///
+  /// ⚠️ 注意各家规则**不一样** ✗：Pornhub 只认 `/pornstars` ✓；
+  /// xHamster 还认 `/pornstars/all/…`、`/pornstars/top/…` ✓。
+  /// ✅ 所以这里给的是**站点自己的判定函数** ✓，而不是一个合并的布尔 ✗
+  /// （合并会让 Pornhub 多匹配 all/top ✗ = 改变行为 ✓）。
+  bool isStarList(String slug) => false;
   /// 列表页是否挂**本站筛选行**（照站点的那几个下拉 ✓）—— Hanime1 ✓
   bool get hasFilterRow => false;
 }
