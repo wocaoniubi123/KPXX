@@ -85,6 +85,16 @@ String _nameOf(List<MapEntry<String, String>> items, String key) {
   return key;
 }
 
+/// 主题/分类那组（`List<SiteTab>`）按 key 找显示名 —— 同 [_nameOf]，元素类型不同。
+/// （`SiteFilters.themes` 是 `List<SiteTab>`，`durations`/`sorts` 才是 MapEntry；
+///   2026-10-02 CI 报 `List<SiteTab>` can't be assigned… 就是这里混用了。）
+String _tabNameOf(List<SiteTab> items, String key) {
+  for (final t in items) {
+    if (t.key == key) return t.name;
+  }
+  return key;
+}
+
 /// Hanime1 筛选选项（照站点四个下拉；'' 一律 = 全部）
 const List<String> _hnSorts = [
   '最新上市', '最新上傳', '本日排行', '本週排行', '本月排行',
@@ -588,7 +598,7 @@ class _HomePageState extends State<HomePage>
               children: [
                 // 单选 → 选中后按钮直接显示那个标签名（Hanime1 是多选，那边保持原样）
                 filterBtn(
-                  _theme == null ? '筛选' : _nameOf(f.themes, _theme!),
+                  _theme == null ? '筛选' : _tabNameOf(f.themes, _theme!),
                   _theme != null,
                   () => _openFilterDialog(f),
                 ),
