@@ -1297,11 +1297,8 @@ class _FeedViewState extends State<_FeedView>
               cols: ((widget.site.portraitCovers &&
                           !widget.feed.slug.startsWith('/chigua')) ||
                       // Pornhub「色情明星」tab 是演员卡（竖版头像）→ 跟竖屏站一样一行 3 个
-                      (_api.ui?.isStarList(widget.feed.slug) ?? false) ||
-                      // xHamster 同理（用户 2026-10-02："色情明星要竖版显示"）。
-                      // ⚠️ 只有**演员列表**才是演员卡：`/pornstars`、`/pornstars/all/…`、
-                      // `/pornstars/top/…`；而 `/pornstars/<名字>` 是**那个演员的视频列表** ✗
-                      // —— 跟 sim 侧同一套判定（sim 的 isStarList），别写成"凡 /pornstars 开头" ✗
+                      // ⚠️ 只认**演员列表**（`/pornstars`、`/pornstars/all/…`、`/pornstars/top/…` ✓）；
+                      // `/pornstars/<名字>` 是**那个演员的视频列表** ✗ —— 判定在站点里（isStarList ✓）
                       (_api.ui?.isStarList(widget.feed.slug) ?? false))
                   ? 3
                   : 2,

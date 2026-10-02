@@ -9,6 +9,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import 'base/fetch.dart';
+import 'base/parse.dart';
 import 'base/site_ui.dart';
 import 'config.dart';
 import 'models.dart';
@@ -368,26 +369,7 @@ class Api {
   static final Map<String, List<String>> _lazyCache = {};
   static final Map<String, Future<List<String>>> _lazyInflight = {};
 
-  /// 一块 dplayer 的播放源（h264 主源在前，h265 兜底）；配置坏就返回空
-  static List<String> dplayerSources(Element dp) {
-    final sources = <String>[];
-    try {
-      final cfg = jsonDecode(dp.attributes['data-config']!) as Map<String, dynamic>;
-      final video = cfg['video'];
-      final h265 = cfg['video_h265'];
-      if (video is Map<String, dynamic>) {
-        final u = (video['url'] as String?) ?? '';
-        if (u.isNotEmpty) sources.add(u);
-      }
-      if (h265 is Map<String, dynamic>) {
-        final u = (h265['url'] as String?) ?? '';
-        if (u.isNotEmpty) sources.add(u);
-      }
-    } catch (_) {
-      // 配置坏：视为无源
-    }
-    return sources;
-  }
+
 
 
 
