@@ -921,7 +921,7 @@ class _TagListPageState extends State<TagListPage> {
               // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
               cols: widget.site.portraitCovers ? 3 : 2,
               // Pektino：瀑布流（横竖混排按顺序填充，不留空档；照站点）
-              masonry: widget.site.template == SiteTemplate.pektino,
+              masonry: _api.ui?.masonry ?? false,
               count: _items.length,
               // 滚动到尾部才构造 → 在那时触发翻页（懒加载）；
               // 到底后显示"没有更多了"，不再空转圈（同列表/搜索页）

@@ -25,6 +25,18 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// xHamster 只有 `/categories/*` tab 挂筛选行（且无子分类时 ✓）
+  @override
+  bool showsFilterRow(String key, {required bool hasSubs}) => key.startsWith('/categories/') && !hasSubs;
+
+  /// xHamster 的「色情明星」tab ✓
+  @override
+  bool isStarTabKey(String key) => key == '/pornstars';
+
+  /// xHamster 有「色情明星」tab（要维护它的 feed key 前缀 ✓）
+  @override
+  bool get hasStarTab => true;
+
   /// xHamster：`/pornstars/…` 与 `/creators/…` 进他的视频列表 ✓；
   /// `/shorts/…` 进竖屏短片瀑布流 ✓；其余走详情页 ✓。
   @override

@@ -24,6 +24,18 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// Pornhub 只有 `/video` tab 挂筛选行（且无子分类时 ✓）
+  @override
+  bool showsFilterRow(String key, {required bool hasSubs}) => key == '/video' && !hasSubs;
+
+  /// Pornhub 的「色情明星」tab ✓
+  @override
+  bool isStarTabKey(String key) => key == '/pornstars';
+
+  /// Pornhub 星标 tab 的选中项走 `extra`（四个筛选拼查询串 ✓）
+  @override
+  bool get starUsesExtra => true;
+
   /// Pornhub 的演员卡/演员标签（`/pornstar/…`、`/model/…`）→ 进他的视频列表 ✓
   @override
   String? specialTap(String url) =>

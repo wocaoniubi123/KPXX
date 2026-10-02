@@ -1148,6 +1148,34 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 725（`_xhStarTabKey` ✓）· 1822（搜索页筛选行 hanime1 ✓）。
 **⏭️ 下一轮（Round 22）**：做 585/611/725 那组（筛选行归属判定 ✓），再 562/564 + 1822 ✓。
 
+
+--- 第 87 条续（Round 22）--- 🎉 **UI 层收官：home_page 的 19 处 SiteTemplate 全部归零** ✓✓
+✅ `home_page.dart`：`SiteTemplate` **6 → 0 处** ✓；**1834 → 1830 行** ✓；5 项括号净变化全 0 ✓。
+✅ 顺手抓到并在本轮修掉**清单外的一处** ✗：`detail_page.dart:924`（`masonry: … SiteTemplate.pektino` ✓）——
+   它不在 home_page 的 19 处里 ✓，是**全项目扫描时才发现的** ✓ → 已改成 `_api.ui?.masonry ?? false` ✓
+   （✅ 不需要 import site_ui ✓：只做成员访问、不写类型名 ✓）。
+
+✅ **本轮新增 4 个站点事实**（默认值 = 没这特性 ✓）：
+| 事实 | 含义 | 实现 |
+|---|---|---|
+| `showsFilterRow(key,{hasSubs})` | **这个 tab** 挂不挂筛选行（默认 true ✓） | `PhSite: key=='/video' && !hasSubs` ✓ · `XhSite: key.startsWith('/categories/') && !hasSubs` ✓ |
+| `isStarTabKey(key)` | 这个 key 是不是本站的「色情明星」tab | `PhSite/XhSite: key=='/pornstars'` ✓ |
+| `hasStarTab` | 本站有没有星标 tab（要维护 feed key 前缀 ✓） | `XhSite: true` ✓ |
+| `starUsesExtra` | 星标 tab 的选中项走不走 `extra` | `PhSite: true` ✓ |
+
+⚠️ **踩坑（被拦下、零损失 ✓）**：⑤ 搜索页那处我又猜错缩进 ✗（实际 **10/12 空格** ✓，我写 12/14 ✓）
+→ 判据"命中 0"→ **拒写** ✓ → 改成 `\s*` 正则后一次过 ✓。**教训重申：不猜缩进 ✗**。
+
+✅ **全项目 SiteTemplate 引用现状（应当只剩"合法"的 ✓）**：
+- `api.dart`：**5 个公开分发器**（`category`/`home`/`tag`/`search`/`detail` ✓，共 55 个 case ✓）+ `ui` getter（4 ✓）+ `_fetchSourcesAt` 的黄果分支（1 ✓）+ 文档注释 ✓
+- `sites.dart`：**站点表定义** ✓（这是数据不是分派 ✓，该留 ✓）
+- `detail_page.dart` / `home_page.dart`：**0 处** ✓✓
+
+**📈 进度**：轮次 **22/40**；数据层 **9/9** ✓✓；**UI 层 19/19 + detail_page 1 处 = 全部完成** ✓✓。
+**⏭️ 下一轮（Round 23）**：处理 **`api.dart` 的 5 个公开分发器**（55 个 case ✓）——
+⚠️ 这是**最后一块站点分派** ✓；要先想清设计（大概率是"每站一个 handler 对象/方法" ✓），
+**先看清楚再动手** ✗（不重蹈"猜缩进/猜结构"的覆辙 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

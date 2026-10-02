@@ -558,15 +558,9 @@ class _HomePageState extends State<HomePage>
   /// 传 key + 有无子分类（因为遍历 feed 时手上只有 slug ✓，没有 `SiteTab` ✗）。
   bool _tabShowsFilterRowKey(String key, {required bool hasSubs}) {
     if (widget.site.filters == null) return false;
-    switch (widget.site.template) {
-      case SiteTemplate.pornhub:
-        return key == '/video' && !hasSubs;
-      case SiteTemplate.xhamster:
-        return key.startsWith('/categories/') && !hasSubs;
-      default:
-        // 其余站点：筛选行每个 tab 都挂（照站点行为，不动 ✓）
-        return true;
-    }
+    // ⚠️ 归属判定已**下放到各站**（showsFilterRow ✓）——
+    // 默认 true = 每个 tab 都挂 ✓；Pornhub 只挂 `/video` ✓、xHamster 只挂 `/categories/*` ✓。
+    return _api.ui?.showsFilterRow(key, hasSubs: hasSubs) ?? true;
   }
 
   bool _tabShowsFilterRow(SiteTab? cur) =>
@@ -582,7 +576,8 @@ class _HomePageState extends State<HomePage>
   /// - xHamster「色情明星」tab 吃它自己的 `_xhStar` ✓（演员分类/榜單，与 388 视频分类隔离 ✓）
   /// - Pornhub「色情明星」tab 有**自己那套**筛选（`_phStar`，走 `extra` ✓）→ 不吃 `_theme` ✓
   String? _themeForKey(String key, {required bool hasSubs}) {
-    if (widget.site.template == SiteTemplate.xhamster && key == '/pornstars') {
+    // 星标 tab 吃它自己的选中值（判定下放各站 ✓）
+    if (_api.ui?.isStarTabKey(key) ?? false) {
       return _xhStar;
     }
     return _tabShowsFilterRowKey(key, hasSubs: hasSubs) ? _theme : null;
@@ -608,8 +603,9 @@ class _HomePageState extends State<HomePage>
           ..duration = _duration
           ..sort = _sort
           // Pornhub 的「色情明星」tab：四个筛选拼成 ?o=/?performerType=/?t=/更多组
-          ..extra = (widget.site.template == SiteTemplate.pornhub &&
-                  c.key == '/pornstars')
+          // 星标 tab 的选中项走 extra（哪些站走，判定在站点里 ✓）
+          ..extra = ((_api.ui?.starUsesExtra ?? false) &&
+                  (_api.ui?.isStarTabKey(c.key) ?? false))
               ? _phStar.toParams()
               : _hn.toParams());
   }
@@ -722,7 +718,7 @@ class _HomePageState extends State<HomePage>
 
   /// 「色情明星」tab 在 `_feeds` 里的 key 前缀（= `/pornstars|`），拿不到就 null
   String? get _xhStarTabKey {
-    if (widget.site.template != SiteTemplate.xhamster) return null;
+    if (!(_api.ui?.hasStarTab ?? false)) return null;
     for (final c in _cats) {
       if (c.key == '/pornstars') return c.key;
     }
@@ -1782,7 +1778,7 @@ class _SearchPageState extends State<SearchPage> {
       body: Column(
         children: [
           // Hanime1：搜索页顶部也有筛选行（照站点四个下拉）
-          if (widget.site.template == SiteTemplate.hanime1)
+          if (_api.ui?.hasFilterRow ?? false)
             _HnFilterBar(
               api: _api,
               filters: _hn,

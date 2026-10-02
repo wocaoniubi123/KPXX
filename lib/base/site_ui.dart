@@ -49,4 +49,18 @@ abstract class SiteUi {
   bool get hasCatGroups => false;
   /// 列表页是否挂**本站筛选行**（照站点的那几个下拉 ✓）—— Hanime1 ✓
   bool get hasFilterRow => false;
+
+  /// **这个 tab** 是否挂筛选行（比站点级的 [hasFilterRow] 更细 ✓）。
+  /// 默认 true = "每个 tab 都挂"（多数站点如此 ✓）；
+  /// 只有特定站点才限制到某几个 tab ✓（Pornhub 只挂 `/video` ✓，xHamster 只挂 `/categories/*` ✓）。
+  bool showsFilterRow(String key, {required bool hasSubs}) => true;
+
+  /// 这个 key 是不是本站的「色情明星」tab ✓（各家 slug 相同但**归属判定**不同 ✗）。
+  bool isStarTabKey(String key) => false;
+
+  /// 本站有没有「色情明星」tab（决定要不要维护它的 feed key 前缀 ✓）。
+  bool get hasStarTab => false;
+
+  /// 「色情明星」tab 的选中项是否走 `extra` 参数（Pornhub 那四个筛选拼查询串 ✓）。
+  bool get starUsesExtra => false;
 }
