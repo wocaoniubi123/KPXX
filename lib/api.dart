@@ -3041,6 +3041,11 @@ class Api {
     return ArticleDetail(
       title: title,
       time: '',
+      // ⚠️ categories 是必需参数（models.dart 里是 required this.categories）——
+      // 2026-10-02 第一次上 CI 就漏了它，报 Required named parameter must be provided ✗。
+      // 其余 15 处 ArticleDetail 调用也都传 const []；本站分类信息走 tags（slug→名称），
+      // 这个字段留空即可。
+      categories: const [],
       images: poster.isEmpty ? const [] : [poster],
       intro: '',
       videos: srcs.isEmpty
