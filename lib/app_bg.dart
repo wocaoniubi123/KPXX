@@ -139,6 +139,17 @@ class AppBg extends ChangeNotifier {
     }
     if (key != _current) return; // 判定期间又换了图 → 丢弃这次结果
     _isDark = dark;
+    // ⚠️ 2026-10-02 用户实测报的 bug：切浅色（甚至纯白）背景图时，页内文字跟着变黑了，
+    // 但**状态栏还是白的** → 白字压在白背景上**一片空白看不见**；深色图时反过来也没变白。
+    // 根因：全项目此前**从没设过状态栏样式**（SystemUiOverlayStyle 一处都没有），
+    // 状态栏一直沿用系统 / AppBar 自动推断出来的那一套，跟我们的背景明暗判断无关。
+    // 这里挂在"背景明暗"**唯一**的落点上，跟页内文字用同一个信号：
+    //   · iOS 看 statusBarBrightness（**语义反直觉**：dark = 状态栏内容是白的）
+    //   · Android 看 statusBarIconBrightness
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+      statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+    ));
     notifyListeners();
   }
 

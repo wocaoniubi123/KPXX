@@ -32,6 +32,7 @@ class BgAlbumPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent, // 外层 PageBg 已铺背景图，别挡掉
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: const Text('背景图集'),
         centerTitle: true,
         foregroundColor: kTxt, // 返回键 / ＋ / 标题都跟着背景明暗

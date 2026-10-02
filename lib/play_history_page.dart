@@ -25,6 +25,7 @@ class PlayHistoryPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent, // 外层已铺背景图，别挡掉
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: const Text('播放记录'),
         centerTitle: true,
         foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗

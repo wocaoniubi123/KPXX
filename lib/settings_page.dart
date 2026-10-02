@@ -43,6 +43,7 @@ class SettingsPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: const Text('设置'),
         centerTitle: true,
         foregroundColor: kTxt, // 标题直接压在图上 → 跟明暗

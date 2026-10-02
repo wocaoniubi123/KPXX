@@ -257,11 +257,15 @@ class DetailPageState extends State<DetailPage> {
   }
 
   /// 换档：记住选择，再让播放器用**同一个实例**换一批源重开（不换集、不重建实例）。
-  /// **保留播放进度**：先记下当前位置，交给播放器在新源起播后跳过去（用户 2026-10-02
-  /// 要求；原来 PH 是照模拟器"换档重新起播"，现在两边都保留位置）。
+  /// **保留播放进度**：先记下当前位置，交给播放器在新源起播后跳过去。
+  /// ⚠️ 用 `lastKnownPosition`（最后**真实前进过**的位置）而不是 `position`：
+  /// 换源会把 state 里的 position 重置为 0，取到 0 就等于"从头播"。
   void _pickQuality(String q, List<String> srcs) {
     final st = _playerKey.currentState;
-    final pos = st?.player?.position;
+    final kp = st?.player;
+    final Duration? pos = (kp == null)
+        ? null
+        : (kp.lastKnownPosition > Duration.zero ? kp.lastKnownPosition : kp.position);
     setState(() => _quality = q);
     st?.switchSources(_orderByQuality(srcs, q), resumeTo: pos);
   }
@@ -336,6 +340,7 @@ class DetailPageState extends State<DetailPage> {
       // 透明：详情页也吃根层背景图（播放器画面本身是视频纹理，不受影响）
       backgroundColor: Colors.transparent,
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: Text(widget.site.name),
         foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         actions: [
@@ -893,6 +898,7 @@ class _TagListPageState extends State<TagListPage> {
     return Scaffold(
       backgroundColor: Colors.transparent, // 同上：吃根层背景图
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: Text(widget.title),
         centerTitle: true,
         foregroundColor: kTxt, // 标题/返回箭头直接压在图上 → 跟明暗

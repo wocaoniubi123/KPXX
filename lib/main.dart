@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'app_background.dart';
@@ -177,6 +177,7 @@ class ModuleGridPage extends StatelessWidget {
       // 透明：让根层的背景图从这里透出来（顶栏也是透明的，见 theme）
       backgroundColor: Colors.transparent,
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: const KpxxLogo(), // 橙底黑字，自带底色不跟明暗走
         centerTitle: true,
         elevation: 0,

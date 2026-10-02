@@ -8,25 +8,101 @@
   html, body { margin: 0; height: 100%; }
   body {
     background: #e9eaee;
-    font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    /* 用户 2026-10-02 指定用微软雅黑（桌面版没有 iOS 的 SF Pro，字形会有细微差别） */
+    font: 14px/1.5 "Microsoft YaHei", "微软雅黑", "Segoe UI", sans-serif;
     display: flex; align-items: center; justify-content: center; gap: 28px;
     color: #1b1b1f;
   }
   /* ---------- 手机外壳 ---------- */
   .phone {
-    width: 390px; height: 844px; background: #000; border-radius: 44px;
-    padding: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex: 0 0 auto;
+    /* ⚠️ 2026-10-02 用户要求照 **iPhone 16 Pro Max** 改：**屏幕** 440×956（= 他截图
+       1320×2868 ÷ 3x）。外壳把这 12px 的边框**加在外面**（464×980）—— 早先写成
+       `width: 440` + padding，结果屏幕只有 416 宽，状态栏所有水平位置整体偏 12pt。
+       窗口放不下时由 fitPhone() 把 .phone 整体 zoom 缩小（zoom 真改布局尺寸，不留滚动条）。 */
+    width: 464px; height: 980px; background: #000; border-radius: 64px;
+    padding: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex: 0 0 auto;
+    position: relative;
   }
   .screen {
     position: relative; width: 100%; height: 100%; background: #fff;
-    border-radius: 36px; overflow: hidden; display: flex; flex-direction: column;
+    border-radius: 55px; overflow: hidden; display: flex; flex-direction: column;
   }
+  /* 灵动岛（16 Pro 的挖孔）：真机上必有 —— iOS 系统截图**不渲染它**，所以用户给的截图里
+     看不见它。用户 2026-10-02 明确要求加上；位置/尺寸照真机：125×37、顶部 11px、水平居中。 */
+  .island {
+    position: absolute; left: 50%; top: 11px; transform: translateX(-50%);
+    width: 125px; height: 37px; background: #000; border-radius: 18.5px;
+    z-index: 30; pointer-events: none;
+  }
+  /* 状态栏：高 62px = iPhone 16 Pro 系列的顶部安全区（给灵动岛让位）。
+     ⚠️ 2026-10-02 照用户真机截图**逐像素量**出来的位置（单位 pt，440 宽）：
+       · 时间：真机是**在「灵动岛左边那块区域」里居中**（中心 ≈82），不是"左边距 32"；
+               垂直中心 ≈32，字号 ≈19（按数字高 14.2 反推）。
+       · 图标：靠右，**右边距 ≈42**；信号 311.7..334.2、Wi-Fi 340.8..360.8、电池 ..398；
+               图标高 ≈15、间隔 ≈6.6/7.1；垂直中心 ≈31（和时间同高）。
+     → 所以：左侧固定占「灵动岛左侧区」宽 157.5px 并居中，右侧 flex 到右端 + 右内边距 42px，
+       整条用 padding-top 22 + line-height 1.2 把内容压到顶部那一带。 */
   .status {
-    height: 44px; flex: 0 0 auto; display: flex; align-items: center;
-    justify-content: space-between; padding: 0 22px; font-weight: 600; font-size: 14px;
+    height: 62px; flex: 0 0 auto; display: flex; align-items: flex-start;
+    justify-content: space-between; padding: 21px 0 0;
+    /* ⚠️ 2026-10-02 用户："时间加粗 1" → 400 → **600**。微软雅黑只有 400/700 两档，
+       500 是空的（实测 400 与 500 渲染完全相同），所以直接跳到 600 才有可见变化。
+       "时间上移" → padding-top 22 → 21.5 → **21**（两次各 0.5px）。
+       注意这是整条状态栏的内边距，图标会跟着一起上移。 */
+    font-weight: 600; font-size: 19px;
+    line-height: 1.2;
+    /* ⚠️ 2026-10-02 **不再写死白色**：曾经按用户"都改成白色"的要求锁成 #fff，
+       结果切到白色/浅色背景图时，整条状态栏在全白背景上**一片空白看不见**
+       （用户实测报的）。现在交回给 sim 原有的"按背景明暗自适应"机制：
+       浅色背景 = 深字（继承 body 的 #1b1b1f），深色背景由下面
+       `.screen.hasbg.darkbg .status *` 那条规则翻白。 */
     background: transparent; /* 用户要求：状态栏/顶栏/底栏一律透明，不吃底色 */
+    position: relative; z-index: 40; /* 压在灵动岛之上：时间和图标在它两侧，不会重叠 */
   }
-  .status .right { letter-spacing: 2px; }
+  #clock { flex: 0 0 157.5px; text-align: center; }
+  /* 状态栏右侧：仿 iOS —— 信号格 / Wi-Fi / 电量百分比 / 电池。
+     ⚠️ 2026-10-02 用户要求「要仿真」：原来是一串字符画（`▮▮▮ ⌾▮ 72`）。 */
+  .status .right {
+    flex: 1; display: flex; align-items: center; justify-content: flex-end;
+    gap: 7px; letter-spacing: 0; padding-right: 42px;
+  }
+  /* 信号格 + Wi-Fi 用抠过底的真机截图（黑+alpha 的 sb-icons.png，52×17）：**按 1:1 显示**
+     —— 图里图标本身高 ≈15px，早先显示成 15px 等于把图缩到 0.88，看着比真机小一圈。
+     ⚠️ 图本身是**黑色**的：浅色背景直接显示，深色背景**才** invert 翻白
+     （不能再无条件 invert —— 那样浅色背景下会变成白色、跟背景糊在一起）。 */
+  .status .right .sb-ico { display: block; height: 17px; width: auto; }
+  .screen.hasbg.darkbg .status .right .sb-ico { filter: invert(1); }
+  /* 电池：**整体跟随状态栏文字色**（`currentColor`），所以浅色背景是黑的、深色背景是白的。
+     框 / 凸点 / 未填充区 = currentColor 的半透明版；填充 = 实心 currentColor、占满框内高。
+     **电量固定 50%**（用户要求，不再读真机电量）。
+     ⚠️ 尺寸：用户要求"高度跟 wifi 信号一样"→ 框 34×17 = 和 .sb-ico（17px）同高。
+     ⚠️ 曾经写成"半透明白"常量，切浅色背景时同样会糊成一片（同一个 bug）。 */
+  .bat { position: relative; display: inline-block; width: 34px; height: 17px; flex: 0 0 auto; }
+  .bat::before {
+    content: ''; position: absolute; inset: 0; box-sizing: border-box;
+    border: 1.5px solid color-mix(in srgb, currentColor 58%, transparent); border-radius: 5.5px;
+    background: color-mix(in srgb, currentColor 28%, transparent);
+  }
+  .bat::after {
+    content: ''; position: absolute; right: -2.5px; top: 5px; width: 2px;
+    height: 7px; border-radius: 0 1.5px 1.5px 0;
+    background: color-mix(in srgb, currentColor 58%, transparent);
+  }
+  .bat .fill {
+    /* ⚠️ 2026-10-02 用户："电池是填充的，你的电池左边没有填充满" → 左端/上下都贴到边框
+       （原来 1.5px 的缝看着像没填满）。留 1px，正好压在边框内沿上。
+       填充用 currentColor：浅色背景=黑、深色背景=白（跟框一致）。 */
+    position: absolute; left: 1px; top: 1px; height: 15px; width: 16px;
+    border-radius: 4.5px 0 0 4.5px; background: currentColor;
+  }
+  .bat .num {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 14px; font-weight: 700; letter-spacing: -.2px;
+    /* ⚠️ 数字压在电量条上：用 difference 自动反色 ——
+       浅色背景（条是黑的）→ 字变白；未填充区是浅的 → 字变深；
+       深色背景正好反过来。这样不用为"透明色/黑白"写死两套。 */
+    color: #fff; mix-blend-mode: difference;
+  }
   /* ---------- 顶栏 ---------- */
   .appbar {
     flex: 0 0 auto; background: transparent; display: flex; align-items: center;
@@ -39,15 +115,15 @@
   }
   .appbar .ic:hover { background: rgba(0,0,0,.06); }
   .appbar .spacer { width: 40px; }
-  /* ---------- KPXX 品牌标识（宫格首页顶栏，**居中**） ---------- */
-  .brand { display: flex; align-items: center; gap: 9px; margin: 0 auto; }
-  /* 字标：照用户给的参考（橙底圆角块 + 黑色粗体字）。
-     ⚠️ 左边原来那个"K 方块"用户说不要了（2026-10-01），已删 —— 只留这一块。 */
+  /* ---------- KPXX 品牌标识（宫格首页顶栏，**通栏居中**） ---------- */
+  /* ⚠️ 2026-10-02 照用户真机截图改：原来是个小胶囊（padding 0 11px），
+     真机上是**左右各留 16px 的通栏宽条**、圆角 14、粗体居中。 */
+  .brand { display: flex; flex: 1; margin: 0 8px; }
   .brand .tag {
-    height: 30px; display: flex; align-items: center;
-    padding: 0 11px; border-radius: 8px;
+    flex: 1; height: 44px; display: flex; align-items: center; justify-content: center;
+    border-radius: 14px;
     background: linear-gradient(180deg,#FFB63C 0%,#F29A12 100%);
-    color: #14100B; font-weight: 800; font-size: 17px; letter-spacing: .6px;
+    color: #14100B; font-weight: 800; font-size: 18px; letter-spacing: .6px;
     box-shadow: 0 2px 7px rgba(0,0,0,.28);
   }
   /* ---------- 内容区 ---------- */
@@ -57,23 +133,35 @@
   .nav {
     flex: 0 0 auto; display: flex; background: transparent; border-top: 1px solid #eee;
   }
+  /* ⚠️ 2026-10-02 用户要求"底栏抬高一点，跟手机界面一样"：底部内边距 14 → **34px**，
+     正好是 iPhone 16 Pro Max 的底部安全区（Home Indicator 那一条的高度）；
+     原来是 14px，内容贴着屏幕的 55px 圆角，看着像被切掉。 */
   .nav .item {
-    flex: 1; padding: 8px 0 14px; display: flex; flex-direction: column;
+    flex: 1; padding: 10px 0 34px; display: flex; flex-direction: column;
     align-items: center; gap: 2px; cursor: pointer; color: #6b6b6b; font-size: 12px;
   }
   .nav .item.on { color: #8d4b2a; }
   .nav svg { width: 26px; height: 26px; }
   /* ---------- 宫格 ---------- */
-  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px 8px; padding: 18px 10px; }
-  .tile { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
+  /* ⚠️ 2026-10-02 照用户真机截图放尺寸：图标 74px（原 62）、行距 26（原 18）、左右留白 14（原 10） */
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 26px 10px; padding: 16px 14px; }
+  /* ⚠️ 2026-10-02：用户报"下面的文字被挡住了一点"。CDP 实测**没有任何裁切**（文字底部=tile 底部，
+     clientHeight=scrollHeight，祖先的 overflow 边界都在 380px 之外）—— 真正原因是文字**紧贴**
+     tile 下边界 + 窗口缩放 0.91 时 12px 字亚像素渲染发糊，看着像被切。
+     这里给 tile 底部留 4px 余量，让它不再顶边（不动行距，避免整体位移）。 */
+  .tile { display: flex; flex-direction: column; align-items: center; gap: 7px; cursor: pointer;
+          padding-bottom: 6px; }
   .tile .box {
-    width: 62px; height: 62px; border-radius: 13px; background: #fff;
+    width: 74px; height: 74px; border-radius: 16px; background: #fff;
     border: 1px solid rgba(0,0,0,.08); display: grid; place-items: center; overflow: hidden;
   }
-  .tile .box img { width: 100%; height: 100%; object-fit: contain; padding: 9px; }
-  .tile .box .noimg { color: #fff; font-size: 26px; font-weight: 700; width: 100%; height: 100%;
+  .tile .box img { width: 100%; height: 100%; object-fit: contain; padding: 11px; }
+  .tile .box .noimg { color: #fff; font-size: 30px; font-weight: 700; width: 100%; height: 100%;
     display: grid; place-items: center; }
-  .tile span { font-size: 12px; color: #333; text-align: center; }
+  /* ⚠️ 2026-10-02 站名 12 → **13px**：用户报"文字像缺了一点"。实测 DOM 没有裁切，
+     真因是窗口缩放到 0.91 时 12px 字变成 ~10.9px，笔画在亚像素下会被吃掉。
+     放大一档后即使缩放也还有 ~11.8px，字形才立得住。 */
+  .tile span { font-size: 13px; color: #333; text-align: center; }
   /* ---------- 列表页 ---------- */
   .tabs {
     display: flex; gap: 22px; overflow-x: auto; padding: 0 16px; background: transparent;
@@ -470,9 +558,19 @@
 <div class="phone">
   <div class="screen" id="screen">
     <div class="bg" id="bg"></div>
+    <div class="island"></div>
     <div class="status">
       <span id="clock">23:10</span>
-      <span class="right">▮▮▮ ⌾▮ 72</span>
+      <span class="right">
+        <!-- 信号格 + Wi-Fi：**直接用用户真机截图的图标**（抠过底的黑+alpha PNG，
+             50×16 —— 见 sim/sb-icons.png，由用户给的 121×33 位图生成）。
+             深色背景时 CSS 里 invert(1) 翻白。 -->
+        <img class="sb-ico" src="sb-icons.png" alt="" />
+        <span class="bat">
+          <span class="fill" id="batfill"></span>
+          <span class="num" id="battxt">50</span>
+        </span>
+      </span>
     </div>
     <div class="appbar" id="appbar"></div>
     <div class="tabs" id="tabs" style="display:none"></div>
@@ -526,10 +624,31 @@ function fmt(sec) {
   const s = String(Math.floor(sec % 60)).padStart(2, '0');
   return `${m}:${s}`;
 }
-setInterval(() => {
+const tickClock = () => {
   const d = new Date();
   $('clock').textContent = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-}, 10000);
+};
+// ⚠️ 2026-10-02：先进来就设一次。原来只挂 setInterval，页面刚打开那 10 秒显示的是 HTML 里
+// 写死的 "23:10"（用户看到的"时间不对"就是这个），之后才跳成真实时间。
+tickClock();
+setInterval(tickClock, 10000);
+
+/* ⚠️ 2026-10-02：电池**固定 50%**（用户要求"直接固定50，跟图上一模一样"），
+   所以原来读真机电量的 sbBattery() 已删除 —— 电量条宽度由 CSS 写死（.bat .fill）。
+   之前那版是"黑填充 + 白字反色"（Battery Status API 驱动的），用户说"是安卓的"，已换掉。 */
+
+/* 整机自适应缩放：目标是 440×956 的 iPhone 16 Pro Max（外壳再加 12px 边距），
+   窗口放不下就整体缩小 —— 用 `zoom` 而不是 transform，因为 zoom 真改布局尺寸、
+   不会留下滚动条。只缩放 .phone，不动页面右边那个日志面板。 */
+function fitPhone() {
+  const phone = document.querySelector('.phone');
+  if (!phone) return;
+  const needW = 440 + 24, needH = 956 + 24;
+  const s = Math.min(1, (window.innerWidth - 16) / needW, (window.innerHeight - 16) / needH);
+  phone.style.zoom = s.toFixed(3);
+}
+fitPhone();
+window.addEventListener('resize', fitPhone);
 
 /* ---------------------------- 数据层 ---------------------------- */
 const AES_KEY = 'f5d965df75336270';   // 与 app 的 fetched_image.dart 一致
@@ -2810,7 +2929,33 @@ function xvCards(doc) {
 }
 
 /** 详情：标题/时长/标签/播放源（mp4 High→Low→HLS）/相关推荐（页面内 video_related 数组） */
-function xvDetail(html, url) {
+/** 拉 HLS master，返回各档子列表地址（按分辨率/码率从高到低）；失败/单档 → []。
+ *  照 App 侧 api.dart 的 `_hlsVariants`；走本机 `/proxy`（浏览器直连 XV 的 CDN 会被 CORS 拦）。 */
+async function xvHlsVariants(master) {
+  try {
+    const txt = await (await fetch('/proxy?url=' + encodeURIComponent(master))).text();
+    if (!txt.includes('#EXT-X-STREAM-INF')) return []; // 单档列表
+    const lines = txt.split('\n').map((s) => s.trim());
+    const out = [];
+    for (let i = 0; i + 1 < lines.length; i++) {
+      if (!lines[i].startsWith('#EXT-X-STREAM-INF')) continue;
+      const res = /RESOLUTION=(\d+)x(\d+)/.exec(lines[i]);
+      const bw = Number((/BANDWIDTH=(\d+)/.exec(lines[i]) || [])[1] || 0);
+      const uri = lines[i + 1];
+      if (!uri || uri.startsWith('#')) continue;
+      const abs = new URL(uri, master).toString();
+      if (out.some((o) => o.u === abs)) continue;
+      out.push({ score: res ? Number(res[1]) * Number(res[2]) : bw, u: abs });
+    }
+    out.sort((a, b) => b.score - a.score); // 高 → 低
+    return out.map((o) => o.u);
+  } catch (e) {
+    log('XV 档位解析失败：' + (e && e.message), 'dim');
+    return [];
+  }
+}
+
+async function xvDetail(html, url) {
   const doc = parseHtml(html);
   let title = (html.match(/setVideoTitle\('([^']*)'\)/) || [])[1] || '';
   title = title.trim() || (doc.querySelector('h2.page-title')?.textContent || '').trim() || url;
@@ -2820,6 +2965,15 @@ function xvDetail(html, url) {
   for (const re of [/setVideoHLS\('([^']+)'\)/, /setVideoUrlHigh\('([^']+)'\)/, /setVideoUrlLow\('([^']+)'\)/]) {
     const m = html.match(re);
     if (m && m[1] && !srcs.includes(m[1])) srcs.push(m[1]);
+  }
+  // ⚠️ 2026-10-02：**把 master 展开成各档子列表**（高→低），照 App 侧 api.dart 的
+  // `_hlsVariants`。原来只留 master 一条 → 详情页「清晰度」行认不出档位，全渲染成「P」
+  // （实测 master 长这样：`#EXT-X-STREAM-INF:…RESOLUTION=854x480,NAME="480p"` 换行
+  // `hls-480p-ae222.m3u8`，档位只在**子列表名**里）。第一条 = 最高档 = 默认播它。
+  const hlsIdx = srcs.findIndex((s) => s.includes('.m3u8'));
+  if (hlsIdx >= 0) {
+    const variants = await xvHlsVariants(srcs[hlsIdx]);
+    if (variants.length) srcs.splice(hlsIdx, 1, ...variants);
   }
   const videos = srcs.length ? [{ ordinal: 1, label: '视频', sources: srcs }] : [];
   const og = doc.querySelector('meta[property="og:image"]');
@@ -3409,15 +3563,20 @@ async function viewDetail(article, cat, scrollTop) {
             <div class="num">${v.ordinal}</div><div class="t">${esc(v.label)}</div></div>`).join('')}
         </div>`}
         </div>` : ''}
-      ${(d.videos[0] && d.videos[0].sources && d.videos[0].sources.length > 1) ? `
-        <div class="sec"><h3>清晰度</h3>
+      ${(() => {
+        // 清晰度：只列**能认出档位**的档（去重、数字高→低）——认不出的源（mp4 兜底、
+        // 没展开的 master）不进这一行；不足两档就整行不显示（与 App 侧 detail_page 同一规则）。
+        const srcs0 = (d.videos[0] && d.videos[0].sources) || [];
+        const qs = [...new Set(srcs0.map(qOf).filter((q) => q))]
+            .sort((a, b) => Number(b) - Number(a));
+        if (qs.length < 2) return '';
+        const cur = curQuality(srcs0);
+        return `<div class="sec"><h3>清晰度</h3>
           <div class="vchips" id="qrow">
-            ${d.videos[0].sources.map((u) => {
-              const q = qOf(u);
-              return `<div class="vchip${q === curQuality(d.videos[0].sources) ? ' on' : ''}" data-q="${q}">${q}P</div>`;
-            }).join('')}
+            ${qs.map((q) => `<div class="vchip${q === cur ? ' on' : ''}" data-q="${q}">${q}P</div>`).join('')}
           </div>
-        </div>` : ''}
+        </div>`;
+      })()}
       ${d.intro ? `<div class="sec"><h3>简介</h3><div class="intro">${esc(d.intro)}</div></div>` : ''}
       ${d.images.length ? `<div class="sec"><h3>剧照</h3><div class="stills" id="stills">
           ${d.images.map((u) => `<img data-src="${esc(u)}" alt="" />`).join('')}</div></div>` : ''}
@@ -3561,7 +3720,11 @@ async function fetchLazySources(site, url) {
 }
 
 /** 从源 URL 里抠清晰度数字（'1080' / '720' …）；抠不到返回 '' */
-const qOf = (u) => (String(u).match(/(\d+)P_/) || [])[1] || '';
+/** 从源 URL 里抠清晰度数字。兼容两种命名（与 App 侧 detail_page._qualityOf 一致）：
+ *  Pornhub `.../1080P_4000K_xxx.mp4/master.m3u8`（大写 P + 下划线）、
+ *  XVideos `.../hls-480p-ae222.m3u8`（小写 p，后跟 `.`/`?` 等非数字）。
+ *  ⚠️ 2026-10-02：原来是 PH 专用的 `(\d+)P_`，XV 的档位认不出来（全渲染成「P」）→ 放宽。 */
+const qOf = (u) => (String(u).match(/(\d{3,4})[pP](?![0-9])/) || [])[1] || '';
 
 /** 当前该用哪一档：用户手选的优先；否则**默认 720P**（用户 2026-10-02 定）；
  *  该档不存在就退回列表里最高的那档（列表由 phDetail 按清晰度从高到低排好） */

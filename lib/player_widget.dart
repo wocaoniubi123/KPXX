@@ -232,11 +232,29 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// 当前播放位置（离开页面时补写播放记录用）
   Duration get position => value.position;
 
+  /// **最后真实前进过**的播放位置。
+  /// 用途：换档/换源那一刻取"记到哪儿了"。不能用 `position` —— 换源会把
+  /// state 里的 position 重置为 0（见 open()），而这个值只在位置真的前进了
+  /// ≥500ms 时才更新，所以它保留的是"上一条源播到的真实进度"。
+  Duration get lastKnownPosition => _lastPos;
+
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
-    value = value.copyWith(error: false, errorText: '', completed: false);
+    //
+    // ⚠️ 2026-10-02 **必须连 duration/position 一起重置**：`ready` 的判据是
+    // `duration > Duration.zero`，而这里原来只清 error —— 于是换源时 duration
+    // 还是**上一条源的残留值** → `_openAndWait` 的 ready 立刻为真、**秒返回**，
+    // 调用方紧接着 seek 到记录的位置，可 mpv 还在加载新源 → **seek 被丢掉**，
+    // 新源从 0 起播。用户实测"换分辨率后从头播"就是这个（Pornhub / XVideos 都有）。
+    value = value.copyWith(
+      error: false,
+      errorText: '',
+      completed: false,
+      duration: Duration.zero,
+      position: Duration.zero,
+    );
     _everStarted = false; // 新源重新算"还没播起来"
     _stalled = false; // 错误已经清了 → 看门狗那个"我判的卡住"标记一并撤
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
@@ -253,6 +271,11 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> setRate(double r) => _p.setRate(r);
 
   Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
+
+  /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
+  /// 位置"，而 `seek()` 会按 `value.duration` 裁剪，万一时长还没报上来
+  /// （或报了个半截值）就会被裁小 —— 表现同样是"从头发"。
+  Future<void> seekExact(Duration d) => _p.seek(d);
 
   Future<void> shutdown() async {
     _stallTimer?.cancel();
@@ -765,12 +788,22 @@ class PlayerWidgetState extends State<PlayerWidget>
           final ok = await _openAndWait(kp, _sources[i]);
           if (!mounted) return;
           if (ok) {
-            // 续播：首次成功起播后跳到记录的进度（跳完就置空，换集不再跳）
+            // 续播：本次起播前记录下来的进度，跳完就置空（换集不再跳）
             final to = _restoreTo;
             _restoreTo = null;
             if (to != null && to > Duration.zero) {
               try {
-                await kp.seek(to);
+                // ⚠️ 用 seekExact 而不是 seek：seek 会按 value.duration 裁剪，
+                // 万一时长还没报上来就会被裁小（表现就是"从头发"）。
+                await kp.seekExact(to);
+                // 再校验一次：mpv 偶尔会把早期的 seek 丢掉，没跳过去就补一枪。
+                // 3 秒的容差是给"视频刚开始播、位置还在往上走"留的余量。
+                await Future<void>.delayed(const Duration(milliseconds: 500));
+                if (mounted &&
+                    kp.value.duration > Duration.zero &&
+                    kp.value.position < to - const Duration(seconds: 3)) {
+                  await kp.seekExact(to);
+                }
               } catch (_) {
                 // 续播失败不影响播放，从头放就行
               }

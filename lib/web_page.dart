@@ -81,6 +81,7 @@ class _WebPageState extends State<WebPage> {
       },
       child: Scaffold(
         appBar: AppBar(
+          systemOverlayStyle: kStatusOverlay,
           title: Text(widget.title, style: const TextStyle(fontSize: 16)),
           foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
           bottom: _progress < 1

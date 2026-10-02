@@ -768,6 +768,7 @@ class _HomePageState extends State<HomePage>
       // 透明：让根层背景图透出来（顶栏也透明，见 main.dart 的 theme）
       backgroundColor: Colors.transparent,
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: Text(widget.site.name),
         centerTitle: true,
         foregroundColor: kTxt, // 标题/搜索图标直接压在图上 → 跟明暗
@@ -1516,6 +1517,7 @@ class _SearchPageState extends State<SearchPage> {
   Widget _pageView(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
         title: TextField(
           controller: _ctl,
           focusNode: _focus,

@@ -57,6 +57,23 @@ Color get kTxtSub =>
 Color get kChipBorder =>
     AppBg.i.isDark ? const Color(0x8CFFFFFF) : const Color(0x593C3C3C);
 
+/// **状态栏**（iOS 系统画的时间/信号/电量）的图标样式：跟着背景明暗走。
+///
+/// ⚠️ 2026-10-02 用户实测报的 bug：切浅色（甚至纯白）背景图时，页内文字跟着变黑了，
+/// 但**状态栏还是白的** → 白压白、一片空白；深色图那边也一直白着没变。
+///
+/// 根因：我们的 AppBar 全是 `Colors.transparent`（好让背景图透上来），而 Flutter 的
+/// AppBar 会**按自己背景色的亮度**推断状态栏样式 —— `Colors.transparent` 的亮度算
+/// **0（深色）** → 它把状态栏图标刷成**白色**。而且 AppBar 自己那个
+/// `AnnotatedRegion<SystemUiOverlayStyle>` 会**盖过**命令式的
+/// `SystemChrome.setSystemUIOverlayStyle`，所以只能**逐个 AppBar 显式传**这个值。
+/// （`app_bg.dart` 里那次命令式设置保留着，当没有 AppBar 的页面/启动阶段的兜底。）
+///
+/// 语义提醒：`SystemUiOverlayStyle.light` = **白色内容**、`.dark` = **深色内容**；
+/// iOS 侧真正生效的是 `statusBarBrightness`（那个字段是**反的**：dark = 白色内容）。
+SystemUiOverlayStyle get kStatusOverlay =>
+    AppBg.i.isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
+
 /// **每个被 push 的页面都要套这一层。**
 ///
 /// 为什么需要：转场时靠"新页面自己不透明"来盖住旧页面。而全 App 的 Scaffold 都设成了
