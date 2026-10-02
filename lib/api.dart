@@ -18,6 +18,8 @@ import 'sites/xvideos.dart';
 import 'sites/porna.dart';
 import 'sites/huangguo.dart';
 import 'sites/kmsvip.dart';
+import 'sites/madou.dart';
+import 'sites/wordpress.dart';
 import 'sites/xhamster.dart';
 import 'sites.dart';
 
@@ -52,6 +54,12 @@ class Api {
   http.Client get _client => _f.client;
 
   String get base => 'https://$_host';
+
+  /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
+  late final WpSite _wpSite = WpSite(_f);
+
+  /// madou 本站专属实现（2026-10-03 站点独立改造）✓
+  late final MadouSite _mdSite = MadouSite(_f);
 
   /// kmsvip 本站专属实现（2026-10-03 站点独立改造）✓
   late final KmSite _kmSite = KmSite(_f);
@@ -116,7 +124,7 @@ class Api {
             // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
             ? (page <= 1 ? k : '$k$page/')
             : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
-        return _parseArticles(await _fetchText(path));
+        return _wpSite.parseArticles(await _fetchText(path));
       case SiteTemplate.huangguo:
         // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
         if (k.startsWith('/')) return _hgSite.pageList(k, page: page);
@@ -154,16 +162,16 @@ class Api {
         // （/likes /week /month 三个榜单 + /tags 标签云）
         // 空 key = 「首页」tab（站点导航第一项）→ 走首页那条路
         if (k.isEmpty) return home(page: page);
-        if (k == '/tags') return _mdTags(await _fetchText('/tags'));
+        if (k == '/tags') return _mdSite.tags(await _fetchText('/tags'));
         if (k.startsWith('/')) {
           // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
           // （同 huangguo 标签页的做法）
-          return page > 1 ? const [] : _mdCards(await _fetchText(k));
+          return page > 1 ? const [] : _mdSite.cards(await _fetchText(k));
         }
         // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
         // （站点对未编码的中文路径实测 400，编码后 200）
         final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
-        return _mdCards(await _fetchText(
+        return _mdSite.cards(await _fetchText(
             page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
       case SiteTemplate.pornhub:
         // 列表 key 本身就是站内路径；「分类」tab 选中的分类是 theme（/video?c=27，见 _phCats）。
@@ -191,7 +199,7 @@ class Api {
     switch (site.template) {
       case SiteTemplate.wordpress:
         final path = page <= 1 ? '/' : '/page/$page/';
-        return _parseArticles(await _fetchText(path));
+        return _wpSite.parseArticles(await _fetchText(path));
       case SiteTemplate.huangguo:
         final first = site.categories.isEmpty ? '' : site.categories.first.key;
         return _hgSite.list(first, sort: 'latest', page: page);
@@ -211,7 +219,7 @@ class Api {
         return _kmSite.list('/api/videos/listHot', page: page);
       case SiteTemplate.madou:
         // 首页第 N 页 = /page/N（没有 /page/1）
-        return _mdCards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
+        return _mdSite.cards(await _fetchText(page <= 1 ? '/' : '/page/$page'));
       case SiteTemplate.pornhub:
         return _phSite.list('/', page: page);
       case SiteTemplate.xhamster:
@@ -224,7 +232,7 @@ class Api {
     switch (site.template) {
       case SiteTemplate.wordpress:
         final path = page <= 1 ? '/tag/$slug/' : '/tag/$slug/page/$page/';
-        return _parseArticles(await _fetchText(path));
+        return _wpSite.parseArticles(await _fetchText(path));
       case SiteTemplate.huangguo:
         // 专题等路径型（点"专题"卡片进来）走页面列表；标签页是普通列表页（没有分页）
         if (slug.startsWith('/')) return _hgSite.pageList(slug, page: page);
@@ -251,10 +259,10 @@ class Api {
       case SiteTemplate.madou:
         // 详情页的标签是裸 slug（/tag/{slug}）；以 / 开头的是卡片上的分类路径
         if (slug.startsWith('/')) {
-          return _mdCards(
+          return _mdSite.cards(
               await _fetchText(page <= 1 ? slug : '$slug/page/$page'));
         }
-        return _mdCards(await _fetchText(
+        return _mdSite.cards(await _fetchText(
             page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
       case SiteTemplate.xhamster:
         // 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表）；详情页标签也走这里。
@@ -278,7 +286,7 @@ class Api {
       case SiteTemplate.wordpress:
         final kw = Uri.encodeComponent(keyword);
         final path = page <= 1 ? '/search/$kw/' : '/search/$kw/$page/';
-        return _parseArticles(await _fetchText(path));
+        return _wpSite.parseArticles(await _fetchText(path));
       case SiteTemplate.huangguo:
         if (page > 1) return []; // 黄果搜索单页（页面上没有分页入口）
         final kw = Uri.encodeComponent(keyword);
@@ -298,7 +306,7 @@ class Api {
       case SiteTemplate.madou:
         // 搜索 = /?s={kw}；翻页参数是 **paged**（不是 page），照站点原样
         final kw = Uri.encodeComponent(keyword);
-        return _mdCards(await _fetchText(
+        return _mdSite.cards(await _fetchText(
             page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
       case SiteTemplate.pornhub:
         // 搜索 = /video/search?search=<kw>（站点自己的搜索页形态；kw 是原始文本，自己编码）
@@ -319,7 +327,7 @@ class Api {
   Future<ArticleDetail> detail(String url) async {
     switch (site.template) {
       case SiteTemplate.wordpress:
-        return _wpDetail(url);
+        return _wpSite.detail(url);
       case SiteTemplate.huangguo:
         // 吃瓜社区的帖子是图文帖（/archives/N/），跟视频详情不是一套
         if (url.startsWith('/archives/')) return _hgSite.postDetail(url);
@@ -341,7 +349,7 @@ class Api {
       case SiteTemplate.kmsvip:
         return _kmSite.detail(url);
       case SiteTemplate.madou:
-        return _mdDetail(url);
+        return _mdSite.detail(url);
       case SiteTemplate.xhamster:
         return _xhSite.detail(url);
     }
@@ -352,291 +360,8 @@ class Api {
 
 
 
-  /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
-  static String _toRelPath(String href) {
-    if (!href.startsWith('http')) return href;
-    final i = href.indexOf('/archives/');
-    if (i >= 0) return href.substring(i);
-    // 其它形态的绝对地址（如麻豆社的 https://host/xxx.html）：剥掉 scheme+host
-    // 只留路径——_fetchText 会自己拼 "https://$host$path"，不剥就会拼出
-    // "https://hosthttps://host/xxx.html" 这种废地址。
-    final u = Uri.tryParse(href);
-    if (u != null && u.path.isNotEmpty) {
-      return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
-    }
-    return href;
-  }
 
-  /// 列表页 / 搜索页通用的文章卡片解析。
-  /// 先按 WordPress 模板（article[itemscope]）找，找不到再按 51fans1（.xqbj-list-rows）。
-  List<Article> _parseArticles(String html) {
-    final doc = hp.parse(html);
-    final out = <Article>[];
 
-    for (final el in doc.querySelectorAll('article[itemscope]')) {
-      final cls = el.className ?? '';
-      // 广告卡与站外推广卡
-      // 注意：分类页的链接是相对路径（/archives/xxx/），但**搜索页是绝对地址**
-      // （https://host/archives/xxx/）——只认相对路径会把搜索结果全丢掉。
-      final a = el.querySelector('a[href*="/archives/"]');
-      if (a == null || cls.contains('ad-item')) continue;
-      final titleEl = el.querySelector('.post-card-title');
-      final title = titleEl?.text.trim() ?? '';
-      if (title.isEmpty) continue;
-      // 封面：post-card 内的 loadBannerDirect('url', ...
-      String cover = '';
-      for (final s in el.querySelectorAll('script')) {
-        final m = RegExp("loadBannerDirect\\('([^']+)'").firstMatch(s.text);
-        if (m != null) {
-          cover = m.group(1)!;
-          break;
-        }
-      }
-      if (cover.isEmpty) {
-        final img = el.querySelector('img[data-src]');
-        cover = img?.attributes['data-src'] ?? '';
-      }
-      final info = el.querySelector('.post-card-info');
-      out.add(Article(
-        title: title,
-        url: _toRelPath(a.attributes['href'] ?? ''),
-        cover: cover,
-        // 卡片标题下面只显示时间：这行原来是"作者 • 日期 • 分类"，作者和分类都不要
-        meta: metaDate(info?.text ?? ''),
-      ));
-    }
-
-    // 51fans1：div.xqbj-list-rows（封面地址在 z-image-loader-url，值偶尔带一个反引号）
-    if (out.isEmpty) {
-      for (final el in doc.querySelectorAll('div.xqbj-list-rows')) {
-        final a = el.querySelector('a[href*="/archives/"]');
-        if (a == null) continue;
-        final title = (el.querySelector('.xqbj-list-rows-image-title')?.text ?? '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-        if (title.isEmpty) continue;
-        final img = el.querySelector('img[z-image-loader-url]');
-        final cover = (img?.attributes['z-image-loader-url'] ?? '')
-            .replaceAll('`', '')
-            .trim();
-        // 时间：移动端文案更全（"9月29日"），桌面端只有时刻（"19:00"）→ 优先移动端
-        var meta = (el
-                    .querySelector('.xqbj-list-rows-bottom-tags-text.is-mobile')
-                    ?.text ??
-                '')
-            .trim();
-        if (meta.isEmpty || metaDate(meta).isEmpty) {
-          final desk = (el
-                      .querySelector('.xqbj-list-rows-bottom-tags-text.is-desktop')
-                      ?.text ??
-                  '')
-              .trim();
-          if (desk.isNotEmpty) meta = desk;
-        }
-        out.add(Article(
-          title: title,
-          url: _toRelPath(a.attributes['href'] ?? ''),
-          cover: cover,
-          meta: metaDate(meta),
-        ));
-      }
-    }
-
-    // 去重（同页重复卡片）
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// WordPress 系详情页
-  Future<ArticleDetail> _wpDetail(String url) async {
-    final html = await _fetchText(url);
-    final doc = hp.parse(html);
-
-    // 标题：WP 模板是 .post-title，51fans1 是 .novel-title h1
-    var title = doc.querySelector('.post-title')?.text.trim() ?? '';
-    if (title.isEmpty) {
-      title = doc.querySelector('.novel-title h1')?.text.trim() ?? '';
-    }
-
-    // 简介：文章页 meta description（实测就是本篇的剧情摘要）
-    final intro =
-        (doc.querySelector('meta[name="description"]')?.attributes['content'] ?? '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-
-    String time = '';
-    final timeMeta = doc.querySelector('meta[itemprop="datePublished"]');
-    if (timeMeta != null) {
-      time = timeMeta.attributes['content'] ?? '';
-    }
-    if (time.isEmpty) {
-      // 51fans1：.novel-info 里"2026-08-08 11:39:00发布"
-      time = metaDate(doc.querySelector('.novel-info')?.text ?? '');
-    }
-
-    final categories = <String>[];
-    for (final a in doc.querySelectorAll('a[href^="/category/"]')) {
-      final href = a.attributes['href'] ?? '';
-      final segs = Uri.parse('https://x$href').pathSegments;
-      // pathSegments: ['category', 'wpcz', '']
-      for (final s in segs) {
-        if (s.isNotEmpty && s != 'category') {
-          if (!categories.contains(s)) categories.add(s);
-          break;
-        }
-      }
-    }
-
-    // 正文剧照：
-    // - WP 系只认 data-xkrkllgl（推广图/主题图都不在这里）
-    // - 51fans1 是 .defaultimg 里 img[data-image-preview][z-image-loader-url]
-    final images = <String>[];
-    for (final img in doc.querySelectorAll('.post-content img')) {
-      final src = img.attributes['data-xkrkllgl'] ?? '';
-      if (src.startsWith('http') && !images.contains(src)) images.add(src);
-    }
-    if (images.isEmpty) {
-      for (final img in doc.querySelectorAll('img[data-image-preview]')) {
-        final src =
-            (img.attributes['z-image-loader-url'] ?? '').replaceAll('`', '').trim();
-        if (src.startsWith('http') && !images.contains(src)) images.add(src);
-      }
-    }
-    // 结构变化兜底：整篇都没有上面的标记时才退回 data-src/src（排除推广图）
-    if (images.isEmpty) {
-      for (final img in doc.querySelectorAll('.post-content img')) {
-        final src = img.attributes['data-src'] ?? (img.attributes['src'] ?? '');
-        if (!src.startsWith('http') || src.contains('/hc237/')) continue;
-        if (!images.contains(src)) images.add(src);
-      }
-    }
-
-    // 视频：正文里可能有多块 div.dplayer[data-config]（合集类文章一篇挂多个视频），
-    // 全部收下来，按集数排序。每块前面通常先是一行 "视频一："、再是标题（blockquote），
-    // 就近往上取最多两条短文本，用它们做序号和展示名。
-    // 注意：video_h265 可能是对象（有 H265 源）也可能是空数组（无），必须类型容错。
-    final videos = <ArticleVideo>[];
-    var order = 0;
-    for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {
-      order++;
-      final sources = dplayerSources(dp);
-      // 就近往上找最多两条短文本（空行跳过，长正文不算）
-      final texts = <String>[];
-      for (var e = dp.previousElementSibling;
-          e != null && texts.length < 2;
-          e = e.previousElementSibling) {
-        final t = e.text.trim().replaceAll(RegExp(r'\s+'), ' ');
-        if (t.isEmpty || t.length > 60) continue;
-        texts.add(t);
-      }
-      final parsed = texts.map(_videoOrdinal).firstWhere((v) => v > 0, orElse: () => 0);
-      final ordinal = parsed > 0 ? parsed : order;
-      // 只有确实出现了"视频X："编号，才把邻近文字当标题，
-      // 否则（普通单视频文章）附近的短段落会被误当标题
-      final label = parsed > 0 && texts.isNotEmpty ? texts.first : '';
-      videos.add(ArticleVideo(
-        label: label.isEmpty ? '视频 $ordinal' : label,
-        ordinal: ordinal,
-        sources: sources,
-      ));
-    }
-    // 合集文章（如 51吃瓜 /archives/277245/）：正文里没有播放器，只有一串
-    // "👉点我查看详情帖"链接，真正的视频在那些子文章里 → 逐个抓回来取源，
-    // 拼成本篇的"篇内视频"，选集里就能切。并发抓，不然 5 篇串行要十几秒。
-    if (videos.isEmpty) {
-      final subs = <MapEntry<String, String>>[]; // url -> 链接文字
-      // 结构规律（不看链接文字，2026-09-30 拿 4 篇样本对齐出来的）：
-      // 正文里真·子文章链接的**直接父元素是 <p>**；
-      // 而"吃瓜爆料"推广在 th、上一篇/下一篇在 span.prev/span.next、
-      // "相关文章"在 div.link-list（hot-news 侧栏）、版权那行是 p.content-copyright
-      // （href 就是本页，被 "href == url" 排除）→ 一条父级判断就够，不用认字。
-      final contentEl = doc.querySelector('.post-content');
-      for (final a in contentEl?.querySelectorAll('a[href*="/archives/"]') ??
-          const <Element>[]) {
-        // 两道结构判定：直接父级是 <p>，且这个 <p> 是 .post-content 的直接子元素。
-        // （只判第一道会把"内容标签页部件"里那个 <p><a> 也收进来，实测踩过）
-        final parent = a.parent;
-        if (parent == null || parent.localName != 'p') continue;
-        if (parent.parent != contentEl) continue;
-        final href = _toRelPath(a.attributes['href'] ?? '');
-        final t = a.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-        if (href.isEmpty || t.isEmpty || href == url) continue;
-        if (subs.any((e) => e.key == href)) continue;
-        subs.add(MapEntry(href, t));
-        if (subs.length >= 20) break;
-      }
-      // ⚠️ 这里**不预抓**子文章：只把「标题 + 地址」放进选集，用户点到哪一集
-      // 才去抓那一篇的源（`videoSourcesAt`）——详情页首屏就只有 1 个请求，
-      // 跟普通文章一样快；顺带好处是播放地址永远是新鲜的（auth_key 不会放旧）。
-      if (subs.isNotEmpty) {
-        var o = 0;
-        for (final e in subs) {
-          o++;
-          videos.add(ArticleVideo(
-            label: _cleanSubTitle(e.value),
-            ordinal: o,
-            sources: const [],
-            lazyUrl: e.key,
-          ));
-        }
-      }
-    }
-
-    videos.sort((a, b) => a.ordinal.compareTo(b.ordinal));
-
-    // 标签：正文/侧栏里指向 /tag/xxx/ 的链接（名称取链接文字）
-    final tags = <MapEntry<String, String>>[];
-    for (final a in doc.querySelectorAll('a[href*="/tag/"]')) {
-      final href = a.attributes['href'] ?? '';
-      final t = a.text.trim();
-      if (href.isEmpty || t.isEmpty || t.length > 20) continue;
-      final slug = href.split('/tag/').last.replaceAll('/', '');
-      if (slug.isEmpty) continue;
-      if (!tags.any((e) => e.key == slug)) tags.add(MapEntry(slug, t));
-      if (tags.length >= 30) break;
-    }
-
-    // 相关推荐：尾部「热门新闻」区（显示在剧照下方）。
-    // 站点可以关掉（51吃瓜 用户要求不显示）。
-    // class 实际是 hot-news-section / hot-news-box / hot-news-content——并没有单独的
-    // .hot-news 元素，原来的 .hot-news 选择器一条都匹配不到（区块不显示）。
-    // 每条 = 一句话标题（p）+「相关文章」链接（无封面图）。
-    final related = <Article>[];
-    for (final el in site.showRelated
-        ? doc.querySelectorAll('.hot-news-content')
-        : const <Element>[]) {
-      final a = el.querySelector('a[href*="/archives/"]');
-      if (a == null) continue;
-      final href = a.attributes['href'] ?? '';
-      final t = (el.querySelector('p')?.text ?? '')
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (href.isEmpty || t.isEmpty || href == url) continue;
-      if (related.any((x) => x.url == _toRelPath(href))) continue;
-      related.add(Article(
-        title: t,
-        url: _toRelPath(href),
-        cover: '',
-        meta: '',
-      ));
-      if (related.length >= 12) break;
-    }
-
-    return ArticleDetail(
-      title: title,
-      time: time,
-      categories: categories,
-      images: images,
-      intro: intro,
-      videos: videos,
-      tags: tags,
-      related: related,
-      seriesPrefix: seriesPrefix(title),
-    );
-  }
 
   // ---------------------------------------------------------------------------
 
@@ -709,139 +434,6 @@ class Api {
   // 详情：`.article-title` / `.item-3 a`（分类）/ `.article-tags a`（标签）/
   //   `.postitems li a`（相关推荐）；播放源在正文 iframe 指向的分享页里。
 
-  /// 卡片解析（首页/分类/搜索/标签/榜单共用）
-  List<Article> _mdCards(String html) {
-    final doc = hp.parse(html);
-    final out = <Article>[];
-    for (final el in doc.querySelectorAll('article.excerpt')) {
-      final href =
-          _toRelPath(el.querySelector('a.thumbnail')?.attributes['href'] ?? '');
-      if (href.isEmpty) continue;
-      final title = (el.querySelector('h2 a')?.text ?? '').trim();
-      if (title.isEmpty) continue;
-      // 封面必须是真图：img[src] 是懒加载占位（thumb.png），真封面在 data-src 上
-      final cover =
-          (el.querySelector('a.thumbnail img')?.attributes['data-src'] ?? '')
-              .trim();
-      if (cover.isEmpty || cover.endsWith('/showcase/img/thumb.png')) continue;
-      // 观看数：站点原文「观看(59.26K)」**原样**显示（用户先要求只留数字、
-      // 随后又说"观看数加回去"，以最终要求为准；见 DEVLOG 第 55/57 条）
-      out.add(Article(
-        title: title,
-        url: href,
-        cover: cover,
-        meta: (el.querySelector('.post-view')?.text ?? '').trim(),
-        // ⚠️ 卡片上的分类名**不取**：footer 里那个 `rel="category tag"`（如"麻豆传媒"）
-        // 用户明确要求去掉（2026-10-01，见 DEVLOG 第 56 条）——挂 Article.tags 会在
-        // 卡片上渲染成可点胶囊。详情页的分类/标签不受影响（走 _mdDetail 的 .item-3/.article-tags）。
-      ));
-    }
-    final seen = <String>{};
-    return [
-      for (final a in out)
-        if (seen.add(a.url)) a
-    ];
-  }
-
-  /// 详情：标题/分类/标签/相关推荐/播放源（站点没有时长、系列、简介、发布时间）
-  Future<ArticleDetail> _mdDetail(String url) async {
-    final doc = hp.parse(await _fetchText(url));
-    final title = (doc.querySelector('.article-title')?.text ?? '').trim();
-    final catName = (doc.querySelector('.item-3 a')?.text ?? '').trim();
-    // 标签：slug = URL 最后一段（原始编码值，不解码——与其它站点做法一致）
-    final tags = <MapEntry<String, String>>[];
-    for (final a in doc.querySelectorAll('.article-tags a')) {
-      final name = a.text.trim();
-      final slug = _mdLastSeg(a.attributes['href'] ?? '');
-      if (name.isEmpty || slug.isEmpty) continue;
-      if (tags.any((e) => e.key == slug)) continue;
-      tags.add(MapEntry(slug, name));
-    }
-    // 相关推荐：标题取锚的文本（<a> 里只有一个缩进的 span>img，没有别的文本节点）
-    final related = <Article>[];
-    for (final a in doc.querySelectorAll('.postitems li a')) {
-      final href = _toRelPath(a.attributes['href'] ?? '');
-      final t = a.text.trim();
-      if (href.isEmpty || t.isEmpty || href == url) continue;
-      if (related.any((x) => x.url == href)) continue;
-      related.add(Article(
-        title: t,
-        url: href,
-        cover:
-            (a.querySelector('img[data-src]')?.attributes['data-src'] ?? '')
-                .trim(),
-        meta: '',
-      ));
-      if (related.length >= 12) break;
-    }
-    final play = await _mdPlayUrl(doc);
-    return ArticleDetail(
-      title: title.isEmpty ? url : title,
-      time: '',
-      categories: [if (catName.isNotEmpty) catName],
-      images: const [],
-      intro: '',
-      videos: [
-        if (play.isNotEmpty)
-          ArticleVideo(label: title, ordinal: 1, sources: [play]),
-      ],
-      tags: tags,
-      related: related,
-      seriesPrefix: '',
-    );
-  }
-
-  /// URL 最后一段（标签 slug 用；空链接返回空串）
-  static String _mdLastSeg(String href) {
-    final segs = href.split('/').where((s) => s.isNotEmpty).toList();
-    return segs.isEmpty ? '' : segs.last;
-  }
-
-  /// 麻豆社「热门标签」标签云页（/tags）——**不是文章卡片**，别用 _mdCards 解：
-  /// `.tagslist li` 里 `a.name`=标签名（href 是 /tag/{slug}）、`<small>`=文章数
-  /// （HTML 实体由 dom 包解出来，形如 ×2577）、`a.tit` 是"该标签下的一篇示例文章"
-  /// （**忽略**）。没有封面 → 卡片变纯文字卡。站点**没有分页**（实测无 .pagination）。
-  List<Article> _mdTags(String html) {
-    final doc = hp.parse(html);
-    final out = <Article>[];
-    for (final li in doc.querySelectorAll('.tagslist li')) {
-      final a = li.querySelector('a.name');
-      if (a == null) continue;
-      final title = a.text.trim();
-      final slug = _mdLastSeg(a.attributes['href'] ?? '');
-      if (title.isEmpty || slug.isEmpty) continue;
-      if (out.any((x) => x.url == '/tag/$slug')) continue;
-      out.add(Article(
-        title: title,
-        url: '/tag/$slug',
-        cover: '',
-        // 站点显示 "×N"（=该标签下的文章数），原样保留
-        meta: (li.querySelector('small')?.text ?? '').trim(),
-      ));
-    }
-    return out;
-  }
-
-  /// 播放源：正文第一个 iframe → dash.madou.club 分享页 → 页面里两行 JS
-  /// （token 是双引号、m3u8 是单引号）→ `https://dash.madou.club{m3u8}?token=`。
-  /// 任何一步拿不到就返回空串（videos 留空，不抛异常、不编假地址）；
-  /// token 只有 100 秒时效，过期靠上层「起播失败 → 重新抓详情页」兜底。
-  Future<String> _mdPlayUrl(Document doc) async {
-    final share = (doc.querySelector('.article-content iframe')
-                ?.attributes['src'] ??
-            '')
-        .trim();
-    if (share.isEmpty) return '';
-    final html = await _fetchAbs(share);
-    if (html.isEmpty) return '';
-    final tok =
-        RegExp(r'var\s+token\s*=\s*"([^"]*)"').firstMatch(html)?.group(1) ?? '';
-    final path =
-        RegExp(r"var\s+m3u8\s*=\s*'([^']*)'").firstMatch(html)?.group(1) ?? '';
-    if (tok.isEmpty || path.isEmpty) return '';
-    final abs = path.startsWith('http') ? path : 'https://dash.madou.club$path';
-    return '$abs?token=$tok';
-  }
 
   /// 合集按需取源的缓存（url -> 播放源）与"进行中"的请求（同一集去重）
   static final Map<String, List<String>> _lazyCache = {};
@@ -868,35 +460,9 @@ class Api {
     return sources;
   }
 
-  /// 合集的"详情帖"链接文字 → 当选集标题：
-  /// "👉点我查看详情帖 越南爆乳福利姬 xxx 【第5弹】" → "越南爆乳福利姬 xxx 【第5弹】"
-  static String _cleanSubTitle(String raw) {
-    var t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-    t = t.replaceAll('点我查看详情帖', ' ');
-    t = t.replaceAll(RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]', unicode: true), ' ');
-    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t.isEmpty ? '视频' : t;
-  }
 
-  /// "视频一：" → 1；"视频12：" → 12；没有编号返回 0
-  static int _videoOrdinal(String s) {
-    final m = RegExp(r'视频\s*([0-9一二三四五六七八九十百]+)').firstMatch(s);
-    if (m == null) return 0;
-    final t = m.group(1)!;
-    if (RegExp(r'^[0-9]+$').hasMatch(t)) return int.parse(t);
-    const cn = {
-      '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
-      '六': 6, '七': 7, '八': 8, '九': 9,
-    };
-    if (t == '十') return 10;
-    if (t.startsWith('十')) return 10 + (cn[t.substring(1)] ?? 0);
-    if (t.contains('十')) {
-      final parts = t.split('十');
-      return (cn[parts[0]] ?? 0) * 10 +
-          (parts.length > 1 ? (cn[parts[1]] ?? 0) : 0);
-    }
-    return cn[t] ?? 0;
-  }
+
+
 
 
 

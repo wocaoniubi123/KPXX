@@ -950,6 +950,37 @@ wordpress 系（`_wpDetail` ✓ `_parseArticles` ✓ `_toRelPath` ✓）+ 共享
 **⏭️ 下一轮（Round 15）**：用 mover3 搬**麻豆社 + wordpress 系** ✓（`EXPECT` 列全 ✓）；
 **并加一条新判据**：搬完后**全量扫"用到但没定义"** ✓（把本轮教训固化进工具 ✓）。
 
+
+--- 第 87 条续（Round 15）--- ✅ **数据层收官！9 / 9 个站点家族全部搬出** ✓✓
+✅ **本轮搬完最后两族**：**麻豆社**（`_mdCards/_mdDetail/_mdTags/_mdPlayUrl/_mdLastSeg` → `lib/sites/madou.dart` **153 行** ✓）
++ **wordpress 系**（`_wpDetail/_parseArticles` → `lib/sites/wordpress.dart` **291 行** ✓）。
+✅ **`api.dart` 3051 → 470 行**（累计瘦 **2581 行 = 85%** ✓✓）。
+
+✅ **顺手又上移 3 个共享 helper**（都是别的站要用、而各站已独立 → 跨文件调不到 ✗）：
+`_toRelPath` → `base/parse.dart`（**47 行** ✓）· `_cleanSubTitle` + `_videoOrdinal` → `base/fmt.dart`（**63 行** ✓）。
+
+⚠️⚠️ **本轮又抓到一个"改名漏网"** ✗✓：`api.dart:526` 是 **tear-off 用法** `texts.map(_videoOrdinal)` ✗
+（**没有括号** ✓）—— 我的改名规则只匹配 `名字(` ✗ → **漏了** ✓。
+**教训**：改名要**同时处理"带括号的调用"和"不带括号的 tear-off/引用"** ✓（本轮已改成裸名全局替换 ✓ + 全项目复查残留 ✓）。
+
+✅ **最后一轮普查（直接 grep 对照，不靠脚本 ✗）**：
+`api.dart` 里的 **16 处 `_xxSite.method(` 调用** ↔ 9 个站点文件的公开方法 → **全部命中** ✓✓
+（cards · detail · hanimeTags · heiliaoDetail · initialData · list · melonDetail · novelDetail ·
+pageList · parseArticles · parseCards · postDetail · resetShortsRandom · search · searchAt · tags ✓）。
+
+**📈 进度（里程碑）**：**数据层 9/9 家族 ✓✓**；`api.dart` **470 行**（管道 + 4 个公开分发器 + 共享换源 + 缓存 ✓）。
+底座：`fetch.dart`(136) · `fmt.dart`(63) · `parse.dart`(47) ✓。站点：9 个文件 ✓。工具：`tools/mover3.js` ✓。
+
+⚠️ **遗留待办（记清楚 ✗）**：
+1. `api.dart` 里 `dplayerSources` 与 `base/parse.dart` 的**各有一份** ✗（无害但该清 ✓，等最后统一清 ✗）
+2. `api.dart` 的 **4 个公开分发器**（`category`/`home`/`tag`/`search`/`detail` ✓）里**还有 `switch (site.template)`** ✗
+   —— 那是**剩下的站点分派点** ✓（下一阶段处理 ✓）
+3. `_fetchSourcesAt` 里的**黄果分支** ✗（"站点逻辑散在公共函数里" ✓，已记 Round 10 ✓）
+4. **UI 层（`home_page` 的 19 处分派）还没动** ✗
+
+**⏭️ 下一轮（Round 16）**：开始 **UI 层** —— 先盘点 `home_page.dart` 里站点相关的 19 处 ✗
+（筛选行/选择器/重置/选中状态 ✓），列清单再动手 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

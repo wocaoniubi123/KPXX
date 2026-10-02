@@ -27,4 +27,22 @@ List<String> dplayerSources(Element dp) {
     // 配置坏：视为无源
   }
   return sources;
-}
+
+/// 站内相对路径（把 `https://host/xxx` 剥成 `/xxx`；本来就是相对路径的原样返回）✓
+/// ⚠️ 2026-10-03 从 `api.dart` 上移：**麻豆社与 wordpress 系都要用** ✗，
+/// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
+/// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
+String toRelPath(String href) {
+  if (!href.startsWith('http')) return href;
+  final i = href.indexOf('/archives/');
+  if (i >= 0) return href.substring(i);
+  // 其它形态的绝对地址（如麻豆社的 https://host/xxx.html）：剥掉 scheme+host
+  // 只留路径——_fetchText 会自己拼 "https://$host$path"，不剥就会拼出
+  // "https://hosthttps://host/xxx.html" 这种废地址。
+  final u = Uri.tryParse(href);
+  if (u != null && u.path.isNotEmpty) {
+    return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
+  }
+  return href;
+}
+}

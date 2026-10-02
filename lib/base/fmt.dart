@@ -29,4 +29,37 @@ String seriesPrefix(String title) {
   final m = RegExp(r'第\s*\d+\s*集').firstMatch(title);
   if (m == null) return '';
   return title.substring(0, m.start).trim();
-}
+
+/// 清洗副标题（多站共用）✓ —— ⚠️ 2026-10-03 从 `api.dart` 上移：
+/// wordpress 系等站点用到 ✗，而它们已拆成独立文件 → 跨文件调不到 ✗，故上移并公开 ✓。
+/// 合集的"详情帖"链接文字 → 当选集标题：
+/// "👉点我查看详情帖 越南爆乳福利姬 xxx 【第5弹】" → "越南爆乳福利姬 xxx 【第5弹】"
+String cleanSubTitle(String raw) {
+  var t = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+  t = t.replaceAll('点我查看详情帖', ' ');
+  t = t.replaceAll(RegExp(r'[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]', unicode: true), ' ');
+  t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return t.isEmpty ? '视频' : t;
+}
+
+/// 从标题里取"第几集/第几部"的序号（多站共用）✓ —— 同上，上移并公开 ✓。
+/// "视频一：" → 1；"视频12：" → 12；没有编号返回 0
+int videoOrdinal(String s) {
+  final m = RegExp(r'视频\s*([0-9一二三四五六七八九十百]+)').firstMatch(s);
+  if (m == null) return 0;
+  final t = m.group(1)!;
+  if (RegExp(r'^[0-9]+$').hasMatch(t)) return int.parse(t);
+  const cn = {
+    '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+    '六': 6, '七': 7, '八': 8, '九': 9,
+  };
+  if (t == '十') return 10;
+  if (t.startsWith('十')) return 10 + (cn[t.substring(1)] ?? 0);
+  if (t.contains('十')) {
+    final parts = t.split('十');
+    return (cn[parts[0]] ?? 0) * 10 +
+        (parts.length > 1 ? (cn[parts[1]] ?? 0) : 0);
+  }
+  return cn[t] ?? 0;
+}
+}

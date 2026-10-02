@@ -135,7 +135,7 @@ for (const t of targets) { const k = t.name + '@' + t.line; if (seen.has(k)) con
 
 // ---------- 判据 ①：不得含共享函数/字段的定义 ----------
 const SHARED = ['videoSourcesAt', '_fetchSourcesAt', '_dplayerSources', '_hlsVariants', '_secClock', '_metaDate',
-  '_seriesPrefix', '_unpackJs', '_cleanSubTitle', '_videoOrdinal', '_parseArticles', '_wpDetail', '_lazyCache',
+  '_seriesPrefix', '_unpackJs', '_cleanSubTitle', '_videoOrdinal', '_lazyCache',
   '_lazyInflight', '_toRelPath', '_seriesPrefix'];
 const hits = [];
 uniq.forEach((t) => { if (SHARED.includes(t.name)) hits.push(t.name + '(' + (t.line + 1) + ')'); });
@@ -216,6 +216,7 @@ need(/Article\(|ArticleDetail\(|ArticleVideo\(|ArticleTag/, "import '../models.d
 need(/_f\./, "import '../base/fetch.dart';");
 need(/metaDate\(|seriesPrefix\(/, "import '../base/fmt.dart';");
 need(/dplayerSources\(/, "import '../base/parse.dart';");
+need(/toRelPath\(/, "import '../base/parse.dart';");
 const rank = (x) => x.startsWith("import 'dart:") ? 0 : x.startsWith("import 'package:") ? 1 : 2;
 const sorted = [...imps].sort((a, b3) => rank(a) - rank(b3) || a.localeCompare(b3));
 const H2 = [
