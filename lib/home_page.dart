@@ -553,6 +553,45 @@ class _HomePageState extends State<HomePage>
     return l1.subs.first;
   }
 
+  /// 本 tab 是否挂「筛选行」—— **唯一判据** ✓：挂载 `_filterRow`、`_themeFor` 取数、
+  /// `_applyFilters` 推送选中项，**三处都必须用它** ✓ ——
+  /// 否则就会出现"选中项泄漏到别的 tab"那种 bug ✗（2026-10-03 实机抓到）。
+  /// 传 key + 有无子分类（因为遍历 feed 时手上只有 slug ✓，没有 `SiteTab` ✗）。
+  bool _tabShowsFilterRowKey(String key, {required bool hasSubs}) {
+    if (widget.site.filters == null) return false;
+    switch (widget.site.template) {
+      case SiteTemplate.pornhub:
+        return key == '/video' && !hasSubs;
+      case SiteTemplate.xhamster:
+        return key.startsWith('/categories/') && !hasSubs;
+      default:
+        // 其余站点：筛选行每个 tab 都挂（照站点行为，不动 ✓）
+        return true;
+    }
+  }
+
+  bool _tabShowsFilterRow(SiteTab? cur) =>
+      cur != null &&
+      _tabShowsFilterRowKey(cur.key, hasSubs: cur.subs.isNotEmpty);
+
+  /// 该 tab 实际生效的"主题/标签"选中值（按 key ✓）。
+  ///
+  /// ⚠️ 用户 2026-10-03 实机报：**"Pornhub 站点分类 tab 下分类选择器选了之后，色情明星下面
+  ///    也变成了分类选择器选择标签后的数据"** ✗ —— 根因：`_theme` 是**页面级单值** ✗，
+  ///    而 `_feedFor` 与 `_applyFilters` **两处**都把它发给了**每个** tab ✗。
+  /// 修法：只有"**本 tab 自己挂筛选行**"（用户在这个 tab 上能选）才吃 `_theme` ✓，其余一律 `null` ✓。
+  /// - xHamster「色情明星」tab 吃它自己的 `_xhStar` ✓（演员分类/榜單，与 388 视频分类隔离 ✓）
+  /// - Pornhub「色情明星」tab 有**自己那套**筛选（`_phStar`，走 `extra` ✓）→ 不吃 `_theme` ✓
+  String? _themeForKey(String key, {required bool hasSubs}) {
+    if (widget.site.template == SiteTemplate.xhamster && key == '/pornstars') {
+      return _xhStar;
+    }
+    return _tabShowsFilterRowKey(key, hasSubs: hasSubs) ? _theme : null;
+  }
+
+  String? _themeFor(SiteTab c) =>
+      _themeForKey(c.key, hasSubs: c.subs.isNotEmpty);
+
   /// 懒创建：feed 首次被可见页 build 时才真正发起请求（见 _FeedViewState）
   _CategoryFeed _feedFor(SiteTab c) {
     final s1 = _level1(c)?.key ?? '';
@@ -562,13 +601,11 @@ class _HomePageState extends State<HomePage>
         key,
         () => _CategoryFeed(
             c.key, s1.isEmpty ? null : s1, s2.isEmpty ? null : s2, _api)
-          // ⚠️ 取数用的"覆盖路径"：xHamster 的**「色情明星」tab 用它自己那套** `_xhStar`
-          //（演员分类 / 榜單），其余 tab 才用站点级 `_theme`（「分类」tab 的 388 视频分类）。
-          // 两者混用就是把 388 挂到演员 tab 上的那个 bug ✗（用户 2026-10-02 抓到）。
-          ..theme = (widget.site.template == SiteTemplate.xhamster &&
-                  c.key == '/pornstars')
-              ? _xhStar
-              : _theme
+          // ⚠️ **选中项只发给"本 tab 自己挂筛选行"的那种 tab** ✓（唯一判据见 `_themeFor`）
+          // —— 用户 2026-10-03 实机报：**"Pornhub 分类 tab 选了分类后，色情明星 tab 也变成了
+          //    那个标签的数据"** ✗。根因就是这里原先无条件把**页面级单值** `_theme` 发给了每个 tab ✗。
+          //    xHamster 的「色情明星」tab 吃它自己的 `_xhStar` ✓（与那 388 个视频分类彻底隔离 ✓）。
+          ..theme = _themeFor(c)
           ..duration = _duration
           ..sort = _sort
           // Pornhub 的「色情明星」tab：四个筛选拼成 ?o=/?performerType=/?t=/更多组
@@ -579,10 +616,17 @@ class _HomePageState extends State<HomePage>
   }
 
   /// 切筛选：所有分类的列表都重拉（筛选是页面级状态，照站点）
+  ///
+  /// ⚠️ 但**选中项只推给"该吃它的 tab"** ✓（判据与挂载筛选行、`_feedFor` 完全同一套 ✓）——
+  /// 否则 Pornhub 的「色情明星」tab 会被「分类」tab 的选中项污染 ✗
+  ///（用户 2026-10-03 实机报："分类选择器选了之后，色情明星下面也变成了分类选择器选择标签后的数据" ✗）
   void _applyFilters() {
     setState(() {});
     for (final f in _feeds.values) {
-      f.applyFilters(theme: _theme, duration: _duration, sort: _sort);
+      f.applyFilters(
+          theme: _themeForKey(f.slug, hasSubs: f.sub != null),
+          duration: _duration,
+          sort: _sort);
     }
   }
 
@@ -591,7 +635,9 @@ class _HomePageState extends State<HomePage>
     setState(() {});
     final p = _phStar.toParams();
     for (final f in _feeds.values) {
-      f.applyExtra(p);
+      // ⚠️ **只推给它自己那个 feed** ✓ —— 原先推给**所有** feed ✗，与刚修的 `_applyFilters`
+      // 是**同一类泄漏** ✓（用户 2026-10-03 报的就是这种："分类 tab 的选中项跑到色情明星 tab"✗）。
+      if (f.slug == '/pornstars') f.applyExtra(p);
     }
   }
 
@@ -719,16 +765,12 @@ class _HomePageState extends State<HomePage>
                   _theme != null,
                   () => _openFilterDialog(f),
                 ),
-                // ⚠️ 「重置」放在**选择器按钮后面**（用户 2026-10-03："重置在选择器按钮后面，
-                //   跟分类tab下面的那个一样" ✓）—— 选了才出现，一点回"全部"并重拉 ✓
-                if (_theme != null) ...[
-                  const SizedBox(width: 6),
-                  filterBtn('重置', false, () {
-                    setState(() => _theme = null);
-                    _applyFilters();
-                    _feeds.clear(); // 回"全部"必须重拉（否则还是旧筛选那份列表 ✗）
-                  }),
-                ],
+                // ⚠️ 这里**不要**再插一个「重置」✗ —— 用户 2026-10-03 实机报：
+                //   "别的站点也一起改了，有的分类选择器后面有 2 个重置" ✗。
+                //   本行（`_filterRow`）是**全站共享**的 ✓，而**行尾本来就有**一个「重置」
+                //   （红字、有筛选才出现，见本函数末尾 ✓，那是用户 2026-10-02 要的 ✓）。
+                //   而且 xHamster 这行只有选择器一个按钮 ✓ → 那个"放最后"的重置**位置正好
+                //   就在选择器后面** ✓ —— 需求本来就已满足 ✓，我加的纯属重复 ✗。
                 // 时长/排序：Hanime1 式弹窗选择（按钮直接显示当前值 + ●，选完即关）。
                 // ⚠️ 站点没给这组选项就**不画这个按钮**：Pornhub 的 durations/sorts 都是空列表
                 // → 它只剩一个「分类选择」；Pektino 两组都非空 → 行为一字不变。
@@ -971,15 +1013,9 @@ class _HomePageState extends State<HomePage>
           // 那一行 388 分类选择**只属于「分类」tab**（key = /categories/... 且无子分类）；
           // 「影片」tab（key `/`，带 4 个子项）和「色情明星」「短片」tab 都不该出现它 ✗。
           // sim 侧本来就是这么做的（xhBar 只在 cat.name === '分类' 时挂上 ✓）。
-          if (widget.site.filters != null &&
-              (widget.site.template == SiteTemplate.pornhub
-                  ? (cur?.key == '/video' && cur!.subs.isEmpty)
-                  : widget.site.template == SiteTemplate.xhamster
-                      ? (cur != null &&
-                          cur.key.startsWith('/categories/') &&
-                          cur.subs.isEmpty)
-                      : true))
-            _filterRow(widget.site.filters!),
+          // ⚠️ 用**同一个判据** `_tabShowsFilterRow` ✓ —— 哪些 tab 挂筛选行，那些 tab 才吃选中项 ✓
+          //（用户 2026-10-03："Pornhub 分类 tab 选了之后，色情明星 tab 也变了" ✗）
+          if (_tabShowsFilterRow(cur)) _filterRow(widget.site.filters!),
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
           if (widget.site.template == SiteTemplate.hanime1) _hnFilterRow(),
           // Pornhub「色情明星」tab 的筛选行（排序 / 类型 / 时间 / 更多筛选设置）
@@ -1003,8 +1039,10 @@ class _HomePageState extends State<HomePage>
                     //   key 不变 → State 被复用，而 `_FeedViewState` **没有 didUpdateWidget** ✗
                     //   → 列表永远不会重新加载（「分类」tab 选那 388 个也一样不刷新 ✗）。
                     //   把两个选中项都写进 key：一变就换 State → 重新拉 ✓
+                    // key 里的选中项也用 `_themeFor(c)` ✓（与取数同一个值 ✓）——
+                    // 这样**别的 tab 不会因为切换它的选中项而白重拉** ✗，本 tab 选了才换 State ✓
                     key: ValueKey(
-                        '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}|${_theme ?? ''}|${_xhStar ?? ''}'),
+                        '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}|${_themeFor(c) ?? ''}'),
                     feed: _feedFor(c),
                     site: widget.site,
                   ),

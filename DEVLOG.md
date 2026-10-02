@@ -586,6 +586,182 @@ ipa = 桌面 `kpxx.ipa`，**16,351,241 字节**（+106,929）✓。
 ⚠️ **自查又拦下一个编译错误** ✗：Dart 的 **`MapEntry` 不是 const 构造** ✗ → `const List<MapEntry<…>>` 会直接编译失败 → 改顶层 `final` ✓。
 **构建**：`93744ca`（run `37046616612`）**成功** ✓ 4m6s、**编译错误 0 条** ✓，ipa = 桌面 `kpxx.ipa`，**16,348,441 字节** ✓。
 
+**86.3（短片取数改走页面 JSON）** ✅（2026-10-03）
+- 用户实机给的关键证据：**「加载失败：短片接口失败：Exception：所有域名均无法访问」** ✗
+  → 定性：**不是解析问题、不是 0 条** ✗，而是 `/api/v1/moments` 这个请求在他的**直连**网络下**整个失败** ✓
+  （而**页面请求是通的** ✓ —— 影片/分类 tab 一直有数据 ✓。用户原话点醒："APP端是直连的" / "你自己看影片以及分类tab的数据过去不就知道了"）。
+- ⚠️ **用户定的方向**：**"短片不用 api 请求了。直接抓 json 吧"** ✓
+- **做法**：`_xhMoments` → `_fetchText('/shorts/newest')`（**页面**）→ `_xhMomentsFromHtml` 用
+  **黄果详情页同一套**（`hp.parse` + `querySelector('script#initials-script')`）抠出 `window.initials`，
+  取 `layoutPage.videoListProps.videoThumbProps`（实测 **45 条** 🔍），字段 id/title/pageURL/**imageURL(405×720 竖版)**/thumbURL；
+  ⚠️ **列表不含 sources** ✗ → 播放仍走详情页 `/shorts/<slug>`（页面 ✓ 通的 ✓）。翻页 `?page=N` ✓。
+- **删掉**：`/api/v1/moments` 整条路（`_xhMomentsAt` / `_xhApi` / `_xhLastHint`，-114 行 ✓）。
+- **构建**：`9806df8`（run `37052069671`）**成功** ✓ 3m26s、**编译错误 0 条** ✓，ipa **16,349,932 字节**（−3,168 ✓）。
+- ⚠️ **本节最大教训（差点酿成事故）**：我用 Node 脚本批量改 `api.dart` 时，删 `_xhApi` 的定位写成
+  "从 `ci` 往后找第一个 `};`" ✗ → **匹配到很后面的位置，一口气误删 5562 字节**（把**演员卡解析 `_xhStars` 也删掉了** ✗✓）。
+  **处置**：立刻 `git checkout -- lib/api.dart` 从已提交的 `6470bce` **完整恢复** ✓（改动都已提交 ✓ **没丢东西** ✓）→
+  `_xhApi` 改成**整段精确匹配** ✓，并在脚本里**加了"关键符号仍在"的断言**（`_xhStars`/`_xhCards` 必须还在 ✓）。
+  **规矩**：① 批量替换脚本**必须逐项断言关键符号仍在**，不能只看"删了多少字节" ✗；
+  ② 动大文件前确认**最近一次提交是干净的** ✓（这次能秒恢复全靠它 ✓）。
+- ⚠️ **另一条测试纪律（第 471 行已犯过一次 ✗）**：**App 是直连架构** ✓ —— 我拿"走系统代理"的 curl 结果
+  当 App 的结论 ✗ 是**错的** ✓。以后凡涉及 App 网络行为的判断，**必须注明"这是走代理测的、不等于 App 直连"** ✓。
+- 注：**sim 不用改** ✓（它走 Node 服务端、接口本来是通的 ✓）。
+
+**86.4（GitHub 产物是 zip 的说明）**（用户问"IPA能不能不要构建成zip压缩包"）
+- ✅ **artifacts 是 zip 容器** ✓（`gh run download` 必须解包才拿到 `kpxx.ipa` ✓ —— 我们自己的流程就能证明 ✓）；
+  `.ipa` **本身就是 zip** ✓（`Payload/KPXX.app/…`，'PK' 开头 ✓，苹果格式 ✓，不存在"非压缩的 ipa" ✗）。
+- 🔍 其它项目直接的 `.exe` 下载**多半来自 GitHub Releases**（Release 资源原样返回 ✓、不过期 ✓）。
+- **用户决定**：**不加 Releases** ✓，**按现有构建方式继续**（桌面取 ipa ✓）。
+
+**87（重大改造：站点相关全部改成"站点独立专属"）** 🚧 进行中（2026-10-03）
+**用户决策（原话）**："**取消全站共享函数代码。每个站点全部独立写**，分类子分类多级分类标签选择器重置按钮数据获取这些。
+**播放器是公用的这个不用改**" / "**除了播放器相关的不用动，其他关于站点信息的，全部要改成站点独立的**" / "**全部一起改了吧，一次性修改完推送构建，失败就重新修改重新推送构建，直到出包为止**"。
+**用户新立的规矩（最重要）**：**每回合任务开始先读一遍开发日志** ✓；**改完写 DEVLOG** ✓；**收到错误也写入 DEVLOG** ✓；**不管成功失败都写** ✓ —— 目的是**别让我忘了改到哪、错了哪里** ✓。
+
+**边界（用户确认过）**：
+- **要独立**：分类/子分类/多级分类表 · 标签选择器 UI · 重置按钮 · 选中状态 · 数据获取与解析（列表/详情/搜索/翻页）✓
+- **保持公用（底座）**：`config.dart`(UA+NSURLSession) · `models.dart`(Article/ArticleDetail…) · 卡片网格 · `fetched_image.dart` · `app_background.dart`/`app_bg.dart` · 设置/记录/图集/网页壳 · **播放器全链路** ✓
+- 判据：**文件里 `SiteTemplate` 出现次数 = 0** → 底座 ✓（已实测 ✓）
+
+**实测的分派点统计（92 处）**：`api.dart` **55** · `home_page.dart` **19** · `sites.dart` **17** · `detail_page.dart` **1** ✓
+**站点专属函数清单（api.dart 里要搬走的）**：`_xh*`(9) · `_ph*`(5) · `_md*`(5) · `_xv*`(7) · `_hanime*/_hn*`(8) · `_pektino*`(4) · `_porna*`(6) · `_huangguo*/_hg*`(9) · `_km*`(4) · `_wp*/_parse*/_dplayer*/_hls*`(9) · `_melon*/_novel*/_heiliao*/_ms*`(7) 等 ✓
+
+**拆法（关键：搬 ≠ 重写）** ✓：把现有函数**原样剪切**进 `lib/sites/<站点>.dart` ✓，**不重写逻辑** ✓（本地编不了 Dart ✗，重写等于拿 CI 当赌注 ✗）。
+
+--- 本轮进度 ---
+✅ **第 0 批第一步已完成**：新建 `lib/base/fetch.dart`（`SiteFetcher`）——
+把 `Api` 的 `_fetchText`(域名轮换/5xx 重试/8 秒超时/UTF-8) · `_fetchAbs`(跨域绝对地址) · `_client`(NSURLSession) ·
+`hosts`/`_host`(记住上次跑通的域名) **原样搬**出来 ✓；`Api` 改成**只委托** ✓：
+`late final SiteFetcher _f` + `_fetchText→_f.text` + `_fetchAbs→_f.abs` + `hosts/_host(setter)/_client` 三个转发 ✓
+→ **47 个 `_fetchText(` 调用点一个字没改** ✓（已核对 ✓），`Site.ua` 仍在用（2007/2238 行 ✓）所以 `config.dart` import 不是孤儿 ✓。
+⏭️ **下一步**：`lib/base/site_api.dart`（每站接口）→ 然后**逐站搬**（xHamster 起手 ✓）。
+
+--- 第 87 条续（Round 1）---
+✅ **Step A 完成**：新建 `lib/sites/xhamster.dart`（**311 行**）——
+把 `api.dart` 的 xHamster 段（**2770~3050 行，共 281 行**）**原样搬**进 `class XhSite` ✓，
+仅做两处**等价替换**：`_fetchText(` → `_f.text(`、`_fetchAbs(` → `_f.abs(` ✓，
+并补上原本在 `Api` 里的 `static final Random _rand`（短片随机起始页/打乱用 ✓）。
+核对：括号 **0/0/0** ✓；16 项关键符号全在（`_xhUa`/`_xhDesk`/`_xhUn`/`_xhCards`/`_xhStars`/`_xhClock`/
+`_xhShortsPath`/`_xhMomentsFromHtml`/`_xhMoments`/`_xhJson`/`_xhDetail`/`Article(`/`ArticleDetail(`/
+`coverAspect: 3 / 4`/`initials-script`/`/shorts/newest` ✓）；**`api.dart` 未被改动** ✓
+（Step A 是"只复制、不改主文件" ✓，而且新文件此刻**无人引用** → 即便有错也**不影响现有构建** ✓ 零风险 ✓）。
+⚠️ **Step B 必须注意（已踩到）**：`_xhList`/`_xhCards`… 都是**私有**（`_` 前缀）✗ ——
+**跨文件调用不了** ✗ → Step B 要在 `XhSite` 上**加公开包装**（`list()`/`detail()`/`search()` ✓），
+或把这些入口方法改名去下划线 ✓。
+⏭️ **下一步（Round 2）**：Step B —— 从 `api.dart` 删掉该段 + 把 `Api` 里 5 处
+`case SiteTemplate.xhamster:` 改成委托 `XhSite` ✓（删之前先确认 `git` 状态干净、可秒回滚 ✓）。
+
+--- 第 87 条续（Round 2）---
+✅ **Step B 完成**：`api.dart` **3051 → 2740 行** ✓（删掉 xHamster 段 281 行）；
+`lib/sites/xhamster.dart` **319 行** ✓；四处调用改成委托 ✓
+（`_xhSite.list(...)` ×3 + `_xhSite.detail(...)` ×1 ✓）；`XhSite` 加了**公开入口** `list()`/`detail()` ✓；
+`Api` 补回 **`resetShortsRandom()` 转发** ✓（原方法随段搬走 ✗ 而 `home_page.dart:520` 还在调 ✗，漏了必编译失败 ✓）。
+其它站点符号**一个没伤**（实测：`_mdCards`×8 `_phList`×5 `_xvList`×5 `_hanimeList`×3 `_pornaList`×5
+`_pektinoList`×5 `_hgPostCards`×2 `_kmList`×3 `_wpDetail`×2 `_msCards`×2 ✓）。
+
+⚠️⚠️ **本轮最重要的教训：括号扫描器的判据怎么定**（连踩两次，好在都**没写盘** ✓）
+- 事实：**扫描器对 `api.dart` 有固定误报** ✗（磁盘原样就是 `5/-1/3`，不是 0/0/0 ✓）。
+  它遇到 Dart 原始字符串/三引号会歪，而且**误差会跨段"泄漏"** ✗。
+- ❌ **判据A「改动后必须 0/0/0」** → 必然误判中止（Step B 第一版 ✓）。
+- ❌ **判据B「改动前后差值必须为 0」** → 也误判（Step B 第二版 ✓）——
+  实测：只删那段，扫描值从 `5/-1/3` 变 `3/2/2`（差值 -2/3/-1 ✗），**但那段单独扫是 `0/0/0`** ✓。
+  即：**误差在段与段之间叠加/抵消**，差值法不成立 ✗。
+- ✅ **判据C（正确，已采用）**：①**被搬走的那一段自己必须自平衡 `0/0/0`** ✓
+  ②**删完文件仍以类的 `}` 收尾** ✓ ③**代码里无残留引用**（`//` 注释不算 ✓）✓
+  —— 这三条实测可用 ✓（Step B 终版 + 搬 `_hlsVariants` 都一次通过 ✓）。
+- 🛠️ 附带工具：`node` 脚本一律带"关键符号仍在"断言 ✓（自上次误删 `_xhStars` 后立的规矩 ✓），
+  并且**任一条不满足就整体放弃、绝不写盘** ✓（这两次中止**零损失** ✓）。
+
+✅ **顺手抓掉一个真编译错误** ✗：`xhamster.dart` 用到 `_hlsVariants` ✗ —— 它是 `Api` 的**私有**
+helper ✓ 且**会发网络请求**（拉 HLS master ✓）→ **属于底座** ✓ → 搬到 `lib/base/fetch.dart` 并
+**公开** `hlsVariants()` ✓（`fetch.dart` 122 行 ✓ 自平衡 0/0/0 ✓），两处调用改为 `_f.hlsVariants(...)` ✓。
+**新规矩**：每搬完一站，**必须扫一遍"该站代码引用的所有外部符号是否都在"** ✓
+（否则跨文件调不到，必编译失败 ✗ —— 这次就是这么抓到的 ✓）。
+
+⏭️ **下一轮（Round 3）**：搬 **Pornhub**（`_ph*` 五个函数 ✓）—— 同样 Step A（复制成立 ✓）→
+Step B（删原段 + 改 `case SiteTemplate.pornhub:` ×5 ✓）→ 扫外部符号 ✓ → 写 DEVLOG ✓。
+**注意**：`_ph*` 可能也引用了别的共享 helper ✗（如 `_videoOrdinal`/`_toRelPath` ✓）→ 先扫再搬 ✓。
+
+--- 第 87 条续（Round 3）---
+✅ **Pornhub 搬完**（**一次过** ✓，判据C 三条全绿才写盘 ✓）：
+- 段定位：`api.dart` **2588~2739 行（152 行）** ✓ 自平衡 **0/0/0** ✓
+- 先扫外部符号（**新规矩** ✓）：该段只依赖 `_fetchText`（→ `_f.text` ✓），
+  `_or` 是**段内自己定义**的小工具 ✓（在段前出现 0 次 → 实证 ✓）→ **没有别的坑** ✓
+- 结果：`lib/sites/pornhub.dart` **183 行** ✓（`class PhSite` + `list()`/`detail()` 公开入口 ✓ 0/0/0 ✓）；
+  `api.dart` **2740 → 2592 行** ✓；**5 处调用**全改（`_phSite.list` ×4 + `_phSite.detail` ×1 ✓，含一处跨行的 `search` ✓）
+- 判据全过：末行 `}` ✓ / 代码里无残留 `_ph*(` ✓ / 新文件自平衡 ✓
+- 其它站点符号未受影响（`_mdCards`×8 `_xvList`×5 `_hanimeList`×3 `_pornaList`×5 `_pektinoList`×5
+  `_hgPostCards`×2 `_kmList`×3 `_wpDetail`×2 `_msCards`×2 `_xhSite`×6 ✓）
+
+**📈 进度**：数据层已搬 **2 / 10 个站点家族**（xHamster ✓ Pornhub ✓）；
+`api.dart` 累计 **3051 → 2592 行** ✓。UI 层（`home_page` 的 19 处分派）**尚未开始** ✓。
+**⏭️ 下一轮（Round 4）**：搬 **Pektino**（`_pektino*` 4 个 ✓）—— 同流程：定位段 → 扫外部符号 →
+Step A+B 一个脚本 → 三条判据 → 写 DEVLOG ✓。
+**待搬清单（剩余）**：Pektino · Hanime1(`_hanime*/_hn*`) · XVideos(`_xv*`) · 91porna(`_porna*`) ·
+黄果(`_huangguo*/_hg*`) · 麻豆社(`_md*`) · kmsvip(`_km*`) · wordpress(`_wp*/_parse*/_dplayer*/_hls*` 已上移 hls ✓)
+· melon/novel/heiliao/ms 等小站 ✓。
+
+--- 第 87 条续（Round 4）---
+✅ **Pektino 搬完** —— 段 **820~961 行（142 行）** ✓；新文件 `lib/sites/pektino.dart` **171 行** ✓；
+`api.dart` **2592 → 2444 行** ✓；5 处调用改 `_pkSite.list/detail` ✓（含一处跨行 ✓）。
+
+⚠️⚠️ **本轮的判据两次拦下真问题（都零损失 ✓，价值实证）**：
+1. **通用搬家器（我新写的 `move.js`）失败** ✗：它用宽松正则找"定义行"，
+   结果把 **`return _pektinoList(...)` 这种调用点也当成定义** ✗（`return` 被当成返回类型 ✗）
+   → 段终点算歪 ✗ → 自平衡检查不过 → **中止，没写盘** ✓。
+   **教训**：判断"这是定义还是调用"**不能靠宽松正则** ✗ —— 要么按"行首缩进 + 名字 + `(` 且**前一个词不是 return**"收紧，
+   要么干脆用**手工锚定**（段头注释 + 下一段函数往上找最近的 `}` ✓）—— 后者本轮验证可用 ✓。
+2. **外部依赖扫描抓到 `_secClock`** ✗：Pektino 用了它 ✓，而它定义在 `Api` 别处（**三个站共用**：
+   Pektino ×3 / 黄果 ×2 / 另一处 ×1 ✓）→ **属于底座** ✓ → 上移到 `lib/base/fetch.dart` 并**公开** `secClock()` ✓
+   （`fetch.dart` 136 行 ✓），`api.dart` **6 处**调用改为裸 `secClock(` ✓。
+
+**📈 进度**：数据层已搬 **3 / 10 个站点家族**（xHamster ✅ Pornhub ✅ Pektino ✅）；
+`api.dart` 累计 **3051 → 2444 行**（瘦 **607 行** ✓）。UI 层 19 处分派**尚未开始** ✓。
+**⏭️ 下一轮（Round 5）**：搬 **Hanime1**（`_hanimeList/_hanimeSearch/_hanimeSearchAt/_hanimeDetail` +
+`_hnGridCards/_hnRowCards/_hnQuery/_hnRel` ✓）—— 用**手工锚定**流程 ✓（段头注释 → 下一段函数前最近的 `}` ✓），
+先扫外部依赖（可能还要上移 helper ✗）再搬 ✓。
+
+--- 第 87 条续（Round 5）---
+✅ **Hanime1 搬完** —— 段 **1620~1806 行（187 行）** ✓；新文件 `lib/sites/hanime1.dart` **210 行** ✓；
+`api.dart` **2444 → 2264 行** ✓；6 处调用改 `_hnSite.list/search/searchAt/detail` ✓。
+
+✅ **本轮一个重要的手法改进（避免签名写错 ✗）**：
+Hanime1 的调用点参数表**各不相同**（`list(key, page:, extra:)` / `list(first, page:)` /
+`search(slug, page:)` / `search(keyword, page:, extra:)` ✗）→ 如果像 Pornhub/`Pektino` 那样**包一层公开包装**，
+**必须把签名一字不差抄对** ✗（极易错 ✓）。
+本轮改成：**把入口方法直接改名为公开** ✓（`_hanimeList`→`list`、`_hanimeSearchAt`→`searchAt`、
+`_hanimeSearch`→`search`、`_hanimeDetail`→`detail` ✓）→ **调用点的实参一个都不用改** ✓，
+只把 `_hanimeXxx(` 换成 `_hnSite.xxx(` ✓ —— **不会写错签名** ✓✓。
+⚠️ 替换顺序要**长的先替换** ✗（`_hanimeSearchAt` 含 `_hanimeSearch` ✗，先换短的会污染 ✓）。
+⚠️ 另外：段里含**静态字段** `_hnTagCache` ✓ 与**本来就公开**的 `hanimeTags()` ✓（`home_page:223` 在用 ✓）
+→ `Api` 里补了 **`hanimeTags()` 转发** ✓（漏了必编译失败 ✗）。
+**新经验**：搬之前先看**该段有没有公开成员** ✗（有就得在 `Api` 留转发 ✓）。
+
+**📈 进度**：数据层已搬 **4 / 10**（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅）；
+`api.dart` 累计 **3051 → 2264 行**（瘦 **787 行** ✓）。UI 层 19 处分派**尚未开始** ✓。
+**⏭️ 下一轮（Round 6）**：搬 **XVideos**（`_xvList/_xvCards/_xvSearch/_xvDetail/_xvDirectory/_xvProfileVideos/_isXvProfile` ✓
+—— **注意**：`_xvProfileVideos` 可能被 **其它站**用 ✗，搬前先扫引用 ✓）。
+
+--- 第 87 条续（Round 6）---
+✅ **XVideos 搬完** —— `api.dart` **2264 → 1964 行** ✓；新文件 `lib/sites/xvideos.dart` **328 行** ✓；
+5 处调用改 `_xvSite.list/search/detail` ✓；**kmsvip 段完好**（`_kmList/_kmDetail/_kmPost/_kmHex/_kmAes` 逐个核过 ✓）。
+
+⚠️⚠️ **本轮发现两件必须记住的事**：
+1. **站点代码在文件里可能被切开** ✗：`_xvDetail` **不在** XVideos 段里 ✗ ——
+   它落在 **kmsvip 段（1844 行起）之后** ✓（文件里段序不是严格排列的 ✗）。
+   第一次搬（单段）把 kmsvip 一起圈进去了 ✗ → 外部依赖扫描报 **`_kmBytes` 解析不到** ✗ → **中止** ✓（零损失 ✓）。
+   **对策**：**两段拼接搬运** ✓（A = 1629~1841 ✓；B = `_xvDetail` 1962~2052 ✓，中间 kmsvip 留着不动 ✓）。
+2. **"段尾"该怎么找（更新方法论）** ✗：
+   ❌ 用"函数签名后的第一个 `{` 做括号配对"**不可靠** ✗ —— 注释/字符串里出现 `{` 就会跑飞 ✗
+   （本轮就是这么把段算成 **424 行** ✗ 的 ✓）。
+   ✅ **可靠**：**"下一个段头注释（`// 名字（域名）`）往上找第一个 `  }`"** ✓ ——
+   Pektino 与 XVideos 两轮都验证可用 ✓✓。
+   ⚠️ 而且**搬前必须扫"这个段里有没有混进别的站"** ✗（本轮靠"未处理的外部依赖"扫出来的 ✓）。
+
+**📈 进度**：数据层已搬 **5 / 10**（xHamster ✅ Pornhub ✅ Pektino ✅ Hanime1 ✅ XVideos ✅）；
+`api.dart` 累计 **3051 → 1964 行**（**瘦 1087 行** ✓，三分之一的站点代码已出仓 ✓）。
+**⏭️ 下一轮（Round 7）**：搬 **91porna**（`_pornaCards/_pornaDetail/_pornaDuration/_pornaList/_pornaPlayUrl/_pornaPlayUrlByToken` ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
