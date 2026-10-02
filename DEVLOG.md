@@ -981,6 +981,44 @@ pageList · parseArticles · parseCards · postDetail · resetShortsRandom · se
 **⏭️ 下一轮（Round 16）**：开始 **UI 层** —— 先盘点 `home_page.dart` 里站点相关的 19 处 ✗
 （筛选行/选择器/重置/选中状态 ✓），列清单再动手 ✓。
 
+
+--- 第 87 条续（Round 16）---
+✅ **数据层收官后，开始 UI 层** —— 本轮只做**盘点 + 设计**（不写业务代码 ✓，按既定流程"先列清单再动手" ✓）。
+
+✅ **盘点结果（实锤 ✓）**：`home_page.dart`（**1878 行** ✓）里**恰好 19 处** `SiteTemplate` 引用 ✓：
+| 站点 | 处数 | 行号 |
+|---|---|---|
+| xhamster | 9 | 518 · 565 · 586 · 726 · 905 · 1028 · 1312 · 1519 · 1536 |
+| pornhub | 5 | 563 · 612 · 1022 · 1306 · 1499 |
+| pektino | 2 | 1319 · 1849 |
+| hanime1 | 2 | 1020 · 1828 |
+| xvideos | 1 | 1482 |
+
+✅ **19 处归成 5 类**（读了三处关键区域 ✓ 1015~1035 / 1300~1325 / 1820~1855 ✓）：
+| 类 | 干什么 | 涉及行 |
+|---|---|---|
+| A | **筛选行挂载**（哪个 tab 挂哪条筛选行 ✓ 含"色情明星"专用行 ✓） | 1020 · 1022 · 1028 |
+| B | **列表列数**（"色情明星"tab 是竖版头像卡 → 一行 3 个 ✓） | 1306 · 1312 |
+| C | **瀑布流**（Pektino 逐条按 mp4 分辨率混排 ✓） | 1319 · 1849 |
+| D | **筛选表/主题/extra/平台行** | 518 · 563 · 565 · 586 · 612 · 726 · 905 |
+| E | **详情页**（xvideos/pornhub/xhamster 各自的详情区 ✓） | 1482 · 1499 · 1519 · 1536 · 1828 |
+
+✅ **设计（下轮照这个实现 ✓）** —— 用**一个底座接口 + 每站实现 + Api 一处选择** ✓，而不是在 UI 里散 19 个 switch ✗：
+1. 新建底座 `lib/base/site_ui.dart`：`abstract class SiteUi` ✓，给**默认实现**（`masonry=false`、
+   `portraitStarCards=false`、`hasStarFilterRow=false`、`Widget? filterRow(...)=>null` ✓）——
+   默认值让**不涉及该特性的站点一行都不用写** ✓（ponytail 懒人阶梯 ✓）
+2. **每个站点类 `implements SiteUi`** ✓，只**覆盖自己那条** ✓：
+   `PektinoSite.masonry=true` ✓ / `PhSite.portraitStarCards` + `starFilterRow` ✓ /
+   `XhSite` 同上 ✓ / `HanimeSite.filterRow` ✓
+3. `Api` 里**唯一一处**选择：`SiteUi? get ui` ✓（一个 switch 把 template 映射到站点类 ✓）——
+   ✅ **站点逻辑**全在各站文件里 ✓；`Api` 只留**接线** ✓（这就是"站点独立"的落地形态 ✓）
+4. `home_page` 的 19 处 → 改读 `api.ui?.xxx` ✓（`?? 默认值` ✓ 保证没实现的站点行为不变 ✓）
+⚠️ 站点文件会因此 `import 'package:flutter/material.dart'` ✓（筛选行/重置按钮是 widget ✓，符合用户"选择器 UI/重置按钮也归站点"的要求 ✓）。
+
+**📈 进度**：轮次 **16/40**；数据层 **9/9** ✓✓；UI 层 **0/19**（本轮完成盘点+设计 ✓）。
+**⏭️ 下一轮（Round 17）**：实现 `lib/base/site_ui.dart` + 4 个站点类实现它 + `Api.ui` ✓
+（**先只加、不删** ✓ —— 保证这一步编译通过 ✓；19 处替换留到再下一轮 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
