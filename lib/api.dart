@@ -232,38 +232,25 @@ class Api {
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     switch (site.template) {
       case SiteTemplate.wordpress:
-        final kw = Uri.encodeComponent(keyword);
-        final path = page <= 1 ? '/search/$kw/' : '/search/$kw/$page/';
-        return _wpSite.parseArticles(await _fetchText(path));
+        return _wpSite.search(keyword, page: page);
       case SiteTemplate.huangguo:
-        if (page > 1) return []; // 黄果搜索单页（页面上没有分页入口）
-        final kw = Uri.encodeComponent(keyword);
-        final html = await _fetchText('/search/?keyword=$kw');
-        return _hgSite.parseCards(hp.parse(html));
+        return _hgSite.search(keyword, page: page);
       case SiteTemplate.porna:
-        return _pornaSite.list('search:$keyword', page: page);
+        return _pornaSite.search(keyword, page: page);
       case SiteTemplate.pektino:
-        // 站点搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条）
-        return _pkSite.list('all', keyword, page: page);
+        return _pkSite.search(keyword, page: page);
       case SiteTemplate.hanime1:
         return _hnSite.search(keyword, page: page, extra: extra);
       case SiteTemplate.xvideos:
         return _xvSite.search(keyword, page: page);
       case SiteTemplate.kmsvip:
-        throw Exception('该站点没有搜索功能');
+        return _kmSite.search(keyword, page: page);
       case SiteTemplate.madou:
-        // 搜索 = /?s={kw}；翻页参数是 **paged**（不是 page），照站点原样
-        final kw = Uri.encodeComponent(keyword);
-        return _mdSite.cards(await _fetchText(
-            page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
+        return _mdSite.search(keyword, page: page);
       case SiteTemplate.pornhub:
-        // 搜索 = /video/search?search=<kw>（站点自己的搜索页形态；kw 是原始文本，自己编码）
-        return _phSite.list('/video/search?search=${Uri.encodeComponent(keyword)}',
-            page: page);
+        return _phSite.search(keyword, page: page);
       case SiteTemplate.xhamster:
-        // ⚠️ 站点有搜索（'搜尋所有女優' 那个框），但**路径没实测过** → 先明确抛错，
-        // 不猜一个地址糊上去（猜错了会静默变成空列表，更难查）。
-        throw Exception('xHamster 搜索暂未接通（路径未实测）');
+        return _xhSite.search(keyword, page: page);
     }
   }
 

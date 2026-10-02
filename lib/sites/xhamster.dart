@@ -25,6 +25,11 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// ⚠️ 站点**有**搜索（'搜尋所有女優' 那个框 ✓），但**路径没实测过** ✗ →
+  /// **明确抛错**，不猜一个地址糊上去 ✓（猜错了会静默变成空列表，更难查 ✓）。
+  Future<List<Article>> search(String keyword, {required int page}) async =>
+      throw Exception('xHamster 搜索暂未接通（路径未实测）');
+
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表 ✓）；详情页标签也走这里 ✓。
   /// 全是站内路径，交给 list 分流（它会避开"把演员页当演员列表解析"的坑 ✓）

@@ -24,6 +24,10 @@ class PornaSite {
 
   final SiteFetcher _f;
 
+  /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
+  Future<List<Article>> search(String keyword, {required int page}) =>
+      list('search:$keyword', page: page);
+
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签）✓，
   /// 其余是搜索关键词（视频页的 keywords ✓）

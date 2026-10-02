@@ -23,6 +23,14 @@ class HuangguoSite {
 
   final SiteFetcher _f;
 
+  /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+  Future<List<Article>> search(String keyword, {required int page}) async {
+    if (page > 1) return [];
+    final kw = Uri.encodeComponent(keyword);
+    final html = await _f.text('/search/?keyword=$kw');
+    return parseCards(hp.parse(html));
+  }
+
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 专题等路径型（点"专题"卡片进来）走页面列表 ✓；标签页是普通列表页（没有分页 ✓）
   Future<List<Article>> tag(String slug, {required int page}) async {

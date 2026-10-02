@@ -24,6 +24,10 @@ class PhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 搜索 = /video/search?search=<kw>（站点自己的搜索页形态 ✓；kw 是原始文本，自己编码 ✓）
+  Future<List<Article>> search(String keyword, {required int page}) =>
+      list('/video/search?search=${Uri.encodeComponent(keyword)}', page: page);
+
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是 `/video/search?search=<编码词>` ✓；演员卡传来的是 `/pornstar/xxx` ✓。
   /// 两者对本站都只是"一个站内路径"→ 直接当列表抓 ✓（演员路径回来的是视频卡 ✓）

@@ -17,6 +17,13 @@ class MadouSite {
 
   final SiteFetcher _f;
 
+  /// 搜索 = /?s={kw} ✓；翻页参数是 **paged**（不是 page ✓），照站点原样 ✓
+  Future<List<Article>> search(String keyword, {required int page}) async {
+    final kw = Uri.encodeComponent(keyword);
+    return cards(await _f.text(
+        page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
+  }
+
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是裸 slug（/tag/{slug} ✓）；以 / 开头的是卡片上的分类路径 ✓
   Future<List<Article>> tag(String slug, {required int page}) async {

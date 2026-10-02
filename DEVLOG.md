@@ -1268,6 +1268,23 @@ B 列表列数 → `portraitStarCards` ✓；C 瀑布流 → `masonry` ✓；D/E
 **⏭️ 下一轮（Round 27）**：下放 **`search` 分发器**（10 个 case ✓）—— ⚠️ 注意它有几处会**抛异常**
 （如 kmsvip 的"该站点没有搜索功能" ✓、xhamster 的"搜索暂未接通" ✓）→ 异常消息要不要一起下放，先看清再定 ✓。
 
+
+--- 第 87 条续（Round 27）---
+✅✅ **`search` 分发器 10 / 10 下放完成** ✓✓：**`api.dart` 418 → 405 行** ✓（-13 ✓）；
+8 项括号净变化全 0 ✓；case 总数 **50 ✓**；search 委托数 **10 ✓**。
+- **8 个站点类新增** `search(...)` ✓（wordpress/huangguo/porna/pektino/kmsvip/madou/pornhub/xhamster ✓）
+- **hanime1 / xvideos 本来就有** ✓（搬站时留下的 `search` ✓）→ 它们的 case 早就是委托 ✓，本轮不用动 ✓
+
+✅ **两个"抛异常"的也下放了** ✓：`kmsvip`（该站点没有搜索功能 ✓）与 `xhamster`（搜索暂未接通、路径未实测 ✓）
+—— ✅ **异常消息本身就是站点事实** ✓（哪站没搜索、哪站没接通 ✓），所以归站 ✓。
+→ ✅ **`Api.search` 现在纯委托、自己不抛错** ✓（行为等价 ✓：调用站点方法同样会抛 ✓）。
+
+**📈 进度**：轮次 **27/40**；数据层 **9/9** ✓✓；UI **19/19 + detail_page** ✓✓；
+**分发器下放 40 / 50 个 case**（`category` ✓ `home` ✓ `tag` ✓ `search` ✓；**只剩 `detail` 10 个** ✓）。
+**⏭️ 下一轮（Round 28）**：下放 **`detail` 分发器**（**最后一个** ✓，10 个 case ✓）——
+⚠️ 它可能比其他几个复杂（详情页解析多 ✓），先读清再动 ✓；
+做完之后下一步就是 **"`switch` 整体换成 `SiteUi` 式接口"** ✓（那时行数才会明显下降 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

@@ -19,6 +19,10 @@ class PektinoSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条 ✓；原 `Api.search` 原样搬来 ✓）
+  Future<List<Article>> search(String keyword, {required int page}) =>
+      list('all', keyword, page: page);
+
   /// "标签" = 主题筛选（走同一个接口，全时段 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
   Future<List<Article>> tag(String slug, {required int page}) => list('all', slug, page: page);
 

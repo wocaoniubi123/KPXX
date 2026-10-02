@@ -19,6 +19,10 @@ class KmSite {
 
   final SiteFetcher _f;
 
+  /// 本站**没有搜索功能**（照站点实况 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+  Future<List<Article>> search(String keyword, {required int page}) async =>
+      throw Exception('该站点没有搜索功能');
+
   /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）
   Future<List<Article>> tag(String slug, {required int page}) async => const [];
 
