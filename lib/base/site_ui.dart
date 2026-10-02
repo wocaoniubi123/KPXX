@@ -30,6 +30,17 @@ abstract class SiteUi {
   /// ✅ 所以这里给的是**站点自己的判定函数** ✓，而不是一个合并的布尔 ✗
   /// （合并会让 Pornhub 多匹配 all/top ✗ = 改变行为 ✓）。
   bool isStarList(String slug) => false;
+
+  /// 「色情明星」tab 挂**哪种**专用筛选行：`ph` = Pornhub 那套 ✓；`xh` = xHamster 那套 ✓。
+  /// ⚠️ 两家是**两个不同的 widget** ✗ → 不能用同一个布尔 ✓，所以这里给"是哪家" ✓。
+  String? get starRowKind => null;
+
+  /// 这个 tab key 是不是"短片"路径（xHamster 的 `/shorts*` ✓）——
+  /// 选中短片 tab 时要重置短片随机种子 ✓。
+  bool isShortsPath(String key) => false;
+
+  /// 分类选择器是否按**分组**展示（xHamster 有 40 个演员分类分组 ✓）。
+  bool get hasCatGroups => false;
   /// 列表页是否挂**本站筛选行**（照站点的那几个下拉 ✓）—— Hanime1 ✓
   bool get hasFilterRow => false;
 }

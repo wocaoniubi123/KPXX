@@ -515,8 +515,7 @@ class _HomePageState extends State<HomePage>
         final i = _tab.index;
         if (i >= 0 && i < _cats.length) {
           final c = _cats[i];
-          if (widget.site.template == SiteTemplate.xhamster &&
-              c.key.startsWith('/shorts')) {
+          if (_api.ui?.isShortsPath(c.key) ?? false) {
             _api.resetShortsRandom();
             _feeds.removeWhere((k, _) => k.startsWith('${c.key}|'));
           }
@@ -902,8 +901,7 @@ class _HomePageState extends State<HomePage>
                   //   "弹窗没有显示制作/行动/恋物癖… 所有标签全部挤在一块了" ✗
                   //   （App 原先用的是**拍平**的 `_xhCats`，分组只在注释里 ✗）。
                   //   分组数据 `xhCatGroups` 与 sim 的 `XH_CATS` **脚本同源生成** ✓（同顺序同内容 ✓）。
-                  if (widget.site.template == SiteTemplate.xhamster &&
-                      f.themes.isNotEmpty)
+                  if (f.themes.isNotEmpty && (_api.ui?.hasCatGroups ?? false))
                     for (final g in xhCatGroups) ...[
                       Padding(
                         padding: EdgeInsets.only(
@@ -1019,13 +1017,13 @@ class _HomePageState extends State<HomePage>
           // Hanime1 的筛选行（照站点：標籤 / 排序方式 / 發佈日期 / 時長）
           if (_api.ui?.hasFilterRow ?? false) _hnFilterRow(),
           // Pornhub「色情明星」tab 的筛选行（排序 / 类型 / 时间 / 更多筛选设置）
-          if (widget.site.template == SiteTemplate.pornhub &&
+          if ((_api.ui?.starRowKind ?? '') == 'ph' &&
               cur?.key == '/pornstars')
             _phStarRow(),
           // xHamster「色情明星」tab 的筛选行（榜單 3 + 演员分类 40）
           // ⚠️ 用户 2026-10-02："色情明星的分类选择要显示正确的明星" —— 这里给的是**演员分类**
           // （`/pornstars/all/categories/<slug>`），**不是**「分类」tab 那 388 个视频分类 ✗。
-          if (widget.site.template == SiteTemplate.xhamster &&
+          if ((_api.ui?.starRowKind ?? '') == 'xh' &&
               cur?.key == '/pornstars')
             _xhStarRow(),
           Expanded(

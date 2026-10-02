@@ -25,6 +25,18 @@ class XhSite implements SiteUi {
 
   final SiteFetcher _f;
 
+  /// 「色情明星」tab 用 xHamster 那套筛选行 ✓
+  @override
+  String get starRowKind => 'xh';
+
+  /// xHamster 的短片路径（选中时要重置随机种子 ✓）
+  @override
+  bool isShortsPath(String key) => key.startsWith('/shorts');
+
+  /// xHamster 的分类选择器按分组展示（40 个演员分类 ✓）
+  @override
+  bool get hasCatGroups => true;
+
   /// xHamster 的「色情明星列表」判定（照原逻辑一字不差 ✓）
   /// ⚠️ 注意：只有**演员列表**才是演员卡（`/pornstars`、`/pornstars/all/…`、
   /// `/pornstars/top/…` ✓）；`/pornstars/<名字>` 是**那个演员的视频列表** ✗。
