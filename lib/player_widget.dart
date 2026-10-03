@@ -180,8 +180,13 @@ class KpPlayer extends ValueNotifier<KpState> {
       // 后面的逻辑全都不会执行 —— 放到 else 分支里等于永远不清。
       // 清它不只是为了撤提示：`_onTick` 的 errEdge 是 `err && !_errShown`，
       // 残留着 true 会让**后续的自动重试静默失效**（真挂掉时连一次都不重试）。
-      if (_stalled &&
-          s.error &&
+      // ⚠️ 2026-10-03 修（用户报"视频都开始播放了，加载失败提示还挂着"）：
+      // 原来这里多要求一个 `_stalled` ✗ —— 只有**看门狗判的卡住**才撤 ✗，
+      // 而"起播前的偶发 FFmpeg 错误"是在 `_everStarted == false` 时把 error 置上的 ✓，
+      // 视频随后正常播起来也**没人撤它** ✗ → 提示永远挂在播放器上 ✓。
+      // 判据改成"**位置真的在前进**" ✓：位置前进 = 确实在播 = 不是失败 ✓。
+      // （真失败时位置不会前进 ✓ 所以不会误清 ✓）
+      if (s.error &&
           (s.position - _lastPos).abs().inMilliseconds >= 500) {
         _stalled = false;
         value = value.copyWith(error: false, errorText: '');
