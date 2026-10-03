@@ -9,7 +9,6 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/fmt.dart';
-import '../base/parse.dart';
 import '../models.dart';
 
 /// wordpress 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
@@ -17,6 +16,46 @@ class WpSite {
   WpSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 一块 dplayer 的播放源（h264 主源在前，h265 兜底）；配置坏就返回空
+  List<String> _dplayerSources(Element dp) {
+    final sources = <String>[];
+    try {
+      final cfg = jsonDecode(dp.attributes['data-config']!) as Map<String, dynamic>;
+      final video = cfg['video'];
+      final h265 = cfg['video_h265'];
+      if (video is Map<String, dynamic>) {
+        final u = (video['url'] as String?) ?? '';
+        if (u.isNotEmpty) sources.add(u);
+      }
+      if (h265 is Map<String, dynamic>) {
+        final u = (h265['url'] as String?) ?? '';
+        if (u.isNotEmpty) sources.add(u);
+      }
+    } catch (_) {
+      // 配置坏：视为无源
+    }
+    return sources;
+
+  }
+
+  /// 站内相对路径（把 `https://host/xxx` 剥成 `/xxx`；本来就是相对路径的原样返回）✓
+  /// ⚠️ 2026-10-03 从 `api.dart` 上移：**麻豆社与 wordpress 系都要用** ✗，
+  /// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
+  /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
+  String _toRelPath(String href) {
+    if (!href.startsWith('http')) return href;
+    final i = href.indexOf('/archives/');
+    if (i >= 0) return href.substring(i);
+    // 其它形态的绝对地址（如麻豆社的 https://host/xxx.html）：剥掉 scheme+host
+    // 只留路径——_fetchText 会自己拼 "https://$host$path"，不剥就会拼出
+    // "https://hosthttps://host/xxx.html" 这种废地址。
+    final u = Uri.tryParse(href);
+    if (u != null && u.path.isNotEmpty) {
+      return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
+    }
+    return href;
+  }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
   Future<List<Article>> search(String keyword, {required int page}) async {
@@ -78,7 +117,7 @@ class WpSite {
       final info = el.querySelector('.post-card-info');
       out.add(Article(
         title: title,
-        url: toRelPath(a.attributes['href'] ?? ''),
+        url: _toRelPath(a.attributes['href'] ?? ''),
         cover: cover,
         // 卡片标题下面只显示时间：这行原来是"作者 • 日期 • 分类"，作者和分类都不要
         meta: metaDate(info?.text ?? ''),
@@ -114,7 +153,7 @@ class WpSite {
         }
         out.add(Article(
           title: title,
-          url: toRelPath(a.attributes['href'] ?? ''),
+          url: _toRelPath(a.attributes['href'] ?? ''),
           cover: cover,
           meta: metaDate(meta),
         ));
@@ -201,7 +240,7 @@ class WpSite {
     var order = 0;
     for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {
       order++;
-      final sources = dplayerSources(dp);
+      final sources = _dplayerSources(dp);
       // 就近往上找最多两条短文本（空行跳过，长正文不算）
       final texts = <String>[];
       for (var e = dp.previousElementSibling;
@@ -240,7 +279,7 @@ class WpSite {
         final parent = a.parent;
         if (parent == null || parent.localName != 'p') continue;
         if (parent.parent != contentEl) continue;
-        final href = toRelPath(a.attributes['href'] ?? '');
+        final href = _toRelPath(a.attributes['href'] ?? '');
         final t = a.text.replaceAll(RegExp(r'\s+'), ' ').trim();
         if (href.isEmpty || t.isEmpty || href == url) continue;
         if (subs.any((e) => e.key == href)) continue;
@@ -294,10 +333,10 @@ class WpSite {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (href.isEmpty || t.isEmpty || href == url) continue;
-      if (related.any((x) => x.url == toRelPath(href))) continue;
+      if (related.any((x) => x.url == _toRelPath(href))) continue;
       related.add(Article(
         title: t,
-        url: toRelPath(href),
+        url: _toRelPath(href),
         cover: '',
         meta: '',
       ));

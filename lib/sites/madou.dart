@@ -8,7 +8,6 @@
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
-import '../base/parse.dart';
 import '../models.dart';
 
 /// madou 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
@@ -16,6 +15,24 @@ class MadouSite {
   MadouSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 站内相对路径（把 `https://host/xxx` 剥成 `/xxx`；本来就是相对路径的原样返回）✓
+  /// ⚠️ 2026-10-03 从 `api.dart` 上移：**麻豆社与 wordpress 系都要用** ✗，
+  /// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
+  /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
+  String _toRelPath(String href) {
+    if (!href.startsWith('http')) return href;
+    final i = href.indexOf('/archives/');
+    if (i >= 0) return href.substring(i);
+    // 其它形态的绝对地址（如麻豆社的 https://host/xxx.html）：剥掉 scheme+host
+    // 只留路径——_fetchText 会自己拼 "https://$host$path"，不剥就会拼出
+    // "https://hosthttps://host/xxx.html" 这种废地址。
+    final u = Uri.tryParse(href);
+    if (u != null && u.path.isNotEmpty) {
+      return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
+    }
+    return href;
+  }
 
   /// 搜索 = /?s={kw} ✓；翻页参数是 **paged**（不是 page ✓），照站点原样 ✓
   Future<List<Article>> search(String keyword, {required int page}) async {
@@ -62,7 +79,7 @@ class MadouSite {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('article.excerpt')) {
       final href =
-          toRelPath(el.querySelector('a.thumbnail')?.attributes['href'] ?? '');
+          _toRelPath(el.querySelector('a.thumbnail')?.attributes['href'] ?? '');
       if (href.isEmpty) continue;
       final title = (el.querySelector('h2 a')?.text ?? '').trim();
       if (title.isEmpty) continue;
@@ -107,7 +124,7 @@ class MadouSite {
     // 相关推荐：标题取锚的文本（<a> 里只有一个缩进的 span>img，没有别的文本节点）
     final related = <Article>[];
     for (final a in doc.querySelectorAll('.postitems li a')) {
-      final href = toRelPath(a.attributes['href'] ?? '');
+      final href = _toRelPath(a.attributes['href'] ?? '');
       final t = a.text.trim();
       if (href.isEmpty || t.isEmpty || href == url) continue;
       if (related.any((x) => x.url == href)) continue;

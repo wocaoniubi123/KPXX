@@ -9,7 +9,6 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import 'base/fetch.dart';
-import 'base/parse.dart';
 import 'base/site_ui.dart';
 import 'config.dart';
 import 'models.dart';
@@ -56,6 +55,28 @@ class Api {
   http.Client get _client => _f.client;
 
   String get base => 'https://$_host';
+
+  /// 一块 dplayer 的播放源（h264 主源在前，h265 兜底）；配置坏就返回空
+  List<String> _dplayerSources(Element dp) {
+    final sources = <String>[];
+    try {
+      final cfg = jsonDecode(dp.attributes['data-config']!) as Map<String, dynamic>;
+      final video = cfg['video'];
+      final h265 = cfg['video_h265'];
+      if (video is Map<String, dynamic>) {
+        final u = (video['url'] as String?) ?? '';
+        if (u.isNotEmpty) sources.add(u);
+      }
+      if (h265 is Map<String, dynamic>) {
+        final u = (h265['url'] as String?) ?? '';
+        if (u.isNotEmpty) sources.add(u);
+      }
+    } catch (_) {
+      // 配置坏：视为无源
+    }
+    return sources;
+
+  }
 
   /// 本站的 UI 事实（2026-10-03 站点独立改造）✓
   ///
@@ -329,7 +350,7 @@ class Api {
     } else {
       final doc = hp.parse(html);
       for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {
-        out.addAll(dplayerSources(dp));
+        out.addAll(_dplayerSources(dp));
       }
     }
     if (out.isNotEmpty) {
