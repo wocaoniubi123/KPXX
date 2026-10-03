@@ -1436,6 +1436,39 @@ Error (Xcode): lib/sites/pornhub.dart:22:7: Error: The non-abstract class 'PhSit
 而**上一次绿色构建 `9806df8` 时 `lib/base` 目录还不存在** ✓ → ✅ **R17~R31 共 23 个提交是第一次被真正编译** ✓
 → **后面可能还有别的编译错误排队** ✓（如实告知用户 ✓）。
 
+
+--- 第 87 条续（Round 32 · 第 3 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37088616599` 失败**（commit ab43a0b ✓，步骤「Flutter build IPA」✓）
+
+**错误原文（1 条，消息完整 ✓）**：
+```
+Error (Xcode): lib/home_page.dart:1302:24: Error: The getter '_api' isn't defined for the class '_FeedViewState'.
+```
+（行号中段被屏蔽成 `***302` ✓；build-watch 用**列号 24** 与源码对齐，唯一解 = **1302** ✓ ✓）
+
+**根因（我的错 ✗）**：`_api` 是 `_CategoryFeed` 的字段 ✓，而我 Round 19/21 改的 `_api.ui?.…` 落在了 **`_FeedViewState`** 里 ✗ →
+该类没有 `_api` ✓。build-watch 还指出 **L1306 有同一处** ✗（CFE 只报第一处 ✓）。
+
+✅ **修法**：`_FeedViewState` 里两处 → **`feed._api`** ✓（Dart 的私有是**库级** ✓，
+同文件 L1311 本来就在用 `feed._done` ✓，风格一致 ✓）。
+
+🎯 **然后我写了个"作用域近似检查"（按类扫描 + 检查 `_api` 等状态字段是否用在了没有它的类里 ✓）**，
+**在提交前又抓到 2 处同类错** ✗✓✓：`ArticleCard`（L1472/L1487）用了 `_api` ✗，而该类只有 `article`/`site` ✓。
+✅ 修法：在 `onTap` 开头加 `final ui = Api(site: site).ui;` ✓（该类 L1492 本来就写 `Api(site: site)` ✓ 风格一致 ✓），两处 `_api.ui` → `ui` ✓。
+✅ **全 `lib/*.dart` 再跑该检查 → 「无」✓**（这一轮把"下一轮才能发现的错"提前修掉了 ✓✓）。
+
+⚠️ **一个虚惊（如实记 ✗）**：修完后 `Get-Content` 报 `home_page.dart` 只有 **1656 行** ✗（原 1827 ✓），
+一度以为写坏了 ✗ → ✅ **用 `git diff --numstat` 验证 = 6 增 / 4 删 ✓** → **文件完好** ✓✓
+（原因：我的写法把行尾从 **CRLF 变成了 LF** ✓，`Get-Content` 计数出现假象 ✓）。
+✅ **教训：怀疑写坏时，用 `git diff --numstat` 判定，别信行数** ✓✓。
+
+⚠️ **另记 build-watch 查证的两件事（重要 ✓）**：
+1. **CI 里没有 `flutter analyze` / `dart analyze` 步骤** ✗ → ✅ **一次构建只暴露一条 Dart 错误** ✓（三轮三条各不同 ✓）
+2. 🔍 **建议**：在 `Flutter build IPA` 前插一步
+   `flutter analyze --no-fatal-infos --no-fatal-warnings` ✓ ——
+   仓库里**没有** `analysis_options.yaml` ✓（所以只会报真问题 ✓），
+   ✅ **这样一次就能拿到全部 Dart 错误** ✓✓，而不是每 4 分钟挖一条 ✓。（**等用户拍板** ✓，我没动 workflow ✗）
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

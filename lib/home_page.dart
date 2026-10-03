@@ -1299,11 +1299,11 @@ class _FeedViewState extends State<_FeedView>
                       // Pornhub「色情明星」tab 是演员卡（竖版头像）→ 跟竖屏站一样一行 3 个
                       // ⚠️ 只认**演员列表**（`/pornstars`、`/pornstars/all/…`、`/pornstars/top/…` ✓）；
                       // `/pornstars/<名字>` 是**那个演员的视频列表** ✗ —— 判定在站点里（isStarList ✓）
-                      (_api.ui?.isStarList(widget.feed.slug) ?? false))
+                      (feed._api.ui?.isStarList(widget.feed.slug) ?? false))
                   ? 3
                   : 2,
               // Pektino：瀑布流（横竖混排按顺序填充两列，不留空档；照站点）
-              masonry: _api.ui?.masonry ?? false,
+              masonry: feed._api.ui?.masonry ?? false,
               physics: const AlwaysScrollableScrollPhysics(),
               count: feed.items.length,
               // 滚动到尾部才构造 → 在那时触发翻页（懒加载）
@@ -1433,6 +1433,8 @@ class ArticleCard extends StatelessWidget {
       color: Colors.white,
       child: InkWell(
         onTap: () {
+          // 站点 UI 事实（各站自己实现 ✓；没实现的返回 null → 走默认，行为不变 ✓）
+          final ui = Api(site: site).ui;
           // 专题卡（/topics/xxx/）、合集卡（/moviesets/...）点开的是"下面那批视频的列表"，
           // 不是某一篇详情
           if (article.url.startsWith('/topics/') ||
@@ -1469,7 +1471,7 @@ class ArticleCard extends StatelessWidget {
           // 卡片点击的**特殊去向**已下放到各站（specialTap ✓）——
           // `list` = 进他/她的视频列表页 ✓（XVideos 频道/演员 · Pornhub 演员 · xHamster 明星 ✓）；
           // `shorts` = 进竖屏短片瀑布流 ✓（xHamster 短片 ✓）；null = 走详情页 ✓。
-          if ((_api.ui?.specialTap(article.url) ?? '') == 'list') {
+          if ((ui?.specialTap(article.url) ?? '') == 'list') {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(child: TagListPage(
@@ -1484,7 +1486,7 @@ class ArticleCard extends StatelessWidget {
           }
           // ⚠️ xHamster 短片卡 → 进**竖屏瀑布流**（用户 2026-10-02 要求），**不是**详情页 ✗。
           // 只把"点的那条"传进去打头，往后的由瀑布流自己续拉（短片列表本身是随机的 ✓）。
-          if ((_api.ui?.specialTap(article.url) ?? '') == 'shorts') {
+          if ((ui?.specialTap(article.url) ?? '') == 'shorts') {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(
