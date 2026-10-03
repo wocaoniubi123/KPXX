@@ -188,6 +188,15 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 **顺带**：这是公共路径，凡「切 tab 清缓存」的分类一并治好，不是给短片打补丁。
 **过程教训**：改代码前必须核对被调函数的**真实签名** —— 我一度按 4 参写 `_feedFor`，实际是 `_feedFor(SiteTab c)`（`:241`），当场改正。
 
+
+--- 追加（2026-10-03 本次构建 1.0.9 —— 1.0.8 只补了一半）---
+**1.0.8 实测仍是转圈** ✗（用户回报 B）。查下来缺的这一环：
+`_FeedViewState` 带 `AutomaticKeepAliveClientMixin`（wantKeepAlive=true）→ **切走再回来 State 不重建**；
+而 feed 实例**会被换掉**（切短片 tab 时 removeWhere 清缓存）→ 新实例**没人挂监听**（`initState` 不重跑、**也没有 `didUpdateWidget`**）→ 它的 notifyListeners 没人听 → 界面永不刷新 → 停在空列表的转圈分支。
+⚠️ 这个坑 `home_page.dart:683` 的注释里**早就写着**（「key 不变 → State 被复用，而 _FeedViewState 没有 didUpdateWidget ✗」）—— **记了但一直没补** ✗。
+**修**：`_FeedViewState.didUpdateWidget` → `!identical(oldWidget.feed, widget.feed)` 时 摘旧监听 + 挂新监听 + `ensureMore()`（自带守卫）。
+**教训（写死）**：带 keepAlive 的 State 里，**凡是持有可被替换的对象（feed/model），必须实现 didUpdateWidget** ✗。
+
 ## 八、当前待办
 - [ ] **详情页播放器置顶**：代码已改好 ✓（固定顶部 + 下方单独滚动，括号校验通过）**未提交/未推** ✗
 - [ ] **桌面 ipa 落后**：桌面是 **1.0.1** ✓；**1.0.2**（含"加载失败提示不消失"修复）**已发 Releases 但未下到桌面** ✗

@@ -884,6 +884,21 @@ class _FeedViewState extends State<_FeedView>
     if (mounted) setState(() {});
   }
 
+  // ⚠️ 2026-10-03 修（用户实机：短片 tab 一直转圈 ✗；home_page:683 的注释早就记下这个坑，但一直没补 ✗）：
+  // 本 State 带 AutomaticKeepAliveClientMixin → **切走再回来不重建** ✓，而 feed **会被换掉** ✗
+  // （切到短片 tab 时 removeWhere 清缓存 → 下次拿到的是**新实例** ✗）→ 新实例**没人挂监听** ✗ →
+  // notifyListeners 时界面不刷新 ✗ → 永远停在空列表的转圈分支 ✓。
+  // 标准写法：在 didUpdateWidget 里**换监听 + 触发加载** ✓（ensureMore 自带 _loading/_started 守卫 ✓）。
+  @override
+  void didUpdateWidget(covariant _FeedView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.feed, widget.feed)) {
+      oldWidget.feed.removeListener(_onFeedChanged);
+      widget.feed.addListener(_onFeedChanged);
+      widget.feed.ensureMore();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // keepAlive 必须调用
