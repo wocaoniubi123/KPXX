@@ -1797,6 +1797,20 @@ hanime1 L34 `kChipBorder` / L41 `kTxt`；pornhub L38 `kChipBorder` / L45 `kTxt`�
 
 ✅ build-watch 同时**主动校正了它上一轮的 4 个误报**（`_fmt`/`_nameOf` 其实都有声明 ✓，该类实际 0 处 ✓）——
 原因是它的同名多文件扫描只保留了一个声明文件 ✓。这种"自己纠正自己"的做法很好 ✓。
+
+--- 第 88 条续（第 13 次构建【失败】→ 修 9 处）---
+❌ **CI run 37093035698 失败**（commit 29e59ec）。**错误原文**：
+```
+Error (Xcode): lib/sites/hanime1.dart:371:13: Error: The method '_hnFilterBtn' isn't defined for the class 'HnFilterBar'.
+```
+**根因**：`_hnFilterBtn` 是 `HanimeSite` 的**实例方法**（L29）✗，却在**同文件另一个类** `HnFilterBar` 里被裸调 ✓
+—— 它在改前是 `home_page.dart` 的**顶层函数** ✓，我搬进站点文件时放进了类里 ✗（**我的搬运错误** ✗）。
+✅ build-watch 扫全 lib 得**这一类共 9 处 / 2 文件**：hanime1 `_hnFilterBtn`×4（L371/374/380/386）、
+pornhub `_phFilterBtn`×4（L398/402/406/410）+ `_phPickOptionDialog`×1（L365）✓
+
+✅ **修法（方案A）：把这个 3 个函数从类内挪到文件顶层** ✓ —— 等于恢复它们原本的顶层函数形态 ✓，
+**零改调用点** ✓（同库可见 ✓）。复核：三个都从列 0 开始 ✓、引用数 5/7 = 声明+调用 ✓。
+（其余类型已由 build-watch 排除假阳性：`_SiteTile(`/`_SeekBar(`/`_RoundBtn(` 是构造调用 ✓）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
