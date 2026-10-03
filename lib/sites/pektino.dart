@@ -280,3 +280,30 @@ const List<MapEntry<String, String>> pkSorts = [
   MapEntry('time', '按时长'),
   MapEntry('created', '最近添加'),
 ];
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：Pektino
+const SiteEntry kSite08 = SiteEntry(
+    name: 'Pektino',
+    template: SiteTemplate.pektino,
+    iconUrl: '/favicon.ico',
+    hosts: ['pektino.com'],
+    // 主分类（顶部导航）**只有 4 个**：每日 / 每周 / 每月 / 所有时间
+    //（站点还有个"收藏"页，要登录，未接）。
+    // 20 个主题标签 + 时长 + 排序是**主分类页面里的筛选器**（多级分类），
+    // 全部放进 filters，由列表页的筛选行渲染（照站点：筛选按钮 + 两个下拉）。
+    categories: [
+      SiteTab('/zh-CN/', '每日'),
+      SiteTab('/zh-CN/weekly', '每周'),
+      SiteTab('/zh-CN/monthly', '每月'),
+      SiteTab('/zh-CN/all', '所有时间'),
+    ],
+    filters: SiteFilters(
+      themes: pkThemes,
+      languages: pkLangs,
+      durations: pkDurations,
+      sorts: pkSorts,
+    ),
+    color: Color(0xFF1DA1F2),
+  ),;

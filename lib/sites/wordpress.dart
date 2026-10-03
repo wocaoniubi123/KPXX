@@ -6,6 +6,7 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+import '../sites.dart';
 import 'dart:convert';
 import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
@@ -368,3 +369,180 @@ class WpSite extends SiteUi {
     );
   }
 }
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：51吃瓜
+const SiteEntry kSite01 = SiteEntry(
+    name: '51吃瓜',
+    template: SiteTemplate.wordpress,
+    iconUrl: '/favicon.ico',
+    // 用户要求：51吃瓜 详情页不显示「相关推荐」（它那个热闻区是纯文字链）
+    showRelated: false,
+    // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
+    hosts: ['51cg1.com'],
+    // 顺序 = 站点导航原顺序（27 个，2026-09-30 实测首页导航）
+    categories: [
+      SiteTab('wpcz', '今日吃瓜'),
+      SiteTab('xsxy', '学生校园'),
+      SiteTab('whhl', '网红黑料'),
+      SiteTab('rdsj', '热门大瓜'),
+      SiteTab('mrdg', '吃瓜榜单'),
+      SiteTab('bkdg', '必看大瓜'),
+      SiteTab('cbdj', 'AI成人短剧'),
+      SiteTab('ysyl', '成人视频'),
+      SiteTab('mrds', '每日大赛'),
+      SiteTab('lldd', '伦理道德'),
+      SiteTab('gcjq', '国产视频'),
+      SiteTab('thjx', '探花精选'),
+      SiteTab('whhj', '网黄合集'),
+      SiteTab('snsn', '骚男骚女'),
+      SiteTab('whmx', '明星爆料'),
+      SiteTab('hwcg', '海外吃瓜'),
+      SiteTab('rrcg', '人人吃瓜'),
+      SiteTab('ldcg', '领导干部'),
+      SiteTab('jpll', '软萌甜妹'),
+      SiteTab('sjb', '竞技吃瓜'),
+      SiteTab('qubk', '吃瓜看戏'),
+      SiteTab('dcbq', '擦边撩骚'),
+      SiteTab('zzs', '性爱技巧'),
+      SiteTab('cgxw', '吃瓜新闻'),
+      SiteTab('yczq', '原创博主'),
+      SiteTab('51djc', '51剧场'),
+      SiteTab('51hd', '往期活动'),
+    ],
+    color: Color(0xFFFF6B6B),
+  ),;
+
+/// 本站档案：每日大赛
+const SiteEntry kSite02 = SiteEntry(
+    name: '每日大赛',
+    template: SiteTemplate.wordpress,
+    iconUrl: '/favicon.ico',
+    hosts: ['www.mrds66.com'],
+    categories: [
+      SiteTab('mrds', '每日大赛'),
+      SiteTab('ztds', '主题大赛'),
+      SiteTab('rstt', '热搜吃瓜'),
+      SiteTab('xazd', '校园学生'),
+      SiteTab('blyp', '必撸大赛'),
+      SiteTab('fctg', '反差泄密'),
+      SiteTab('mhds', '网红黑料'),
+      SiteTab('lqdp', '猎奇重口'),
+      SiteTab('jdsj', 'AV看片'),
+      SiteTab('mxwh', '明星大赛'),
+      SiteTab('smdh', '动漫之家'),
+      SiteTab('dypd', '影视国漫'),
+      SiteTab('mtds', 'cos写真'),
+      SiteTab('ysds', '声控ASMR'),
+      SiteTab('czds', '寸止挑战'),
+      SiteTab('hjds', '混剪PMV'),
+      SiteTab('tgds', '原创投稿'),
+      SiteTab('omjp', '欧美精品'),
+      SiteTab('qwcs', '全网参赛'),
+      SiteTab('aijc', 'AI剧场'),
+    ],
+    color: Color(0xFF7C4DFF),
+  ),;
+
+/// 本站档案：91吃瓜
+const SiteEntry kSite03 = SiteEntry(
+    name: '91吃瓜',
+    template: SiteTemplate.wordpress,
+    iconUrl: '/favicon.ico',
+    // 2026-09-29 实测：/category/zxcghl/ 会 302 到 www.91cg1.com 后返回 30 篇文章（同模板站）
+    hosts: ['91cg1.com', 'www.91cg1.com'],
+    categories: [
+      SiteTab('zxcghl', '今日吃瓜'),
+      SiteTab('sports-live', '体育直播'),
+      SiteTab('dydj', 'AI短剧'),
+      SiteTab('rsdg', '最高点击'),
+      SiteTab('zdtop', '91周榜'),
+      SiteTab('ydtop', '91月榜'),
+      SiteTab('bcdg', '必吃大瓜'),
+      SiteTab('whhl', '网红黑料'),
+      SiteTab('mxhl', '明星黑料'),
+      SiteTab('qwys', '社会奇闻'),
+      SiteTab('mrds', '每日大赛'),
+      SiteTab('sstp', '实时偷拍'),
+      SiteTab('lpsd', '深夜撸片'),
+      SiteTab('hjll', '海角乱伦'),
+      SiteTab('91th', '91探花'),
+      SiteTab('crdm', '成人动漫'),
+      SiteTab('xsjlb', '师生专栏'),
+      SiteTab('fclv', '反差靓女'),
+      SiteTab('tgqg', '投稿求瓜'),
+      SiteTab('gcwh', '网黄合集'),
+      SiteTab('aikj', '明星AI'),
+      SiteTab('zptp', '自拍偷拍'),
+      SiteTab('lqzk', '猎奇重口'),
+    ],
+    color: Color(0xFF2F80ED),
+  ),;
+
+/// 本站档案：911爆料网
+const SiteEntry kSite04 = SiteEntry(
+    name: '911爆料网',
+    template: SiteTemplate.wordpress,
+    iconUrl: '/favicon-v4.ico',
+    // 2026-09-29 实测：/category/jrgb/ 会跳到 CloudFront 域名后返回 52 篇文章（同模板站）
+    hosts: ['911bl.com', 'd3gn4v6ng8b20o.cloudfront.net'],
+    categories: [
+      SiteTab('jrgb', '今日大瓜'),
+      SiteTab('aidj', 'AI短剧'),
+      SiteTab('shijiebei', '优先投放区'),
+      SiteTab('mrds', '每日大赛'),
+      SiteTab('hjsq', '海角社区'),
+      SiteTab('crfys', '午夜剧场'),
+      SiteTab('dmhv', '动漫天堂'),
+      SiteTab('sgpjs', '水果派解说'),
+      SiteTab('rmgb', '独家爆料'),
+      SiteTab('rlph', '黑料排行'),
+      SiteTab('ssdbl', '热点吃瓜'),
+      SiteTab('xyss', '校园吃瓜'),
+      SiteTab('bgzq', '反差爆料'),
+      SiteTab('whbl', '网红黑料'),
+      SiteTab('mxhl', '明星吃瓜'),
+      SiteTab('blqw', '猎奇吃瓜'),
+      SiteTab('tksm', '偷窥泄密'),
+      SiteTab('zksr', 'SM专区'),
+      SiteTab('ntll', '男男女女'),
+      SiteTab('thjx', '探花经典'),
+      SiteTab('fljq', '福利视频'),
+      SiteTab('crlz', '网黄专辑'),
+      SiteTab('slec', '影视床戏'),
+      SiteTab('kpzj', '看片专辑'),
+      SiteTab('mjmsjb', '世界杯黑料'),
+      SiteTab('zqbb', '世界杯宝贝'),
+    ],
+    color: Color(0xFF27AE60),
+  ),;
+
+/// 本站档案：51fans
+const SiteEntry kSite05 = SiteEntry(
+    name: '51fans',
+    template: SiteTemplate.wordpress, // 同 WordPress 系（/category/{slug}/ + DPlayer），解析器兼容其卡片结构
+    iconUrl: '/favicon.ico',
+    hosts: ['51fans1.com'],
+    // 顺序 = 站点导航（#navbar 里的「全部分类」组）原顺序，别自己排：
+    // 51fans首页、51fans热门、今日更新、我的订阅、网黄精选、国产专栏、原创投稿、
+    // 主题合集、AI短剧、成人综艺、探花大神、乱伦禁忌、吃瓜黑料、AV鉴赏、里番动漫、官方公告板
+    // （首页/我的订阅不放 tab：一个是首页、一个要登录）
+    categories: [
+      SiteTab('/order/hot/', '热门'),
+      SiteTab('/order/today/', '今日更新'),
+      SiteTab('txwh', '网黄精选'),
+      SiteTab('txfc', '国产专栏'),
+      SiteTab('txyc', '原创投稿'),
+      SiteTab('ztds', '主题合集'),
+      SiteTab('aidj', 'AI短剧'),
+      SiteTab('txzy', '成人综艺'),
+      SiteTab('thtp', '探花大神'),
+      SiteTab('txll', '乱伦禁忌'),
+      SiteTab('txhl', '吃瓜黑料'),
+      SiteTab('txav', 'AV鉴赏'),
+      SiteTab('txdm', '里番动漫'),
+      SiteTab('yczm', '官方公告板'),
+    ],
+    color: Color(0xFFE91E63),
+  ),;

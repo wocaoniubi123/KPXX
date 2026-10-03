@@ -482,3 +482,37 @@ const List<SiteTab> hgSorts = [
   SiteTab('original', '独家原创'),
   SiteTab('random', '随机推荐'),
 ];
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：黄果短剧
+const SiteEntry kSite06 = SiteEntry(
+    name: '黄果短剧',
+    template: SiteTemplate.huangguo,
+    iconUrl: '/favicon.ico',
+    hosts: ['huangguoai.com'],
+    // 封面是 3:4 竖图
+    portraitCovers: true,
+    // 顺序 = 站点导航原顺序：精选推荐 / 最近上新（首页两个板块，路径型）
+    // → AI成人短剧 / AI成人漫剧 / AI换脸 / AI魔改（各带 4 个排序）
+    // → 专题 / 排行榜 / 黄果吃瓜（顶部导航里 AI魔改 后面那三个）
+    categories: [
+      SiteTab('/recommend', '精选推荐'),
+      SiteTab('/newest', '最近上新'),
+      SiteTab('ai-duanju', 'AI成人短剧', hgSorts),
+      SiteTab('ai-manju', 'AI成人漫剧', hgSorts),
+      SiteTab('ai-huanlian', 'AI换脸', hgSorts),
+      SiteTab('ai-mogai', 'AI魔改', hgSorts),
+      SiteTab('/topics/', '专题'),
+      SiteTab('/ranks/hot/', '排行榜'),
+      // 吃瓜社区：站名就叫「黄果吃瓜」（不是"吃瓜黑料"——之前起错了），
+      // 且下面带 3 个子分类，照站点导航原样。帖子卡是**横版大图**
+      // （站点桌面就是 2 列网格）→ 列表页按 key 前缀走 2 列横版
+      SiteTab('/chigua/', '黄果吃瓜', [
+        SiteTab('/chigua/', '全部'),
+        SiteTab('/chigua/remen/', '热门吃瓜'),
+        SiteTab('/chigua/yuanchuang/', 'AI原创'),
+      ]),
+    ],
+    color: Color(0xFFFFB300),
+  ),;

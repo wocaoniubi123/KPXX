@@ -1268,3 +1268,62 @@ const List<SiteTab> xhCats = [
   SiteTab('/categories/village', '鄉村'),
   SiteTab('/categories/hospital', '醫院'),
 ];
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：xHamster
+const SiteEntry kSite14 = SiteEntry(
+    name: 'xHamster',
+    template: SiteTemplate.xhamster,
+    // 站点自己的 favicon（sim 的 /icon 会代抓）
+    iconUrl: '/favicon.ico',
+    hosts: ['tw.xhamster.com'],
+    // 相关推荐：移动版页面里**没有 DOM 卡片**（`div.m-related-container` 是"正在載入..."
+    // 空壳），但静态 HTML 里有一整段 JSON（Vue props），每条带 pageURL/title/thumbURL/
+    // duration → `xhDetail` 直接解析它。（用户 2026-10-02 指出"详情页的推荐视频你没加上"。）
+    showRelated: true,
+    // 主分类 = 站点顶栏的「影片」tab；全部/高畫質/4K/虛擬實境 是它**下面的子分类**
+    // （用户 2026-10-02 纠正过一次：我一开始把四个子分类摆成了主分类）。
+    // ⚠️ key 的语义 = **站内路径**（见 lib/api.dart 的 _xhList）：
+    //    · 主分类 key 取 `/`（= 不选子分类时的默认，等同「全部」）
+    //    · 「全部」= 首页 `/`（用户点击实测确认；站点导航里没有这个链接）
+    //    · 其余三个是实测出来的真实路径
+    // 翻页是**路径式**：第 N 页 = 该路径 + `/N`（`?page=N` 会被忽略）
+    categories: [
+      SiteTab('/', '影片', [
+        SiteTab('/', '全部'),
+        SiteTab('/hd', '高畫質'),
+        SiteTab('/4k', '4K'),
+        // ⚠️ /vr 与前三个**完全不同**：不是 HLS，是带签名的 mp4 直链 + 会员墙（实测无 m3u8）。
+        // 先作为子分类放着，播放这块**待定**（见 DEVLOG 75）。
+        SiteTab('/vr', '虛擬實境'),
+      ]),
+      // 主分类「分类」（用户 2026-10-02 指定）：**主展示** = 18-year-old 这一类的列表；
+      // 388 个分类标签从筛选行的「分类」按钮**弹窗选**（照抄 Pornhub 那套选择器，
+      // 清单就是下面的 `xhCats` —— 站点 /categories 页 `assignable` JSON 的 13 组）。
+      SiteTab('/categories/18-year-old', '分类'),
+      // 主分类「色情明星」（用户 2026-10-02 指定）：`/pornstars` 返回的是**演员卡**
+      // （DOM 里一张都没有，整页客户端渲染 → 数据在页面 JSON 的 "pornstars":[…] 里，
+      //   约 60 条，带 name / pageURL / logoThumbUrl / videoCount）。
+      // 点演员卡进**他/她的视频列表**（`/creators/<slug>`），不是详情页。
+      SiteTab('/pornstars', '色情明星'),
+      // 主分类「短片」（用户 2026-10-02）：**走 JSON 接口** `/api/v1/moments`，不是 HTML
+      // （`/shorts` 页本身是纯客户端渲染，静态 HTML 里 0 卡片 ✗）。
+      // 实测：无需 cookie、每页 5~6 条、**翻页是 `?page=N`**（不是路径式 ✗，别套 xhListAt 那套）；
+      // 每条带 title / pageURL(/shorts/<slug>) / posterUrl / landing.name / sources(H.264)。
+      // 展示走**竖版网格**（用户 2026-10-02 定的 A 方案；B 那个抖音式竖屏流先记待办）。
+      SiteTab('/shorts', '短片'),
+    ],
+    // 分类选择器：与 Pornhub 的「分类选择」**同一个机制**（themes = 弹窗里那排 chip，
+    // 选中后按该 key 的路径去请求列表，调用的还是 `_xhList` 那套路径分流）。
+    // ⚠️ 这里 388 项、是 PH 的近 4 倍，但机制一模一样，**UI 一行都不用改**。
+    filters: SiteFilters(
+      themes: xhCats,
+      languages: const [],
+      durations: const [],
+      sorts: const [],
+      themeLabel: '分类',
+      themeEmptyLabel: '分类选择',
+    ),
+    color: Color(0xFFF5A623),
+  ),;

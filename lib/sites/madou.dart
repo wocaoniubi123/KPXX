@@ -258,3 +258,27 @@ const List<SiteTab> mdScreens = [
   SiteTab('/week', '7天热门'),
   SiteTab('/month', '30天热门'),
 ];
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：麻豆社
+const SiteEntry kSite12 = SiteEntry(
+    name: '麻豆社',
+    template: SiteTemplate.madou,
+    iconUrl: '/favicon.ico',
+    hosts: ['madou.club'],
+    portraitCovers: false,
+    showRelated: true,
+    categories: [
+      // 空 key = 站点首页（api.dart 的 category() 里特判走 home 那条路——
+      // 不特判就会请求 /category/ → 站点 404）
+      SiteTab('', '首页'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e4%bc%a0%e5%aa%92', '麻豆传媒'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e7%95%aa%e5%a4%96%e7%af%87', '麻豆番外篇'),
+      SiteTab('%e9%ba%bb%e8%b1%86%e8%8a%b1%e7%b5%ae', '麻豆花絮'),
+      SiteTab('筛选', '其他原创/企划', mdOther),
+      // 标签云页 /tags：50 个标签卡，点进去是该标签的列表页（站点没有分页）
+      SiteTab('/tags', '热门标签'),
+      SiteTab('筛选', '筛选', mdScreens),
+    ],
+  ),;

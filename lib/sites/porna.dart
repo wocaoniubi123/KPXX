@@ -10,6 +10,7 @@
 // （`msCards` 只在本文件内用 → 保持私有 ✓）
 
 import 'dart:convert';
+import '../sites.dart';
 import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
@@ -607,3 +608,108 @@ class PornaSite extends SiteUi {
     return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
   }
 }
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：91porna
+const SiteEntry kSite07 = SiteEntry(
+    name: '91porna',
+    template: SiteTemplate.porna,
+    iconUrl: '/favicon.ico',
+    hosts: ['91porna.com'],
+    // 顺序 = 站点导航原顺序（首页、91视频、91短视频、黑料吃瓜、AI成人、日本AV、
+    // 91动漫、精选合集、色情小说、91品牌），已接入的排前面、按站点相对顺序；
+    // 尚未接入的：精选合集（列表 JS 渲染）、色情小说（纯文字）、91品牌（外链导航）
+    categories: [
+      SiteTab('/comic/index/video?category=play', '91视频', [
+        // 一级子分类 = 站点下拉菜单里的入口（顺序照站点原样：热门排行榜、国产原创、吃瓜爆料…三级片）
+        // 「热门排行榜」自己还带二级子分类 —— 那 12 个排序（正在播放…收藏最多）
+        SiteTab('/comic/index/video?category=now_month_hot', '热门排行榜', [
+          SiteTab('/comic/index/video?category=play', '正在播放'),
+          SiteTab('/comic/index/video?category=now_hot', '当前最热'),
+          SiteTab('/comic/index/video?category=new_update', '最近更新'),
+          SiteTab('/comic/index/video?category=original', '91原创'),
+          SiteTab('/comic/index/video?category=now_month_hot', '本月最热'),
+          SiteTab('/comic/index/video?category=ten_minutes', '10分钟以上'),
+          SiteTab('/comic/index/video?category=twenty_minutes', '20分钟以上'),
+          SiteTab('/comic/index/video?category=now_month_collect', '本月收藏'),
+          SiteTab('/comic/index/video?category=hd', '高清'),
+          SiteTab('/comic/index/video?category=month_hot', '每月最热'),
+          SiteTab('/comic/index/video?category=now_month_comment', '本月讨论'),
+          SiteTab('/comic/index/video?category=max_collect', '收藏最多'),
+        ]),
+        SiteTab('/comic/index/video?category=original', '国产原创'),
+        SiteTab('search:吃瓜 黑料 爆料', '吃瓜爆料'),
+        SiteTab('search:熟女', '熟女做爱'),
+        SiteTab('search:萝莉', '可爱萝莉'),
+        SiteTab('search:动漫', '成人动漫'),
+        SiteTab('search:黑人', '大屌黑人'),
+        SiteTab('search:巨乳', '童颜巨乳'),
+        SiteTab('search:换妻', '少妇换妻'),
+        SiteTab('search:内射', '内射中出'),
+        SiteTab('search:按摩', '会所按摩'),
+        SiteTab('search:探花', '91探花'),
+        SiteTab('search:家庭乱伦', '家庭乱伦'),
+        SiteTab('search:三级片', '三级片'),
+      ]),
+      SiteTab('/melonshort', '91短视频', [
+        SiteTab('/melonshort', '全部'),
+        SiteTab('/melonshort/amateur', '素人自拍'),
+        SiteTab('/melonshort/hunjian', '高燃混剪'),
+        SiteTab('/melonshort/fancha', '反差系列'),
+        SiteTab('/melonshort/wanghong', '网红达人'),
+        SiteTab('/melonshort/mingxing', '明星大瓜'),
+        SiteTab('/melonshort/zipai', '原创自拍'),
+      ]),
+      SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E6%8E%A8%E8%8D%90', '黑料吃瓜', [
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E6%8E%A8%E8%8D%90', '全部'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E4%BB%8A%E6%97%A5%E5%90%83%E7%93%9C/%E6%9C%80%E6%96%B0', '今日吃瓜'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E5%AD%A6%E7%94%9F%E6%A0%A1%E5%9B%AD/%E6%8E%A8%E8%8D%90', '学生校园'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E6%98%8E%E6%98%9F%E9%BB%91%E6%96%99/%E6%8E%A8%E8%8D%90', '明星黑料'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E7%BD%91%E7%BA%A2%E9%BB%91%E6%96%99/%E6%8E%A8%E8%8D%90', '网红黑料'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E6%AF%8F%E6%97%A5%E5%A4%A7%E8%B5%9B/%E6%8E%A8%E8%8D%90', '每日大赛'),
+        SiteTab('/%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C/%E5%90%8D%E4%BA%BA%E5%90%88%E9%9B%86/%E6%8E%A8%E8%8D%90', '名人合集'),
+      ]),
+      SiteTab('search:ai成人', 'AI成人', [
+        SiteTab('search:ai成人', '全部'),
+        SiteTab('search:ai短剧', 'AI成人短剧'),
+        SiteTab('search:ai漫剧', 'AI漫剧'),
+        SiteTab('search:ai美女', 'AI美女'),
+        SiteTab('search:+ai换脸', 'AI换脸'),
+      ]),
+      SiteTab('/comic/index/av', '日本AV', [
+        SiteTab('/comic/index/av', '最新更新'),
+        SiteTab('/comic/av/relvideo?model=1&type=theme&order=week', '多P群交'),
+        SiteTab('/comic/av/relvideo?model=12&type=theme&order=week', '无码解放'),
+        SiteTab('/comic/av/relvideo?model=5&type=theme&order=week', '中文字幕'),
+        SiteTab('/comic/av/relvideo?model=6&type=theme&order=week', '制服诱惑'),
+        SiteTab('/comic/av/relvideo?model=107&type=tag&order=week', '黑人专区'),
+        SiteTab('/comic/av/relvideo?model=7&type=theme&order=week', 'SM调教'),
+      ]),
+      SiteTab('search:h动漫', '91动漫', [
+        SiteTab('search:h动漫', '全部'),
+        SiteTab('search:成人动漫', '成人动漫'),
+        SiteTab('search:日本动漫', '日本动漫'),
+        SiteTab('search:国产动漫', '国产动漫'),
+        SiteTab('search:3d动漫', '3d动漫'),
+        SiteTab('search:同人动漫', '同人动漫'),
+      ]),
+      // 精选合集：列表页是"合集卡"（点开进该合集的视频列表）
+      SiteTab('/moviesets', '精选合集', [
+        SiteTab('/moviesets', '最新合集'),
+        SiteTab('/moviesets/rank', '排行榜合集'),
+        SiteTab('/moviesets/category', '分类合集'),
+        SiteTab('/moviesets/people', '人物合集'),
+        SiteTab('/moviesets/brand', '品牌合集'),
+      ]),
+      // 色情小说：列表是文字卡（无封面），详情是小说正文（article.markdown-body）
+      SiteTab('/novels', '色情小说', [
+        SiteTab('/novels', '全部'),
+        SiteTab('/novels/dushi-jiqing/new', '都市激情'),
+        SiteTab('/novels/xiaoyuan-zhilian/new', '校园之恋'),
+        SiteTab('/novels/renqi-shunv/new', '人妻熟女'),
+        SiteTab('/novels/jiating-luanlun/new', '家庭乱伦'),
+      ]),
+    ],
+    color: Color(0xFF3B5998),
+  ),;

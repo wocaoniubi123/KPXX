@@ -6,6 +6,7 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'dart:convert';
+import '../sites.dart';
 import '../base/site_ui.dart';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
@@ -157,3 +158,19 @@ class KmSite extends SiteUi {
     );
   }
 }
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：快猫
+const SiteEntry kSite11 = SiteEntry(
+    name: '快猫',
+    template: SiteTemplate.kmsvip,
+    iconUrl: '/pc/favicon.ico',
+    hosts: ['kmsvip.xyz'],
+    portraitCovers: true,
+    categories: [
+      SiteTab('0', '热门视频'),
+      SiteTab('1', '视频广场'),
+    ],
+    color: Color(0xFFFF4D6A),
+  ),;

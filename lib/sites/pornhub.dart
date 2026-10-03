@@ -674,3 +674,50 @@ const List<SiteTab> phStarMore = [
     SiteTab('fake', 'Fake'),
   ]),
 ];
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：Pornhub
+const SiteEntry kSite13 = SiteEntry(
+    name: 'Pornhub',
+    template: SiteTemplate.pornhub,
+    iconUrl: '/favicon.ico',
+    hosts: ['cn.pornhub.com'],
+    categories: [
+      SiteTab('/', '首页'),
+      SiteTab('/video', '视频', [
+        SiteTab('/video', '探索视频'),
+        SiteTab('/recommended', '推荐视频'),
+        SiteTab('/video?o=ht', '最热门'),
+        SiteTab('/video?o=mv', '最多次观看'),
+        SiteTab('/video?o=tr', '最高分'),
+        SiteTab('/video?p=homemade&o=tr', '热门自制'),
+        SiteTab('/shorties', '短片'),
+        SiteTab('/channels', '频道'),
+        SiteTab('/video?o=cm', '最新'),
+      ]),
+      // ⚠️ 「分类」**是主分类 tab，必须保留**（用户 2026-10-02 指出：首页 / 视频 / 分类 三个都在）——
+      // 只是它**不要平铺子项**：站点顶栏那个「分类」是下拉，我们让它进**全部视频**，
+      // 再由列表页顶部的「分类」筛选按钮弹窗选那 102 个（见下面的 filters / phCats）。
+      SiteTab('/video', '分类'),
+      // 色情明星：站点顶栏第 5 项。进去是**演员卡列表**（61 个/页，名字+头像+排名），
+      // 点演员 → 演员页（`/pornstar/xxx`、`/model/xxx`）——**那是他的视频列表**，不是视频详情。
+      // 筛选（用户 2026-10-02 点名要的）：排序（`?o=`，7 项，见 phStarSorts）
+      // + 演员类型（`?performerType=`，见 phStarTypes）+ 时间区段（`?t=`，见 phStarTimes）
+      // + 「更多筛选设置」7 组（见 phStarMore，组各自的 URL 参数名已从站点实测确认）。
+      SiteTab('/pornstars', '色情明星'),
+    ],
+    // 「分类」**不做平铺 tab**（站点顶栏那个是下拉、不是列表页）：做成列表页上的
+    // 筛选按钮 → 点开**弹窗**选，候选 = /categories 页的 102 个（见 phCats）。
+    // 按钮与弹窗标题用 themeLabel 显示成「分类」；**没选时**按钮写「分类选择」
+    // （themeEmptyLabel，照模拟器定稿）；durations/sorts 给空列表 → 那两个按钮不画。
+    filters: SiteFilters(
+      themes: phCats,
+      languages: const [],
+      durations: const [],
+      sorts: const [],
+      themeLabel: '分类',
+      themeEmptyLabel: '分类选择',
+    ),
+    color: Color(0xFFFF9000),
+  ),;

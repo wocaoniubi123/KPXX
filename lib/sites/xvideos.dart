@@ -7,6 +7,7 @@
 // 所以是"两段拼接"搬来的 ✓（中间那段 kmsvip 代码留在 `api.dart` 未动 ✓）。
 
 import 'dart:convert';
+import '../sites.dart';
 import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
@@ -350,3 +351,123 @@ class XvSite extends SiteUi {
     );
   }
 }
+
+// ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====
+
+/// 本站档案：XVideos
+const SiteEntry kSite10 = SiteEntry(
+    name: 'XVideos',
+    template: SiteTemplate.xvideos,
+    // 官方 logo 的 32px PNG（绝对地址）
+    iconUrl:
+        'https://assets-cdn77.xvideos-cdn.com/v3/img/skins/default/logo/xv.white.32.png',
+    hosts: ['www.xvideos.com'],
+    // 主分类 = **站点顶部导航**（照站点中文版）：最佳影片 / 分类 / 頻道 / 色情明星。
+    // 其余导航项经核对不上：「RED 视频」是外站(xvideos.red 付费网站)、
+    // 「现场直播摄影机/约会/女友/遊戲」是 zline0 广告外链、「簡介」(/profileslist)
+    // 非视频列表。「分类」下面挂站点分类菜单全量（名称照站点；逐一实测 200 且有内容）。
+    // 「Curious wife no panties」只有 2 条（近无资源）未上；「所有標簽」是标签索引
+    // （非视频列表）未上。「最新」= 站点首页那份列表（不在菜单里，我留作分类默认项）。
+    // 「最佳影片」子分类 = 免费月份条（照站点：八月 2026 起往回 24 个月，快照；
+    // 站点每月出新月份，需要时更新此处；收费的 RED（/best-of-red）未上）。
+    // 翻页：/c/、/tags/、/trans、/gay、/lang/chinese 第 N 页 = 原路径/{N-1}(0 计)；
+    //       /best 特殊（月份路径）、/new 特殊（第1页='/'），见 api.dart _xvList。
+    // 頻道/色情明星：索引列表可抓；点进频道/演员的二级内容站点是 JS 异步加载、
+    // 静态抓不到——卡片刻意先给提示，二级待另找数据接口。
+    categories: [
+      SiteTab('/best', '最佳影片', [
+        SiteTab('/best/2026-08', '八月 2026'),
+        SiteTab('/best/2026-07', '七月 2026'),
+        SiteTab('/best/2026-06', '六月 2026'),
+        SiteTab('/best/2026-05', '五月 2026'),
+        SiteTab('/best/2026-04', '四月 2026'),
+        SiteTab('/best/2026-03', '三月 2026'),
+        SiteTab('/best/2026-02', '二月 2026'),
+        SiteTab('/best/2026-01', '一月 2026'),
+        SiteTab('/best/2025-12', '十二月 2025'),
+        SiteTab('/best/2025-11', '十一月 2025'),
+        SiteTab('/best/2025-10', '十月 2025'),
+        SiteTab('/best/2025-09', '九月 2025'),
+        SiteTab('/best/2025-08', '八月 2025'),
+        SiteTab('/best/2025-07', '七月 2025'),
+        SiteTab('/best/2025-06', '六月 2025'),
+        SiteTab('/best/2025-05', '五月 2025'),
+        SiteTab('/best/2025-04', '四月 2025'),
+        SiteTab('/best/2025-03', '三月 2025'),
+        SiteTab('/best/2025-02', '二月 2025'),
+        SiteTab('/best/2025-01', '一月 2025'),
+        SiteTab('/best/2024-12', '十二月 2024'),
+        SiteTab('/best/2024-11', '十一月 2024'),
+        SiteTab('/best/2024-10', '十月 2024'),
+        SiteTab('/best/2024-09', '九月 2024'),
+      ]),
+      SiteTab('/new', '分类', [
+        SiteTab('/new', '最新'),
+        SiteTab('/lang/chinese', '說中文的色情'),
+        SiteTab('/tags/2d', '2d'),
+        SiteTab('/tags/3d', '3d'),
+        SiteTab('/c/Arab-159', '阿拉伯'),
+        SiteTab('/trans', '變性'),
+        SiteTab('/c/Mature-38', '成熟'),
+        SiteTab('/c/Cuckold-237', '出轨背叛/火辣妻子'),
+        SiteTab('/c/Femdom-235', '调教'),
+        SiteTab('/tags/anime', '动漫'),
+        SiteTab('/c/Anal-12', '肛交'),
+        SiteTab('/c/Brunette-25', '褐发'),
+        SiteTab('/c/Black_Woman-30', '黑人'),
+        SiteTab('/c/Redhead-31', '紅髮'),
+        SiteTab('/c/Fucked_Up_Family-81', '家庭乱搞'),
+        SiteTab('/c/Blonde-20', '金髮'),
+        SiteTab('/c/Big_Cock-34', '巨屌'),
+        SiteTab('/c/Big_Tits-23', '巨乳'),
+        SiteTab('/c/Big_Ass-24', '巨臀'),
+        SiteTab('/c/Blowjob-15', '口交'),
+        SiteTab('/c/Latina-16', '拉丁裔'),
+        SiteTab('/c/Milf-19', '辣媽'),
+        SiteTab('/c/Gapes-167', '裂开'),
+        SiteTab('/c/Ass-14', '美臀'),
+        SiteTab('/gay', '男同'),
+        SiteTab('/c/Lesbian-26', '女同'),
+        SiteTab('/c/bbw-51', '胖女'),
+        SiteTab('/c/Squirting-56', '喷出'),
+        SiteTab('/c/Fisting-165', '拳交'),
+        SiteTab('/c/Gangbang-69', '羣交'),
+        SiteTab('/c/Teen-13', '少女'),
+        SiteTab('/c/Cumshot-18', '射顏'),
+        SiteTab('/c/Cam_Porn-58', '摄像頭'),
+        SiteTab('/c/Bi_Sexual-62', '雙性戀'),
+        SiteTab('/c/Stockings-28', '絲襪'),
+        SiteTab('/c/Oiled-22', '塗油'),
+        SiteTab('/c/Lingerie-83', '性感内衣'),
+        SiteTab('/c/Asian_Woman-32', '亞洲的'),
+        SiteTab('/c/Amateur-65', '业余'),
+        SiteTab('/c/Interracial-27', '異族'),
+        SiteTab('/c/Indian-89', '印度的'),
+        SiteTab('/c/Creampie-40', '中出'),
+        SiteTab('/c/Solo_and_Masturbation-33', '自慰'),
+        SiteTab('/c/AI-239', 'AI（人工智能）'),
+        SiteTab('/c/ASMR-229', 'ASMR'),
+        SiteTab('/tags/china', 'China'),
+        SiteTab('/tags/cosplay', 'Cosplay'),
+        SiteTab('/tags/couple', 'Couple'),
+        SiteTab('/tags/cute', 'Cute'),
+        SiteTab('/tags/doctor', 'Doctor'),
+        SiteTab('/tags/furry', 'Furry'),
+        SiteTab('/tags/game', 'Game'),
+        SiteTab('/tags/hardcore', 'Hardcore'),
+        SiteTab('/tags/movie', 'Movie'),
+        SiteTab('/tags/orgasm', 'Orgasm'),
+        SiteTab('/tags/overwatch', 'Overwatch'),
+        SiteTab('/tags/pinay', 'Pinay'),
+        SiteTab('/tags/roblox', 'Roblox'),
+        SiteTab('/tags/rough', 'Rough'),
+        SiteTab('/tags/teacher', 'Teacher'),
+        SiteTab('/tags/thai', 'Thai'),
+        SiteTab('/gay', '同性視頻'),
+        SiteTab('/trans', '变性人色情片'),
+      ]),
+      SiteTab('/channels-index', '頻道'),
+      SiteTab('/pornstars-index', '色情明星'),
+    ],
+    color: Color(0xFFFF9900),
+  ),;
