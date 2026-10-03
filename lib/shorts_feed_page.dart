@@ -308,7 +308,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
               itemBuilder: (c, i) {
                 // 只有当前页有播放器（一个实例 ✓）；相邻页先显封面
                 if (i == _cur && _kp != null) {
-                  return _GestureLayer(
+                  return Stack(
+                    children: [
+                      _GestureLayer(
                     onTap: () {
                       final kp = _kp;
                       if (kp == null) return;
@@ -321,7 +323,27 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                     onSeekStart: _seekStart,
                     onSeekUpdate: _seekUpdate,
                     onSeekEnd: _seekEnd,
-                    child: Video(controller: _kp!.videoController),
+                    child: Video(
+                      controller: _kp!.videoController,
+                      // ⚠️ 2026-10-03（用户实测）：不传 controls 时 media_kit_video 会**自带一条控制条** ✗
+                      // → 屏幕上出现**两个进度条**（自带那条 + 本页自己画的那条 ✓），而且**自带控制条会吃掉竖滑手势** ✗
+                      // → 上划下划换条失灵 ✓。这里关掉它，只留本页自己的 UI ✓。
+                      controls: NoVideoControls,
+                    ),
+                      ),
+                      // ⚠️ 2026-10-03（用户要求）：**暂停时**显示【X + 标题条】✓；播放中不显示 ✓
+                      // 显隐跟随播放器状态：_onTick 已在监听里 setState ✓
+                      if (!(_kp?.value.playing ?? false)) ...[
+                        Positioned(left: 2, top: topPad + 2, child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                          onPressed: () => Navigator.of(context).maybePop(),
+                        )),
+                        Positioned(left: 16, right: 16, bottom: 120, child: Text(
+                          art?.title ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 15),
+                        )),
+                      ],
+                    ],
                   );
                 }
                 final it = _items[i];
