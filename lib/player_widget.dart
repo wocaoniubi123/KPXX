@@ -165,6 +165,49 @@ class KpPlayer extends ValueNotifier<KpState> {
         } else {
           value = value.copyWith(error: true, errorText: e);
         }
+      }),
+      // 引擎日志只静默留存最后一条 fatal：不再当错误弹提示
+      // （网络类日志如 "tcp: ffurl_read returned ..." 是偶发的，ffmpeg 会自己重试，
+      //   拿它当错误会误报；只有真的卡住时才把它作为附注带出来）
+      _p.stream.log.listen((log) {
+        if (log.level == 'fatal') _lastFatal = '${log.prefix}: ${log.text}';
+      }),
+    ];
+    // 卡住看门狗：播放中位置连续 9 秒不前进 → 判为卡住（真卡住才提示）
+    _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final s = value;
+      // 恢复判断必须在下面那行早退**之前**：error 一旦置上，早退每轮都命中，
+      // 后面的逻辑全都不会执行 —— 放到 else 分支里等于永远不清。
+      // 清它不只是为了撤提示：`_onTick` 的 errEdge 是 `err && !_errShown`，
+      // 残留着 true 会让**后续的自动重试静默失效**（真挂掉时连一次都不重试）。
+      // ⚠️ 2026-10-03 修（用户报"视频都开始播放了，加载失败提示还挂着"）：
+      // 原来这里多要求一个 `_stalled` ✗ —— 只有**看门狗判的卡住**才撤 ✗，
+      // 而"起播前的偶发 FFmpeg 错误"是在 `_everStarted == false` 时把 error 置上的 ✓，
+      // 视频随后正常播起来也**没人撤它** ✗ → 提示永远挂在播放器上 ✓。
+      // 判据改成"**位置真的在前进**" ✓：位置前进 = 确实在播 = 不是失败 ✓。
+      // （真失败时位置不会前进 ✓ 所以不会误清 ✓）
+      if (s.error &&
+          (s.position - _lastPos).abs().inMilliseconds >= 500) {
+        _stalled = false;
+        value = value.copyWith(error: false, errorText: '');
+      }
+      if (!s.playing || s.error) {
+        _stuckMs = 0;
+        _lastPos = s.position;
+        return;
+      }
+      if ((s.position - _lastPos).abs().inMilliseconds < 500) {
+        _stuckMs += 1000;
+        if (_stuckMs >= _stuckLimitMs) {
+          _stuckMs = 0;
+          _stalled = true; // 这次算"看门狗判的"：位置恢复前进时由它自己撤掉
+          value = value.copyWith(
+            error: true,
+            errorText: _lastFatal.isEmpty
+                ? '缓冲超时（网络或片源无响应）'
+                : '缓冲超时；引擎日志：$_lastFatal',
+          );
+        }
       } else {
         _stuckMs = 0;
       }
@@ -202,6 +245,21 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
+    // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
+    // 会让下一个源一挂上就被判失败，整条兜底链直接失效
+    //
+    // ⚠️ 2026-10-02 **必须连 duration/position 一起重置**：`ready` 的判据是
+    // `duration > Duration.zero`，而这里原来只清 error —— 于是换源时 duration
+    // 还是**上一条源的残留值** → `_openAndWait` 的 ready 立刻为真、**秒返回**，
+    // 调用方紧接着 seek 到记录的位置，可 mpv 还在加载新源 → **seek 被丢掉**，
+    // 新源从 0 起播。用户实测"换分辨率后从头播"就是这个（Pornhub / XVideos 都有）。
+    value = value.copyWith(
+      error: false,
+      errorText: '',
+      completed: false,
+      duration: Duration.zero,
+      position: Duration.zero,
+    );
     _everStarted = false; // 新源重新算"还没播起来"
     _stalled = false; // 错误已经清了 → 看门狗那个"我判的卡住"标记一并撤
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
@@ -219,6 +277,42 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   Future<void> seek(Duration d) {
     final t = _clampDur(d, value.duration);
+    return _p.seek(t);
+  }
+
+  /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
+  /// 位置"，而 `seek()` 会按 `value.duration` 裁剪，万一时长还没报上来
+  /// （或报了个半截值）就会被裁小 —— 表现同样是"从头发"。
+  Future<void> seekExact(Duration d) {
+    return _p.seek(d);
+  }
+
+  Future<void> shutdown() async {
+    _stallTimer?.cancel();
+    for (final s in _subs) {
+      await s.cancel();
+    }
+    await _p.dispose();
+    dispose();
+  }
+}
+
+/// 缓冲提示：跳转跨度大时要重新拉流，没提示看着像卡死。
+Widget _bufferingHint(KpPlayer kp) {
+  return Align(
+    alignment: const Alignment(0, -0.45),
+    child: ValueListenableBuilder<KpState>(
+      valueListenable: kp,
+      builder: (_, s, __) => s.buffering
+          ? const SizedBox(
+              width: 26,
+              height: 26,
+              child: CircularProgressIndicator(
+                  color: Colors.white70, strokeWidth: 2),
+            )
+          : const SizedBox.shrink(),
+    ),
+  );
 }
 
 /// 视频画面（引擎自带纹理，等比缩放不拉伸）
@@ -814,9 +908,9 @@ class PlayerWidgetState extends State<PlayerWidget>
     // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
     //（暂停/卡住时报上去没意义；离开详情页由详情页 flush 补最后一次）
     _reportTimer?.cancel();
-    _reportTimer = Timer.periodic(const Duration(seconds: 2), (_) {  // ⚠️ 2026-10-03 用户报「跳进度后重试从头开始」→ 10 秒改 2 秒 ✓（看门狗 9 秒，必须早于它 ✓）
+    _reportTimer = Timer.periodic(const Duration(seconds: 2), (_) {  // ⚠️ 2026-10-03：10 秒改 2 秒 ✓（看门狗 9 秒，必须早于它 ✓）
       final p = _kp?.value.position ?? Duration.zero;
-      if ((p - _repPos).abs() < const Duration(seconds: 1)) return;  // ⚠️ 变化阈值 5 秒 → 1 秒 ✓（跳转后立刻上报 ✓）
+      if ((p - _repPos).abs() < const Duration(seconds: 1)) return;  // ⚠️ 阈值 5 秒 → 1 秒 ✓
       _repPos = p;
       widget.onProgress?.call(
         p,
