@@ -162,7 +162,13 @@ class _HomePageState extends State<HomePage>
           final c = _cats[i];
           if (_api.ui?.isShortsPath(c.key) ?? false) {
             _api.ui?.resetShortsRandom();
+            // ⚠️ 2026-10-03 修（用户实机：短片 tab 一直转圈 ✗）：
+            // 这里把该分类的 feed **从缓存里删掉** ✗ → 之后新建的 feed 是**空的** ✗（items 为空、_done 为 false ✓）→
+            // 渲染分支 feed.items.isEmpty → 转圈 ✗，且**没人触发它去加载** ✗ → 永远转 ✓。
+            // 修：删缓存后**立刻让新 feed 自己去拉一次** ✓（下拉刷新也会重建，但那是手动的 ✗）。
             _feeds.removeWhere((k, _) => k.startsWith('${c.key}|'));
+            final fresh = _feedFor(c); // 签名就是 _feedFor(SiteTab c) ✓（只一个参数 ✗）
+            if (!fresh._started) fresh.ensureMore();
           }
         }
       }
