@@ -29,7 +29,15 @@ class XvSite {
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
   /// 主分类 key = /best、/new、/channels-index、/pornstars-index（见 list ✓）
-  Future<List<Article>> category(String k, {required int page}) => list(k, page: page);
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
+      list(k ?? key, page: page);
 
   /// XVideos 的频道/演员卡（**不含** `/video.` 的真正视频页 ✓）→ 进"視頻"列表页 ✓
   @override
@@ -93,7 +101,8 @@ class XvSite {
 
 
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
-  Future<List<Article>> search(String keyword, {int page = 1}) async {
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final path = '/?k=${Uri.encodeComponent(keyword)}'
         '${page > 1 ? '&p=${page - 1}' : ''}';
     return cards(await _f.text(path, extraHeaders: _xvLang));

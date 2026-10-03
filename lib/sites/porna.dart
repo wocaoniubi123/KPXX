@@ -34,7 +34,8 @@ class PornaSite {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) =>
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('search:$keyword', page: page);
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -44,11 +45,19 @@ class PornaSite {
       list(slug.startsWith('/') ? slug : 'search:$slug', page: page);
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home(String first, {required int page}) => list(first, page: page);
+  Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
-  Future<List<Article>> category(String key, {required int page}) => list(key, page: page);
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
+      list(key, page: page);
   // 91porna
 
   /// 列表：按路径分三种页面类型（都是服务端渲染，取到就能用）：

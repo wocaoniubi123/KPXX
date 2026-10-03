@@ -27,7 +27,8 @@ class XhSite extends SiteUi {
 
   /// ⚠️ 站点**有**搜索（'搜尋所有女優' 那个框 ✓），但**路径没实测过** ✗ →
   /// **明确抛错**，不猜一个地址糊上去 ✓（猜错了会静默变成空列表，更难查 ✓）。
-  Future<List<Article>> search(String keyword, {required int page}) async =>
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async =>
       throw Exception('xHamster 搜索暂未接通（路径未实测）');
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -44,7 +45,14 @@ class XhSite extends SiteUi {
   ///   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
   ///   · 「色情明星」tab：默认 '/pornstars'；选中后 '/pornstars/top/us' 等
   ///   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关 ✓）
-  Future<List<Article>> category(String key, String? theme, {required int page}) =>
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
       list(theme ?? key, page: page);
 
   /// xHamster 只有 `/categories/*` tab 挂筛选行（且无子分类时 ✓）

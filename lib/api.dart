@@ -87,11 +87,16 @@ class Api {
   SiteUi? get _ui => ui;
 
   SiteUi? get ui => switch (site.template) {
-        SiteTemplate.xhamster => _xhSite,
-        SiteTemplate.pornhub => _phSite,
+        SiteTemplate.wordpress => _wpSite,
+        SiteTemplate.huangguo => _hgSite,
+        SiteTemplate.porna => _pornaSite,
         SiteTemplate.pektino => _pkSite,
         SiteTemplate.hanime1 => _hnSite,
-        _ => null,
+        SiteTemplate.xvideos => _xvSite,
+        SiteTemplate.kmsvip => _kmSite,
+        SiteTemplate.madou => _mdSite,
+        SiteTemplate.pornhub => _phSite,
+        SiteTemplate.xhamster => _xhSite,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
@@ -157,95 +162,28 @@ class Api {
     final l1 = (sub == null || sub.isEmpty) ? null : sub;
     final l2 = (sub2 == null || sub2.isEmpty) ? null : sub2;
     final k = l2 ?? l1 ?? key;
-    switch (site.template) {
-      case SiteTemplate.wordpress:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/wordpress.dart 的 category ✓）
-        return _wpSite.category(k, page: page);
-      case SiteTemplate.huangguo:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/huangguo.dart 的 category ✓）
-        return _hgSite.category(key, k, page: page);
-      case SiteTemplate.porna:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/porna.dart 的 category ✓）
-        return _pornaSite.category(k, page: page);
-      case SiteTemplate.pektino:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/pektino.dart 的 category ✓）
-        return _pkSite.category(key,
-            page: page, theme: theme, duration: duration, sort: sort);
-      case SiteTemplate.hanime1:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/hanime1.dart 的 category ✓）
-        return _hnSite.category(key, page: page, extra: extra);
-      case SiteTemplate.xvideos:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/xvideos.dart 的 category ✓）
-        return _xvSite.category(k, page: page);
-      case SiteTemplate.kmsvip:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/kmsvip.dart 的 category ✓）
-        return _kmSite.category(key, page: page);
-      case SiteTemplate.madou:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/madou.dart 的 category ✓）
-        // ⚠️ 「首页」tab（空 key）由本站回调 Api.home 兜底 ✓
-        return _mdSite.category(k, page: page, home: home);
-      case SiteTemplate.pornhub:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/pornhub.dart 的 category ✓）
-        return _phSite.category(k, theme, page: page, extra: extra);
-      case SiteTemplate.xhamster:
-        // 列表逻辑已下放本站 ✓（见 lib/sites/xhamster.dart 的 category ✓）
-        return _xhSite.category(key, theme, page: page);
-    }
+    // ✅ 原来这里是 10 个 case 的 switch（每个 case 一行委托）。
+    // 现在改成**问站点自己** ✓：各站的解析/URL 拼接早已在 lib/sites/*.dart 里 ✓。
+    return _ui!.category(key,
+        page: page,
+        k: k,
+        theme: theme,
+        duration: duration,
+        sort: sort,
+        extra: extra,
+        home: home);
   }
 
   /// 首页最新列表（无分类 tab 的站点用；有 tab 的都直接进分类页）
   Future<List<Article>> home({int page = 1}) async {
-    // ⚠️ 首页逻辑已**下放各站** ✓（见 lib/sites/*.dart 的 home ✓）——
-    // 这里只做接线：先算好「第一个分类」（3 个站要用 ✓），再分派 ✓。
+    // 只算好「第一个分类」（3 个站要用），其余交给站点自己 ✓
     final first = site.categories.isEmpty ? '' : site.categories.first.key;
-    switch (site.template) {
-      case SiteTemplate.wordpress:
-        return _wpSite.home(page: page);
-      case SiteTemplate.huangguo:
-        return _hgSite.home(first, page: page);
-      case SiteTemplate.porna:
-        return _pornaSite.home(first, page: page);
-      case SiteTemplate.pektino:
-        return _pkSite.home(page: page);
-      case SiteTemplate.hanime1:
-        return _hnSite.home(first, page: page);
-      case SiteTemplate.xvideos:
-        return _xvSite.home(page: page);
-      case SiteTemplate.kmsvip:
-        return _kmSite.home(page: page);
-      case SiteTemplate.madou:
-        return _mdSite.home(page: page);
-      case SiteTemplate.pornhub:
-        return _phSite.home(page: page);
-      case SiteTemplate.xhamster:
-        return _xhSite.home(page: page);
-    }
+    return _ui!.home(page: page, first: first);
   }
 
   /// 标签列表页。page 从 1 开始。
   Future<List<Article>> tag(String slug, {int page = 1}) async {
-    switch (site.template) {
-      case SiteTemplate.wordpress:
-        return _wpSite.tag(slug, page: page);
-      case SiteTemplate.huangguo:
-        return _hgSite.tag(slug, page: page);
-      case SiteTemplate.porna:
-        return _pornaSite.tag(slug, page: page);
-      case SiteTemplate.pektino:
-        return _pkSite.tag(slug, page: page);
-      case SiteTemplate.hanime1:
-        return _hnSite.tag(slug, page: page);
-      case SiteTemplate.xvideos:
-        return _xvSite.tag(slug, page: page);
-      case SiteTemplate.kmsvip:
-        return _kmSite.tag(slug, page: page);
-      case SiteTemplate.madou:
-        return _mdSite.tag(slug, page: page);
-      case SiteTemplate.xhamster:
-        return _xhSite.tag(slug, page: page);
-      case SiteTemplate.pornhub:
-        return _phSite.tag(slug, page: page);
-    }
+    return _ui!.tag(slug, page: page);
   }
 
   /// 搜索（关键词需原始文本，内部编码）。
@@ -255,28 +193,7 @@ class Api {
   /// 黄果搜索单页（页面上没有分页入口）；91porna 用 `&page=`。
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    switch (site.template) {
-      case SiteTemplate.wordpress:
-        return _wpSite.search(keyword, page: page);
-      case SiteTemplate.huangguo:
-        return _hgSite.search(keyword, page: page);
-      case SiteTemplate.porna:
-        return _pornaSite.search(keyword, page: page);
-      case SiteTemplate.pektino:
-        return _pkSite.search(keyword, page: page);
-      case SiteTemplate.hanime1:
-        return _hnSite.search(keyword, page: page, extra: extra);
-      case SiteTemplate.xvideos:
-        return _xvSite.search(keyword, page: page);
-      case SiteTemplate.kmsvip:
-        return _kmSite.search(keyword, page: page);
-      case SiteTemplate.madou:
-        return _mdSite.search(keyword, page: page);
-      case SiteTemplate.pornhub:
-        return _phSite.search(keyword, page: page);
-      case SiteTemplate.xhamster:
-        return _xhSite.search(keyword, page: page);
-    }
+    return _ui!.search(keyword, page: page, extra: extra);
   }
 
   // ---------------------------------------------------------------------------
@@ -285,28 +202,7 @@ class Api {
   /// 文章详情（相对路径或站内路径）。
   /// 视频 URL 带时效签名，过期时重新调用本方法即可拿到新地址。
   Future<ArticleDetail> detail(String url) async {
-    switch (site.template) {
-      case SiteTemplate.wordpress:
-        return _wpSite.detail(url);
-      case SiteTemplate.huangguo:
-        return _hgSite.detailOf(url);
-      case SiteTemplate.porna:
-        return _pornaSite.detailOf(url);
-      case SiteTemplate.pektino:
-        return _pkSite.detail(url);
-      case SiteTemplate.hanime1:
-        return _hnSite.detail(url);
-      case SiteTemplate.xvideos:
-        return _xvSite.detail(url);
-      case SiteTemplate.pornhub:
-        return _phSite.detail(url);
-      case SiteTemplate.kmsvip:
-        return _kmSite.detail(url);
-      case SiteTemplate.madou:
-        return _mdSite.detail(url);
-      case SiteTemplate.xhamster:
-        return _xhSite.detail(url);
-    }
+    return _ui!.detail(url);
   }
 
   // ---------------------------------------------------------------------------

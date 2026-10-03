@@ -45,7 +45,8 @@ class HuangguoSite {
   }
 
   /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) async {
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
     if (page > 1) return [];
     final kw = Uri.encodeComponent(keyword);
     final html = await _f.text('/search/?keyword=$kw');
@@ -61,15 +62,24 @@ class HuangguoSite {
   }
 
   /// 首页 = 第一个频道的「最新」（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home(String first, {required int page}) =>
+  Future<List<Article>> home({required int page, String first = ''}) =>
       list(first, sort: 'latest', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
-  Future<List<Article>> category(String key, String k, {required int page}) async {
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) async {
+    // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓
+    final kk = k ?? key;
     // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
-    if (k.startsWith('/')) return pageList(k, page: page);
+    if (kk.startsWith('/')) return pageList(kk, page: page);
     // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
-    return list(key, sort: k == key ? 'latest' : k, page: page);
+    return list(key, sort: kk == key ? 'latest' : kk, page: page);
   }
   // 黄果短剧（huangguoai）
 

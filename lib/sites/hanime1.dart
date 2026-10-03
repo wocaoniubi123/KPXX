@@ -59,13 +59,19 @@ class HanimeSite extends SiteUi {
   }
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home(String first, {required int page}) => list(first, page: page);
+  Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre= ✓；
   /// extra = 筛选行（sort/date/duration/tags[]）✓
   Future<List<Article>> category(String key,
-      {required int page, List<MapEntry<String, String>>? extra}) =>
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
       list(key, page: page, extra: extra);
 
   /// 列表页挂本站筛选行（照站点的下拉 ✓）

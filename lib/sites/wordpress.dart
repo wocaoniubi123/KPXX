@@ -58,7 +58,8 @@ class WpSite {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) async {
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final kw = Uri.encodeComponent(keyword);
     final path = page <= 1 ? '/search/$kw/' : '/search/$kw/$page/';
     return parseArticles(await _f.text(path));
@@ -78,10 +79,19 @@ class WpSite {
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// k 以 `/` 开头 = 站内路径型（如 51fans1 的 `/order/hot/` ✓）；否则是分类 slug ✓
-  Future<List<Article>> category(String k, {required int page}) async {
-    final path = k.startsWith('/')
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) async {
+    // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓（原位置参数 = 子分类 key）
+    final kk = k ?? key;
+    final path = kk.startsWith('/')
         // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
-        ? (page <= 1 ? k : '$k$page/')
+        ? (page <= 1 ? kk : '$k$page/')
         : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
     return parseArticles(await _f.text(path));
   }

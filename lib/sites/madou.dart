@@ -35,7 +35,8 @@ class MadouSite {
   }
 
   /// 搜索 = /?s={kw} ✓；翻页参数是 **paged**（不是 page ✓），照站点原样 ✓
-  Future<List<Article>> search(String keyword, {required int page}) async {
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final kw = Uri.encodeComponent(keyword);
     return cards(await _f.text(
         page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
@@ -57,19 +58,27 @@ class MadouSite {
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
-  Future<List<Article>> category(String k,
-      {required int page, required Future<List<Article>> Function({int page}) home}) async {
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) async {
+    // 并集里 kk 可空、home 可空 ✗ → 绑定回原语义 ✓（原来两者都必填）
+    final kk = k ?? key;
     // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
     // （/likes /week /month 三个榜单 + /tags 标签云）
-    if (k.isEmpty) return home(page: page);
-    if (k == '/tags') return tags(await _f.text('/tags'));
-    if (k.startsWith('/')) {
+    if (kk.isEmpty) return home!(page: page);
+    if (kk == '/tags') return tags(await _f.text('/tags'));
+    if (kk.startsWith('/')) {
       // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
-      return page > 1 ? const [] : cards(await _f.text(k));
+      return page > 1 ? const [] : cards(await _f.text(kk));
     }
     // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
     // （站点对未编码的中文路径实测 400，编码后 200）
-    final md = RegExp(r'[^\x00-\x7F]').hasMatch(k) ? Uri.encodeComponent(k) : k;
+    final md = RegExp(r'[^\x00-\x7F]').hasMatch(kk) ? Uri.encodeComponent(kk) : kk;
     return cards(await _f.text(
         page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
   }

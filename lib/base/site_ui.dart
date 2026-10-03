@@ -38,6 +38,41 @@ abstract class SiteUi {
   /// ⚠️ 原先这段逻辑在共享的 `_fetchSourcesAt` 里按模板 if 分叉 ✗ ——
   /// 那正是"站点逻辑散在公用函数里"的典型 ✓，现在下放给站点 ✓。
   List<String>? sourcesFromHtml(String html) => null;
+
+  // ===== 分发：各站自己实现（并集签名 ✓ —— 用不到的参数忽略即可 ✓）=====
+  //
+  // ⚠️ 为什么是"并集签名"：各站参数天然不同 ✗（有的要 k、有的要 theme、有的要 home 回调 ✓），
+  //    而 Dart 的覆写要求子类具名参数不能比父类少 ✗ → 这里给出**全集** ✓，各站按需取用 ✓。
+  //
+  // ✅ 它取代了 `Api` 里原来的 5 个 `switch (site.template)`（50 个 case ✓，每个都只是一行委托 ✓）。
+  // ⚠️ 各站实现时**必须保持原语义**：把并集参数重新绑定回原来的名字 ✓（见各站的 `kk`/`home!` ✓）。
+
+  /// 「分类」tab 列表。
+  /// `k` = 子分类解析后的 key（原先是**位置参数** ✗，现在挪到具名 ✓）；
+  /// `home` = 「首页」兜底回调（仅个别站用 ✓，原先对它们必填 ✗ 现在是可空 ✓）。
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
+      throw UnimplementedError();
+
+  /// 首页最新列表（`first` = 站点第一个分类 key ✓，原对 3 个站是位置参数 ✗，现统一具名 ✓）
+  Future<List<Article>> home({required int page, String first = ''}) => throw UnimplementedError();
+
+  /// 标签列表页
+  Future<List<Article>> tag(String slug, {required int page}) => throw UnimplementedError();
+
+  /// 搜索
+  Future<List<Article>> search(String keyword,
+          {int page = 1, List<MapEntry<String, String>>? extra}) =>
+      throw UnimplementedError();
+
+  /// 文章详情
+  Future<ArticleDetail> detail(String url) => throw UnimplementedError();
   /// 「色情明星」tab 挂**哪种**专用筛选行：`ph` = Pornhub 那套 ✓；`xh` = xHamster 那套 ✓。
   /// ⚠️ 两家是**两个不同的 widget** ✗ → 不能用同一个布尔 ✓，所以这里给"是哪家" ✓。
   String? get starRowKind => null;

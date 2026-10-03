@@ -20,7 +20,8 @@ class PektinoSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条 ✓；原 `Api.search` 原样搬来 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) =>
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('all', keyword, page: page);
 
   /// "标签" = 主题筛选（走同一个接口，全时段 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -33,7 +34,13 @@ class PektinoSite extends SiteUi {
   /// 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range ✓；
   /// 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入 ✓
   Future<List<Article>> category(String key,
-      {required int page, String? theme, String? duration, String? sort}) async {
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) async {
     final r = key.endsWith('/weekly')
         ? 'weekly'
         : key.endsWith('/monthly')

@@ -20,7 +20,8 @@ class KmSite {
   final SiteFetcher _f;
 
   /// 本站**没有搜索功能**（照站点实况 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) async =>
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) async =>
       throw Exception('该站点没有搜索功能');
 
   /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -32,7 +33,14 @@ class KmSite {
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
-  Future<List<Article>> category(String key, {required int page}) =>
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) =>
       list(key == '1' ? '/api/videos/listAll' : '/api/videos/listHot', page: page);
   static final _kmAes =
       Encrypter(AES(Key(utf8.encode('625202f9149maomi')), mode: AESMode.cbc));

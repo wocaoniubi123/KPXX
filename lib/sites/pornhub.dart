@@ -96,7 +96,8 @@ class PhSite extends SiteUi {
 
 
   /// 搜索 = /video/search?search=<kw>（站点自己的搜索页形态 ✓；kw 是原始文本，自己编码 ✓）
-  Future<List<Article>> search(String keyword, {required int page}) =>
+  Future<List<Article>> search(String keyword,
+      {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('/video/search?search=${Uri.encodeComponent(keyword)}', page: page);
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -110,9 +111,17 @@ class PhSite extends SiteUi {
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 列表 key 本身就是站内路径 ✓；「分类」tab 选中的分类是 theme（/video?c=27 ✓）。
   /// 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key ✓）
-  Future<List<Article>> category(String k, String? theme,
-      {required int page, List<MapEntry<String, String>>? extra}) async {
-    var php = theme ?? k;
+  Future<List<Article>> category(String key,
+          {required int page,
+          String? k,
+          String? theme,
+          String? duration,
+          String? sort,
+          List<MapEntry<String, String>>? extra,
+          Future<List<Article>> Function({int page})? home}) async {
+    // 并集里 kk 可空、theme 具名 ✗ → 绑定回原语义 ✓
+    final kk = k ?? key;
+    var php = theme ?? kk;
     if (extra != null && extra.isNotEmpty) {
       php += '${php.contains('?') ? '&' : '?'}'
           '${extra.map((e) => '${e.key}=${e.value}').join('&')}';
