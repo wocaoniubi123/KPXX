@@ -368,7 +368,7 @@ class XhSite extends SiteUi {
     //    （上面 madou 那处也是同样写法：`r'https?://[^"\s\\]+\.m3u8[^"\s\\]*'`。）
     // ⚠️ 2026-10-03 补（用户实机：短片点进去一直转圈 ✗，日志 videos=0 srcs=0 ✓）：
     // 短片页的源**常常不是 m3u8** ✗，而是页面 JSON 里的**直链 mp4**，且斜杠是**转义**的 ✓：
-      "h264":[{"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"}]
+    // "h264":[{"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"}]
     // 原来只跑 m3u8 正则 ✗ → 这类页面解析出 0 条 → 上层静默返回 → 无限转圈 ✓。
     final _h264 = RegExp(r'"url":"(https?:\\?/\\?/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"').allMatches(html);
     final _byQ = <int, String>{};
