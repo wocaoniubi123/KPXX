@@ -373,30 +373,34 @@ class DetailPageState extends State<DetailPage> {
             )
           : d == null
               ? const Center(child: CircularProgressIndicator())
-              : ListView(
+              // ⚠️ 2026-10-03（用户要求）：下滑看详情信息时，**内嵌播放器一直置顶** ✓
+              // 原来播放器是 ListView 的第一个子项 ✗ → 一滚就跟着走、画面看不见了 ✓
+              // 现在：播放器固定顶部（不滚动 ✓），下方信息**单独滚动** ✓
+              : Column(
                   children: [
-                    // 视频区：有视频、或有海报（剧照首图）才显示；
-                    // 纯文字页（如小说）不显示空白播放器
-                    if (videos.isNotEmpty || d.images.isNotEmpty)
-                      PlayerWidget(
-                        key: _playerKey,
-                      // 不换 key：换片由播放器内部复用同一实例开新源
-                      // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
-                        switcher: _switcher,
-                        sources: videos.isEmpty
-                            ? const []
-                            : _orderByQuality(videos[idx].sources, _quality),
-                        referer: _api.base,
-                        poster: d.images.isNotEmpty ? d.images.first : '',
-                        onRefreshSources: _refreshSources,
-                        // 合集类：当前这一集没有源时，按需去子文章取
-                        lazyUrl:
-                            videos.isEmpty ? null : videos[idx].lazyUrl,
-                        onFetchSources: _api.videoSourcesAt,
-                        // 续播：只有从「播放记录」点进来才传（站点入口进来是 null）
-                        initialPosition: widget.initialPosition,
-                        onProgress: _reportProgress,
-                      ),
+                      if (videos.isNotEmpty || d.images.isNotEmpty)
+                        PlayerWidget(
+                          key: _playerKey,
+                        // 不换 key：换片由播放器内部复用同一实例开新源
+                        // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
+                          switcher: _switcher,
+                          sources: videos.isEmpty
+                              ? const []
+                              : _orderByQuality(videos[idx].sources, _quality),
+                          referer: _api.base,
+                          poster: d.images.isNotEmpty ? d.images.first : '',
+                          onRefreshSources: _refreshSources,
+                          // 合集类：当前这一集没有源时，按需去子文章取
+                          lazyUrl:
+                              videos.isEmpty ? null : videos[idx].lazyUrl,
+                          onFetchSources: _api.videoSourcesAt,
+                          // 续播：只有从「播放记录」点进来才传（站点入口进来是 null）
+                          initialPosition: widget.initialPosition,
+                          onProgress: _reportProgress,
+                        ),
+                    Expanded(
+                      child: ListView(
+                          children: [
                     Padding(
                       padding: const EdgeInsets.all(12),
                       child: Column(
@@ -667,7 +671,10 @@ class DetailPageState extends State<DetailPage> {
                         ],
                       ),
                     ),
-                  ],
+                              ],
+                          ),
+                        ),
+                      ],
                 ),
     );
   }
