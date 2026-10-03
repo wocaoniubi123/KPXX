@@ -541,78 +541,6 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                 ),
               ),
 
-            // ---- 拖动左右划的反馈：**贴底进度条跟手** ✓（对齐详情页 ✓；不弹 toast ✗）----
-
-            Positioned(
-
-              left: 12,
-
-              right: 12,
-
-              bottom: 6,
-
-              child: ValueListenableBuilder<Duration?>(
-
-                valueListenable: _seekPreview,
-
-                builder: (_, pv, __) {
-
-                  final dur = _kp?.value.duration ?? Duration.zero;
-
-                  if (pv == null || dur <= Duration.zero) return const SizedBox.shrink();
-
-                  final frac =
-
-                      (pv.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
-
-                  return Row(
-
-                    children: [
-
-                      Text(_fmt(pv),
-
-                          style: const TextStyle(
-
-                              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-
-                      const SizedBox(width: 8),
-
-                      Expanded(
-
-                        child: ClipRRect(
-
-                          borderRadius: BorderRadius.circular(2),
-
-                          child: LinearProgressIndicator(
-
-                            value: frac,
-
-                            minHeight: 3,
-
-                            backgroundColor: Colors.white24,
-
-                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-
-                          ),
-
-                        ),
-
-                      ),
-
-                      const SizedBox(width: 8),
-
-                      Text('/ ${_fmt(dur)}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-
-                    ],
-
-                  );
-
-                },
-
-              ),
-
-            ),
-
 
             // ---- 底部：标题/作者 + 进度条（贴底）+ 时间在**进度条右边** ----
             Positioned(
@@ -642,11 +570,14 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                       ),
                     const SizedBox(height: 10),
                   ],
-                  ValueListenableBuilder<KpState>(
-                    valueListenable: _kp ?? _idle,
-                    builder: (c, s, _) {
-                      final dur = s.duration;
-                      final pos = s.position;
+                  // 拖动时 `_seekPreview` 非空 → Slider 与时间都跟手 ✓；不拖时用真实位置 ✓
+                  ValueListenableBuilder<Duration?>(
+                    valueListenable: _seekPreview,
+                    builder: (c, pv, __) => ValueListenableBuilder<KpState>(
+                      valueListenable: _kp ?? _idle,
+                      builder: (c, s, _) {
+                        final dur = s.duration;
+                        final pos = pv ?? s.position;
                       final p = dur.inMilliseconds <= 0
                           ? 0.0
                           : (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
@@ -683,9 +614,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                                 color: Colors.white, fontSize: 12),
                           ),
                         ],
-                      );
+                        );
                     },
-                  ),
+                    ),
+                  ), // 外层 _seekPreview 收尾 ✓
                 ],
               ),
             ),

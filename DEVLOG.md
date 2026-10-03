@@ -905,6 +905,12 @@ CI 清单取自 `G:\ZCode\unused-audit-1.0.17.decoded.txt`（75 条 ✓，error 
 **③ 反馈改进度条式（用户拍板）**：删掉 _toast（▶/◀ N 秒 SnackBar），改成拖动时贴底进度条跟手（_seekPreview + LinearProgressIndicator，对齐详情页 _SwipeSeek 观感），松手才 seekExact。算法一行未动。
 **待真机调**：_kSeekSecondsPerScreen 30（嫌快慢改一个数）；预览条观感（shorts_feed_page.dart:559-596）；_seekTargetFor 与 _seekEnd 是两份同值算法（可合并）。
 
+
+--- 追加（2026-10-04 本次构建 1.0.20 —— 短片两条进度条并一条）---
+**问题**：上一版拖动时出现两条进度条（新加的 _seekPreview 细条 bottom:6 + 原 Slider bottom:14）。
+**修**：删掉新加的 Positioned 整块（LinearProgressIndicator，全库 0 次）；原 Slider 外包 ValueListenableBuilder<Duration?>(_seekPreview)，`pos = pv ?? s.position`，Slider value 与右边时间都吃 pos → 拖动时原 Slider 跟手滚、松手 seekExact。Slider.onChanged（直接拖拇指）保留。净 -68 行。
+**待真机调**：_kSeekSecondsPerScreen 30；_seekTargetFor 与 _seekEnd 两份同值算法可合并。
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
