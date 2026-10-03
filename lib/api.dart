@@ -163,7 +163,9 @@ class Api {
     final k = l2 ?? l1 ?? key;
     // ✅ 原来这里是 10 个 case 的 switch（每个 case 一行委托）。
     // 现在改成**问站点自己** ✓：各站的解析/URL 拼接早已在 lib/sites/*.dart 里 ✓。
-    // 🔎 短路诊断（用户 2026-10-03 报「xHamster 短片加载不出来」✓）——可在「设置→诊断→错误日志」复制 ✓
+    // 🔎 短片诊断（用户 2026-10-03 报「xHamster 短片加载不出来」✓）——
+    // ⚠️ 用户要求：**只记短片** ✗（点别的主分类不要记进来 ✗）
+    final isShortsCall = key.contains('shorts') || k.contains('shorts');
     try {
       final out = await _ui!.category(key,
           page: page,
@@ -173,11 +175,15 @@ class Api {
           sort: sort,
           extra: extra,
           home: home);
-      SiteErrorLog.log('列表',
-          'category key=$key k=$k page=$page → ${out.length} 条 ✓');
+      if (isShortsCall) {
+        SiteErrorLog.log('列表',
+            'category key=$key k=$k page=$page → ${out.length} 条 ✓');
+      }
       return out;
     } catch (e, st) {
-      SiteErrorLog.log('列表', 'category key=$key k=$k page=$page 抛错 ✗：$e', st);
+      if (isShortsCall) {
+        SiteErrorLog.log('列表', 'category key=$key k=$k page=$page 抛错 ✗：$e', st);
+      }
       rethrow; // 行为不变 ✗ —— 只是记一笔 ✓
     }
   }

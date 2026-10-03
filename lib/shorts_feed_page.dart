@@ -146,6 +146,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     if (flying != null) return flying;
     final f = widget.api.detail(url).then((d) {
       final srcs = (d.videos.isNotEmpty) ? d.videos.first.sources : const <String>[];
+      // 🔎 取源诊断（用户 2026-10-03 报：短片页一直转圈 ✓ —— 上一条埋点只盖了翻页 ✗，这条盖第一页 ✓）
+      SiteErrorLog.log('短片',
+          '取源 #$i $url → videos=${d.videos.length} srcs=${srcs.length} 首条=${srcs.isEmpty ? "（空）" : srcs.first.split('?').first}');
       _srcCache[url] = srcs;
       _fetching.remove(url);
       return srcs;
