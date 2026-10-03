@@ -69,7 +69,12 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   bool _playing = false; // 播放中（决定状态栏与 X 显示与否）
   bool _loadingMore = false;
   bool _done = false;
-  int _page = 1;
+  /// 最近一次"续拉"是**失败**（网络/被挡/限流 ✓）——**不是**没内容 ✗ → 允许下次滑动重试 ✓
+  bool _tailFailed = false;
+  /// 已经**成功**续拉过的页数：**0 起步** ✓ → 首次请求的就是 `page: 1`（页面 JSON = 45 条 ✓）。
+  /// ⚠️ 原来从 `1` 起步 ✗ → 首次就请求 page 2 ✗ → 45 条那批**永远拿不到** ✗
+  /// （用户实测：只有 1 + 5~6 条 → 「划 5 个左右就到底」✗）
+  int _page = 0;
 
   /// 播放器还没建好时给 `ValueListenableBuilder` 用的空壳（别在 build 里 new ✗ 那会每次重建）
   final ValueNotifier<KpState> _idle = ValueNotifier(const KpState());
@@ -218,7 +223,12 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     await VideoCache.i.window(urls);
   }
 
-  /// 尾部续拉：短片列表是随机的批次，每批 ≈ 20 条
+  /// 尾部续拉（往后拿下一批）✓
+  /// ⚠️ 页数语义（2026-10-03 修）：`_page` 从 **0** 起步 ✓ → 首次请求 **page 1** ✓（= 页面 JSON，
+  ///    **45 条** ✓）；之后 2、3、… ✓（走站点接口，5~6 条/页 ✓）。
+  /// ⚠️ **"失败"与"到底"必须分开** ✗：**空批次**才算到底（`_done` ✓）；**抛错**只标 `_tailFailed` ✓
+  ///    —— 原来一律 `_done = true` ✗ → 一次失败就"本次进入永久到底" ✗（用户实测那个"划不动"✓）；
+  ///    现在不置 `_done` ✓ → 再滑一下就自动重试 ✓（也可以点左上角那个 ↻ ✓）。
   Future<void> _loadMore() async {
     if (_loadingMore || _done) return;
     _loadingMore = true;
@@ -228,15 +238,17 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
           await widget.api.category('/shorts', page: _page + 1);
       if (!mounted) return;
       _page++;
+      _tailFailed = false;
       final have = _items.map((a) => a.url).toSet();
       final fresh = more.where((a) => a.url.isNotEmpty && !have.contains(a.url)).toList();
       if (fresh.isEmpty) {
-        _done = true;
+        _done = true; // 站点给不出新内容了（**空批次**）→ 真到底 ✓
       } else {
         setState(() => _items.addAll(fresh));
       }
     } catch (_) {
-      _done = true;
+      // ⚠️ 抛错 ≠ 到底 ✗（原因站点层已写进**公共错误日志** ✓，这里不重复记 ✗）
+      if (mounted) setState(() => _tailFailed = true);
     } finally {
       _loadingMore = false;
     }
@@ -387,6 +399,20 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                 child: _RoundBtn(
                   icon: Icons.close,
                   onTap: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            // ⚠️ **续拉失败**时才出现的"重试" ✓（用户 2026-10-03：划到底要能自己救回来 ✓）——
+            //    放在 X 右边（12 + 40 + 8 = 60 ✓）、同在状态栏之下 ✓、同样只在暂停时可见 ✓
+            if (!_playing && _tailFailed)
+              Positioned(
+                left: 60,
+                top: topPad + 10,
+                child: _RoundBtn(
+                  icon: Icons.refresh,
+                  onTap: () {
+                    setState(() => _tailFailed = false);
+                    _loadMore();
+                  },
                 ),
               ),
 

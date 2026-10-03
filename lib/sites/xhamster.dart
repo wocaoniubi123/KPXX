@@ -134,17 +134,6 @@ class XhSite extends SiteUi {
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
   static const Map<String, String> _xhDesk = {'User-Agent': _xhUa};
 
-  /// 短片 **JSON 接口**（`/api/v1/moments`）专用请求头 ✓
-  /// ⚠️ 为什么单列一组：这条接口只带 UA 时会被挡 ✗ —— 浏览器真发 XHR 时带的是
-  ///    `Accept: application/json` + `X-Requested-With` + **同源 Referer**（`_xhDesk` 那套没有 ✗）。
-  /// 这组头从**本站最早的实现**里原样恢复（git `9806df8~1` 的 `lib/api.dart` ✓），不是新造的 ✓。
-  static const Map<String, String> _xhApi = {
-    'User-Agent': _xhUa,
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Referer': 'https://tw.xhamster.com/shorts',
-  };
 
   /// 页面 JSON 里的字符串都是转义的（`https:\/\/`、中文 `\u516c`）→ 用 jsonDecode 还原。
   static String _xhUn(String? s) {
@@ -242,12 +231,12 @@ class XhSite extends SiteUi {
     return out;
   }
 
-  /// 「短片」：JSON 接口 `/api/v1/moments`（无需 cookie）。
+  /// 「短片」旧路：JSON 接口 `/api/v1/moments` —— **2026-10-03 已整条撤掉** ✗（带 `X-Requested-With` 会被站点当 **404** ✗，sim-dev 逐头实测 ✓；翻页改走路径式 ✓，见下方 `_xhMoments` ✓）。
   /// ⚠️ 每页只有 5~6 条、单次要 2~5s，而且**页大小调不大**（itemsOnPage/limit/perPage/
   /// size/count/pageSize 全试过无效）→ **并发抓 4 页再合并**，否则就是"5 条…等好几秒…又 5 条"
   /// （用户实报过）。
   /// ⚠️ 2026-10-03 修正：上面这段「并发抓 4 页 / 随机起始页」是**旧实现** ✗ —— 现在第 2 页起
-  ///    只抓**当页**（见下方 _xhMoments ✓）；第 1 页仍旧走页面 JSON ✓。
+  ///    只抓**当页**；**翻页是路径式** ✓（`/shorts/newest/{N}` ✓，2026-10-03 sim-dev 实测 ✓ —— 见下方 `_xhMoments` ✓）。
   /// ⚠️ **随机**（用户 2026-10-02："短片的卡片列表每次进去也要随机。不然你老是显示第一批短片
   /// 意义在哪里？？？"）—— 站点接口是**固定分页序**，所以只打乱是不够的 ✗（池子还是那几条）：
   /// **起始页取随机 1~48**（该范围实测有内容 🔍），列表内往后顺延；每批打乱；按 url 去重。
@@ -259,7 +248,7 @@ class XhSite extends SiteUi {
     _xhShortsFrom = null;
   }
 
-  /// 短片列表：**第 1 页**直接抓页面里内嵌的 JSON ✓；**第 2 页起**改走 `/api/v1/moments?page=N` ✓（页面路径的 `?page=N` 是**假的** ✗，详见下方 `_xhMoments` ✓）
+  /// 短片列表：**每页都抓页面里内嵌的 JSON** ✓（第 1 页 `/shorts/newest` ✓，第 2 页起 `/shorts/newest/{N}` ✓）
   /// （用户 2026-10-03 定："**短片不用 api 请求了。直接抓 json 吧**" ✓）
   ///
   /// ⚠️（历史，2026-10-03 当时为什么改走页面 ✗）用户实机（**App 是直连架构**，DEVLOG 铁律 3）报
@@ -277,6 +266,10 @@ class XhSite extends SiteUi {
     final doc = hp.parse(html);
     final raw = doc.querySelector('script#initials-script')?.text ?? '';
     if (raw.isEmpty) return const [];
+    // 站点自己的分页元数据（sim-dev 实测 ✓）：`lastPage=100` ✓ → 用它判"到底" ✓（不盲试第 101 页 ✗）
+    final mLast = RegExp(r'"lastPage":\s*(\d+)').firstMatch(raw);
+    final nLast = int.tryParse(mLast?.group(1) ?? '');
+    if (nLast != null && nLast > 0) _xhShortsLast = nLast;
     final at = raw.indexOf('{');
     if (at < 0) return const [];
     final j = _xhJson(raw.substring(at).trim().replaceFirst(RegExp(r';\s*$'), ''));
@@ -308,61 +301,39 @@ class XhSite extends SiteUi {
     return out;
   }
 
-  /// 短片列表：**第 1 页**抓页面 JSON（45 条 ✓，用户已验收 ✓）；**第 2 页起**走 JSON 接口 ✓。
-  /// ⚠️ 为什么第 2 页起要换接口：页面路径的 `?page=N` 是**假的** ✗ —— page=1/2/3（带随机参数也一样）
-  ///    返回的 45 条**完全相同** ✗ → 续拉永远拿到同一批 → 去重后为空 → 界面「划到尾就没新内容」✗。
-  ///    接口 `/api/v1/moments?page=N` 是**真翻页** ✓（5~6 条/页 ✓，无需 cookie ✓）。
-  /// ⚠️ 接口这条路**在本机核不了**（经代理连页面路径都 404，探测环境被拒 ✗）→ 真机通不通见 DEVLOG；
-  ///    不通就退回今天的行为（续拉拿不到新内容 ✗），**不会坏成别的样子** ✓。
+  static int? _xhShortsLast; // 站点自己给的最后一页（`lastPage` ✓，sim-dev 实测 =100 ✓）
+
+  /// 短片列表：**每页都走页面 JSON** ✓（`/shorts/newest` 与 `/shorts/newest/{N}` 是同一套结构 ✓）。
+  /// ⚠️ 2026-10-03 定论（sim-dev 实测 ✅）：**`?page=N` 参数会被站点忽略** ✗ ——
+  ///    `?page=1/2/3` 返回的 45 条**完全相同** ✗；站点自己在 JSON 里给了分页模板
+  ///    `paginationProps.pageLinkTemplate = "…/shorts/newest/{#}"` ✓ → **真翻页是路径式** ✅
+  ///    （`/shorts/newest/2`、`/3`：HTTP 200 ✓ · **45 条/页** ✓ · `lastPage=100` ✓ · 与第 1 页**零重叠** ✓）。
+  /// ⚠️ 请求头只用 `_xhDesk`（桌面 UA ✓）：**绝不能带 `X-Requested-With: XMLHttpRequest`** ✗ ——
+  ///    sim-dev 逐头隔离实测：带上它 → **404** ✗，去掉 → 200 ✓（那套头是给 `/api/` 的 ✗，那条路已整条撤掉 ✓）。
+  /// ⚠️ **空批次返回空列表** ✓（让界面判"到底"✗）；**只有请求本身失败**才由 `_f.text` 抛错 ✓
+  ///    （界面据此标"可重试" ✓ —— "到底"与"失败"分得开 ✓）。
   Future<List<Article>> _xhMoments(int page) async {
     if (page < 1) return const [];
-    if (page == 1) {
-      final html = await _f.text(_xhShortsPath, extraHeaders: _xhDesk);
-      final out = _xhMomentsFromHtml(html);
-      if (out.isEmpty) {
+    final last = _xhShortsLast;
+    if (last != null && page > last) return const []; // 已知过最后一页 → 到底 ✓（不盲试第 101 页 ✗）
+    if (page == 1) return _xhMomentsPage(_xhShortsPath);
+    return _xhMomentsPage('$_xhShortsPath/$page');
+  }
+
+  /// 抓**一页**页面 JSON（第 1 页与第 N 页同一套 ✓）→ Article 列表
+  Future<List<Article>> _xhMomentsPage(String path) async {
+    final html = await _f.text(path, extraHeaders: _xhDesk);
+    final out = _xhMomentsFromHtml(html);
+    if (out.isEmpty) {
+      // 第 1 页空 = 站点结构可能变了 ✗ → 抛错（界面当"可重试" ✓）
+      if (path == _xhShortsPath) {
         // 不吞掉 ✓：界面会把原因显示出来（home_page 的三态渲染 ✓）
         throw Exception('短片页面解析出 0 条（页面结构可能变了）');
       }
-      out.shuffle(_rand); // 与 sim 一致：每批打乱 ✓
-      return out;
+      // 第 N 页空 = 站点这边没更多了 ✓ → 返回空（界面判"到底" ✓）
+      return const [];
     }
-    final body =
-        await _f.text('/api/v1/moments?page=$page', extraHeaders: _xhApi);
-    final out = _xhMomentsFromJson(body);
-    if (out.isEmpty) throw Exception('短片接口第 $page 页解析出 0 条（字段可能变了）');
-    out.shuffle(_rand); // 与第 1 页同一语义（批次内打乱 ✓）
-    return out;
-  }
-
-  /// 接口条目 → Article。⚠️ **字段必须与页面 JSON 那条路同构** ✓（见上面 `_xhMomentsFromHtml`）：
-  /// title / url（剥掉域名的站内路径 ✓）/ cover / `meta: ''` / `badge: ''` / `coverAspect: 3/4` ✓
-  /// —— 两批数据在卡片与贴底信息栏里必须长得**一模一样** ✓，否则从第 46 条起会突然多/少东西 ✗。
-  /// ⚠️ 历史实现里 `meta` 取的是 `landing.name`（作者名）✗ —— 这里**故意不取** ✗：第 1 页那 45 条
-  ///    的 `meta` 就是空串 ✓，两批必须一致 ✓（以后要显示作者，得两路一起改 ✓）。
-  static List<Article> _xhMomentsFromJson(String body) {
-    final j = _xhJson(body);
-    final items = (j == null) ? null : j['items'];
-    if (items is! List) return const [];
-    final out = <Article>[];
-    final seen = <String>{};
-    for (final it in items) {
-      if (it is! Map) continue;
-      final url = _xhUn((it['pageURL'] ?? '').toString())
-          .replaceFirst(RegExp(r'^https?://[^/]+'), '');
-      final title = _xhUn((it['title'] ?? '').toString())
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (url.isEmpty || title.isEmpty || !seen.add(url)) continue;
-      out.add(Article(
-        title: title,
-        url: url,
-        cover: _xhUn(
-            (it['posterUrl'] ?? it['thumbUrl'] ?? it['imageURL'] ?? it['thumbURL'] ?? it['cover'] ?? '').toString()),
-        meta: '',
-        badge: '',
-        coverAspect: 3 / 4,
-      ));
-    }
+    out.shuffle(_rand); // 与 sim 一致：每批打乱 ✓
     return out;
   }
 
