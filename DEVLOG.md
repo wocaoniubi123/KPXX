@@ -898,6 +898,13 @@ CI 清单取自 `G:\ZCode\unused-audit-1.0.17.decoded.txt`（75 条 ✓，error 
 **构建前处理**：git add 新文件 image_cache.dart；git add --renormalize hanime1/pornhub（CRLF 统一，本次会整文件重写）；sim/ 不提交。
 **真机回归**：合集按需取源 / 起播失败重试 / 短片 mp4 不变 + m3u8 更快 / 图片二进秒出 / 详情页起播更快（变卡关 tuneStartup）/ 黄果 sourcesFromHtml / 缓存 200MB+70 回收。
 
+
+--- 追加（2026-10-04 本次构建 1.0.19 —— 短片左右滑改成进度条式反馈 + 清最后 warning）---
+**① 清最后 1 条 warning**：settings.dart:335 第二个 ! 去掉（同表达式内提升有效、跨语句无效）。
+**② 短片左右滑算法（用户拍板改回我们自己的快进快退）**：改前一屏 120 秒 + 18pt 死区 => 右滑 9 秒起步；改后一屏 30 秒（_kSeekSecondsPerScreen）、先减 18pt 死区、竖向为主整个不 seek（|dy|>=|dx|）。
+**③ 反馈改进度条式（用户拍板）**：删掉 _toast（▶/◀ N 秒 SnackBar），改成拖动时贴底进度条跟手（_seekPreview + LinearProgressIndicator，对齐详情页 _SwipeSeek 观感），松手才 seekExact。算法一行未动。
+**待真机调**：_kSeekSecondsPerScreen 30（嫌快慢改一个数）；预览条观感（shorts_feed_page.dart:559-596）；_seekTargetFor 与 _seekEnd 是两份同值算法（可合并）。
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

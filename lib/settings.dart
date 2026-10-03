@@ -332,7 +332,7 @@ class PlayHistory extends ChangeNotifier {
     });
     assert(messy != null && messy.position == Duration.zero, '坏字段退化到 0');
     assert(!messy!.finished, 'f 不是 true 就当 false');
-    assert(messy!.videoIndex == 0 && messy!.updatedAt == 0, '非 int 数字退化');
+    assert(messy!.videoIndex == 0 && messy.updatedAt == 0, '非 int 数字退化');
 
     // 3) 进度计算
     assert(mk(u: '/p.html', p: 0).progress == 0, '没动过 = 0');

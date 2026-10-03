@@ -106,6 +106,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     }
     _pc.dispose();
     _idle.dispose();
+    _seekPreview.dispose();
     // ⚠️ C：退出时把"让路"撤掉 ✓ —— 缓存是**全局单例** ✗，留着暂停会把预下载永久停住 ✗
     _bufTimer?.cancel();
     _bufTimer = null;
@@ -293,19 +294,20 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     }
   }
 
-  void _toast(String t) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(t), duration: const Duration(milliseconds: 900)),
-    );
-  }
-
   // ---- 左右划调进度（自己算；不能用 kp.swipe* ✗ 那几个方法在播放器的私有 mixin 里）----
-  // 手感对齐详情页：**滑满一屏 = 120 秒**，**松手才真正跳**（拖动过程中只给个提示 ✓）。
+  // ⚠️ 松手才真正跳，拖动过程中只给个提示 ✓（与详情页同款手感 ✓）
+  // ⚠️ 我们自己的左退右进（用户 2026-10-03 拍板 ✓）——改前是 `dx / w * 120`（一屏 120 秒 ✗，
+  //    短片才 ~17 秒 ⇒ 一屏等于 7 条片子 ✗）＋水平拖动固有死区 18pt（≈5.6 秒 ✗）⇒ 用户实测
+  //    "**右滑直接 9 秒起步**" ✗。改后：一屏 **30 秒** ✓、**先减死区** ✓、**竖向为主整个不 seek** ✗
+  static const int _kSeekSecondsPerScreen = 30;
+  static const double _kSeekSlop = 18.0; // ≈ Flutter 的 kTouchSlop ✓（不额外引包 ✗）
+  /// 拖动中的**进度预览** ✓（对齐详情页"拖动时进度条跟手" ✓；**不再弹 toast** ✗）
+  final ValueNotifier<Duration?> _seekPreview = ValueNotifier(null);
   Duration _dragFrom = Duration.zero;
   double _dragDx = 0;
+  double _dragDy = 0;
 
-  void _seekStart() {
+  void _seekStart(DragStartDetails d) {
     final kp = _kp;
     if (kp == null) return;
     // ⚠️ 起点用 `lastKnownPosition` 打底（刚换源时 `value.position` 会被清零 —— 就是"换分辨率
@@ -314,26 +316,74 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
         ? kp.lastKnownPosition
         : kp.value.position;
     _dragDx = 0;
+    _dragDy = 0;
   }
 
-  void _seekUpdate(double dx) => _dragDx += dx;
+  void _seekUpdate(DragUpdateDetails d) {
+
+    _dragDx += d.delta.dx;
+
+    _dragDy += d.delta.dy;
+
+    _seekPreview.value = _seekTargetFor(_dragDx, _dragDy); // 拖动中只**预览** ✓
+
+  }
+
+  /// 目标位置（**拖动预览与松手共用这一份** ✓）——竖向为主 → null ✓（不 seek ✗）
+
+  Duration? _seekTargetFor(double dx, double dy) {
+
+    final kp = _kp;
+
+    if (kp == null) return null;
+
+    final w = MediaQuery.of(context).size.width;
+
+    if (w <= 0) return null;
+
+    if (dy.abs() >= dx.abs()) return null; // ③ 竖向为主 → 不 seek ✓
+
+    final eff = dx.abs() - _kSeekSlop; // ② 起步死区 ✓
+
+    if (eff <= 0) return null;
+
+    final secs = (dx.isNegative ? -eff : eff) / w * _kSeekSecondsPerScreen; // ① 一屏 30 秒 ✓
+
+    var to = _dragFrom + Duration(milliseconds: (secs * 1000).round());
+
+    if (to < Duration.zero) to = Duration.zero;
+
+    final dur = kp.value.duration;
+
+    if (dur > Duration.zero && to > dur) to = dur;
+
+    return to;
+
+  }
+
 
   void _seekEnd() {
     final kp = _kp;
     if (kp == null) return;
     final w = MediaQuery.of(context).size.width;
     final dx = _dragDx;
+    final dy = _dragDy;
     _dragDx = 0;
+    _dragDy = 0;
     if (w <= 0 || dx == 0) return;
-    final secs = dx / w * 120; // 滑满一屏 120 秒
+    // ③ 竖向为主 → **整个不 seek** ✗（"上滑别触发快进快退"的兜底 ✓）
+    if (dy.abs() >= dx.abs()) return;
+    // ② 减掉起步死区 ✓（改前那 18pt 白送 ≈5.6 秒 ✗）
+    final eff = dx.abs() - _kSeekSlop;
+    if (eff <= 0) return;
+    // ① 滑满一屏 = 30 秒 ✓（左负右正、按距离成比例 ✓）
+    final secs = (dx.isNegative ? -eff : eff) / w * _kSeekSecondsPerScreen;
     if (secs.abs() < 1) return; // 手抖不算
     var to = _dragFrom + Duration(milliseconds: (secs * 1000).round());
     if (to < Duration.zero) to = Duration.zero;
     final dur = kp.value.duration;
     if (dur > Duration.zero && to > dur) to = dur;
-    _toast(secs > 0
-        ? '▶ ${secs.round()}s'
-        : '◀ ${(-secs).round()}s');
+    _seekPreview.value = null; // 松手 → 预览撤掉 ✓（▶/◀ toast 已按用户要求删掉 ✗）
     // 用 seekExact：`seek` 会按 value.duration 裁剪（时长还没报上来时会被裁小 ✗）
     kp.seekExact(to);
   }
@@ -491,6 +541,79 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                 ),
               ),
 
+            // ---- 拖动左右划的反馈：**贴底进度条跟手** ✓（对齐详情页 ✓；不弹 toast ✗）----
+
+            Positioned(
+
+              left: 12,
+
+              right: 12,
+
+              bottom: 6,
+
+              child: ValueListenableBuilder<Duration?>(
+
+                valueListenable: _seekPreview,
+
+                builder: (_, pv, __) {
+
+                  final dur = _kp?.value.duration ?? Duration.zero;
+
+                  if (pv == null || dur <= Duration.zero) return const SizedBox.shrink();
+
+                  final frac =
+
+                      (pv.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+
+                  return Row(
+
+                    children: [
+
+                      Text(_fmt(pv),
+
+                          style: const TextStyle(
+
+                              color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+
+                      const SizedBox(width: 8),
+
+                      Expanded(
+
+                        child: ClipRRect(
+
+                          borderRadius: BorderRadius.circular(2),
+
+                          child: LinearProgressIndicator(
+
+                            value: frac,
+
+                            minHeight: 3,
+
+                            backgroundColor: Colors.white24,
+
+                            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+
+                          ),
+
+                        ),
+
+                      ),
+
+                      const SizedBox(width: 8),
+
+                      Text('/ ${_fmt(dur)}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+
+                    ],
+
+                  );
+
+                },
+
+              ),
+
+            ),
+
+
             // ---- 底部：标题/作者 + 进度条（贴底）+ 时间在**进度条右边** ----
             Positioned(
               left: 12,
@@ -591,8 +714,8 @@ class _GestureLayer extends StatelessWidget {
 
   final Widget child;
   final VoidCallback onTap;
-  final VoidCallback onSeekStart;
-  final void Function(double dx) onSeekUpdate;
+  final void Function(DragStartDetails d) onSeekStart;
+  final void Function(DragUpdateDetails d) onSeekUpdate;
   final VoidCallback onSeekEnd;
 
   @override
@@ -600,8 +723,8 @@ class _GestureLayer extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: onTap,
-      onHorizontalDragStart: (_) => onSeekStart(),
-      onHorizontalDragUpdate: (d) => onSeekUpdate(d.primaryDelta ?? 0),
+      onHorizontalDragStart: onSeekStart,
+      onHorizontalDragUpdate: onSeekUpdate,
       onHorizontalDragEnd: (_) => onSeekEnd(),
       onHorizontalDragCancel: onSeekEnd,
       child: child,
