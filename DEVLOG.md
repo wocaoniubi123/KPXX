@@ -197,6 +197,21 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 **修**：`_FeedViewState.didUpdateWidget` → `!identical(oldWidget.feed, widget.feed)` 时 摘旧监听 + 挂新监听 + `ensureMore()`（自带守卫）。
 **教训（写死）**：带 keepAlive 的 State 里，**凡是持有可被替换的对象（feed/model），必须实现 didUpdateWidget** ✗。
 
+
+--- 追加（2026-10-03 本次构建 1.0.10 —— 短片能播了）---
+**1.0.9 实测** ✓：卡片列表、翻页、取源链路**全部打通**（日志有 page=2 → 45 条、翻页 ✓、取源成功带耗时 ✓）；
+剩下：多数短片 `videos=0 srcs=0` → `_open` 里 `srcs.isEmpty` 静默返回 → 点进去一直转圈 ✗。
+**根因（抓页面实测 ✓，非推断）**：`xhamster.dart:737` 原来**只认** `.m3u8` ✗：
+  `RegExp(r'https://[^"\s\\]+\.m3u8[^"\s\\]*')`
+而短片页给的是页面 JSON 里的**直链 mp4**（且斜杠是**转义**的 ✗）：
+  `"h264":[{"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"}]`
+→ 匹配不上 → 0 条 → 无限转圈 ✓。（能播的那两条是另一种形态：`media=hls2/multi=…/…_TPL_.h264.mp4.m3u8` ✓）
+**修** ✓（`xhamster.dart`，插在原 m3u8 那行**之前**）：先按
+  `"url":"(https?:\\?/\\?/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"` 抓直链 mp4 ✓
+  按 quality 高→低返回 ✓；`replaceAll(r'\/', '/')` 还原转义 ✓；**没命中就回落原来的 m3u8 路径** ✓（原逻辑一行未动 ✓）。
+**复查记录**：正则的转义容错是我第一版写错（写死 `https://` ✗）当场发现并改正 ✓；返回类型经核对 ✓（紧随其后是 `var srcs = <String>[];`）。
+**待办**：`shorts_feed_page.dart:175` 的 `srcs.isEmpty` **静默返回** ✗ —— 应改为给用户提示（体验项 ✓，本轮未动 ✗）。
+
 ## 八、当前待办
 - [ ] **详情页播放器置顶**：代码已改好 ✓（固定顶部 + 下方单独滚动，括号校验通过）**未提交/未推** ✗
 - [ ] **桌面 ipa 落后**：桌面是 **1.0.1** ✓；**1.0.2**（含"加载失败提示不消失"修复）**已发 Releases 但未下到桌面** ✗

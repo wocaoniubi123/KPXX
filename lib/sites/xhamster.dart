@@ -366,6 +366,21 @@ class XhSite extends SiteUi {
     // ⚠️ 字符类里**别放单引号**：这是 Dart 的原始字符串 r'...'，中间出现 ' 会被当成
     //    字符串结束、把余下部分拆成"非原始字符串"拼接 → `\s` 变非法转义、编译直接报错。
     //    （上面 madou 那处也是同样写法：`r'https?://[^"\s\\]+\.m3u8[^"\s\\]*'`。）
+    // ⚠️ 2026-10-03 补（用户实机：短片点进去一直转圈 ✗，日志 videos=0 srcs=0 ✓）：
+    // 短片页的源**常常不是 m3u8** ✗，而是页面 JSON 里的**直链 mp4**：
+    //   "sources":{"standard":{"h264":[{"url":"https://video7.xhcdn.com/…/480p.h264.mp4","quality":"480p"}]}}  ✓
+    // 原来只跑 m3u8 正则 ✗ → 这类页面解析出 0 条 → 上层静默返回 → 无限转圈 ✓。
+    // 这里先试直链 mp4（按画质高→低 ✓），没有再回落到原来的 m3u8 写法 ✓。
+    final _h264 = RegExp(r'"url":"(https?:\\?/\\?/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"').allMatches(html);
+    final _byQ = <int, String>{};
+    for (final hm in _h264) {
+      final q = int.tryParse(hm.group(2) ?? '') ?? 0;
+      _byQ.putIfAbsent(q, () => hm.group(1)!.replaceAll(r'\/', '/'));
+    }
+    if (_byQ.isNotEmpty) {
+      final ks = _byQ.keys.toList()..sort((a, b) => b.compareTo(a));
+      return ks.map((k) => _byQ[k]!).toList();
+    }
     final m = RegExp(r'https://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(html);
     var srcs = <String>[];
     if (m != null) {
