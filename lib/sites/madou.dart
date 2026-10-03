@@ -6,6 +6,7 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+import '../sites.dart';
 import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
@@ -217,3 +218,43 @@ class MadouSite extends SiteUi {
     return '$abs?token=$tok';
   }
 }
+
+// ===== 本站专属清单（2026-10-03 从 lib/sites.dart 下放 ✓；循环 import 允许 ✓）=====
+
+const List<SiteTab> mdOther = [
+  SiteTab('hongkongdoll', 'HongKongDoll'),
+  SiteTab('psychoporntw', 'PsychopornTW'),
+  SiteTab('91%e5%88%b6%e7%89%87%e5%8e%82', '91制片厂'),
+  SiteTab('%e6%9e%9c%e5%86%bb%e4%bc%a0%e5%aa%92', '果冻传媒'),
+  SiteTab('%e8%9c%9c%e6%a1%83%e5%bd%b1%e5%83%8f', '蜜桃影像'),
+  SiteTab('%e5%a4%a9%e7%be%8e%e4%bc%a0%e5%aa%92', '天美传媒'),
+  SiteTab('%e7%9a%87%e5%ae%b6%e5%8d%8e%e4%ba%ba', '皇家华人'),
+  SiteTab('%e5%85%94%e5%ad%90%e5%85%88%e7%94%9f', '兔子先生'),
+  SiteTab('%e6%98%9f%e7%a9%ba%e6%97%a0%e9%99%90%e4%bc%a0%e5%aa%92', '星空无限传媒'),
+  SiteTab('%e7%88%b1%e8%b1%86', '爱豆'),
+  SiteTab('%e9%ba%bb%e8%b1%86%e5%af%bc%e6%bc%94%e7%b3%bb%e5%88%97', '麻豆导演系列'),
+  SiteTab('%e5%a4%a7%e8%b1%a1%e4%bc%a0%e5%aa%92', '大象传媒'),
+  SiteTab('%e7%8c%ab%e7%88%aa%e5%bd%b1%e5%83%8f', '猫爪影像'),
+  SiteTab('%e7%b2%be%e4%b8%9c%e5%bd%b1%e4%b8%9a', '精东影业'),
+  SiteTab('%e6%9d%8f%e5%90%a7', '杏吧'),
+  SiteTab('%e4%b9%90%e6%92%ad%e4%bc%a0%e5%aa%92', '乐播传媒'),
+  SiteTab('%e8%8d%89%e8%8e%93', '草莓'),
+  SiteTab('%e6%8a%96%e9%98%b4', '抖阴'),
+  SiteTab('sa%e5%9b%bd%e9%99%85%e4%bc%a0%e5%aa%92', 'SA国际传媒'),
+  SiteTab('%e8%b5%b7%e7%82%b9%e4%bc%a0%e5%aa%92-%e6%80%a7%e8%a7%86%e7%95%8c%e4%bc%a0%e5%aa%92',
+      '起点传媒/性视界传媒'),
+  SiteTab('%e5%a4%a7%e9%b8%9f%e5%8d%81%e5%85%ab', '大鸟十八'),
+  SiteTab('%e5%b0%8f%e9%b9%8f%e5%a5%87%e5%95%aa%e8%a1%8c', '小鹏奇啪行'),
+  SiteTab('%e5%a5%b3%e4%bc%98%e6%b7%ab%e5%a8%83%e5%9f%b9%e8%ae%ad%e8%90%a5', '女优淫娃培训营'),
+  SiteTab('%e6%b7%ab%e6%ac%b2%e6%b8%b8%e6%88%8f%e7%8e%8b', '淫欲游戏王'),
+  SiteTab('%e5%a5%b3%e7%a5%9e%e7%be%9e%e7%be%9e%e7%a0%94%e7%a9%b6%e6%89%80', '女神羞羞研究所'),
+  SiteTab('%e7%aa%81%e8%a2%ad%e5%a5%b3%e4%bc%98%e5%ae%b6', '突袭女优家'),
+  SiteTab('%e6%83%85%e8%b6%a3k%e6%ad%8c%e6%88%bf', '情趣K歌房'),
+  SiteTab('kiss%e7%b3%96%e6%9e%9c%e5%b1%8b', 'KISS糖果屋'),
+];
+
+const List<SiteTab> mdScreens = [
+  SiteTab('/likes', '点赞排行'),
+  SiteTab('/week', '7天热门'),
+  SiteTab('/month', '30天热门'),
+];

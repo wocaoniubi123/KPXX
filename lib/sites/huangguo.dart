@@ -8,6 +8,7 @@
 //   （"站点逻辑散在公共函数里"的典型 ✓），本次改成调本类公开方法 ✓；彻底下放列为**待办** ✓。
 
 import 'dart:convert';
+import '../sites.dart';
 import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
@@ -472,3 +473,12 @@ class HuangguoSite extends SiteUi {
     );
   }
 }
+
+// ===== 本站专属清单（2026-10-03 从 lib/sites.dart 下放 ✓；循环 import 允许 ✓）=====
+
+const List<SiteTab> hgSorts = [
+  SiteTab('latest', '最新更新'),
+  SiteTab('hot', '当前热播'),
+  SiteTab('original', '独家原创'),
+  SiteTab('random', '随机推荐'),
+];

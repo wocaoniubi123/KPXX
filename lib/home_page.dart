@@ -10,6 +10,7 @@ import 'models.dart';
 import 'shorts_feed_page.dart';
 import 'sites/hanime1.dart';
 import 'sites/pornhub.dart';
+import 'sites/xhamster.dart';
 import 'sites.dart';
 
 /// 单个站点的内容页：顶部分类 tab（可带子分类）+ 双列卡片列表。

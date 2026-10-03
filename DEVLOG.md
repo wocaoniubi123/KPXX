@@ -1874,6 +1874,21 @@ Error (Xcode): lib/sites/hanime1.dart:351:52: Error: The getter '_hnSorts' isn't
 ## 待做（批 2/3）
 - 批 2：`home_page` 三站状态机（xHamster 明星筛选最大 / Hanime1 / Pornhub）搬进各自站点文件
 - 批 3：`sites.dart` 的 13 份站点档案 + 15 个站点专属清单 → 各站点文件（风险最高 ✓ 用户已同意一起做 ✓）
+
+--- 第 89 条续（批 3 前半：站点清单下放 ✓）---
+✅ **16 个站点专属清单**从 `lib/sites.dart` 搬到各自站点文件 ✓（私有名改公开 ✓）：
+- xhamster.dart ← `xhStarNav` / `xhStarCats` / `xhCatGroups`(416 行) / `xhCats`(403 行)
+- pornhub.dart ← `phCats` / `phStarSorts` / `phStarTypes` / `phStarTimes` / `phStarMore`
+- pektino.dart ← `pkThemes` / `pkLangs` / `pkDurations` / `pkSorts`
+- madou.dart ← `mdOther` / `mdScreens`；huangguo.dart ← `hgSorts`
+✅ 结果：`lib/sites.dart` **2027 → 885 行**；`xhamster.dart` +872 行
+✅ sites.dart 补了 5 个站点 import（循环 import 允许 ✓）；home_page 补 `import sites/xhamster.dart` ✓
+
+⚠️ **过程中的两个坑（如实记 ✗）**：
+1. 头两次定位失败 ✗ —— `xhCatGroups`/`_xhCats` 是**类型推断写法**，我的正则只认 `const List<...>` ✗ → 改成"按列 0 行首含名字"定位 ✓ 才成功 ✓
+2. ⚠️ 一度怀疑"深度计数多吞内容导致静默丢数据" ✗ → **立刻核查**：数据都在 ✓（没丢 ✓）→ ✅ 教训：搬大段数据前先确认"抠出来的行数与预期相符"（这次 416/403 行 ✓ 合理 ✓）
+
+**⏭️ 还差**：批 2（home_page 三站状态机：xHamster 明星筛选 / Hanime1 / Pornhub）· 批 3 后半（13 份 SiteEntry 档案）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

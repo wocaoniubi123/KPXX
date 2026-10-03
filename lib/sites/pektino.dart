@@ -5,6 +5,7 @@
 // 仅把 `_fetchText(`→`_f.text(`、`_secClock(`→`secClock(`（已上移 base ✓）等**等价替换** ✓。
 
 import 'dart:convert';
+import '../sites.dart';
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
@@ -205,3 +206,77 @@ class PektinoSite extends SiteUi {
     );
   }
 }
+
+// ===== 本站专属清单（2026-10-03 从 lib/sites.dart 下放 ✓；循环 import 允许 ✓）=====
+
+const List<SiteTab> pkThemes = [
+  SiteTab('shirouto', '业余'),
+  SiteTab('kyonyu', '丰胸'),
+  SiteTab('masturbation', '自我表达'),
+  SiteTab('jk', '女高中生'),
+  SiteTab('anime', '动漫 / 二次元'),
+  SiteTab('female-teacher', '女教师'),
+  SiteTab('nurse', '护士'),
+  SiteTab('female-pervert', '大胆女性'),
+  SiteTab('married-woman', '已婚女性'),
+  SiteTab('beautiful-girl', '美少女'),
+  SiteTab('big-sister', '姐姐'),
+  SiteTab('gal', '时尚女孩'),
+  SiteTab('shaved', '光滑风格'),
+  SiteTab('small-breasts', '小胸'),
+  SiteTab('lolita', '少女系'),
+  SiteTab('swimsuit', '泳装'),
+  SiteTab('sm', 'SM 题材'),
+  SiteTab('special-feature', '企划'),
+  SiteTab('incest', '家庭主题'),
+  SiteTab('rape', '冲突主题'),
+  SiteTab('molestation', '骚扰主题'),
+  SiteTab('voyeur', '隐藏拍摄'),
+  SiteTab('pickup', '邂逅'),
+  SiteTab('massage', '按摩'),
+  SiteTab('outdoor', '户外场景'),
+  SiteTab('orgy', '群体场景'),
+  SiteTab('anal', '背面主题'),
+  SiteTab('deep-throat', '深层表达'),
+  SiteTab('facial', '面部艺术'),
+  SiteTab('cum-swallowing', '吞咽主题'),
+  SiteTab('handjob', '手部表演'),
+  SiteTab('creampie', '内部主题'),
+  SiteTab('titjob', '胸部表演'),
+  SiteTab('fellatio', '口部艺术'),
+  SiteTab('bukkake', '泼洒艺术'),
+  SiteTab('hamedori', '自摄'),
+  SiteTab('personal-filming', '私人拍摄'),
+  SiteTab('uncensored', '未修饰'),
+  SiteTab('gay', '男同性恋・男娘'),
+  SiteTab('cosplay', '角色扮演'),
+];
+
+const List<SiteTab> pkLangs = [
+  SiteTab('ja', '日本'),
+  SiteTab('zh-CN', '中国'),
+  SiteTab('th', '泰国'),
+  SiteTab('en', '英语'),
+  SiteTab('zh-TW', '繁体中文'),
+  SiteTab('ko', '韩语'),
+  SiteTab('id', '印尼语'),
+  SiteTab('pt', '葡萄牙语'),
+  SiteTab('fr', '法语'),
+  SiteTab('de', '德语'),
+];
+
+const List<MapEntry<String, String>> pkDurations = [
+  MapEntry('0,0', '全部'),
+  MapEntry('0,300', '0-5分钟'),
+  MapEntry('300,900', '5-15分钟'),
+  MapEntry('900,1800', '15-30分钟'),
+  MapEntry('1800,3600', '30分钟-1小时'),
+  MapEntry('3600,0', '1小时以上'),
+];
+
+const List<MapEntry<String, String>> pkSorts = [
+  MapEntry('favorite', '按点赞'),
+  MapEntry('pv', '按观看数'),
+  MapEntry('time', '按时长'),
+  MapEntry('created', '最近添加'),
+];
