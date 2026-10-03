@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'site_error_log.dart';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -163,29 +162,14 @@ class Api {
     final k = l2 ?? l1 ?? key;
     // ✅ 原来这里是 10 个 case 的 switch（每个 case 一行委托）。
     // 现在改成**问站点自己** ✓：各站的解析/URL 拼接早已在 lib/sites/*.dart 里 ✓。
-    // 🔎 短片诊断（用户 2026-10-03 报「xHamster 短片加载不出来」✓）——
-    // ⚠️ 用户要求：**只记短片** ✗（点别的主分类不要记进来 ✗）
-    final isShortsCall = key.contains('shorts') || k.contains('shorts');
-    try {
-      final out = await _ui!.category(key,
-          page: page,
-          k: k,
-          theme: theme,
-          duration: duration,
-          sort: sort,
-          extra: extra,
-          home: home);
-      if (isShortsCall) {
-        SiteErrorLog.log('列表',
-            'category key=$key k=$k page=$page → ${out.length} 条 ✓');
-      }
-      return out;
-    } catch (e, st) {
-      if (isShortsCall) {
-        SiteErrorLog.log('列表', 'category key=$key k=$k page=$page 抛错 ✗：$e', st);
-      }
-      rethrow; // 行为不变 ✗ —— 只是记一笔 ✓
-    }
+    return _ui!.category(key,
+        page: page,
+        k: k,
+        theme: theme,
+        duration: duration,
+        sort: sort,
+        extra: extra,
+        home: home);
   }
 
   /// 首页最新列表（无分类 tab 的站点用；有 tab 的都直接进分类页）

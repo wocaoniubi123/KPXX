@@ -8,19 +8,22 @@
 //   · X 刻意放在**状态栏之下**（`MediaQuery.padding.top` 再往下）—— 用户 2026-10-02：
 //     "X 不要放到状态栏位置因为会点不到" ✗
 //   · 播完**自动下一条**；滑到尾部自动续拉列表
-//   · **预缓存 5 条**（滑动窗口：每往前一条补一条）—— 用户 2026-10-02 定的语义
+//   · **预缓存 5 条**（滑动窗口：每往前一条补一条）—— 用户 2026-10-02 定的语义；
+//     **片源地址 + 把后面 5 条预下载到本地** ✓（用户 2026-10-03 定："单实例 + 缓冲五条" ✓）
 //   · 从左边缘往右划 = 返回
 //
 // ⚠️ 只用**一个** `KpPlayer` 实例（用户明确否掉了双实例 ✗："双实例开销比预缓冲大多了"）。
-//   相邻页显示封面图，不做多实例解码 —— 换条要快靠**预取片源地址**（mpv 自己 200MB 的
-//   demux 缓冲 + 已就绪的源），不靠第二个解码器 ✓。
+//   换条快靠这两件事，**都不需要第二个解码器** ✓：
+//   ① **预取片源地址**（`_srcCache` ✓ —— 省掉一次详情页请求 ✓）；
+//   ② **预下载后面 5 条到本地文件**（`base/video_cache.dart` ✓）→ 划到它时把 `file://`
+//      交给**同一个** mpv ✓（mpv 只把**当前**这条缓进内存 ✗，且不读我们的 HTTP 缓存 ✗）。
 //
 // ⚠️ 本站（xHamster）短片的详情页**只有一条源**（站点默认档，见 api.dart 的 _xhDetail：
 //   '/shorts/…' 不展开档位）→ 这里直接用 `sources` 里的第一条 ✓。
 
 import 'dart:async';
+import 'base/video_cache.dart';
 import 'fetched_image.dart';
-import 'site_error_log.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -79,6 +82,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     _pc = PageController(initialPage: _cur);
     _applyImmersive(false); // 刚进来还没播 → 按"暂停态"显示状态栏与 X（否则没有退出口）
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      VideoCache.i.init(); // 建预下载目录 + 清一次 LRU ✓（缓存内部全静默 ✓）
       _open(_cur);
       _precache();
     });
@@ -145,14 +149,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     if (hit != null) return Future.value(hit);
     final flying = _fetching[url];
     if (flying != null) return flying;
-    // 🔎 发出前先记一笔 ✓（否则「卡住」和「抛错」都没日志 ✗）
-    SiteErrorLog.log('短片', '取源开始 #$i $url');
-    final _t0 = DateTime.now().millisecondsSinceEpoch;
     final f = widget.api.detail(url).then((d) {
       final srcs = (d.videos.isNotEmpty) ? d.videos.first.sources : const <String>[];
-      // 🔎 取源诊断（用户 2026-10-03 报：短片页一直转圈 ✓ —— 上一条埋点只盖了翻页 ✗，这条盖第一页 ✓）
-      SiteErrorLog.log('短片',
-          '取源成功 #$i ${DateTime.now().millisecondsSinceEpoch - _t0}ms → videos=${d.videos.length} srcs=${srcs.length} 首条=${srcs.isEmpty ? "（空）" : srcs.first.split('?').first}');
       _srcCache[url] = srcs;
       _fetching.remove(url);
       return srcs;
@@ -167,10 +165,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   Future<void> _open(int i) async {
     if (i < 0 || i >= _items.length) return;
     // ⚠️ 取源加超时 ✓：原来没有超时 → 一旦卡住就无限转圈（用户截图那个转圈 ✓）
-    final srcs = await _sourcesOf(i).timeout(const Duration(seconds: 20), onTimeout: () {
-      SiteErrorLog.log('短片', '取源超时 ✗ #$i（20 秒没回来）');
-      return const <String>[]; // 当空处理 → 走上层「取不到源」的分支 ✓ 不再干转 ✗
-    });
+    // 超时就当"取不到源" → 走上层分支，不再干转 ✗
+    final srcs = await _sourcesOf(i)
+        .timeout(const Duration(seconds: 20), onTimeout: () => const <String>[]);
     if (!mounted) return;
     if (srcs.isEmpty) return;
     var kp = _kp;
@@ -182,7 +179,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       setState(() {});
     }
     // ⚠️ 这里 kp 已经是非空的局部变量（Dart 的流分析不会把 `_kp` 认成非空 ✗）
-    await kp.open(srcs.first);
+    // ⚠️ **预下载好的本地文件优先** ✓：还是**同一个** mpv，只是把地址换成 `file://` ✓
+    //（用户 2026-10-03 定的方案 ✓）；没下完 / 不是直链 mp4（m3u8…）→ 回落在线直连 ✓
+    final local = VideoCache.i.ready(srcs.first);
+    await kp.open(local?.uri.toString() ?? srcs.first);
   }
 
   /// **预缓存 5 条**（滑动窗口）：从当前的下一条起，保证前面 5 条都已抓好源；
@@ -200,6 +200,22 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       if (_srcCache.containsKey(url) || _fetching.containsKey(url)) continue;
       _sourcesOf(j); // 并发跑，不 await（别挡当前这条起播）
     }
+    _primeWindow(count); // 源解析完再交给预下载（同样不 await ✓）
+  }
+
+  /// 把"后面 5 条"的**源地址**交给 [VideoCache] **预下载到本地** ✓
+  ///（用户 2026-10-03 定：**单实例 + 缓冲五条** ✓ —— 播放时还是同一个 mpv，只把地址换成 `file://` ✓）
+  /// 划 1 条 → 窗口整体前移 → 缓存自动补新的一条 ✓、并把已经划走那条**中止** ✗（省带宽 ✓）。
+  Future<void> _primeWindow(int count) async {
+    final urls = <String>[];
+    for (var k = 1; k <= count; k++) {
+      final j = _cur + k;
+      if (j >= _items.length) break;
+      final srcs = await _sourcesOf(j); // 命中 _srcCache 时立刻返回 ✓
+      if (!mounted) return;
+      if (srcs.isNotEmpty) urls.add(srcs.first);
+    }
+    await VideoCache.i.window(urls);
   }
 
   /// 尾部续拉：短片列表是随机的批次，每批 ≈ 20 条
@@ -208,15 +224,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     _loadingMore = true;
     try {
       // ⚠️ `Api.category` 的第一个参数（key）是**位置参数**，不是 `k:` ✗
-      // 🔎 翻页诊断（同上 ✓）
-    final List<Article> more;
-    try {
-      more = await widget.api.category('/shorts', page: _page + 1);
-      SiteErrorLog.log('短片', '翻页 page=${_page + 1} → ${more.length} 条 ✓');
-    } catch (e, st) {
-      SiteErrorLog.log('短片', '翻页 page=${_page + 1} 抛错 ✗：$e', st);
-      rethrow;
-    }
+      final List<Article> more =
+          await widget.api.category('/shorts', page: _page + 1);
       if (!mounted) return;
       _page++;
       final have = _items.map((a) => a.url).toSet();
@@ -331,18 +340,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                       controls: NoVideoControls,
                     ),
                       ),
-                      // ⚠️ 2026-10-03（用户要求）：**暂停时**显示【X + 标题条】✓；播放中不显示 ✓
-                      // 显隐跟随播放器状态：_onTick 已在监听里 setState ✓
-                      if (!(_kp?.value.playing ?? false)) ...[
-                        Positioned(left: 2, top: topPad + 2, child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        )),
-                        Positioned(left: 16, right: 16, bottom: 120, child: Text(
-                          art?.title ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 15),
-                        )),
-                      ],
+                      // ⚠️ 2026-10-03 修（用户实测 1.0.11「左上角两个 X 重叠」＋「暂停时两条标题」✗，lead 确认 ✓）：
+                      //    这层原来是多画的 —— **一个无圆底的 X**（与外层暂停层的圆底 X 重复 ✗）+ **一份不加粗的标题**
+                      //    （与贴底的加粗标题条重复 ✗）→ **整层删掉** ✓：X 只留圆底的、标题只留贴底那条 ✓
+                      //    注：**▶ 暂停标志不在这层里** ✓ —— 它挂在它自己的暂停守卫上（见本文件 :365），已确认还在 ✓
                     ],
                   );
                 }
@@ -367,6 +368,18 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
             ),
 
             // ---- 顶部：暂停时才出现的 X（**放在状态栏之下**，不然点不到 ✗）----
+            // ⚠️ 2026-10-03（用户要求）：暂停时正中显示**暂停标志** ✓（与本层的 X 同一层，跟着 _playing 刷新 ✓）
+            // ⚠️ 2026-10-03 补：原来这里**漏了暂停守卫** ✗ —— 播放中画面正中也常挂一个 96px 半透明 ▶ ✗；
+            //    补上后与下面同层的圆底 X 一致：都只在**暂停时**出现 ✓
+            if (!_playing)
+              const Positioned(
+                left: 0, right: 0, top: 0, bottom: 0,
+                child: IgnorePointer(
+                  child: Center(
+                    child: Icon(Icons.play_arrow_rounded, color: Color(0xB3FFFFFF), size: 96),
+                  ),
+                ),
+              ),
             if (!_playing)
               Positioned(
                 left: 12,

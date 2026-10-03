@@ -221,10 +221,160 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
    修：把播放层包进 Stack，用 if (!(_kp?.value.playing ?? false)) 才显示 X（maybePop）与标题；显隐靠 _onTick 的 setState 自动刷新。
 **过程教训**：改多层嵌套 widget 树时锚点要先用行号加缩进打印确认（本次连试三次：缩进约束过严、收尾行多跨一行、PowerShell 的 -notmatch 对数组会返回不匹配元素而误判）。
 
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）短片页只留一个 X + ▶ 补守卫 + 「单实例预缓冲 5 条」查证 ---
+**① 用户实测 1.0.11「左上角两个 X 重叠」✗ → 已修 ✓**
+根因（实锤）：**同一个「暂停态」画了两层 X** ✗ —— `shorts_feed_page.dart:337-340`（在播放层里，**无圆底**的关闭图标按钮）+ 外层 `if (!_playing)` 的 `_RoundBtn`；两者坐标只差 (10,8) → 暂停时完全重叠 ✓（两处都只在暂停时出现 ✓，所以用户只在暂停态看到 ✓）。
+修：按用户要求（一个 X / 暂停才显示 / **带圆底**）**删掉无圆底那个** ✓，圆底 X 保留（今 `:374-381`，`Icons.close` **只剩 `:379` 一处** ✓）。
+**①b ▶ 暂停标志补守卫 ✓**（lead 2026-10-03 确认后改）：原来**无条件常画** ✗ → 播放中画面正中也挂着一个 96px 半透明 ▶ ✗；现补 `if (!_playing)` ✓（今 `:365-373`，`play_arrow_rounded` **1 处** ✓），与同层的圆底 X 一致（都只在暂停时出现 ✓）
+**①c 删掉「播放层里多画的那一层」✓**（lead 2026-10-03 定论：那层 `if (!(_kp?.value.playing ?? false)) ...[` **连同里面的不加粗标题都是他较早抄进去的** ✗ —— 用户报的「两个 X」与「两条标题」正是这一处重复的两个症状 ✓）：
+  删整层 ✓（`:334-337` 现为说明注释）；⚠️ **▶ 不在这一层里** ✓（删完确认 ▶ 仍在 `:365-373` ✓）
+**② 暂停时只剩一条标题 ✓**（lead 定论：删 A 留 B ✓）：贴底信息栏（**页面原有** ✓，今 `:384` 起）= **加粗标题**（`:395`）+ meta（`if (art.meta.isNotEmpty)`，`:403-406`）+ 进度条与时间（`:412+`）；被删那层的**不加粗标题副本**（原 `bottom:120`）已去 ✗
+  · meta 是什么：`models.dart:11` 注释「卡片标题下面那行（本站只放时间；黄果没有就是空串）」；**xh 短片**这条构造里写死 `meta: ''`（`xhamster.dart:288`，`_xhMomentsFromHtml` 内；短片路由见 `:162`）→ 短片页贴底那条**没有 meta 行** ✓，实际就是「加粗标题 + 进度条/时间」✓
+  · **目标核对 ✓**：暂停时 = **一条标题**（`:395`）+ **一个 X**（`:379`）+ **一个 ▶**（`:370`）✓
+**符号核对（lead 要的三条 ✓）**：`Icons.close` **1 处**（`:379`）· `play_arrow_rounded` **1 处**（`:370`）· 标题 Text **只剩贴底那一处**（`art.title` 仅 `:395`；`art?.title` **0 处** ✓）
+**符号净账 ✓**：`git diff --numstat` = **`16/12`**（全是这一层的增删 ✓）· `()` **227/227**（HEAD 232 **−** 删行合计 **11 对** **+** 增行合计 **6 对** = 227 ✓；删行 11/11、增行 6/6 **各自都平衡** ✓）· `{}` **68/68** 不变 ✓ · `[]` 20 → **19/19**（删掉的 `...[` 与 `]` ✓）· 括号深度余额 **0** ✓、无「余额≠0 处却有列 0/2 声明」✓
+
+**② 用户要的「**单实例**预缓冲 5 条」→ 查证结论：引擎侧做不到 ✗（依据全是上游原文/官方 issue，非推断 ✓）**
+- **media_kit 侧确实有口子** ✓：`Player.platform`（`PlatformPlayer?`）→ 转 `NativePlayer` 后可 `setProperty(属性, 值)` / `command([...])`，
+  `setProperty` 的实现就是直接调 `mpv_set_property_string`（media_kit 源码 `lib/src/player/native/player/real.dart` ✓）；
+  ⚠️ 但 `PlayerConfiguration` **没有**任何「附加 mpv 选项」入口 ✓（字段只有 vo/osc/pitch/title/muted/async/libass/logLevel/**bufferSize**/protocolWhitelist）
+- **mpv 侧唯一相关的开关是 `--prefetch-playlist`（默认 no）** ✓，官方手册原文：
+  「Prefetch next playlist entry while playback of the current entry is ending. **This merely opens the URL of the next playlist entry as soon as the current URL is fully read.**」
+  → ① **只预取「下一条」**（结构上就到不了 5 条 ✗）② **要等当前 URL 完全读完才开始** ✗（用户随手 2-5 秒划走 → 根本还没开始）
+  ③ **对 HLS/.m3u8 无效** ✗（mpv 把 HLS 当**单个**媒体项；HLS 的预取只由解复用器缓存决定）④ 官方自述「可能偶尔做出错误的预取判定：**它不能预测你是否回退**，并假定你不会编辑播放列表」✓
+- **上游态度**：mpv issue **#5940「Parallel prefetch」已 Closed ✗**（2018 开，诉求正是抱怨"要等当前下完才开始"）；**#6437「Buffer next videos in the playlist」仍 Open ✗**（2019 开，诉求=5 条预缓冲）；官方还一度把该选项默认改成 yes，随后 **revert 回 'no'** ✓（Releases/版本历史）
+→ **结论：单实例 + 媒体级 5 条预缓冲 = 做不到** ✗。能做的最多是「1 条、当前读完才启动、HLS 无效」，与用户诉求差距太大 → **不硬编** ✗，本轮**未改任何播放代码** ✓
+→ 唯一能真做到「5 条内容都在本地」且**仍是单实例**的路子（**用户已拍板 ✗ → 见下方本轮 B：已实现 ✓**）：App 侧按源 URL **预下载**（mp4 直链可行 ✓；m3u8 要逐段下载 ✗；部分 mp4 的 `moov` 在文件尾部 → 只下前半段会「播到一半断」✗ —— 本轮 B 的解法是**只播整份下完的文件** ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 1 轮**，工作区改动，**未提交未构建**）模拟器实测 + 与 App 现状对齐 ---
+
+### 任务① 实测「模拟器现在到底能不能用」→ **能** ✓（这次真跑起来了 ✓）
+- 起服务：8787 被用户实例占着 → 我另起 **8788**（`Remove-Item Env:NO_PROXY` + `KPXX_PORT=8788` ✓，
+  不再踩 `Start-Process` 那次 `NO_PROXY` 冲突 ✓）；自检出站代理 = `127.0.0.1:7890` ✓（`server.mjs` 的 detectProxy 生效 ✓）
+- 浏览器实测：**Edge `--headless=new` + CDP 驱动**（Node 24 自带 `WebSocket`，零依赖临时脚本 ✓，用完已删 ✓）
+- 结果（四个验证点全过 ✓）：
+  ① 首页 **14 站宫格** ✓（顺序 = `kSites` 引用顺序 ✓）
+  ② xHamster「短片」tab **12 卡** ✓、`#cards` 类 = `cards portrait shorts`（2 列竖版 ✓）；51吃瓜「学生校园」**25 卡** ✓
+  ③ tabs 切换 ✓（xHamster `[影片,分类,色情明星,短片]`，影片默认 **54 卡** ✓）
+  ④ **无**「没在 lib/sites.dart 里找到 kSites」✗ —— 页面日志是「站点清单来自 lib/sites.dart」+ 14 站全名 ✓；
+     `/sites` HTTP 200、`error` 字段空、**14/14 站点**、`kSite01~kSite14` 全命中 ✓；**无未捕获 JS 异常** ✓
+- 遗留噪音（**非本次引入** ✓）：`/favicon.ico` 404 · 偶发一张封面 `/proxy` 500 · hls.js 首个 CDN 不通时回退 unpkg ✓（已有兜底）
+
+### 任务② 与 App 现状对齐 → 抓真页面取一手事实，**sim 改 3 处** ✓
+**一手事实（`/site?name=xHamster&path=…` ✓，全部实测）**：
+- 片源**两种形态**（`/shorts/<slug>` 的 `sources.standard.h264`）：
+  ① 直链 mp4（**斜杠转义**）`"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"`（同类还有 720p）✓
+  ② m3u8 = `…/031/175/220/**_TPL_.h264.mp4.m3u8` —— `_TPL_` 是站点自己的**模板字面量**（不是占位符 ✓，实测原文在页面里就这么写）
+  → App 1.0.10 那条正则（**原样**）在真页面**命中 4 条**（480p/720p 各出现 2 次）✓ —— App 侧解析是对的 ✓；
+    sim 原来**只认未转义 m3u8** ✗（两种形态只覆盖了一种 ✗）
+- 列表页 `/shorts/newest`：`<script id='initials-script'>window.initials={…}`（**单引号** ✓ —— CSS 选择器照样命中，
+  App 的 `querySelector('script#initials-script')` 没问题 ✓）；`layoutPage.videoListProps.videoThumbProps` = **45 条** ✓（与 App 注释一致）；
+  首条键 `id,title,thumbId,thumbInRotation,trailerURL,landing,thumbURL,imageURL,pageURL,views,icon` → **无 sources** ✓（所以必须逐条抓详情页 ✓）
+
+**`sim/index.html` 改动（`server.mjs` 一行未动 ✓）**
+1. `xhDetail`：新增**直链 mp4** 形态（转义容错 `replaceAll('\\/','/')`、按 quality 高→低），排在 m3u8 **之前** ✓；
+   短片 `/shorts/…` 的 m3u8**不展开档位**（App 同款 ✓）；⚠️ 有意差别：**m3u8 也保留**（App 有 mp4 时会丢掉 ✗）——
+   详情页清晰度行要能同时看见两种形态；**默认播的仍是第一条 = App 的 `srcs.first`** ✓
+2. 瀑布流取源：新增 `feedSources()` —— **逐条抓详情页**（与 `ShortsFeedPage._sourcesOf` 同语义 ✓）+ 在途去重 + 抢答保护
+   （等源中途划走不覆盖新条 ✓）+ 列表接口那份源**只当兜底**（日志写明这条用的是详情页还是兜底 ✓）；
+   `feedPrecacheSources()` 预取接下来 5 条（App 同款 ✓）；`feedPreload` 改为预取**详情页第一条**的字节（原来预热列表源 = 错地址 ✗）
+3. 暂停覆盖层：新增 `.fpause`（正中偏上 96px 白 70% ▶）+ `.fmeta` 标题条 → 两者**只在 `.screen.feedpause` 显示** ✓
+   （App 1.0.11 / 未提交那轮同款 ✓）。实测：进流 1/1 ✓ 播放中 0/0 ✓ 暂停 1/1 ✓ 恢复 0/0 ✓
+
+**改后复跑证据 ✓**：`短片取源 #1：详情页 3 条（首条 …/506/720p.h264.mp4）` → 起播 `readyState=4`、
+`v.src = https://video7.xhcdn.com/key=…`（**直链 mp4** = App 播的那条 ✓）；#2 换条同样成功 ✓；#3~#6 预取 ✓；无异常 ✓。
+普通影片详情页**回归** ✓：源 = HLS 5 档（1080→144，照常 `readyState=4` 起播 ✓）——
+⚠️ 我实测的这条页面本身没有 mp4 形态 🔍（所以是 no-op ✓，别的页面若有 mp4 会变成 mp4 优先，与 App 一致 ✓）。
+
+**语法复验**：把 `index.html` 内联脚本抽出来跑 `node --check` —— **经典脚本 & ESM 都过** ✓（219,079 字符，退出码 0）；
+`sim/server.mjs` 同样 ✓（退出码 0）。
+
+### ❗报告（**app 侧问题 / sim 侧没动** ✗，等拍板 ✓）
+- **`/shorts/newest?page=N` 翻页无效** ✗ —— **破缓存重测**（page=1/2/3 + 随机参数）：45 条 **hash 完全相同** ✗。
+  → `xhamster.dart` 的 `_xhMoments(p>1)` 和 `ShortsFeedPage._loadMore` 拿到的**还是同一批 45 条** → 去重后 `fresh` 为空 → `_done=true`
+  → 用户要的「划到尾部自动续拉」**实际拿不到新内容** ✗（只能拿到同一批的洗牌）。
+  对照：`/api/v1/moments?page=N` 翻页**有效** ✓（5 条/页，sim 现在仍用它做列表）
+- `xhamster.dart` 的 `_xhShortsFrom` / `resetShortsRandom` 已**没人读** 🔍（`_xhMoments` 改走页面后不再用；`home_page.dart:164` 仍在调）
+- 非短片详情页也走「mp4 优先」🔍（同一条 `srcs = _mp4` 逻辑）→ 若某页 HLS 有 1080p 而 mp4 只到 720p，会**降档**（仅提示，未核实到实例）
+- `sim/tmp_xv1.html`（2026-10-01，**不是我建的** ✗）还留在 sim/ —— 要清我等指令 ✓
+
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）短片续拉换有效接口 + 预下载缓冲 5 条 + 撤诊断日志 ---
+**A · 短片「第 2 页起」改走 `/api/v1/moments?page=N`** ✓（用户拍板 ✓；站点逻辑全在 `lib/sites/xhamster.dart` ✓）
+- 依据（sim-dev 实测 ✅）：页面路径的 `?page=N` 是**假的** ✗ —— page=1/2/3（带随机参数也一样）返回的 **45 条 hash 完全相同** ✗ → 续拉永远同一批 → 去重为空 → 「划到尾没有新内容」✗；接口**是真翻页** ✓（5~6 条/页 ✓、无需 cookie ✓）
+- 改法：`_xhMoments(page)` 拆两路 —— **第 1 页**仍旧页面 JSON（45 条 ✓ 用户已验收 ✓）；**第 2 页起** `'/api/v1/moments?page=$page'` ✓；新增 `_xhMomentsFromJson()` ✓（`items[]` → `pageURL`/`title`/`posterUrl|thumbUrl|imageURL|thumbURL|cover` ✓）—— 解析写法从 **`9806df8~1` 的 `lib/api.dart` 旧实现**恢复 ✓（不猜字段 ✓），旧实现已从工作区删掉 ✗
+- **字段对齐（lead 点名要核 ✓）**：两条路产出的 6 项完全一样 → title / url（剥掉域名的站内路径）/ cover / `meta: ''` / `badge: ''` / `coverAspect: 3/4` ✓（`desc`/`tags` 都走默认 ✓）→ **同构 ✓**；⚠️ 历史实现里 `meta` 取 `landing.name`（作者名）✗ —— **故意不取** ✗：第 1 页那 45 条的 `meta` 就是空串 ✓，两批必须一致 ✓（以后要显示作者得两路一起改 ✓）
+- 请求头：恢复 `_xhApi`（UA + `Accept: application/json` + `X-Requested-With` + 同源 Referer ✓，同样来自旧实现 ✓）—— 旧注释推断过「只带 UA 会被挡」🔍 ✓
+- ❓ **风险（未证实）**：本机探测**不可用** —— 经代理连 `/shorts/newest` 都 **404** ✗（证明是我的出口/客户端被拒 ✗，不能说明接口死活 ✗）；sim 里那条是 **mock** ✗（`sim/index.html:2511`）→ **真机直连通不通只有装机才知道** ❓；不通就退回今天的行为（续拉空批次 → `_done=true` → 「划到尾」✗），不会坏成别的样子 ✓
+**B · 单实例 + 预下载缓冲 5 条** ✓（用户拍板方向 ✓；**不做多实例** ✗）
+- 新增 `lib/base/video_cache.dart`（**与站点无关** ✓ 所以进底座 ✓）：把窗口内**后面 5 条**的源**整份下到沙盒** ✓（先写 `.part`，整份下完才改名 `.mp4` ✓）→ 播放时把 `file://` 交给**同一个** mpv ✓（接线在 `shorts_feed_page.dart` 的 `_open` ✓）
+- 目录 `getTemporaryDirectory()/kpxx_video_cache` ✓（tmp：不进备份、系统可清 ✓）· **单文件上限 32MB**（超了跳过 ✗）· **总量 320MB / 最多 24 个**（LRU，按 mtime ✓）· **过期 `.part` 1 小时**清 ✓ · **并发 2** ✓（留带宽给当前条 ✗）
+- 行为：划 1 条 → `_primeWindow(5)` 重设窗口 → 补一条 ✓、划走那条**中止** ✓；**只有整份下完才用本地文件** ✓ → **不用**探 moov 位置 ✓（半截文件若 `moov` 在尾部会播断 ✗，直接回落在线 ✓ 并后台继续下 ✓）
+- **只做直链 mp4** ✓（去掉 query 看 `.mp4` ✓）；**m3u8 跳过** ✗（HLS 要逐段下再合并 ✗，仍走在线播放 ✓ = 与今天一致 ✓）
+- 全静默 ✓（失败/超限不抛错、不打扰界面 ✓）；代价 ❓：**没有任何诊断输出** —— 真机上「预缓冲有没有生效」只能看观感/流量 ✓
+**C · 撤掉短片全量诊断日志** ✓（用户要求 ✓）
+- `shorts_feed_page.dart`：删 5 处 `SiteErrorLog.log('短片', …)` ✓ + 只服务日志的局部变量 `_t0` ✓ + 只服务日志的内层 try/catch ✓ + 随之不用的 `import 'site_error_log.dart'` ✓
+- `api.dart`：撤 `Api.category` 的 `[列表]` 诊断与 `isShortsCall` ✓，**恢复成直接 `return _ui!.category(...)`** ✓（为记日志加的 try/catch 一并撤 ✗）+ 去掉不再用的 import ✓
+- **保留** ✓：`SiteErrorLog` 本类 ✓ · **`lib/base/fetch.dart` 3 个 catch 的公共错误日志** ✓ · 短片取源的 **20 秒 `timeout`** ✓（那是真修复 ✗ 不是日志 ✓）
+- 核对：全 `lib/` 里 `SiteErrorLog.log(` **只剩 `lib/base/fetch.dart` 3 处**（77/103/152 ✓）；`error_log_page.dart` 的 `read/clear/path`（设置→诊断→错误日志入口 ✓）与类本身原样 ✓
+**本轮 numstat**（`git diff --numstat`）：`lib/api.dart 8/24` · `lib/shorts_feed_page.dart 49/36` · `lib/sites/xhamster.dart 1421/1364` · `lib/base/video_cache.dart` 新文件 203 行（未跟踪 ✓）
+**括号核对（Node + utf8 计数 ✓）**：`shorts_feed_page() 230/230 {} 60/60` ✓ · `api() 64/64 {} 34/34` ✓ · `video_cache() 121/121 {} 58/58` ✓ · `xhamster` 相对 HEAD 的**增量** `() +30/+30`、`{} +5/+5`、`[] +9/+9` **全对称** ✓（HEAD 自身 `(` 1090 vs `)` 1086 那 4 个差是**改前就有** ✓，不是本次引入 ✓）
+⚠️ **本轮新踩的坑（写死 ✓）**：**`lib/sites/xhamster.dart` 的行尾是 `\r\r\n`（CRCRLF）** ✗ —— ① `edit` 工具**多行锚点会匹配不上** ✓（单行锚点可以 ✓）；② PowerShell 数这个文件的行数/括号**不可信** ✗（同一文件 PS 报 2621 行、Node 报 1421 行；PS 还把它读成乱码 ✗）→ **正解 = 用 Node 脚本改 + utf8 计数核对** ✓（本次 A 就是这么改的 ✓，脚本与临时文件已删 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 2 轮 —— 用户拍板后**，工作区改动，**未提交未构建**）短片列表改「两段式」---
+**用户拍板 ✓**：模拟器也改 ✓ —— 形态 = **第 1 页 = 页面 JSON（45 条）+ 第 2 页起 = `/api/v1/moments?page=N`（5~6 条 ✓）**
+（依据 = 上一轮实测：`/shorts/newest?page=N` 翻页无效 ✗、moments 接口翻页有效 ✓）。
+
+**`sim/index.html` 改动**
+1. `xhMoments` 重写成两段式（`:2488`）：`p === 1` → 新增的 `xhShortsFirst()`（`:2544`，抓 `/shorts/newest`，
+   解 `<script id='initials-script'>window.initials={…}` → `layoutPage.videoListProps.videoThumbProps`，
+   **解不开就抛错** ✗ 不给假数据 ✓）；`p ≥ 2` → moments 接口（沿用原有映射 `parse` ✓）。
+   → 列表页（`fetchList` 的短片分支 `:2272`）与瀑布流续拉（`feedLoadMore` `:4325`）共用它 ✓
+2. **删掉为"moments-only"服务的整套机制** ✗（现在没必要 ✗）：随机起始页 1~48 · 并发抓 4 页 · 批次缓冲
+   `xhMomentsBuf`/`xhMomentsBatchFrom`/`xhMomentsPending`（`viewList` 里那两行清理也跟着删 ✓）。
+   「每次进来不一样」现在靠：**每批打乱** ✓ + 翻页换内容 ✓（第 1 页那 45 条本身是站点固定的一份，与 App 一致 ✓）
+3. 页码改成**显式计数**：新增 `xhShortsPage`（`:2477`）—— 续拉从它的下一页接 ✓、成功才推进 ✓，
+   列表里翻过页也不会重复拉同一页 ✓（旧代码给 `feedLoadMore` 传的是死值 `99` ✗）
+4. `window.__shortsItems` 由"每批覆盖"改成「**第 1 页清空 + 之后累加**」✓ ——
+   否则列表翻过页再点卡片进流，流里只剩最后一页那 5 条 ✗（旧注释里就写着这个坑 ✗）
+5. ⚠️ **顺手修的一个真挂死**（本轮实测撞到 ✓）：`getHtml()`（`:817`）原来**没有超时** ✗ ——
+   浏览器 `fetch` 本身不超时 ✗，中转一卡住 Promise 永不 settle → `__feedLoading` 一直 true →
+   **本次会话再也续拉不了** ✗（实测撞到一次：续拉 40 秒不回来、日志也无报错行 ✓）。
+   现加 **20 秒** AbortController 兜底 ✓（与 App 短片取源的 20 秒超时对齐 ✓）
+6. `tmp_xv1.html`（2026-10-01，**不是我建的** ✗）**没动** ✗ —— 用户单独说删才删 ✓
+
+**实测（8788，Edge headless + CDP；用户 8787 全程没碰 ✓）**
+- 短片首屏 = **45 卡** ✓（`cards portrait shorts` ✓、`xhShortsPage=1`、缓存 45 ✓）
+- 列表翻页（滚到底）：卡片 45 → **51** ✓、页码 → **2** ✓、日志 `短片 第 2 页：6 篇` ✓
+- 瀑布流续拉（跳到最后一条触发）：**45 → 51 → 57**（每轮 +6 ✓）、页码 1 → 2 → 3 ✓
+- 起播 ✓（`readyState=4`，源 = 详情页的**直链 mp4** `720p.h264.mp4` ✓；取源日志 #1~#4 全是"详情页 3 条" ✓）
+- 暂停覆盖层：播放中 `fpause=0 fmeta=0` ✓ ／ 暂停 `1/1` ✓
+- **多站回归**（`getHtml` 是全站共用的，必须回归 ✓）：首页 **14 站** ✓ · 51吃瓜 25 卡 ✓ · Pornhub 58 卡 ✓ ·
+  XVideos 27 卡 ✓ · xHamster 影片 54 卡 ✓；**无未捕获异常** ✓ · 超时行 0 ✓
+- 数据核对（CLI ✓）：moments 各页**互不重叠**（p1~p7 共 41 条全不同 ✓）、与首屏 45 条**零重叠** ✓
+  → 续拉每页能真加 6 条 ✓（不会被去重吃掉 ✓）
+
+**语法复验**：内联脚本抽出来 `node --check` → **退出码 0** ✓（经典脚本；`sim/server.mjs` 同样 0 ✓）
+**净变化**：`sim/index.html` 本轮 **`+103 / −90`** ✓（第 1 轮 `+111 / −11` → 累计 `+214 / −101` ✓，`git diff --numstat` ✓）
+
+
+--- 追加（2026-10-03 本次构建 1.0.12 —— 短片：翻页 + 预下载 + 清日志 + 模拟器）---
+**A 短片翻页**（app-dev）：`xhamster.dart` 第 1 页仍走页面 JSON（45 条），第 2 页起走 `/api/v1/moments?page=N`；解析从旧版实现恢复；两批 Article 字段核对同构（meta 故意留空）。
+**B 单实例预下载 5 条**（app-dev）：新增底座 `lib/base/video_cache.dart`（与站点无关）；播放仍是同一个 mpv，地址换 file://；划 1 补 1、滑走即中止；32MB/文件、320MB/24 个 LRU、并发 2；只做直链 mp4；**整份下完才改名 .mp4、只播完整文件**（因此无需探测 moov）。
+**C 撤诊断日志**（app-dev）：短片 [短片] 与 api 的 [列表] 全撤；SiteErrorLog 公共函数与设置入口保留；全 lib 只剩 fetch.dart 3 处站点错误日志；短片 20 秒 timeout 保留。
+**D 模拟器两段式**（sim-dev）：首屏 45 条（页面 JSON）+ 翻页 moments；删旧 moments-only 机制；顺手修 getHtml 无超时的真挂死（加 20 秒）。
+
+**新坑（写死）**：`lib/sites/xhamster.dart` 行尾是 **CRCRLF** —— 多行锚点匹配不上、PowerShell 行数/括号不可信 → 改它**只能用 Node + utf8 计数**。
+**待验证**：`/api/v1/moments` 在真机直连下是否可用（本机探测被出口拒绝，无法证实）。
+
 ## 八、当前待办
 - [ ] **详情页播放器置顶**：代码已改好 ✓（固定顶部 + 下方单独滚动，括号校验通过）**未提交/未推** ✗
 - [ ] **桌面 ipa 落后**：桌面是 **1.0.1** ✓；**1.0.2**（含"加载失败提示不消失"修复）**已发 Releases 但未下到桌面** ✗
 - [ ] （可选）Actions artifact 名是否带版本 —— 现仍 `kpxx-ipa`，用户未表态
+- [x] ~~**（sim 报）短片翻页拿不到新内容**~~ → **已定方案 ✓**：`/shorts/newest?page=N` 实测返回**同一批 45 条** ✗ →
+  改「第 1 页 = 页面 JSON（45 条）+ 第 2 页起 = `/api/v1/moments?page=N`（5~6 条 ✓）」；
+  **sim 侧已改完并实测 ✓**（45 → 51 → 57 ✓，见下方 sim 追加）；**App 侧待 app-dev 按同一形态改** ✓
 - [ ] （清理）analyze 的 warning/info：`unused_import` ×13 · `unused_element` ×8 · `annotate_overrides` ×52（不拦构建 ✓）
 
 ## 九、最近成功构建

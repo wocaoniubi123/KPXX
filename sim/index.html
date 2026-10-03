@@ -206,10 +206,20 @@
   .feed .fhint { position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); color: #fff;
                  font-size: 20px; font-weight: 700; opacity: .92; background: rgba(0,0,0,.45);
                  padding: 8px 14px; border-radius: 10px; pointer-events: none; }
+  /* 标题/作者条：**只在暂停时露出**（App 1.0.11 同款 ✓：那边是 `if (!_playing)` 才画标题 ✓）。
+     用 opacity 门控（保留布局、也不参与点击 ✓）。 */
   .feed .fmeta { position: absolute; left: 14px; right: 14px; bottom: 42px; color: #fff; z-index: 2;
-                 text-shadow: 0 1px 6px rgba(0,0,0,.65); pointer-events: none; }
+                 text-shadow: 0 1px 6px rgba(0,0,0,.65); pointer-events: none;
+                 opacity: 0; transition: opacity .15s; }
+  .screen.feedpause .feed .fmeta { opacity: 1; }
   .feed .fmeta .ft { font-size: 15px; font-weight: 600; line-height: 1.35; }
   .feed .fmeta .fa { font-size: 13px; opacity: .85; margin-top: 4px; }
+  /* **暂停覆盖层**（App 1.0.11/1.0.12 同款 ✓）：暂停时正中显示播放标志（96px、白 70%），播放中不显示 ✓。
+     `padding-bottom` 把标志抬到中心**上方** —— 让开正中间的「加载中…」（`.pstate` 在 50%）✓。 */
+  .feed .fpause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                  padding-bottom: 120px; color: rgba(255,255,255,.7); font-size: 96px; line-height: 1;
+                  pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 1; }
+  .screen.feedpause .feed .fpause { opacity: 1; }
   .feed .pbar { position: absolute; left: 14px; right: 14px; bottom: 20px; z-index: 3; }
   /* 进度条**上方**显示 当前/总时长（用户 2026-10-02 要求）。
      ⚠️ 必须写 `left: auto` —— 基础规则 `.ptime` 是 `left: 10px`，只覆盖 right 的话
@@ -801,12 +811,25 @@ const px = (url) => '/proxy?url=' + encodeURIComponent(url);
 
 // 走 /site：服务端会依次试该站的所有域名（和 App 的 _fetchText 一样），
 // 跑通哪个记住哪个。要抓的是站点 HTML，不能直连（浏览器跨域会被拦）。
+// ⚠️ 2026-10-03 加**超时**：浏览器 `fetch` 自己**不会超时** ✗ —— 中转一卡住（上游发到一半停了），
+//    这个 Promise 就**永远不 settle** ✗（实测算到过：短片续拉卡在这种请求上 → `__feedLoading`
+//    一直 true → 本次会话再也续拉不了 ✗）。这里 20 秒兜底 ✓（与 App 短片取源的 20 秒超时对齐 ✓）。
 async function getHtml(site, path) {
-  const r = await fetch('/site?name=' + encodeURIComponent(site.name) +
-    '&path=' + encodeURIComponent(path));
-  const text = await r.text();
-  if (r.status !== 200) throw new Error(text.slice(0, 140));
-  return text;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch('/site?name=' + encodeURIComponent(site.name) +
+      '&path=' + encodeURIComponent(path), { signal: ctl.signal });
+    const text = await r.text();
+    if (r.status !== 200) throw new Error(text.slice(0, 140));
+    return text;
+  } catch (e) {
+    // 超时/中断要看得懂（`AbortError` 这个名字对用户没意义 ✗）
+    if (e && e.name === 'AbortError') throw new Error('请求超时（20 秒）：' + path);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 卡片信息行只取时间（与 api.dart 的 _metaDate 对应） */
@@ -2244,10 +2267,9 @@ async function fetchList(site, cat, subKey, page) {
     return phFetchList(site, subKey || cat.key, page);
   }
   if (tpl === 'xhamster') {
-    // 「短片」tab **走 JSON 接口**（不是 HTML），且翻页是 `?page=N` 不是路径式 → 单独处理
+    // 「短片」tab：**两段式**取数（第 1 页 = `/shorts/newest` 的页面 JSON（45 条 ✓）、
+    // 第 2 页起 = `/api/v1/moments?page=N`（5~6 条 ✓））—— 详见 xhMoments 上方说明 ✓
     if (cat.name === '短片') {
-      // 新开列表（第 1 次拉）→ 清掉上一轮遗留的预取缓冲 + 批次号归零，保证从第 1 页开始
-      if (page <= 1) { xhMomentsBuf = []; xhMomentsBatchFrom = 0; } // 0 = 让下一批重新随机选起始页
       return xhMoments(site, page);
     }
     // xHamster 两个 tab 各有自己的"选择器覆盖"，**只在该 tab 自己列表里生效**：
@@ -2441,19 +2463,18 @@ function xhStars(html) {
   return out;
 }
 
-/** xHamster「短片」：**走 JSON 接口** `/api/v1/moments`（`/shorts` 页本身是纯客户端渲染，
- *  静态 HTML 里 0 卡片、0 JSON ✗，所以只能打接口）。
- *  实测（2026-10-02）：**无需 cookie**、每页 5~6 条、**翻页是查询参数 `?page=N`**
- *  （`?offset=`/`?from=` 会被忽略 ✗；也**不是**路径式，别套 xhListAt 的路径拼接 ✗）。
- *  每条带：title / pageURL（`/shorts/<slug>`）/ posterUrl·thumbUrl·cover（封面）/
- *  views / landing.name（作者）/ **sources**（H.264，列表接口就给了源）。
- *  ⚠️ 点卡片进的是**短片自己的页**（`/shorts/<slug>`），那条路照常走详情解析（实测有 m3u8 ✓）。 */
-// 短路缓存：批次后面几页塞这儿，下次 loadMore 直接吐（0 延迟）。
-let xhMomentsBuf = [];
-// 批次起始页。**0 = 还没定** → 每次都会随机重新选（用户 2026-10-02：
-// "短片的卡片列表每次进去也要随机。不然你老是显示第一批短片意义在哪里？？？"）
-let xhMomentsBatchFrom = 0;
-let xhMomentsPending = null; // 后台那 3 页的 promise（还没回来时别重复开新批次）
+/** xHamster「短片」列表 —— **两段式**（2026-10-03 用户拍板 ✓，与 App 对齐 ✓）：
+ *
+ *  · **第 1 页 = 页面 JSON**：抓 `/shorts/newest`，解 `<script id='initials-script'>window.initials={…}`
+ *    里的 `layoutPage.videoListProps.videoThumbProps` —— **实测 45 条** ✓（= App 的真实首屏 ✓）。
+ *    ⚠️ 这些条目**不含 sources** ✗（实测键：id/title/thumbId/thumbInRotation/trailerURL/landing/
+ *       thumbURL/imageURL/pageURL/views/icon ✓）→ 片源由瀑布流**逐条抓详情页**（见 feedSources ✓）。
+ *  · **第 2 页起 = `/api/v1/moments?page=N`**（5~6 条/页 ✓）——
+ *    ⚠️ `/shorts/newest?page=N` **翻页无效** ✗（实测 2026-10-03：page=1/2/3 破缓存重测 → 返回
+ *    **同一批 45 条** ✓），所以 App 侧翻页改走这个接口 ✓（它翻页有效 ✓）；sim 照做 ✓。
+ *
+ *  ⚠️ 值可能是 **JSON 转义**的（`https:\/\/…`、中文 `\uXXXX`）→ 一律 `JSON.parse` 解，别硬拼 ✓ */
+let xhShortsPage = 0; // 已经拉到的页码（瀑布流续拉从它往后接 ✓，见 feedLoadMore）
 
 /** 洗牌（Fisher–Yates，原地） */
 function shuffleArr(a) {
@@ -2465,40 +2486,8 @@ function shuffleArr(a) {
 }
 
 async function xhMoments(site, page) {
-  // ⚠️ **渐进式并发预取**（2026-10-02 两轮用户反馈："一页一页请求显示太慢了…" → 改并发后
-  // "第一屏还是先显示五篇，然后才显示其他的"）：这个接口每页只有 5~6 条
-  // （itemsOnPage/limit/perPage/size/count/pageSize 全试过无效 ✗），单次 2~5s。
-  // 所以：**并发抓 4 页，第 1 页回来就返回**，其余 3 页进 `xhMomentsBuf`；
-  // 调用方第二次拉时会**等上一批落齐**再吐缓冲（不会重复开批次）→ 配合"第一屏一次画好"，
-  // 用户侧就是：转圈 ~4-5s → 一屏内容一次性出现 ✓。
-  if (xhMomentsBuf.length) {
-    const out = xhMomentsBuf;
-    xhMomentsBuf = [];
-    return out;
-  }
-  if (xhMomentsPending) {
-    await xhMomentsPending.catch(() => {});
-    xhMomentsPending = null;
-    if (xhMomentsBuf.length) {
-      const out = xhMomentsBuf;
-      xhMomentsBuf = [];
-      return out;
-    }
-  }
-  const BATCH = 4;
-  // **每次从随机页开始**：站点接口有固定分页顺序，只打乱顺序的话池子还是那几条 ✗
-  // （用户："不然你老是显示第一批短片意义在哪里？？？"）→ 起始页随机，往后顺延。
-  if (!xhMomentsBatchFrom || xhMomentsBatchFrom < 1) {
-    xhMomentsBatchFrom = 1 + Math.floor(Math.random() * 48); // 站点片子多，1~48 页都试过有内容 🔍
-  }
-  const from = xhMomentsBatchFrom;
-  xhMomentsBatchFrom += BATCH;
-  // 调用方传的 page 只是"第几次拉"，真正拉哪几页由批次号决定（避免和缓冲配合时页码错位）
-  const urls = [];
-  for (let i = 0; i < BATCH; i++) {
-    const p = from + i;
-    urls.push('/api/v1/moments' + (p > 1 ? '?page=' + p : ''));
-  }
+  const p = Math.max(1, Math.floor(Number(page) || 1));
+  // 接口条目 → sim 的 item（moments 用；首屏页面 JSON 用下面的 xhShortsFirst ✓）
   const parse = (html) => {
     const out = [];
     if (!html) return out;
@@ -2508,8 +2497,9 @@ async function xhMoments(site, page) {
       const url = String(it.pageURL || '').replace(/^https?:\/\/[^/]+/, '');
       const title = String(it.title || '').replace(/\s+/g, ' ').trim();
       if (!url || !title) continue;
-      // 片源：接口里就带着（`sources.standard.h264`）—— 瀑布流要用它**直接开播**，
-      // 省掉"每条再抓一次详情页"（站点自己的流就是这么干的）。
+      // 片源：接口里就带着（`sources.standard.h264`）—— ⚠️ 2026-10-03 起**只当兜底** ✓：
+      // App 的短片列表（`/shorts/newest` 的 initials JSON）里**不含 sources** ✗ → 片源一律
+      // 逐条抓详情页（见 feedSources）；这里是详情页取不到时的兜底。
       // 取 `quality === 'auto'` 那条 = **站点默认档**（用户 2026-10-02："短片的话你就使用
       // 网站默认给的分辨率就行"）；再留一个直链 mp4 当兜底（hls.js 起不来时用）。
       const h264 = ((it.sources || {}).standard || {}).h264 || [];
@@ -2528,30 +2518,58 @@ async function xhMoments(site, page) {
     }
     return out;
   };
-  // ⚠️ **前 2 页并发、拿到就返回**（用户 2026-10-02："你可以一次请求10个啊"）：
-  // 2 页 ≈ 10 条，配上短片改成 2 列（一屏 ~6 张）就够铺满第一屏 → 首屏更快。
-  // 剩下 2 页挂后台进缓冲，后续滚动瞬间接上。
-  const [p1, p2] = await Promise.all(
-    [urls[0], urls[1]].map((u) => getHtml(site, u).catch(() => '')));
-  const rest = urls.slice(2).map((u) => getHtml(site, u).catch(() => ''));
-  xhMomentsPending = Promise.all(rest).then((bodies) => {
-    for (const b of bodies) {
-      const items = parse(b);
-      if (items.length) xhMomentsBuf.push(...items);
-    }
-  });
-  // 缓存给瀑布流用：点卡片时要拿到**整份带片源的列表**才能上下翻条（不必再逐条抓详情）。
-  // ⚠️ 每次拉取都**覆盖**成最新批次（缓冲里那几页下一批才进来，够翻就行）。
-  // 顺序**打乱**（用户 2026-10-02："短片的卡片列表每次进去也要随机"）→ 每次进 tab 都是新局面。
-  const out = shuffleArr(parse(p1).concat(parse(p2)));
-  // ⚠️ **空批次兜底**（用户 2026-10-03 实机报"短片没数据" ✗）：随机起始页可能整个是空的
-  //（当初"1~48 页都有内容"只是🔍推断、**没实测** ✗）→ 退回第 1 页重来，别让列表整个空掉 ✗。
-  // 与 App 端 `_xhMoments` 的兜底同一套语义 ✓（铁律：两端一起改）。
-  if (!out.length && from !== 1) {
-    xhMomentsBatchFrom = 1;
-    return xhMoments(site, page);
+  // **两段式取数**（见函数上方的说明 ✓）：第 1 页走页面 JSON，第 2 页起走 moments 接口
+  const out = (p === 1)
+    ? await xhShortsFirst(site)
+    : parse(await getHtml(site, '/api/v1/moments?page=' + p));
+  if (!out.length) {
+    // 空页要出声（不然用户只看到"划不动了" ✗）：第 1 页空 = 页面结构变了；后面页空 = 到底了 ✓
+    log(`短片第 ${p} 页：0 篇（${p === 1 ? '页面 JSON' : 'moments 接口'}）—— ${p === 1 ? '站点结构可能变了' : '到底了'}`, 'err');
   }
-  if (out.length) window.__shortsItems = out;
+  // **整份列表缓存**（给瀑布流用：点卡片时要拿整份才能上下翻条 ✓）：
+  // 第 1 页 = 新一轮 → 清空重来；第 2 页起 = **累加**。
+  // ⚠️ 不能"每次覆盖成最新批次" ✗ —— 那样列表翻过页之后再点卡片进瀑布流，流里只剩最后一页那 5 条 ✗。
+  if (p === 1) window.__shortsItems = [];
+  const all = window.__shortsItems || [];
+  const have = new Set(all.map((x) => x.url));
+  for (const it of out) if (!have.has(it.url)) { have.add(it.url); all.push(it); }
+  window.__shortsItems = all;
+  xhShortsPage = p; // 瀑布流续拉从这页往后接（见 feedLoadMore ✓），不会重复拉同一页 ✓
+  // 每批**打乱**再返回（用户 2026-10-02："短片的卡片列表每次进去也要随机" ✓；App 端也是每批 shuffle ✓）
+  return shuffleArr(out);
+}
+
+/** 短片**第 1 页**：`/shorts/newest` 页面里的 initials JSON（**45 条** ✓，照 App 的 `_xhMomentsFromHtml` ✓）。
+ *  ⚠️ 只认页面里那一段，抠不出来**就抛错**（宁可报错也不给假数据 ✗ —— 页面结构一变就要立刻看见 ✓）。 */
+async function xhShortsFirst(site) {
+  const doc = parseHtml(await getHtml(site, '/shorts/newest'));
+  // ⚠️ 站点写的是**单引号** `<script id='initials-script'>`（实测 ✓）——querySelector 不受引号影响 ✓
+  const raw = (doc.querySelector('script#initials-script')?.textContent || '').trim();
+  const at = raw.indexOf('{');
+  if (!raw || at < 0) throw new Error('短片首屏：页面里没有 script#initials-script（站点结构可能变了）');
+  let j = null;
+  try {
+    j = JSON.parse(raw.slice(at).replace(/;\s*$/, ''));
+  } catch (e) {
+    throw new Error('短片首屏：initials JSON 解不开（' + (e && e.message) + '）');
+  }
+  const arr = (((j || {}).layoutPage || {}).videoListProps || {}).videoThumbProps;
+  if (!Array.isArray(arr)) throw new Error('短片首屏：videoListProps.videoThumbProps 不是数组（站点结构可能变了）');
+  const out = [];
+  const seen = new Set();
+  for (const it of arr) {
+    const url = String(it.pageURL || '').replace(/^https?:\/\/[^/]+/, ''); // 站内路径（sim 的导航要路径 ✓）
+    const title = String(it.title || '').replace(/\s+/g, ' ').trim();
+    if (!url || !title || seen.has(url)) continue;
+    seen.add(url);
+    out.push({
+      title,
+      url,
+      cover: it.imageURL || it.thumbURL || '', // imageURL = 405×720 **竖版**（与 App 的取法一致 ✓）
+      meta: '',                                 // App 这条也写死空串（xhamster.dart 的 `_xhMomentsFromHtml` ✓）
+      badge: '',
+    });
+  }
   return out;
 }
 
@@ -2705,13 +2723,35 @@ async function xhDetail(html, url) {
     if (tags.some((t) => t.name === name)) continue;
     tags.push({ slug, name });
   }
-  // 源：静态 HTML 里唯一的一条 .m3u8（<link rel="preload" as="fetch">）
-  const videos = [];
+  // 源：**两种形态都要认** ✓（对齐 App 1.0.10 的 `_xhDetail` —— App 侧用户实机报"短片点进去
+  //   一直转圈 videos=0 srcs=0"，根因就是**只认 m3u8** ✗）：
+  //   ① 页面 JSON `sources.standard.h264` 里的**直链 mp4**，斜杠是**转义**的：
+  //      `"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"`
+  //      （实测 2026-10-03 /shorts/<slug>：480p + 720p 两条；`hls.h264` 那条是形态②，
+  //        它的 `"quality":"auto"` **不会**被这条正则误抓 ✓ —— 正则要求 quality 是 3~4 位数字+p）
+  //   ② 静态 HTML 里那条**未转义**的 `.m3u8`（`<link rel="preload" as="fetch">`）——
+  //      短片的文件名就是站点自己的模板名 `_TPL_.h264.mp4.m3u8` ✓（实测确认，不是占位符 ✗）
+  // 顺序照 App：**直链 mp4（画质高→低）在前，m3u8 垫底** ✓。
+  // ⚠️ 差别（有意保留）：App 有 mp4 时会把 m3u8 丢掉 ✗；sim 这里**两种都留着** ——
+  //    详情页的「清晰度」行要能同时看见两种形态、方便对着真机比对 ✓；默认播的仍是第一条
+  //    （= App 的 `srcs.first` ✓），所以行为一致 ✓。
+  const mp4ByQ = new Map(); // 画质数字 → 直链 mp4（页面里同一段 JSON 会出现两次 → 去重）
+  for (const mm of html.matchAll(/"url":"(https?:\\?\/\\?\/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"/g)) {
+    const q = Number(mm[2]);
+    if (!mp4ByQ.has(q)) mp4ByQ.set(q, mm[1].replaceAll('\\/', '/'));
+  }
+  const srcs = [...mp4ByQ.keys()].sort((a, b) => b - a).map((q) => mp4ByQ.get(q));
   const m = html.match(/https:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/);
   if (m) {
-    const variants = await xvHlsVariants(m[0]);
-    videos.push({ ordinal: 1, label: '视频', sources: variants.length ? variants : [m[0]] });
+    if (url.startsWith('/shorts/')) {
+      // 短片：**不展开档位**，站点默认那条交给播放器自己选 ✓（App 同款；用户 2026-10-02 定）
+      srcs.push(m[0]);
+    } else {
+      const variants = await xvHlsVariants(m[0]);
+      srcs.push(...(variants.length ? variants : [m[0]]));
+    }
   }
+  const videos = srcs.length ? [{ ordinal: 1, label: '视频', sources: srcs }] : [];
   // 相关推荐：移动版页面里**没有 DOM 卡片**（`div.m-related-container` 是"正在載入..."空壳），
   // 但**静态 HTML 里有一整段 JSON**（Vue 的 props），每条带 pageURL / title / thumbURL /
   // duration / views —— 直接解析它。（用户指出"详情页的推荐视频你没加上"，这里补上。）
@@ -3956,9 +3996,10 @@ function viewList(site, idx, scrollTop) {
   //   再切到短片，数据就要重新随机取一份"。默认是按 key **缓存**列表状态的 → 切回去还是那批 ✗，
   //   而短片本来就是"随机批次"，缓存等于把这个特性废掉 ✗ → 进这个 tab 先把状态丢掉重拉。
   if (site.template === 'xhamster' && cat.name === '短片') {
-    listState.delete(key);
-    xhMomentsBuf = [];
-    xhMomentsBatchFrom = 0; // 0 = 下一批重新随机起始页
+    listState.delete(key); // 丢掉列表状态 → 回到第 1 页重拉（2026-10-03 起第 1 页 = 页面 JSON ✓）
+    // ⚠️ 以前这里还要清 `xhMomentsBuf`/批次号（旧的"随机起始页"机制 ✗）—— 那套已删 ✓。
+    //   现在"每次进来不一样"靠两件事：每批**打乱**（xhMoments 里 ✓）+ 翻页走 moments 接口（内容不同 ✓）。
+    //   第 1 页那 45 条本身是站点固定的一份（与 App 一致 ✓），顺序才是随机的 ✓。
   }
   const st = listState.get(key) || { items: [], page: 1, done: false };
   listState.set(key, st);
@@ -4176,7 +4217,9 @@ function renderCards(cat, st) {
         return;
       }
       // xHamster 短片卡：进**竖屏瀑布流**（用户 2026-10-02 要求），不是详情页。
-      // 列表已在 xhMoments 里缓存到 window.__shortsItems（带片源，能直接开播）。
+      // 列表已在 xhMoments 里缓存到 window.__shortsItems。
+      // ⚠️ 2026-10-03：片源**不从这里给** —— 瀑布流逐条抓详情页取源（与 App 一致 ✓，见 feedSources）；
+      // 列表接口带的那份源只当兜底 ✓。
       if (siteNow && siteNow.template === 'xhamster' && a.url && a.url.startsWith('/shorts/')) {
         const all = window.__shortsItems || [];
         if (all.length) {
@@ -4276,21 +4319,24 @@ function feedExit() {
 }
 
 /** 续拉下一批（用户 2026-10-02 报"五条播完就划不动了"）：
- *  缓存给流的列表只有**第一批**（`xhMoments` 每次返回一批），滑到尾部就没有了 ✗。
- *  `xhMoments` 内部用批次计数器 `xhMomentsBatchFrom` 自动往后走，所以直接再调一次就是下一批。 */
+ *  缓存给流的列表只有**第一批**，滑到尾部就没有了 ✗。
+ *  ⚠️ 2026-10-03 起页码**自己数**：首屏那批（= 第 1 页）已经在 `feedItems` 里了 ✓ →
+ *  续拉从 `xhShortsPage` 的下一页开始接（列表里翻过页的话不会重复拉同一页 ✓）。 */
 async function feedLoadMore() {
   if (!feedSite || window.__feedLoading) return;
   window.__feedLoading = true;
+  const p = xhShortsPage + 1;
   try {
     // 续拉的这批也**打乱**再追加 → 保持整条流的随机性（用户 2026-10-02："瀑布流随机"）
-    const more = shuffleArr(await xhMoments(feedSite, 99));
+    const more = shuffleArr(await xhMoments(feedSite, p));
+    xhShortsPage = p; // 成功才推进 ✓（抛错不跳页）
     const seen = new Set(feedItems.map((x) => x.url));
     for (const it of more) {
       if (!it || !it.url || seen.has(it.url)) continue;
       seen.add(it.url);
       feedItems.push(it);
     }
-    window.__shortsItems = feedItems;
+    window.__shortsItems = feedItems.slice(); // 也更新整份缓存（页面里别的地方会读它 ✓）
     // 用户 2026-10-02："打日志就没必要了吧。只要修改好就可以了" → 成功路径不打日志（失败仍打 ✓）
   } catch (e) {
     log('瀑布流续拉失败：' + e.message, 'err');
@@ -4319,6 +4365,13 @@ async function feedPreload(from) {
   if (!feedPreCache) feedPreCache = new Set();
   const COUNT = 5; // 永远保持"前面 5 条已缓存"
   const added = [];
+  // 真去预取（去重 + 记账 ✓）；源还没到手时由下面的 then 补上 ✓
+  const warm = (url, k) => {
+    if (!url || feedPreCache.has(url)) return; // 已在缓存里的跳过（这就是"只补差额"）
+    feedPreCache.add(url);
+    added.push(k);
+    feedPrecacheOne(url, k);
+  };
   for (let k = 0; k < COUNT; k++) {
     const j = from + k;
     const it = feedItems[j];
@@ -4326,11 +4379,10 @@ async function feedPreload(from) {
       if (j >= feedItems.length) feedLoadMore();
       continue;
     }
-    const url = it.play || it.mp4 || '';
-    if (!url || feedPreCache.has(url)) continue; // 已在缓存里的跳过（这就是"只补差额"）
-    feedPreCache.add(url);
-    added.push(k);
-    feedPrecacheOne(url, k);
+    // ⚠️ 预取的是**详情页解析出的第一条**（= feedPlay 真正会播的那条 ✓），不是列表里带的源 ✗
+    const cached = feedSrcCache.get(it.url);
+    if (cached) { warm(cached[0] || '', k); continue; }
+    feedSources(j).then((u) => warm((u && u[0]) || '', k)); // 源到手再补预取（不挡起播 ✓）
   }
   // 用户 2026-10-02："打日志就没必要了吧。只要修改好就可以了" → 不再打补货日志（行为见上方注释）
 }
@@ -4357,6 +4409,60 @@ async function feedPrecacheOne(url, idx) {
   } catch (_) {}
 }
 
+/** **短片取源**：逐条抓详情页 → `sources`（与 App 的 `ShortsFeedPage._sourcesOf` **同一套语义** ✓）。
+ *
+ *  ⚠️ 2026-10-03 对齐（App 1.0.10/1.0.11）：App 的短片列表来自页面 JSON，**列表里没有 sources** ✗
+ *  → 片源必须**点哪条抓哪条的详情页**（`/shorts/<slug>`），源有**两种形态**（直链 mp4 / m3u8，
+ *  见 `xhDetail` 的注释 ✓）。sim 原来直接用列表接口带的源开播 → 走不到详情页这条主路径 ✗。
+ *  列表里那份源（`play`=HLS 默认档 / `mp4`=直链）**只当兜底**（App 没有这层；只在详情页取不到时用，
+ *  日志会写明用了哪条 ✓ 免得把"兜底"误当成"正常路径"）。
+ *  带缓存（同一条 URL 只抓一次）✓。 */
+const feedSrcCache = new Map();
+const feedSrcFetching = new Map(); // url → 正在取的 promise（同一时间只抓一次 ✓ 照 App 的 `_fetching`）
+let feedSeq = 0; // 抢答保护：等源期间用户又划走了 → 旧结果作废，别覆盖新条 ✗
+
+function feedSources(i) {
+  const it = feedItems[i];
+  if (!it) return Promise.resolve([]);
+  const hit = feedSrcCache.get(it.url);
+  if (hit) return Promise.resolve(hit);
+  const flying = feedSrcFetching.get(it.url);
+  if (flying) return flying;
+  const listSrc = [it.play, it.mp4].filter(Boolean);
+  const tail = (u) => String(u).split('?')[0].slice(-26);
+  const p = getHtml(feedSite, it.url)
+    .then((html) => parseDetail(html, feedSite, it.url))
+    .then((d) => (d && d.videos && d.videos[0] && d.videos[0].sources) || [])
+    .then((srcs) => {
+      const use = srcs.length ? srcs : listSrc;
+      feedSrcCache.set(it.url, use);
+      feedSrcFetching.delete(it.url);
+      // ⚠️ 这里**不做**字节预取 —— 字节预取只针对"前面几条"（`feedPreload` ✓）；
+      //    当前这条由播放器自己拉，再 fetch 一份 = 白耗流量、且和起播抢带宽 ✗
+      log(`短片取源 #${i + 1}：` + (srcs.length
+        ? `详情页 ${srcs.length} 条（首条 …${tail(srcs[0])}）`
+        : '详情页 0 条 → 退回列表源' + (listSrc.length ? `（…${tail(listSrc[0])}）` : '（列表也没有）')), 'dim');
+      return use;
+    })
+    .catch((e) => {
+      feedSrcFetching.delete(it.url);
+      log(`短片取源失败 #${i + 1}：${(e && e.message) || e}` + (listSrc.length ? ' → 退回列表源' : ''), 'err');
+      return listSrc;
+    });
+  feedSrcFetching.set(it.url, p);
+  return p;
+}
+
+/** 预取"接下来 N 条的**片源地址**"（与 App 的 `_precache` 一致：滑动窗口 5 条 ✓）。
+ *  byte 级预取归 `feedPreload`（只预热前面几条 ✓，不碰当前这条 ✗），这里只负责把源问到手。 */
+function feedPrecacheSources(from, count) {
+  for (let k = 0; k < count; k++) {
+    const it = feedItems[from + k];
+    if (!it) { if (from + k >= feedItems.length) feedLoadMore(); continue; }
+    feedSources(from + k);
+  }
+}
+
 async function feedPlay(i) {
   if (i < 0 || i >= feedItems.length) return;
   feedIdx = i;
@@ -4371,8 +4477,12 @@ async function feedPlay(i) {
   // ⚠️ `$` 在本文件里是 getElementById 的别名 → **不能带 `#`**（带了拿回 null，一取 .textContent 就抛）
   $('ftitle').textContent = it.title || '';
   $('fauthor').textContent = it.meta || '';
-  // 站点默认档优先（用户要求），直链 mp4 兜底
-  const url = it.play || it.mp4 || '';
+  // 片源：**走 App 那条路** —— 逐条抓详情页（见 feedSources ✓）；列表里带的源只当兜底。
+  // ⚠️ 抢答保护：等源这几秒里用户可能已经划到别的条了 → 旧结果作废（否则会把新条覆盖掉 ✗）。
+  const my = ++feedSeq;
+  const srcs = await feedSources(i);
+  if (my !== feedSeq) return;
+  const url = srcs[0] || '';
   if (!url) { st.textContent = '这条没有片源'; return; }
   const okHls = await ensureHls();
   const isM3u8 = /\.m3u8/i.test(url);
@@ -4427,6 +4537,8 @@ async function feedPlay(i) {
   v.onended = () => { feedPlay(feedIdx + 1); };
   // 滑到尾部附近就**预先续拉下一批**（不然播完/划到第 N 条就"划不动了" ✗）
   if (feedIdx >= feedItems.length - 2) feedLoadMore();
+  // **预取接下来 5 条的片源地址**（与 App 的 `_precache` 5 条一致 ✓）—— 换条不用现等详情页
+  feedPrecacheSources(feedIdx + 1, 5);
   // **预缓冲下一条**（当前这条开播之后再去做，别抢它的带宽 ✓）
   feedPreload(feedIdx + 1);
   upd();
@@ -4457,6 +4569,7 @@ function viewShortsFeed(site, items, start) {
       el.innerHTML = `
         <video id="v" playsinline></video>
         <video id="pre" playsinline muted style="display:none"></video>
+        <div class="fpause" id="fpause">▶</div>
         <div class="pstate" id="pstate">加载中…</div>
         <div class="fhint" id="fhint" style="display:none"></div>
         <div class="fclose" id="fclose">✕</div>
