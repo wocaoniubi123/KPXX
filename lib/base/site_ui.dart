@@ -75,6 +75,14 @@ abstract class SiteUi {
 
   /// 文章详情
   Future<ArticleDetail> detail(String url) => throw UnimplementedError();
+
+  /// 本站的标签清单（只有 Hanime1 有 ✓；默认空 ✓）
+  /// ⚠️ 原先 `Api` 里为它留了一个转发 ✗（公共类塞单站入口），现收进接口 ✓。
+  Future<List<String>> hanimeTags() async => const [];
+
+  /// 让下一次短片取数**重新随机**（只有 xHamster 需要 ✓；默认什么都不做 ✓）
+  /// ⚠️ 同上：原先是 `Api.resetShortsRandom()` 转发 ✗，现收进接口 ✓。
+  void resetShortsRandom() {}
   /// 「色情明星」tab 挂**哪种**专用筛选行：`ph` = Pornhub 那套 ✓；`xh` = xHamster 那套 ✓。
   /// ⚠️ 两家是**两个不同的 widget** ✗ → 不能用同一个布尔 ✓，所以这里给"是哪家" ✓。
   String? get starRowKind => null;

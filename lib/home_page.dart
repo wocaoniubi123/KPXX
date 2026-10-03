@@ -160,7 +160,7 @@ class _HomePageState extends State<HomePage>
         if (i >= 0 && i < _cats.length) {
           final c = _cats[i];
           if (_api.ui?.isShortsPath(c.key) ?? false) {
-            _api.resetShortsRandom();
+            _api.ui?.resetShortsRandom();
             _feeds.removeWhere((k, _) => k.startsWith('${c.key}|'));
           }
         }

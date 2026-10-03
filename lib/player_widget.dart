@@ -854,7 +854,9 @@ class PlayerWidgetState extends State<PlayerWidget>
       // 拿源自身域名会被伪装成 404（2026-10-02 实测；sim/server.mjs 里同一套判断）。
       // 其余站照旧走下面的「源自身域名」（Pektino→video.twimg.com 拿站点域名会被拒，别改成通用）。
       if (u.host == 'phncdn.com' || u.host.endsWith('.phncdn.com')) {
-        return 'https://cn.pornhub.com/';
+        // ⚠️ Pornhub 的 CDN 分片要**站点域名**当 Referer ✓（拿源自带域名会被伪装成 404 ✓）。
+        // 不写死域名 ✗ —— 用传进来的 referer（detail_page 传的是 _api.base = 当前站域名 ✓）。
+        if (widget.referer.isNotEmpty) return '${widget.referer}/';
       }
       return '${u.scheme}://${u.host}/';
     }

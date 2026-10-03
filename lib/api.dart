@@ -121,7 +121,6 @@ class Api {
   late final HanimeSite _hnSite = HanimeSite(_f);
 
   /// 「內容標籤」（原公开方法随段搬去 HanimeSite ✓，这里转发给 home_page 用 ✓）
-  Future<List<String>> hanimeTags() => _hnSite.hanimeTags();
 
   /// Pektino 本站专属实现（2026-10-03 站点独立改造）✓
   late final PektinoSite _pkSite = PektinoSite(_f);
@@ -133,7 +132,6 @@ class Api {
   late final XhSite _xhSite = XhSite(_f);
 
   /// 切回「短片」tab 时让下一次取数重新随机（`home_page` 会调 ✓；原方法随段搬去了 XhSite ✗）
-  void resetShortsRandom() => _xhSite.resetShortsRandom();
 
   /// 顺序尝试域名取文本 —— **实现搬到了 `lib/base/fetch.dart` 的 `SiteFetcher.text`** ✓
   /// （底座公用 ✓；这里只是委托，调用点不用改 ✓）

@@ -1850,6 +1850,30 @@ Error (Xcode): lib/sites/hanime1.dart:351:52: Error: The getter '_hnSorts' isn't
 第 10 次 site_ui 缺 import → 第 11 次 Element/Text 跨库歧义 → 第 12 次 kTxt/kChipBorder 缺 import →
 第 13 次 顶层函数被塞进类里（跨类裸调 9 处）→ 第 14 次 home_page 私有 const 跨库不可见 → 第 15 次 缺 dart:convert
 ✅ 每次都是 build-watch 扫出"这一类还剩 N 处"后**一次修完** ✓（这套流程很有效 ✓）
+
+--- 第 89 条：全量盘点 + 新一轮拆解（用户选 A：全做完再构建一次）---
+
+## 全量只读扫描结果（31 个 .dart 文件逐个过）
+- **干净（15）**：main · config · models · app_bg · app_background · fetched_image · play_record_tile · play_history_page · settings_page · bg_album_page · web_page · shorts_feed_page · base/site_ui · base/fmt · base/fetch
+- **只走接口/数据（2）**：detail_page（仅 site.hosts/portraitCovers/categories + ui?.masonry）· base/fetch（site.hosts）
+- **新查出的漏网（我上次漏了 ✗）**：① `player_widget.dart` 有 pornhub 域名硬编码 ② `sites.dart` 里除 SiteEntry 外还有 **15 个站点专属清单** ③ `settings.dart` 的「麻豆社」
+  ✅ 其中 ③ **是误报** —— 那是 `mk()` 造假播放记录做 UI 预览的演示数据（`title: 标题 $u`、`cover: https://x/c.jpg`）✓ 不是站点逻辑 ✓
+
+## 已完成的改动（本轮批 1）
+1. **CI**（`.github/workflows/ios.yml`，+19 行）：
+   - 加 `permissions: contents: write` ✓
+   - **打包前插 `flutter analyze`**（`--no-fatal-infos --no-fatal-warnings` ✓）→ 一次列全 Dart 错误 ✓（此前每轮只报一条 ✗）
+   - **打包后发 Releases**（`gh release create v$(date -u +%Y.%m.%d-%H%M)` ✓）→ ipa 直下 ✓；**Actions 产物仍保留** ✓
+   - 用户决定：两边都出包 ✓；桌面 ipa 仍要下载 ✓
+   - 仓库是 **PUBLIC** ✓（已告知用户：Releases 即公网可下 ✓，用户确认接受 ✓）
+2. **`Api` 的 2 个站点转发收进接口** ✓：`SiteUi` 加默认 `hanimeTags()`/`resetShortsRandom()`；
+   调用点改走 `_api.ui?.resetShortsRandom()`（home_page）/ `api.ui!.hanimeTags()`（hanime1 的弹窗）✓
+3. **`player_widget.dart` 去硬编码** ✓：pornhub CDN 那段特判不再写死 `https://cn.pornhub.com/` ✗，
+   改用传进来的 `widget.referer`（`detail_page` 传的是 `_api.base` = 当前站域名 ✓，行为等价 ✓）
+
+## 待做（批 2/3）
+- 批 2：`home_page` 三站状态机（xHamster 明星筛选最大 / Hanime1 / Pornhub）搬进各自站点文件
+- 批 3：`sites.dart` 的 13 份站点档案 + 15 个站点专属清单 → 各站点文件（风险最高 ✓ 用户已同意一起做 ✓）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

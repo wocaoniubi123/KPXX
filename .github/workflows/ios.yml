@@ -13,6 +13,9 @@ env:
 jobs:
   build:
     runs-on: macos-14
+    # 发 Releases 需要写权限 ✓
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -144,6 +147,12 @@ jobs:
           EOF
           cat ExportOptions.plist
 
+      # ⚠️ 一次列出全部 Dart 错误 ✓（CFE 每轮只抛第一条 ✗，会拖成十几轮）
+      # 只对 error 生效：infos/warnings 不算失败 ✓（仓库无 analysis_options.yaml，噪音低 ✓）
+      - name: 代码检查 (flutter analyze)
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Flutter build IPA
         run: |
           flutter pub get
@@ -155,5 +164,15 @@ jobs:
           name: kpxx-ipa
           path: build/ios/ipa/*.ipa
 
+      # ✅ 另发一份到 Releases（ipa 直下 ✓）；Actions 产物仍保留 ✓（用户 2026-10-03 决定：两边都出 ✓）
+      - name: 发布到 Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(date -u +%Y.%m.%d-%H%M)"
+          gh release create "$TAG" build/ios/ipa/*.ipa \
+            --title "$TAG" \
+            --notes "自动构建 ${{ github.sha }}（$(date -u +%Y-%m-%dT%H:%MZ)）"
+          echo "已发布 Release: $TAG"
       - name: 列出产物
         run: ls -la build/ios/ipa/ && shasum -a 256 build/ios/ipa/*.ipa

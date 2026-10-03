@@ -392,7 +392,7 @@ class HnTagDialogState extends State<HnTagDialog> {
 
   Future<void> _load() async {
     try {
-      final t = await widget.api.hanimeTags();
+      final t = await widget.api.ui!.hanimeTags();
       if (mounted) setState(() => _all = t);
     } catch (_) {
       if (mounted) setState(() => _error = true);
