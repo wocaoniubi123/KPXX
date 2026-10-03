@@ -10,7 +10,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'package:html/dom.dart';
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as hp;
 
 import '../api.dart';
@@ -104,7 +104,7 @@ class HanimeSite extends SiteUi {
   }
 
   /// 网格卡（`div.video-card-inner`）：裏番 / 泡麵番 / 新番預告 这几个分类页用这套模板
-  static List<Article> _hnGridCards(Document doc) {
+  static List<Article> _hnGridCards(dom.Document doc) {
     final out = <Article>[];
     for (final a in doc.querySelectorAll('a[href*="/watch?v="]')) {
       final inner = a.querySelector('div.video-card-inner');
@@ -130,7 +130,7 @@ class HanimeSite extends SiteUi {
   /// ⚠️ `meta` **一律留空**（用户 2026-10-01 拍板）：站点的 `div.subtitle` 是
   /// 「上传者 • 上传时间」，而卡片那行只该放单一信息（§8.2.1-2）—— 用户决定**两个都不显示**，
   /// **分类页和搜索页都取消**。时长角标（`div.duration`）照 §8-4 保留。
-  static List<Article> _hnRowCards(Document doc) {
+  static List<Article> _hnRowCards(dom.Document doc) {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('div.video-item-container')) {
       final a = el.querySelector('a.video-link');

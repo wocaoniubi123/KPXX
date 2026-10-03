@@ -13,7 +13,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'package:html/dom.dart';
+import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as hp;
 
 import '../api.dart';
@@ -195,7 +195,7 @@ class PhSite extends SiteUi {
   /// 但演员页的视频卡不是 li（实测 `li[data-video` 在演员页 0 条）。
   /// 标题取 `img[alt]` —— 卡片里第一个 <a> 是"已观看"角标，取它会拿到"已观看"三个字。
   /// [scope] 传了就在该子树里找（详情页的「相关推荐」= `#relatedVideos`）。
-  List<Article> _phCards(Document doc, [Element? scope]) {
+  List<Article> _phCards(dom.Document doc, [dom.Element? scope]) {
     final out = <Article>[];
     for (final el in (scope ?? doc).querySelectorAll('[data-video-vkey]')) {
       final a = el.querySelector('a[href*="view_video.php?viewkey="]');
@@ -223,7 +223,7 @@ class PhSite extends SiteUi {
   }
 
   /// 演员卡（`/pornstars`）：`.performerCard` → 名字、头像、排名角标（`.rank_number`）。
-  List<Article> _phStarCards(Document doc) {
+  List<Article> _phStarCards(dom.Document doc) {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('.performerCard')) {
       final href = el.querySelector('a[href]')?.attributes['href'] ?? '';

@@ -1764,6 +1764,22 @@ Error (Xcode): lib/base/site_ui.dart:53: Error: Type 'Article' not found.
 
 ✅ **一次性修完 14 处**：① site_ui 补 import ② 6 个类加 `extends SiteUi` + `import ../base/site_ui.dart` ③ 7 处 home 补 `String first = ''` ✓
 复核：10 个站 **extends:Y / import:Y / home带first:Y** ✓
+
+--- 第 88 条续（第 11 次构建【失败】→ 修 19 处歧义）---
+❌ **CI run 37092606995 失败**（commit 500686f）。**错误原文**：
+```
+Error (Xcode): lib/sites/pornhub.dart:16: Error: 'Element' is imported from both 'package:flutter/src/widgets/framework.dart' and 'package:html/dom.dart'.
+```
+**根因**：这两个文件同时**无前缀** import `material` 和 `html/dom` ✗ —— 两库都导出 `Element` 和 **`Text`** ✓
+（html/dom 里也有 `Text`（文本节点）✓），于是裸用即歧义 ✓。
+⚠️ build-watch 建议的 `hide Element` **只解决一半** ✗ —— `Text` 仍歧义 ✓（我核对后否掉了这个方案 ✓）。
+
+✅ **正解（已做）**：把 html 的 import **加前缀** `as dom` ✓ —— html/dom 不再贡献裸名 ✓ →
+`Text` 归 Flutter ✓、html 类型全部写成 `dom.Document`/`dom.Element` ✓（只改类型名，不用动 9 处 `Text` ✓）。
+- pornhub.dart：限定 Document×2 · Element×1 ✓
+- hanime1.dart：限定 Document×2 ✓
+- 全 lib 复查：**同时无前缀 import 两库的文件 = 0** ✓
+（build-watch 扫出这一类共 19 处引用 / 2 个文件 ✓，一次修完 ✓）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
