@@ -111,6 +111,10 @@ class PlayRecord {
   final bool finished;
   final int updatedAt; // 毫秒时间戳，列表按它倒序
 
+  /// 这条视频**上次选过的清晰度档**（如 '720'）✓；null = 跟随**站点默认** ✓
+  /// （用户 2026-10-03 定的 A 方案：**跟着这条视频记** ✓，不串味到别的视频 ✓）
+  final String? quality;
+
   const PlayRecord({
     required this.site,
     required this.url,
@@ -121,6 +125,7 @@ class PlayRecord {
     required this.duration,
     required this.finished,
     required this.updatedAt,
+    this.quality, // 可空 ✓ —— 老记录没有这个字段 → null → 行为与以前完全一样 ✓
   });
 
   /// 唯一键：同一站点同一篇 = 同一条
@@ -144,6 +149,7 @@ class PlayRecord {
         'd': duration.inSeconds,
         'f': finished,
         'ts': updatedAt,
+        if (quality != null) 'q': quality, // 没选过就不写 ✓（JSON 更小 ✓ 老版本也能读 ✓）
       };
 
   /// 解析容错：字段缺失/类型不对就退化（宁可丢一条，不能让整页崩）
@@ -163,6 +169,9 @@ class PlayRecord {
       duration: Duration(seconds: sec(j['d'])),
       finished: j['f'] == true,
       updatedAt: sec(j['ts']),
+      quality: (j['q'] is String && (j['q'] as String).isNotEmpty)
+          ? j['q'] as String
+          : null,
     );
   }
 }

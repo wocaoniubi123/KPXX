@@ -220,12 +220,12 @@ class PhSite extends SiteUi {
         pairs.add(MapEntry(int.parse(m.group(1)!), u));
       }
     }
-    pairs.sort((a, b) => b.key.compareTo(a.key)); // 高 → 低
-    final all = pairs.map((p) => p.value).toList();
-    final srcs = <String>[
-      ...all.where((u) => u.contains('720P_')), // 默认档放最前
-      ...all.where((u) => !u.contains('720P_')),
-    ];
+    // ⚠️ 2026-10-03 用户要求：**站点默认给哪个就播哪个** ✓ ——
+    // 原来这里把源**重排**了 ✗（① 按 height 高→低 ✗ ② 再把 720P 挪到最前 ✗），
+    // 等于"我们替站点决定默认档" ✗。现在**保持站点给的原始顺序** ✓：
+    //   Pornhub 页面上 `"height":N` 的排列顺序 = 站点自己的默认 ✓，直接照用 ✓。
+    //   分辨率只当**可选项**（详情页的选择器 ✓），用户显式选了才调整顺序 ✓（见 _orderByQuality ✓）。
+    final srcs = pairs.map((p) => p.value).toList();
     // 标签：播放器下方那排 `a.isTag`（实测一页约 25 个），href 是
     // /video/search?search=<编码词>，显示名在 <span>（站点已翻译成中文）
     final tags = <MapEntry<String, String>>[];

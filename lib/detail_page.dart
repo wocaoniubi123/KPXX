@@ -67,9 +67,17 @@ class DetailPageState extends State<DetailPage> {
   /// 结果 5 档被全部认成 144P（实测：1080p/720p/480p/240p/144p → 全报 144P）。
   /// 只看文件名对其它站也更稳（XV 的 `hls-720p.m3u8`、PH 的 `1080P_4000K_…` 照样命中）。
   static String _qualityOf(String u) {
-    final path = u.split('?').first;
-    final name = path.substring(path.lastIndexOf('/') + 1);
-    return RegExp(r'(\d{3,4})[pP](?![0-9])').firstMatch(name)?.group(1) ?? '';
+    final path = u.split('?').first; // 去掉查询参数 ✓
+    // ⚠️ 2026-10-03 修（用户报「Pornhub 的分辨率选择丢失」✗）：
+    // 原来只拿**最后一段路径**去匹配 ✗ —— 而 Pornhub 的源是
+    //   `.../720P_4000K_63006305.mp4/master.m3u8`  ✗
+    // 最后一段是 `master.m3u8` ✗ → 匹配不到档位 → `_qualitiesOf` 为空 → **选择器整块不显示** ✗。
+    // 现在改成在**整个路径**（已去 query ✓）里找档位 ✓：
+    //   · Pornhub 的 `720P_4000K_…` ✓ 命中 720
+    //   · xHamster 的 `hls-720p.m3u8` ✓、XVideos 同理 ✓
+    //   · query 里的 `multi=…:144p,…` 仍被排除 ✓（那是 2026-10-02 修过的坑 ✓）
+    final m = RegExp(r'(\d{3,4})[pP](?![0-9])').firstMatch(path);
+    return m?.group(1) ?? '';
   }
 
   /// 这一集**实际有的**档位（去重、数字从大到小）。多数站没有多档 → 返回空
@@ -175,6 +183,7 @@ class DetailPageState extends State<DetailPage> {
         title: d.title,
         cover: _coverOf(d),
         videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
+        quality: _quality, // ⚠️ A 方案：记住这条视频选过的清晰度 ✓
         position: pos,
         duration: dur,
         finished: finished,
@@ -212,6 +221,9 @@ class DetailPageState extends State<DetailPage> {
       if (wantIdx > 0 && wantIdx < d.videos.length) {
         sw.index.value = wantIdx;
       }
+      // ⚠️ A 方案（用户 2026-10-03 定）：这条视频**上次选过的清晰度**优先 ✓；
+      // 没选过 → null → 跟随**站点默认** ✓（用户要求：站点给哪个就播哪个 ✓）
+      _quality = PlayHistory.i.find(widget.site.name, widget.baseUrl)?.quality;
       _switcher = sw;
       setState(() => _detail = d);
       // 系列聚合：异步填充，失败静默（无选集不影响主内容）
@@ -311,6 +323,7 @@ class DetailPageState extends State<DetailPage> {
         ? null
         : (kp.lastKnownPosition > Duration.zero ? kp.lastKnownPosition : kp.position);
     setState(() => _quality = q);
+    _flushProgress(); // ⚠️ 选完清晰度**立刻落盘** ✓（把 quality 一起写进记录 ✓，下次这条视频就按它播 ✓）
     st?.switchSources(_orderByQuality(srcs, q), resumeTo: pos);
   }
 
