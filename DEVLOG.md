@@ -1555,6 +1555,28 @@ Error (Xcode): lib/sites/kmsvip.dart:65:***: Error: The getter 'hosts' isn't def
 ✅ 它**还主动纠正了上一轮的误报** ✓（`_secClock`/`_token`/… 只在注释里 ✓，并说明"公开名那一层没能给出可信结果" ✓ 诚实 ✓）。
 ⚠️ 我自己扫的那 20 处里，19 处是 `base/fetch.dart` 里的**声明本身** ✓（合法 ✓），只有 kmsvip 那条是真的 ✓。
 
+
+--- 第 87 条续（Round 32 · 第 7 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37089874404` 失败**（commit 27dcb3c ✓，编译阶段 ✓ —— ✅ 说明 kmsvip 那 3 处已修好、编译推进到了新文件 ✓）
+
+**错误原文（1 条，行号列号都完整 ✓）**：
+```
+Error (Xcode): lib/sites/wordpress.dart:287:22: Error: The getter 'site' isn't defined for the class 'WpSite'.
+```
+**根因** ✓：`L287` 的 `site.showRelated` ✗ —— `site` 是**原 `Api` 的字段** ✓（没跟着改 ✓）；
+`WpSite` 只有 `final SiteFetcher _f;` ✓。
+✅ **链路已核** ✓：`SiteFetcher.site` 是**公开字段** ✓（fetch.dart:27 ✓）、`SiteEntry.showRelated` 存在 ✓（sites.dart:127 ✓）
+→ ✅ **修法**：`site.showRelated` → **`_f.site.showRelated`** ✓。
+
+✅ **这一类（裸用旧宿主 `site`）build-watch 全 lib 列过** ✓：`lib/sites/*` 里**只有这 1 处** ✓，
+`api.dart` 里的裸 `site` 都合法（`Api` 自己声明了 ✓）→ ✅ **修掉即清空** ✓✓。
+✅ 我随后又用同样口径**自己复核了一遍**（`site`/`hosts`/`_host`/`_client`/`_fetchText`/`_fetchAbs` 六个名字 × 全部站点文件 ✓）→ **无残留 ✓** ✓。
+
+⚠️ **build-watch 另有两种"扫了但主动放弃、不给结论"的（如实记 ✓）**：
+① "缺 required 命名参数"报 6 处，但**全在早已能编译的私有小部件方法上** ✓ → 判为它的解析误报 ✓；
+② "裸用旧宿主其它成员"泛扫 126 条 → 绝大多数是**同名参数/局部变量** ✓ → 噪音太大，不成立结论 ✓。
+✅ **这种"信噪比不够就不给结论"的态度是对的** ✓（比硬给一堆误报强 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

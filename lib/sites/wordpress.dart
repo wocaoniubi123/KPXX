@@ -284,7 +284,7 @@ class WpSite {
     // .hot-news 元素，原来的 .hot-news 选择器一条都匹配不到（区块不显示）。
     // 每条 = 一句话标题（p）+「相关文章」链接（无封面图）。
     final related = <Article>[];
-    for (final el in site.showRelated
+    for (final el in _f.site.showRelated
         ? doc.querySelectorAll('.hot-news-content')
         : const <Element>[]) {
       final a = el.querySelector('a[href*="/archives/"]');
@@ -315,5 +315,5 @@ class WpSite {
       related: related,
       seriesPrefix: seriesPrefix(title),
     );
-  }
+  }
 }
