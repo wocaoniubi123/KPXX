@@ -37,7 +37,7 @@ class XhSite extends SiteUi {
   Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
 
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) => list('/', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) => list('/', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// key / theme 都是**站内路径** ✓（「色情明星」tab 自己的选择器也走 theme ✓）：

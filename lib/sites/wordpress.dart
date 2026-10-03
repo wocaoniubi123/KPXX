@@ -6,13 +6,14 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/fmt.dart';
 import '../models.dart';
 
 /// wordpress 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class WpSite {
+class WpSite extends SiteUi {
   WpSite(this._f);
 
   final SiteFetcher _f;
@@ -72,7 +73,7 @@ class WpSite {
   }
 
   /// 首页最新列表（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) async {
+  Future<List<Article>> home({required int page, String first = ''}) async {
     final path = page <= 1 ? '/' : '/page/$page/';
     return parseArticles(await _f.text(path));
   }

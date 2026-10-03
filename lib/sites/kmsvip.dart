@@ -6,6 +6,7 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'dart:convert';
+import '../base/site_ui.dart';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
@@ -14,7 +15,7 @@ import '../config.dart';
 import '../models.dart';
 
 /// kmsvip 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class KmSite {
+class KmSite extends SiteUi {
   KmSite(this._f);
 
   final SiteFetcher _f;
@@ -28,7 +29,7 @@ class KmSite {
   Future<List<Article>> tag(String slug, {required int page}) async => const [];
 
   /// 首页 = listHot（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) =>
+  Future<List<Article>> home({required int page, String first = ''}) =>
       list('/api/videos/listHot', page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）

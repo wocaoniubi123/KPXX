@@ -8,6 +8,7 @@
 //   （"站点逻辑散在公共函数里"的典型 ✓），本次改成调本类公开方法 ✓；彻底下放列为**待办** ✓。
 
 import 'dart:convert';
+import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
@@ -17,7 +18,7 @@ import '../base/fmt.dart';
 import '../models.dart';
 
 /// 黄果短剧本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class HuangguoSite {
+class HuangguoSite extends SiteUi {
   HuangguoSite(this._f);
 
   final SiteFetcher _f;

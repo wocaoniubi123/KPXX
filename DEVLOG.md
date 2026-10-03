@@ -1747,6 +1747,23 @@ search(String keyword, {int page = 1, List<MapEntry<String,String>>? extra})   d
 ⏭️ **`(2)` ArticleCard 下放：经实测决定不做** ✓ —— 逐行看过，那 225 行**已无任何站点逻辑** ✗
 （只有 `site.portraitCovers` 数据 + `ui?.specialTap` 站点事实 ✓）；下放 = **复制 10 份 +2250 行** ✗，
 独立性**一点不涨** ✓，以后改一处要改 10 处 ✓ —— 符合"删除优于新增"，故不做（用户若坚持可随时补 ✓）。
+
+--- 第 88 条续（第 10 次构建【失败】→ 一次性修 14 处）---
+❌ **CI run 37092361374 失败**（commit fd37af8）。**错误原文**：
+```
+Error (Xcode): lib/base/site_ui.dart:53: Error: Type 'Article' not found.
+```
+**根因**：`site_ui.dart` **一个 import 都没有** ✗，新并集签名用到 `Article`/`ArticleDetail` ✓ → 补 `import ../models.dart;` ✓
+
+✅ build-watch 还一次扫出**两类更前面的坑**（价值很高 ✓）：
+- **A（6 处）**：`Api.ui` 的 10 个 case 里有 6 个返回的类**根本没 `extends SiteUi`** ✗
+  （WpSite/HuangguoSite/PornaSite/XvSite/KmSite/MadouSite；只有 Hanime/Pektino/Ph/Xh 四个是 ✓）
+- **B（7 处）**：`home` 少了具名参数 `first` ✗（覆写不能比父类少具名参数 ✓）——
+  petkino/pornhub/xhamster 现在就中招，另 4 个补了 extends 后同样中招 ✓
+- **C：其余干净** ✓（category 7 个具名参数 / tag / search / detail 在 10 站逐字一致 ✓）
+
+✅ **一次性修完 14 处**：① site_ui 补 import ② 6 个类加 `extends SiteUi` + `import ../base/site_ui.dart` ③ 7 处 home 补 `String first = ''` ✓
+复核：10 个站 **extends:Y / import:Y / home带first:Y** ✓
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

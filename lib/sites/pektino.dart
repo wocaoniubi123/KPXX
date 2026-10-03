@@ -28,7 +28,7 @@ class PektinoSite extends SiteUi {
   Future<List<Article>> tag(String slug, {required int page}) => list('all', slug, page: page);
 
   /// 首页 = 每日榜（和站点首页一致 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) => list('timely', '', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) => list('timely', '', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range ✓；

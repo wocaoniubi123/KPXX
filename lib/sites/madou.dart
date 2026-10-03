@@ -6,12 +6,13 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../models.dart';
 
 /// madou 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class MadouSite {
+class MadouSite extends SiteUi {
   MadouSite(this._f);
 
   final SiteFetcher _f;
@@ -53,7 +54,7 @@ class MadouSite {
   }
 
   /// 首页第 N 页 = /page/N（没有 /page/1 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) async =>
+  Future<List<Article>> home({required int page, String first = ''}) async =>
       cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）

@@ -7,6 +7,7 @@
 // 所以是"两段拼接"搬来的 ✓（中间那段 kmsvip 代码留在 `api.dart` 未动 ✓）。
 
 import 'dart:convert';
+import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
@@ -15,7 +16,7 @@ import '../base/fetch.dart';
 import '../models.dart';
 
 /// XVideos 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class XvSite {
+class XvSite extends SiteUi {
   XvSite(this._f);
 
   final SiteFetcher _f;
@@ -24,7 +25,7 @@ class XvSite {
   Future<List<Article>> tag(String slug, {required int page}) => list('/tags/$slug', page: page);
 
   /// 首页 = Newest 列表（原 `Api.home` 的 case body 原样搬来 ✓）
-  Future<List<Article>> home({required int page}) => list('/new', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) => list('/new', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；

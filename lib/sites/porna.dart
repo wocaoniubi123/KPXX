@@ -10,6 +10,7 @@
 // （`msCards` 只在本文件内用 → 保持私有 ✓）
 
 import 'dart:convert';
+import '../base/site_ui.dart';
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
@@ -19,7 +20,7 @@ import '../base/fmt.dart';
 import '../models.dart';
 
 /// 上述几站的专属实现（取数走公用底座 [SiteFetcher] ✓）
-class PornaSite {
+class PornaSite extends SiteUi {
   PornaSite(this._f);
 
   final SiteFetcher _f;
