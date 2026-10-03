@@ -9,7 +9,10 @@
 
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+// ⚠️ 本站只用 `Color`（SiteEntry.color ✓），**不要** import flutter/material ✗
+// —— material 会同时导出 `Element`/`Text`/`Key`，与 html/dom、encrypt 撞名 ✗（2026-10-03 analyze 报的 7 条错误就是这个 ✓）
+// `Color` 本来就定义在 dart:ui ✓ Flutter 只是转发 ✓
+import 'dart:ui' show Color;
 import '../sites.dart';
 import '../base/site_ui.dart';
 

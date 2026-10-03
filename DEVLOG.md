@@ -1923,6 +1923,26 @@ Error (Xcode): lib/sites/hanime1.dart:351:52: Error: The getter '_hnSorts' isn't
 
 ## ⏳ 用户新要求（下一轮做 ✓）
 **写一个公共错误日志**：每个站点出错时，把 **时间 + 站点名 + 错误信息** 打到日志（打印到 App 沙盒 ✓），方便快速定位 ✓
+
+--- 第 90 条续（analyze 87 → 7 → 修完）---
+✅ 第二轮：issue **202 → 120**、**error 87 → 7** ✓（我修的 86 条全部生效 ✓）
+
+**剩下 7 条全是"跨库同名"**（我先前的同类坑复现到另外 3 个文件 ✓）：
+- `huangguo.dart:232` `Element` · `:331` `Text` —— flutter vs html/dom
+- `wordpress.dart:26/291/343` `Element`（×3）
+- `kmsvip.dart:50` `Key` —— **encrypt** vs flutter（连带「Key isn't a function」✓）
+✅ 上一轮那条"名字被遮成空串、指向 3 个站点库"的 ambiguous_import **已自行消失** ✓（是上个 commit 的连带错误 ✓，不用追 ✓）
+
+✅ **修法**（build-watch 建议 ✓，我核实后采用 ✓）：这 7 个站点文件**只用到 `Color`**（没有 widget ✓）→
+把 `import package:flutter/material.dart` 换成 **`import dart:ui show Color`** ✓ ——
+`Color` 本来就定义在 dart:ui ✓（Flutter 只是转发 ✓），而 material 会同时导出 `Element`/`Text`/`Key` ✗ 造成撞名 ✓。
+**改完三类冲突一次消失** ✓：`Element`/`Text` 归 html/dom ✓、`Key` 归 encrypt ✓。
+（`hanime1`/`pornhub` **保留 material** ✓ —— 它们确实有 widget（HnFilterBar/PhStarBar 等）✓；它们早已把 html 改成 `as dom` ✓ 所以不冲突 ✓）
+
+✅ 附带：build-watch 核了 `home_page.dart` 的原始字节（CRLF=0 / LONE_LF=1474 / LONE_CR=0 ✓）→
+**我"孤立 CR 导致行号错位"的假设不成立** ✗（该文件是纯 LF ✓）—— 如实记录我的推断被否证 ✓。
+
+⏳ **用户待办（还没做）**：公共错误日志（时间+站点名+错误信息 → App 沙盒）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
