@@ -22,7 +22,7 @@ String metaDate(String raw) {
   final rel = RegExp(r'\d{1,2}\s*(?:分钟|小时|天)前').firstMatch(t);
   if (rel != null) return rel.group(0)!;
   return '';
-}
+}
 
 /// 标题中含"第 N 集"则提取系列前缀，否则空串。
 String seriesPrefix(String title) {
@@ -30,6 +30,7 @@ String seriesPrefix(String title) {
   if (m == null) return '';
   return title.substring(0, m.start).trim();
 
+}
 /// 清洗副标题（多站共用）✓ —— ⚠️ 2026-10-03 从 `api.dart` 上移：
 /// wordpress 系等站点用到 ✗，而它们已拆成独立文件 → 跨文件调不到 ✗，故上移并公开 ✓。
 /// 合集的"详情帖"链接文字 → 当选集标题：
@@ -61,5 +62,4 @@ int videoOrdinal(String s) {
         (parts.length > 1 ? (cn[parts[1]] ?? 0) : 0);
   }
   return cn[t] ?? 0;
-}
 }

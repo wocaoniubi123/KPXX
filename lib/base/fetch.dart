@@ -141,6 +141,7 @@ class SiteFetcher {
     }
   }
 
+}
 /// 秒数 → 时钟文本（`207` → `3:27`；`0`/非法 → 空串）✓
 /// ⚠️ 2026-10-03 从 `api.dart` 上移：**多个站点共用**（Pektino ×3 / 黄果 ×2 / 另有 1 处）✓，
 /// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
@@ -154,5 +155,4 @@ String secClock(String raw) {
   final mm = m.toString().padLeft(h > 0 ? 2 : 1, '0');
   final ss = s.toString().padLeft(2, '0');
   return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
-}
 }

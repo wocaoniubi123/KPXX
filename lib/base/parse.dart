@@ -28,6 +28,7 @@ List<String> dplayerSources(Element dp) {
   }
   return sources;
 
+}
 /// 站内相对路径（把 `https://host/xxx` 剥成 `/xxx`；本来就是相对路径的原样返回）✓
 /// ⚠️ 2026-10-03 从 `api.dart` 上移：**麻豆社与 wordpress 系都要用** ✗，
 /// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
@@ -44,5 +45,4 @@ String toRelPath(String href) {
     return u.query.isEmpty ? u.path : '${u.path}?${u.query}';
   }
   return href;
-}
 }
