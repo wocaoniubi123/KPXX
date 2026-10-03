@@ -14,7 +14,7 @@
 //
 // ⚠️ 只用**一个** `KpPlayer` 实例（用户明确否掉了双实例 ✗："双实例开销比预缓冲大多了"）。
 //   换条快靠这两件事，**都不需要第二个解码器** ✓：
-//   ① **预取片源地址**（`_srcCache` ✓ —— 省掉一次详情页请求 ✓）；
+//   ① **预取片源地址**（`SourceCache` ✓ —— 省掉一次详情页请求 ✓；入口"点卡片"还会**先**预热一次 ✓）；
 //   ② **预下载后面 5 条到本地文件**（`base/video_cache.dart` ✓）→ 划到它时把 `file://`
 //      交给**同一个** mpv ✓（mpv 只把**当前**这条缓进内存 ✗，且不读我们的 HTTP 缓存 ✗）。
 //
@@ -22,6 +22,7 @@
 //   '/shorts/…' 不展开档位）→ 这里直接用 `sources` 里的第一条 ✓。
 
 import 'dart:async';
+import 'base/source_cache.dart';
 import 'base/video_cache.dart';
 import 'fetched_image.dart';
 
@@ -62,9 +63,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   KpPlayer? _kp;
   bool _autoAdvanced = false; // completed 会连发，防重复翻页
 
-  /// 片源缓存（url → sources）。**预缓存 5 条**就是靠它：提前把详情页抓了、源存这儿。
-  final Map<String, List<String>> _srcCache = {};
-  final Map<String, Future<List<String>>> _fetching = {};
+  // ⚠️ 片源缓存**已挪进共享底座** ✓（`lib/base/source_cache.dart`）：入口（点卡片）在本页之前就会预热
+  //    第 0 条的源 ✓；当年那份**页内私有**缓存导致"网格抓的那次白费 ✗ → 进页面再抓一次 ✗"
+  //    （用户实测"点进来要好几秒才有画面"✗）→ 现在换成共享的 ✓（同一 url 只飞一次 ✓）。
 
   bool _playing = false; // 播放中（决定状态栏与 X 显示与否）
   bool _loadingMore = false;
@@ -146,25 +147,15 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     } catch (_) {}
   }
 
-  /// 拿片源：先看缓存（预取过的），没有就抓详情页
+  /// 拿片源：走**共享缓存** ✓（`lib/base/source_cache.dart`）—— 入口"点卡片"时已经发起过的那次，
+  /// 这里会直接命中**在途的 Future** ✓ → **同一 url 只飞一次** ✓
   Future<List<String>> _sourcesOf(int i) {
     if (i < 0 || i >= _items.length) return Future.value(const []);
     final url = _items[i].url;
-    final hit = _srcCache[url];
-    if (hit != null) return Future.value(hit);
-    final flying = _fetching[url];
-    if (flying != null) return flying;
-    final f = widget.api.detail(url).then((d) {
-      final srcs = (d.videos.isNotEmpty) ? d.videos.first.sources : const <String>[];
-      _srcCache[url] = srcs;
-      _fetching.remove(url);
-      return srcs;
-    }).catchError((_) {
-      _fetching.remove(url);
-      return const <String>[];
+    return SourceCache.i.get(url, () async {
+      final d = await widget.api.detail(url);
+      return SourceCache.sourcesOfDetail(d);
     });
-    _fetching[url] = f;
-    return f;
   }
 
   Future<void> _open(int i) async {
@@ -178,6 +169,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     var kp = _kp;
     if (kp == null) {
       final created = KpPlayer(bufferMb: 64); // 短片很短，64MB 足够（省内存）
+      _tuneMpvStartup(created); // ⚠️ 只调**这一个实例** ✓（绝不碰 player_widget.dart 的共用配置 ✗）
       _kp = created;
       created.addListener(_onTick);
       kp = created;
@@ -188,6 +180,23 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     //（用户 2026-10-03 定的方案 ✓）；没下完 / 不是直链 mp4（m3u8…）→ 回落在线直连 ✓
     final local = VideoCache.i.ready(srcs.first);
     await kp.open(local?.uri.toString() ?? srcs.first);
+  }
+
+  /// ⚠️ **只给短片这个实例**调 mpv 的"起播"参数 ✓（用户 2026-10-03 拍板 ③ ✓）
+  /// **绝不改 `player_widget.dart` 的共用配置** ✗（别处不调它就完全不受影响 ✓）。
+  ///
+  /// 设了什么、为什么（都只碰"**起播门槛**"，**没动**解码/硬解/网络层 ✗）：
+  /// - `demuxer-lavf-analyzeduration` = **2.0** ✓（ffmpeg 探测"这是什么流"的最长时间 ✓，默认 5 秒 ✗ → 少等）；
+  /// - `demuxer-lavf-probesize` = **1500000** ✓（探测用字节数 ✓，默认 5000000 ✗ → 少等）；
+  /// - `cache-pause-initial` = **no** ✓（别等缓存填满才开播 ✓；mpv 默认本就是 no ✓，这里显式钉住 ✓）。
+  /// ⚠️ 三个值都是**保守的中间值** ✗（短片也可能卡网 ✓ —— 不能为了快把探测量砍到极限 ✗）；
+  /// ⚠️ 逐条 try/catch ✓：某个属性名在这版 libmpv 上不认（版本差异 ✓）也**绝不影响播放** ✗（静默忽略 ✓）。
+  void _tuneMpvStartup(KpPlayer kp) {
+    try {
+      kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '2.0');
+      kp.setMpvOptionQuiet('demuxer-lavf-probesize', '1500000');
+      kp.setMpvOptionQuiet('cache-pause-initial', 'no');
+    } catch (_) {}
   }
 
   /// **预缓存 5 条**（滑动窗口）：从当前的下一条起，保证前面 5 条都已抓好源；
@@ -201,8 +210,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
         _loadMore(); // 窗口越过尾部 → 顺手把列表续上（不然"划不动了" ✗）
         continue;
       }
-      final url = _items[j].url;
-      if (_srcCache.containsKey(url) || _fetching.containsKey(url)) continue;
+      // 已缓存 / 在途 / 正在下的都交给共享缓存去判 ✓（同一 url 只飞一次 ✗ 不用在这里查表 ✓）
       _sourcesOf(j); // 并发跑，不 await（别挡当前这条起播）
     }
     _primeWindow(count); // 源解析完再交给预下载（同样不 await ✓）
@@ -216,7 +224,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     for (var k = 1; k <= count; k++) {
       final j = _cur + k;
       if (j >= _items.length) break;
-      final srcs = await _sourcesOf(j); // 命中 _srcCache 时立刻返回 ✓
+      final srcs = await _sourcesOf(j); // 命中共享缓存在途的 Future 时立即返回 ✓
       if (!mounted) return;
       if (srcs.isNotEmpty) urls.add(srcs.first);
     }
@@ -351,6 +359,42 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                       // → 上划下划换条失灵 ✓。这里关掉它，只留本页自己的 UI ✓。
                       controls: NoVideoControls,
                     ),
+                      ),
+                      // ⚠️ 2026-10-03 加（用户实测 1.0.13 ✓）**换源遮罩** ✓ —— 一次治两个体验问题：
+                      //   ① 「划到下一条，先看到上一条的帧约 1.2 秒」✗：`kp.open()` 换源用的是**同一个**
+                      //      `Video`/controller ✓（不能重建 ✗，历史坑 ✓）→ 纹理里**还是上一帧** ✗；
+                      //   ② 「点卡片进来要等几秒才有画面」✗：同一段等待期 ✓。
+                      // 判据用 `position` ✓：`KpPlayer.open()` 会先把 position 清 0（见 player_widget.dart:256-262 ✓），
+                      // 新源真的走起来才会 > 0 ✓ → 这段时间用**本条封面**（黑底 + 图 + 转圈）盖住 ✓。
+                      // ⚠️ **必须 `IgnorePointer`** ✓：否则会把点击/竖滑全吃掉 ✗（点按与左右划仍归下面的 `_GestureLayer` ✓）。
+                      // ⚠️ **黑底必需** ✓：封面图本身还要下载 ✓（一般刚在网格/上一条见过 → 命中图片缓存 ✓ 秒出 ✓）。
+                      ValueListenableBuilder<KpState>(
+                        valueListenable: _kp ?? _idle,
+                        builder: (c, s, _) {
+                          if (s.position > Duration.zero) {
+                            return const SizedBox.shrink(); // 新画面已经在走 → 撤遮罩 ✓
+                          }
+                          return Positioned.fill(
+                            child: IgnorePointer(
+                              child: Container(
+                                color: Colors.black,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    if ((art?.cover ?? '').isNotEmpty)
+                                      FetchedImage(url: art!.cover, fit: BoxFit.contain),
+                                    const Center(
+                                      child: SizedBox(
+                                        width: 22, height: 22,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       // ⚠️ 2026-10-03 修（用户实测 1.0.11「左上角两个 X 重叠」＋「暂停时两条标题」✗，lead 确认 ✓）：
                       //    这层原来是多画的 —— **一个无圆底的 X**（与外层暂停层的圆底 X 重复 ✗）+ **一份不加粗的标题**

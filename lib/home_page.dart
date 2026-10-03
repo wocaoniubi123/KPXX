@@ -4,6 +4,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'app_bg.dart';
 import 'api.dart';
 import 'app_background.dart';
+import 'base/source_cache.dart';
 import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
@@ -1152,6 +1153,14 @@ class ArticleCard extends StatelessWidget {
           // ⚠️ xHamster 短片卡 → 进**竖屏瀑布流**（用户 2026-10-02 要求），**不是**详情页 ✗。
           // 只把"点的那条"传进去打头，往后的由瀑布流自己续拉（短片列表本身是随机的 ✓）。
           if ((ui?.specialTap(article.url) ?? '') == 'shorts') {
+            // ⚠️ 2026-10-03 加（用户拍板 ② ✓）：**点卡片这一刻就开始抓片源** ✓ —— 与转场动画重叠 ✓，
+            //    进页面就不用再白等这一次详情页请求（用户实测"点进来要好几秒才有画面"✗）。
+            //    走**共享缓存** ✓：页面里的 `_sourcesOf` 会命中这个**在途 Future** ✓
+            //    → **同一个 url 只飞一次** ✗（不会变成两次请求 ✓）；失败也不影响导航 ✓（缓存里会清掉 ✓）。
+            SourceCache.i.get(article.url, () async {
+              final d = await Api(site: site).detail(article.url);
+              return SourceCache.sourcesOfDetail(d);
+            });
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => PageBg(

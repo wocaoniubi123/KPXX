@@ -404,7 +404,58 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 `shorts_feed_page.dart`：`_page = 0`（**首次续拉 = page 1，45 条打底**）+ **失败不再置 `_done`（只标 `_tailFailed`）** + 暂停层加 **↻ 重试** 按钮。
 **行尾更正**：`lib/sites/xhamster.dart` 经 git 往返后已恢复**普通 CRLF**（不再是 CRCRLF），写它的脚本要**自动探测行尾**。
 
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）短片体验两处：换源遮罩（已做 ✓）+ 入口预热（待拍板 ✗）---
+**用户实测 1.0.13 报的两条体验问题**（翻页/续拉他这次没抱怨 ✓ = 路径式那套修好了 ✓）：
+**① 已做 ✓：换源遮罩**（`shorts_feed_page.dart:355-390`）—— 一层遮罩同时治两个现象 ✓：
+- 「划到下一条，先看到**上一条的帧**约 1.2 秒」✗ 的根因：`kp.open()` 换源用的还是**同一个** `Video`/controller ✓
+  （**不能重建** ✗ —— 重建会让别处持有的旧实例失效，历史坑 ✓）→ 纹理里**仍是上一帧** ✗；
+  查证：`_open()`（`:170-186`）里 **没有任何清画面动作** ✓，`Video` 也是同一个 controller ✓。
+- 「点卡片进瀑布流要等几秒才有画面」✗：就是**同一段等待期**（抓详情页 + mpv 起播）✓。
+- 做法：当前页 Stack 里加一层遮罩 ✓ = **黑底 + 本条封面 `FetchedImage` + 转圈** ✓，判据 `position > Duration.zero` ✓
+  —— `KpPlayer.open()` 会先把 position 清 0（`player_widget.dart:256-262` ✓），新源真的走起来才 > 0 ✓ → 到点自动撤 ✓。
+- ⚠️ 两个**必需项**（缺一个就出事 ✗）：**`IgnorePointer`** ✓（否则遮罩把点击/竖滑全吃掉 ✗）、
+  **黑底** ✓（封面图本身也要下载，没有黑底旧帧会从透明处透出来 ✗）。
+**② 待拍板 ✗：入口预热**（在"点卡片那一刻"就开始抓详情页）—— **只给方案，未动代码** ✓：
+- 现状：`home_page.dart:1161` 只传 `items: <Article>[article]`（1 条 ✓）→ 进页面 `initState` → `_open(0)`
+  → **才**开始 `_sourcesOf(0)` 抓详情页（1~2 秒 ✓）→ 再 `kp.open()` 开始下媒体 ✗ → 累计几秒 ✓
+- 方案：网格的短片分支（`home_page.dart:1154-1167` ✓）在 push 前**预热** `api.detail(article.url)` ✓；
+  ⚠️ 但页面里的 `_srcCache` 是**页内私有** ✗ → 要落地需一个**共享的 detail→sources 缓存**（跨 3 个文件 ≈15 行 ✗）
+  → 属"动到别处"，**先不动** ✗ 等用户拍板 ✓。收益 ≈ 与 push 动画重叠的 **0.5~1.5 秒** ✓；**请求数不增加** ✓（页面本来也要发这一次 ✓）。
+- **明确不需要做** ✗：把预下载窗口**含当前条** —— 当前条的**源还没解析出来** ✗，而 mpv 在 `open()` 之后**本来就在下** ✓
+  → 预下载它只会**重复占带宽** ✗（`_primeWindow` 显式排除当前条是对的 ✓）。
+- 另一条可选（**未动** ✗，属共享播放器 ✗）：用 `NativePlayer.setProperty` 调 mpv 的起播参数
+  （如 `demuxer-readahead-secs` / `cache-pause-initial` ✓）能再挤掉一点初始缓冲 ✓ —— 但那动的是 `player_widget.dart`（详情页/全屏共用 ✗）→ 等拍板 ✓。
+**numstat / 括号（Node + utf8 ✓）**：`lib/shorts_feed_page.dart 36/0` ✓（`()` **256/256** · `{}` **63/63** · `[]` **22/22** 全配平 ✓；行数 559→595 ✓）
+**过程失误（自catch ✓）**：写这段时一个 `edit` 的 `new_string` 忘了把锚点 `
+--- 追加（2026-10-03 本次构建 1.0.14 —— 短片起播手感）---
+**用户真机反馈（1.0.13）**：①点卡片进瀑布流要好几秒才播 ②划到下一条会先看到上一条的帧约 1.2 秒。
+**① 换源遮罩**（shorts_feed_page）：切条时盖「黑底 + 本条封面 + 转圈」，用 `position > 0` 自动撤（`KpPlayer.open()` 会把 position 清 0，是可靠判据）。
+**② 入口预热**：新增底座 `lib/base/source_cache.dart`（url → Future<源> + 在途去重 + LRU 80 + 失败不进缓存）；「怎么取源」由调用方传闭包 → 底座不认识任何站点；`home_page` 在 push 之前就取源（与转场重叠，请求数不增）；页内私有缓存已删。
+**③ 只给短片实例调 mpv 起播参数**：`demuxer-lavf-analyzeduration` 5→2、`demuxer-lavf-probesize` 5M→1.5M、`cache-pause-initial=no`；为此在 `player_widget.dart` **只新增**一个方法 `setMpvOptionQuiet`（逐层 try/catch 静默失败），**未改任何共用配置**。
+⚠️ 待验证：设参数时 `_p.platform` 若仍为 null → 参数静默失效（装机若起播没变快，先查这里）。
+**④** 清掉 `xhamster.dart` 两处过时注释（短片已改路径式，旧 moments 描述作废）。
+
+## 八、当前待办` 带回去 ✗（还多留了一行孤立的反引号 ✗）→ 当场读回发现并补回 ✓（教训：**替换标题当锚点时，new_string 必须原样含回标题** ✗）。
+
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）用户拍板的 ②③④（① 换源遮罩见上一条）---
+**② 入口预热** ✓（省 0.5~1.5 秒 ✓、**请求数不增** ✓）
+- 新增 `lib/base/source_cache.dart`（**与站点无关** ✓ 底座 ✓，51 行）：`url → Future<List<String>>` + **在途去重** ✓ + LRU 上限 80 ✓ + **失败不进缓存** ✓（失败即清，页面再滑可重试 ✓）；"怎么取源"由调用方传**闭包** ✓（底座不认识任何站点 ✓）
+- `home_page.dart:1160-1163`：短片分支 **`push` 之前**就 `SourceCache.i.get(article.url, …)` ✓（与转场动画重叠 ✓）
+- `shorts_feed_page.dart:149-158`：`_sourcesOf` 改读共享缓存 ✓；**页内私有 `_srcCache`/`_fetching` 已删** ✓（原 `:65-67`）→ 同一 url 只飞一次 ✓；`_precache` 里那句 `_srcCache.containsKey` 判断**一并删掉** ✓（共享缓存自己判 ✓）
+**③ 只给短片实例调 mpv 起播参数** ✓（少等初始缓冲 1~3 秒 ✓）
+- 位置：`shorts_feed_page.dart:169-174` 建 `KpPlayer(bufferMb: 64)` 处 → 调新方法 `_tuneMpvStartup(created)` ✓（定义在 `:188-198` ✓）
+- 设了什么（都只碰"**起播门槛**"，**没动**解码/硬解/网络层 ✗）：
+  · `demuxer-lavf-analyzeduration` = **2.0** ✓（ffmpeg 探测"这是什么流"的最长时间，默认 5 秒 ✗）
+  · `demuxer-lavf-probesize` = **1500000** ✓（探测字节数，默认 5000000 ✗）
+  · `cache-pause-initial` = **no** ✓（不等缓存填满才开播 ✓；mpv 默认本就是 no ✓，这里显式钉住 ✓）
+  → 三个名字**有旁证** ✓：社区"快启动"配置用的正是同一组（`--cache-pause-initial=no` / `--demuxer-lavf-probesize=200000` / `--demuxer-lavf-analyzeduration=1` ✓，见 Reddit mpv config）；**我取值比它保守** ✓（宁可慢一点也别卡 ✗）
+- ⚠️ 为此在 `player_widget.dart:268-278` 给 `KpPlayer` **新增**一个方法 `setMpvOptionQuiet(name, value)` ✓（`_p.platform as NativePlayer` → `setProperty` ✓；逐层 try/catch + `catchError` ✓ → **失败静默** ✗）—— **只加方法，没改任何共用配置/行为** ✓；之所以必须动这个文件 ✗：`KpPlayer` 把 media_kit 的 `Player` 藏成**私有** ✗ → 短片页够不到它 ✗
+**④ 清过时注释** ✓（`lib/sites/xhamster.dart`）：`:130` 与 `:1358-1364` 那两处「短片走 `/api/v1/moments`」**已改成现状** ✓（页面 JSON ✓ + **路径式** `/shorts/newest/{N}` ✓、45 条/页 ✓、`lastPage=100` ✓、`?page=N` 被站点忽略 ✗、旧接口已整条撤 ✗）；`:234`／`:311` 两处**上轮已改好** ✓（标为"旧路…已撤" ✓）→ 这轮无需再动 ✓
+**numstat / 括号（Node + utf8 ✓）**：`home_page.dart 9/0`（677/677 ✓）· `player_widget.dart 12/0`（840/840 ✓）· `shorts_feed_page.dart 65/21`（252/252 ✓）· `lib/base/source_cache.dart` **新文件 51 行**（15/15 ✓）· `xhamster.dart 8/5`（1102/1098 的 4、89/87 的 2 都是**改前就有** ✓）→ 五个文件括号**全部对称/余额 0** ✓
+**没验证的** ❓：三个 mpv 参数在**真机 libmpv** 上是否真被接受、实际省几秒（本机无 Flutter SDK/无真机 ✗）→ 装机看"起播是否更快"即可；**就算某个名字不认也不会坏** ✓（静默忽略 ✓ 播放不受影响 ✗）
+
 ## 八、当前待办
+
 - [ ] **详情页播放器置顶**：代码已改好 ✓（固定顶部 + 下方单独滚动，括号校验通过）**未提交/未推** ✗
 - [ ] **桌面 ipa 落后**：桌面是 **1.0.1** ✓；**1.0.2**（含"加载失败提示不消失"修复）**已发 Releases 但未下到桌面** ✗
 - [ ] （可选）Actions artifact 名是否带版本 —— 现仍 `kpxx-ipa`，用户未表态

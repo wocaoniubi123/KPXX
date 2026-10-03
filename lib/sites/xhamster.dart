@@ -127,7 +127,8 @@ class XhSite extends SiteUi {
   //  ① **必须用桌面 UA 取**：config 里的 Site.ua 是 iPhone UA，站点只给 **5 张卡/页**；
   //     桌面 UA 给 **50+ 张**。但桌面版 DOM 里第 13 张起全是**骨架屏占位** →
   //     真数据在**页面 JSON**里（跟 assignable / 相关推荐同一个套路）。
-  //  ② 「短片」走 **JSON 接口** `/api/v1/moments`（'/shorts' 页面本身客户端渲染，静态 HTML 0 卡片）。
+  //  ② 「短片」走**页面 JSON** ✓（`/shorts/newest`；翻页是**路径式** `/shorts/newest/{N}` ✓ ——
+  //     静态 HTML 里 0 卡片 ✗，数据在页面的 `initials-script` JSON 里 ✓）。
   //  ③ 视频 CDN **不校验 Referer 也不校验 UA**（与 Pornhub 相反）→ 播放不用加特判。
 
   static const String _xhUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -1355,10 +1356,12 @@ const SiteEntry kSite14 = SiteEntry(
       //   约 60 条，带 name / pageURL / logoThumbUrl / videoCount）。
       // 点演员卡进**他/她的视频列表**（`/creators/<slug>`），不是详情页。
       SiteTab('/pornstars', '色情明星'),
-      // 主分类「短片」（用户 2026-10-02）：**走 JSON 接口** `/api/v1/moments`，不是 HTML
-      // （`/shorts` 页本身是纯客户端渲染，静态 HTML 里 0 卡片 ✗）。
-      // 实测：无需 cookie、每页 5~6 条、**翻页是 `?page=N`**（不是路径式 ✗，别套 xhListAt 那套）；
-      // 每条带 title / pageURL(/shorts/<slug>) / posterUrl / landing.name / sources(H.264)。
+      // 主分类「短片」（用户 2026-10-02）：数据在**页面 JSON**（`initials-script` ✓），静态 HTML 里 0 卡片 ✗
+      // （`/shorts` 页本身是纯客户端渲染 ✗）。
+      // 实测（sim-dev 2026-10-03 ✅）：**真翻页是路径式** `/shorts/newest/{N}` ✓（`?page=N` **被站点忽略** ✗），
+      // **45 条/页** ✓ · `lastPage=100` ✓ · 与第 1 页零重叠 ✓；每条带 title / pageURL(/shorts/<slug>) /
+      // imageURL(405×720 竖版) / views ✓（**不含 sources** ✗ → 播放仍走详情页 ✓）。
+      // ⚠️ 旧注释里那条 `/api/v1/moments` 接口**已整条撤掉** ✗（带上 `X-Requested-With` 会被站点当 **404** ✗）。
       // 展示走**竖版网格**（用户 2026-10-02 定的 A 方案；B 那个抖音式竖屏流先记待办）。
       SiteTab('/shorts', '短片'),
     ],

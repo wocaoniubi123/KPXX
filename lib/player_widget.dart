@@ -265,6 +265,18 @@ class KpPlayer extends ValueNotifier<KpState> {
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
+  /// ⚠️ **选择性**给某个实例设 libmpv 属性 ✓（目前只有短片页用 ✓：调"起播更快"的参数 ✓）。
+  /// **不是**共用配置 ✗ —— 别处不调它就完全不受影响 ✓。
+  /// **失败静默** ✗：属性名在 mpv 版本间有差异 ✓，设不上（或这一版不认 ✓）也绝不能影响播放 ✗。
+  void setMpvOptionQuiet(String name, String value) {
+    try {
+      final plat = _p.platform; // media_kit 的 `Player.platform` ✓（iOS 上是 NativePlayer ✓）
+      if (plat is NativePlayer) {
+        plat.setProperty(name, value).catchError((Object _) {});
+      }
+    } catch (_) {}
+  }
+
   Future<void> play() => _p.play();
   Future<void> pause() => _p.pause();
 
