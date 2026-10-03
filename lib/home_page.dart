@@ -23,6 +23,44 @@ class HomePage extends StatefulWidget {
 
 
 /// 筛选行按钮（Hanime1 / Pektino 共用）：生效时橙色 + " ●"
+Future<void> pickOptionDialog(
+  BuildContext context,
+  String title,
+  List<MapEntry<String, String>> options,
+  String current,
+  void Function(String key) apply,
+) async {
+  final v = await showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: Text(title, style: const TextStyle(fontSize: 16)),
+      children: [
+        for (final o in options)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, o.key),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    o.value,
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: o.key == current
+                            ? const Color(0xFFE8590C)
+                            : const Color(0xFF333333)),
+                  ),
+                ),
+                if (o.key == current)
+                  const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+  if (v != null && v != current) apply(v);
+}
+
 Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
       onPressed: tap,
       style: OutlinedButton.styleFrom(

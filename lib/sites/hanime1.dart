@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
+import '../api.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';
@@ -22,6 +23,33 @@ class HanimeSite extends SiteUi {
   HanimeSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 筛选按钮（**本站自带副本** ✓；原为 home_page 顶层函数 ✓）
+  Widget _hnFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
+        onPressed: tap,
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
+          side: BorderSide(color: kChipBorder),
+        ),
+        child: Text(
+          on ? '$label ●' : label,
+          style: TextStyle(
+              fontSize: 13,
+              // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
+              color: on ? const Color(0xFFE8590C) : kTxt),
+        ),
+      );
+  
+  /// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
+  /// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
+  String _nameOf(List<MapEntry<String, String>> items, String key) {
+    for (final t in items) {
+      if (t.key == key) return t.value;
+    }
+    return key;
+  }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页标签：站内 /search? 路径直接请求（?query= / ?tags[]= 两种链接 ✓）；其余当搜索词 ✓
@@ -333,22 +361,22 @@ class HnFilterBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            filterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
+            _hnFilterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
                 f.tags.isNotEmpty, () => _pickTags(context)),
             const SizedBox(width: 6),
-            filterBtn(
+            _hnFilterBtn(
                 f.sort.isEmpty ? '排序方式' : f.sort,
                 f.sort.isNotEmpty,
                 () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
                     (v) => f.sort = v)),
             const SizedBox(width: 6),
-            filterBtn(
+            _hnFilterBtn(
                 f.date.isEmpty ? '發佈日期' : f.date,
                 f.date.isNotEmpty,
                 () => _pickSingle(context, '發佈日期', _hnDates, f.date,
                     (v) => f.date = v)),
             const SizedBox(width: 6),
-            filterBtn(
+            _hnFilterBtn(
                 f.duration.isEmpty ? '時長' : f.duration,
                 f.duration.isNotEmpty,
                 () => _pickSingle(context, '時長', _hnDurations, f.duration,

@@ -16,15 +16,84 @@ import 'package:flutter/material.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
+import '../api.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';
+import '../sites.dart';
 
 /// Pornhub 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class PhSite extends SiteUi {
   PhSite(this._f);
 
   final SiteFetcher _f;
+
+  /// 筛选按钮（本站自带副本 ✓）
+  Widget _phFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
+        onPressed: tap,
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
+          side: BorderSide(color: kChipBorder),
+        ),
+        child: Text(
+          on ? '$label ●' : label,
+          style: TextStyle(
+              fontSize: 13,
+              // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
+              color: on ? const Color(0xFFE8590C) : kTxt),
+        ),
+      );
+  
+  /// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
+  /// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
+  String _nameOf(List<MapEntry<String, String>> items, String key) {
+    for (final t in items) {
+      if (t.key == key) return t.value;
+    }
+    return key;
+  }
+
+  /// 单选弹窗（本站自带副本 ✓）
+  Future<void> _phPickOptionDialog(
+    BuildContext context,
+    String title,
+    List<MapEntry<String, String>> options,
+    String current,
+    void Function(String key) apply,
+  ) async {
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(title, style: const TextStyle(fontSize: 16)),
+        children: [
+          for (final o in options)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, o.key),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      o.value,
+                      style: TextStyle(
+                          fontSize: 14,
+                          color: o.key == current
+                              ? const Color(0xFFE8590C)
+                              : const Color(0xFF333333)),
+                    ),
+                  ),
+                  if (o.key == current)
+                    const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (v != null && v != current) apply(v);
+  }
+
 
   /// 搜索 = /video/search?search=<kw>（站点自己的搜索页形态 ✓；kw 是原始文本，自己编码 ✓）
   Future<List<Article>> search(String keyword, {required int page}) =>
@@ -283,7 +352,7 @@ class PhStarBar extends StatelessWidget {
 
   Future<void> _pick(BuildContext context, String title, List<SiteTab> opts,
           String cur, void Function(String) apply) =>
-      pickOptionDialog(
+      _phPickOptionDialog(
         context,
         title,
         [for (final o in opts) MapEntry(o.key, o.name)],
@@ -316,19 +385,19 @@ class PhStarBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            filterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
+            _phFilterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
                 () => _pick(context, '排序', phStarSorts, f.sort,
                     (v) => f.sort = v)),
             const SizedBox(width: 6),
-            filterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
+            _phFilterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
                 () => _pick(context, '类型', phStarTypes, f.type,
                     (v) => f.type = v)),
             const SizedBox(width: 6),
-            filterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
+            _phFilterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
                 () => _pick(context, '时间区段', phStarTimes, f.time,
                     (v) => f.time = v)),
             const SizedBox(width: 6),
-            filterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
+            _phFilterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
           ],
         ),
       ),
