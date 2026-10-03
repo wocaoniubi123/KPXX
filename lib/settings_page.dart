@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_version.dart';
 import 'error_log_page.dart';
 
 import 'app_background.dart';
@@ -61,6 +62,15 @@ class SettingsPage extends StatelessWidget {
             _bgCard(context),
             const SizedBox(height: 14),
             _logCard(context),
+            const SizedBox(height: 18),
+            // ✅ 版本号（用户 2026-10-03 要求：方便核对手机上是哪一版 ✓）
+            Center(
+              child: Text(
+                '版本 $kAppVersion',
+                style: TextStyle(fontSize: 12, color: kTxtSub),
+              ),
+            ),
+            const SizedBox(height: 6),
           ],
         ),
       ),

@@ -158,6 +158,15 @@ jobs:
           flutter pub get
           flutter build ipa --release --export-options-plist=ExportOptions.plist
 
+      # ✅ 按 App 里的版本号给 ipa 改名（用户 2026-10-03 要求：方便区分每次构建 ✓）
+      - name: 按版本号重命名 IPA
+        run: |
+          VER=$(sed -n "s/.*kAppVersion = '\([^']*\)'.*/\1/p" lib/app_version.dart | head -1)
+          if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+          cd build/ios/ipa
+          for f in *.ipa; do mv "$f" "kpxx-$VER.ipa"; done
+          ls -la
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4
         with:
