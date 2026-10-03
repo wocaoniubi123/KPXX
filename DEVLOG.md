@@ -1825,6 +1825,31 @@ Error (Xcode): lib/sites/hanime1.dart:351:52: Error: The getter '_hnSorts' isn't
 与 `_nameOf` 副本同一思路 ✓，符合"站点独立"方向 ✓）。
 
 ✅ 附带：我自己那个"扫别文件私有名"的脚本报了 12 处，**经核实全在注释里** ✗（脚本没剔注释 ✓），不是问题 ✓。
+
+--- 第 88 条续（第 16 次构建 🎉【成功】· 拆共享件全部完成）---
+🎉 **CI run 37093678440 成功**（commit 5dc041f，构建 3m14s）
+| 项 | 值 |
+|---|---|
+| ipa | C:\Users\Administrator\Desktop\kpxx.ipa |
+| 大小 | **16,354,963 字节** |
+| 时间 | 2026-10-03 11:38:44 |
+| 头 4 字节 | PK（正常 ✓）|
+
+## 本轮拆共享件的最终成果
+- **(1) 分站 widget 搬家** ✓：hanime1 的 4 个（含 pickOptionDialog 副本）、pornhub 的 4 个 → 各自站点文件；
+  `home_page.dart` **1830 → 1312 行**
+- **(3) 黄果源分支下放** ✓：做成通用机制 `SiteUi.sourcesFromHtml`（别的站以后也能用）
+- **(4) parse.dart 复制** ✓：`toRelPath`/`dplayerSources` 复制进 madou/wordpress/api，**base/parse.dart 已删**
+- **(5) 5 个 switch → 接口** ✓：`SiteUi` 加并集签名 5 方法；**50 个 case 清零**，
+  `api.dart` 401 → 297 行；`switch(site.template)` 只剩 `ui` getter 一处（唯一选择点）
+- **(2) ArticleCard：实测后不做** ✓（225 行已无站点逻辑，下放=复制 10 份 +2250 行，零收益）
+
+**现在 `lib/base/` 只剩 3 个**：`fetch.dart`(135 网络层) · `fmt.dart`(54 文本工具) · `site_ui.dart`(站点事实+分发接口)
+
+## 这轮 15→16 的编译错误链（全是我的搬运错误 ✗，逐条已记）
+第 10 次 site_ui 缺 import → 第 11 次 Element/Text 跨库歧义 → 第 12 次 kTxt/kChipBorder 缺 import →
+第 13 次 顶层函数被塞进类里（跨类裸调 9 处）→ 第 14 次 home_page 私有 const 跨库不可见 → 第 15 次 缺 dart:convert
+✅ 每次都是 build-watch 扫出"这一类还剩 N 处"后**一次修完** ✓（这套流程很有效 ✓）
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
