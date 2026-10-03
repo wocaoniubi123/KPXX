@@ -495,3 +495,19 @@ String _nameOf(List<MapEntry<String, String>> items, String key) {
   }
   return key;
 }
+
+// ⚠️ 以下 3 个清单原在 home_page.dart 顶层（私有 ✗，跨库不可见）→ 2026-10-03 复制到本站 ✓
+
+const List<String> _hnSorts = [
+  '最新上市', '最新上傳', '本日排行', '本週排行', '本月排行',
+  '觀看次數', '讚好比例', '時長最長', '他們在看',
+];
+
+const List<String> _hnDates = [
+  '過去 24 小時', '過去 2 天', '過去 1 週', '過去 1 個月', '過去 3 個月', '過去 1 年',
+];
+
+const List<String> _hnDurations = [
+  '1 分鐘 +', '5 分鐘 +', '10 分鐘 +', '20 分鐘 +', '30 分鐘 +', '60 分鐘 +',
+  '0 - 10 分鐘', '0 - 20 分鐘',
+];

@@ -1811,6 +1811,20 @@ pornhub `_phFilterBtn`×4（L398/402/406/410）+ `_phPickOptionDialog`×1（L365
 ✅ **修法（方案A）：把这个 3 个函数从类内挪到文件顶层** ✓ —— 等于恢复它们原本的顶层函数形态 ✓，
 **零改调用点** ✓（同库可见 ✓）。复核：三个都从列 0 开始 ✓、引用数 5/7 = 声明+调用 ✓。
 （其余类型已由 build-watch 排除假阳性：`_SiteTile(`/`_SeekBar(`/`_RoundBtn(` 是构造调用 ✓）
+
+--- 第 88 条续（第 14 次构建【失败】→ 修 3 处）---
+❌ **CI run 37093299424 失败**（commit 0302cb9）。**错误原文**：
+```
+Error (Xcode): lib/sites/hanime1.dart:351:52: Error: The getter '_hnSorts' isn't defined for the class 'HnFilterBar'.
+```
+**根因**：`_hnSorts`/`_hnDates`/`_hnDurations` 是 `home_page.dart` 的**顶层私有 const**（L101/105/108）✗，
+搬进 hanime1 的 `HnFilterBar` 里裸用 → **私有名跨库不可见** ✗（加 import 也没用 ✓）。
+✅ 这一类（build-watch 改进扫描后）**只剩 3 处、全在 hanime1** ✓；pornhub 侧 0 处 ✓
+（它的 `phStarSorts` 等本就是 pornhub.dart 自己的公开名 ✓）。
+✅ **修法**：把这 3 个 `const List<String>` **原样复制到 hanime1.dart 顶层** ✓（纯字符串列表 ✓、无 UI/实例依赖 ✓，
+与 `_nameOf` 副本同一思路 ✓，符合"站点独立"方向 ✓）。
+
+✅ 附带：我自己那个"扫别文件私有名"的脚本报了 12 处，**经核实全在注释里** ✗（脚本没剔注释 ✓），不是问题 ✓。
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
