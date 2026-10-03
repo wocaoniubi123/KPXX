@@ -1689,6 +1689,35 @@ detail(String url)
 ✅ **于是本轮改为：先把已完成的 3 项推送构建** ✓（用户目标里"拆完构建下载" ✓，且**风险半径最小** ✓）：
 (1) 分站 widget 搬进站点文件 · (3) 黄果源分支下放 · (4) parse.dart 复制并删除 ✓
 ⚠️ `(2)` 与 `(5)` **仍在等用户拍板** ✓（我已给出建议与成本 ✓，并按"重大改动前先确认"停下 ✗）。
+
+--- 第 88 条续（第 9 次构建【失败】→ 一次性修完 15 处 ✓）---
+❌ **CI run 37091786447 失败**（commit 5e2c5a3 ✓，编译阶段 ✓，约 1 分钟即挂 ✓）
+**错误原文（1 条）**：
+```
+Error (Xcode): lib/sites/hanime1.dart:292:9: Error: Type 'Api' not found.
+```
+⚠️ build-watch 顺手扫出**同类问题共 4 组 15 处**（信噪比好，逐条 grep 复核过 ✓）——价值很高 ✓：
+1. `Type Api` 未定义：hanime1 L293/L366（搬进去的 widget 有 `final Api api;` ✗ 但没 import ✓）
+2. `Type SiteTab` 未定义：pornhub L278/L285（声明在 sites.dart:95 ✓）
+3. `filterBtn` 未定义：hanime1 ×4 + pornhub ×4 = 8 处（它还是 home_page 顶层函数 ✓）
+4. ⚠️ **`pickOptionDialog` 的声明被上一次提交删掉了** ✗ —— 我的 hanime1 搬运脚本**本该"复制"却做成了"剪切"** ✗✓
+   （`home_page` 那次 -410 行把它一起带走 ✓），而 home_page L383/L400 + pornhub L286 还在调它 ✗ → 必报未定义 ✓
+
+✅ **一次性修完（本次不推送、不构建 —— 按用户要求"别一改一构建"✓）**：
+① `home_page.dart` **恢复 `pickOptionDialog`**（37 行，从 `d63b57e` 取回 ✓）
+② `hanime1.dart`：补 `import ../api.dart` ✓ + 加 `_hnFilterBtn` 私有副本（25 行 ✓）+ 7 处调用改名 ✓
+③ `pornhub.dart`：补 `import ../api.dart` + `import ../sites.dart` ✓ + 加 `_phFilterBtn`/`_phPickOptionDialog` 副本 ✓ + 7 处调用改名 ✓
+④ ⚠️ **副本的【定义名】也要跟着改** ✗ —— 第一版只改了调用 → `_hnFilterBtn(` 找不到定义 ✓；
+   已把副本里的 `Widget filterBtn(` → `Widget _hnFilterBtn(`（pornhub 同理 ✓）
+✅ 复核：hanime1 定义 1+1 / 调用 7+1；pornhub 定义 2 / 调用 7；三个文件里**无裸调用残留** ✓
+
+**本轮又踩两个坑（如实记 ✗）**：
+- PowerShell 的 `>` 重定向写 **UTF-16** ✗ → Node `readFileSync(...,"utf8")` 读出乱码 → 抠函数失败 ✓；
+  改用**在 Node 里 `execSync("git show …")`** ✓ 才正常 ✓
+- 复核时 grep **大小写敏感** ✗ → `_hnFilterBtn`（大写 F）匹配不到 `filterBtn` → 误报"零出现" ✓
+  ✅ 教训：复核一律 **case-insensitive** ✓
+
+**⏭️ 待用户拍板（都已说明成本 ✓）**：`(2)` ArticleCard 下放 · `(5)` 5 个 switch 换接口（有静默改行为风险 ✗）。
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
