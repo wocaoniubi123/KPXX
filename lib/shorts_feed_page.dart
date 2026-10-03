@@ -19,6 +19,7 @@
 //   '/shorts/…' 不展开档位）→ 这里直接用 `sources` 里的第一条 ✓。
 
 import 'dart:async';
+import 'site_error_log.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -196,7 +197,15 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     _loadingMore = true;
     try {
       // ⚠️ `Api.category` 的第一个参数（key）是**位置参数**，不是 `k:` ✗
-      final more = await widget.api.category('/shorts', page: _page + 1);
+      // 🔎 翻页诊断（同上 ✓）
+    final List<Article> more;
+    try {
+      more = await widget.api.category('/shorts', page: _page + 1);
+      SiteErrorLog.log('短片', '翻页 page=${_page + 1} → ${more.length} 条 ✓');
+    } catch (e, st) {
+      SiteErrorLog.log('短片', '翻页 page=${_page + 1} 抛错 ✗：$e', st);
+      rethrow;
+    }
       if (!mounted) return;
       _page++;
       final have = _items.map((a) => a.url).toSet();

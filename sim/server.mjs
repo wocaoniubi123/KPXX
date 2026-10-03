@@ -14,7 +14,7 @@ import crypto from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import { execSync, spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { watch } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -22,6 +22,9 @@ import { dirname, join } from 'node:path';
 const PORT = Number(process.env.KPXX_PORT || 8787);
 const DIR = dirname(fileURLToPath(import.meta.url));
 const SITES_DART = join(DIR, '..', 'lib', 'sites.dart');
+// ⚠️ 2026-10-03：站点档案/清单已**下放到各站点文件** ✓（lib/sites.dart 只剩类型 + kSites 汇总表 ✗），
+// 所以这里不能只读一个文件 ✗ —— 要把 lib/sites/*.dart 一起读进来 ✓。
+const SITES_DIR = join(DIR, '..', 'lib', 'sites');
 
 // 与 App 里 config.dart / api.dart / player_widget.dart 保持一致
 const UA =
@@ -99,28 +102,38 @@ async function loadSites() {
   const src = await readFile(SITES_DART, 'utf8');
   const start = src.indexOf('const List<SiteEntry> kSites');
   if (start < 0) return { error: '没在 lib/sites.dart 里找到 kSites' };
-  const body = src.slice(start);
 
-  // 具名子分类表（const List<SiteTab> _xxx = [...]），SiteTab 第三参可以引用它
-  const namedTabs = parseNamedTabLists(src);
+  // ⚠️ 2026-10-03：站点档案在**各站点文件**里（kSiteNN ✓），清单也在那里（xhCatGroups 之类 ✓）。
+  // 所以把 sites.dart 与 lib/sites/*.dart **合并**成一份源码再解析 ✓ —— 解析逻辑一行没改 ✓（只是来源变全了 ✓）。
+  const files = (await readdir(SITES_DIR)).filter((f) => f.endsWith('.dart'));
+  const parts = [src];
+  for (const f of files) parts.push(await readFile(join(SITES_DIR, f), 'utf8'));
+  const all = parts.join('\n');
 
-  // 按括号配对切出每个 SiteEntry(...)
+  // 顺序仍以 lib/sites.dart 里 kSites 的**引用顺序**为准 ✓（站点列表的展示顺序靠它 ✓）
+  const kBody = src.slice(start);
+  const order = [...kBody.matchAll(/\b(kSite\d+)\b/g)].map((m) => m[1]);
+
+  // 具名子分类表（const List<SiteTab> _xxx = [...]）—— 在**合并源码**里找 ✓（清单已下放到各站点文件 ✓）
+  const namedTabs = parseNamedTabLists(all);
+
+  // 按 kSites 的顺序，取每个 kSiteNN 的 SiteEntry(...) 原文（括号配对 ✓）
   const blocks = [];
-  let i = 0;
-  while (true) {
-    const at = body.indexOf('SiteEntry(', i);
-    if (at < 0) break;
+  for (const nm of order) {
+    const decl = all.indexOf('const SiteEntry ' + nm + ' =');
+    if (decl < 0) continue;
+    const at = all.indexOf('SiteEntry(', decl);
+    if (at < 0) continue;
     let depth = 0;
     let j = at + 'SiteEntry('.length - 1;
-    for (; j < body.length; j++) {
-      if (body[j] === '(') depth++;
-      else if (body[j] === ')') {
+    for (; j < all.length; j++) {
+      if (all[j] === '(') depth++;
+      else if (all[j] === ')') {
         depth--;
         if (depth === 0) break;
       }
     }
-    blocks.push(body.slice(at, j + 1));
-    i = j + 1;
+    blocks.push(all.slice(at, j + 1));
   }
 
   const pick = (b, re) => {
