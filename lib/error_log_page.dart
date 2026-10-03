@@ -98,7 +98,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _text.trim().isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(

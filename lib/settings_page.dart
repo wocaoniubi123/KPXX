@@ -255,6 +255,8 @@ class SettingsPage extends StatelessWidget {
 
   /// 卡片：**没有背景色**，只有子节点的内边距（背景图直接透出来）。
   /// 卡片间距由 ListView 里的 SizedBox(height: 14) 给（同模拟器 .scard 的 margin-bottom）
+  Widget _card({required Widget child}) => child;
+
   /// 诊断入口：**错误日志**（用户 2026-10-03 要求 ✓ —— 点开就能看 / 能清 / 能复制 ✓）
   Widget _logCard(BuildContext context) {
     return _card(
