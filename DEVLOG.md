@@ -106,6 +106,21 @@ App **直连**（不走代理）；本机所有网络操作走系统代理 `127.
 7. 临时文件放工作目录、**用完即删** ✓；不动无关文件 ✓
 8. **站点必须独立** ✓ —— **不写公共的站点函数** ✗（详见顶部「写死的规则」✓）
 9. **被问「能不能办到/能不能改」时，先实地查代码再答** ✗ —— 不许给「待查询」式的回答 ✓（详见顶部规则 ✓）
+10. **不许动用户的进程** ✗✗（用户 2026-10-03 明确要求 ✓）：
+    - **8787 上已有服务在跑** → **直接用它调试** ✓（只读 ✓、**别重启** ✗、**别 kill** ✗）
+    - **没有服务** → 才自己起一个 ✓（**换端口**更稳妥，如 8788 ✓），**先把自己的 PID 记下来** ✓
+    - `Stop-Process` / `taskkill` / `pkill` / `kill` **只能打自己起的那个 PID** ✓✓（别人的一律不碰 ✗）
+    - **"改完要生效"不靠重启** ✓：`sim/index.html` 与站点数据是**每次请求现读**的 ✓ → **刷新页面**即可 ✓；
+      ⚠️ 例外：改 `sim/server.mjs`（服务端逻辑）**必须重启才生效** ✗ —— 且它自带**热重载**会**自己重启** ✗
+      （用户会看到他的进程"没了" ✗）→ 动这个文件**先问用户** ✓
+    - 汇报时必须写明：**用了哪个端口** ✓ · **有没有碰过别人的进程**（应为"没有" ✓）
+11. **播放验证一律静音** ✗✗（用户 2026-10-03 明确要求 ✓）：
+    - 任何验证性播放（`<video>` / headless 浏览器 / CDP 驱动）**必须 muted** ✓ ——
+      `<video muted>` 或**播放前显式** `v.muted = true; v.volume = 0` ✓（**别依赖默认** ✗）
+    - **禁止** `--autoplay-policy=no-user-gesture-required` 这类"带声音自动播"的配置 ✗（`--mute-audio` ✓ 可用）
+    - 确实需要听声音 → **先问用户** ✓（几乎不可能 ✓）
+    - 汇报里要写「**播放验证时已静音**」✓
+    - sim 侧配套 ✓：`index.html` 的 `initMute` **所有模式都静音**（含 `/shorts…` 独立页 ✓ —— 我一开始把它排除掉了 ✗，用户提规矩后已改回 ✓）
 
 ## 七、踩过的坑（当约定用 ✓）
 **脚本类**：① "插入"写成"替换" ✗（曾顶掉 `settings_page._card`）→ 写 `anchor + 新内容` ✓
@@ -426,7 +441,8 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 - 另一条可选（**未动** ✗，属共享播放器 ✗）：用 `NativePlayer.setProperty` 调 mpv 的起播参数
   （如 `demuxer-readahead-secs` / `cache-pause-initial` ✓）能再挤掉一点初始缓冲 ✓ —— 但那动的是 `player_widget.dart`（详情页/全屏共用 ✗）→ 等拍板 ✓。
 **numstat / 括号（Node + utf8 ✓）**：`lib/shorts_feed_page.dart 36/0` ✓（`()` **256/256** · `{}` **63/63** · `[]` **22/22** 全配平 ✓；行数 559→595 ✓）
-**过程失误（自catch ✓）**：写这段时一个 `edit` 的 `new_string` 忘了把锚点 `
+**过程失误（自catch ✓）**：写这段时一个 `edit` 的 `new_string` 忘了把**锚点标题**带回去 ✗（还多留了一行孤立的反引号 ✗）→ 当场读回发现并补回 ✓（教训：**拿标题当锚点做替换时，new_string 必须原样含回标题** ✗）。
+⚠️ 事后这行又被"按锚点插字"的脚本**从中间切开过一次** ✗（插到我的段落内部 ✓）—— 教训二：**正文里不要写标题字面** ✗，否则别人的锚点会命中它 ✓；2026-10-03 已按此修回 ✓（两半接回 ✓、伪标题删掉 ✓）。
 --- 追加（2026-10-03 本次构建 1.0.14 —— 短片起播手感）---
 **用户真机反馈（1.0.13）**：①点卡片进瀑布流要好几秒才播 ②划到下一条会先看到上一条的帧约 1.2 秒。
 **① 换源遮罩**（shorts_feed_page）：切条时盖「黑底 + 本条封面 + 转圈」，用 `position > 0` 自动撤（`KpPlayer.open()` 会把 position 清 0，是可靠判据）。
@@ -435,7 +451,6 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 ⚠️ 待验证：设参数时 `_p.platform` 若仍为 null → 参数静默失效（装机若起播没变快，先查这里）。
 **④** 清掉 `xhamster.dart` 两处过时注释（短片已改路径式，旧 moments 描述作废）。
 
-## 八、当前待办` 带回去 ✗（还多留了一行孤立的反引号 ✗）→ 当场读回发现并补回 ✓（教训：**替换标题当锚点时，new_string 必须原样含回标题** ✗）。
 
 --- 追加（2026-10-03 · 工作区改动，**未提交未构建**）用户拍板的 ②③④（① 换源遮罩见上一条）---
 **② 入口预热** ✓（省 0.5~1.5 秒 ✓、**请求数不增** ✓）
@@ -454,8 +469,158 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 **numstat / 括号（Node + utf8 ✓）**：`home_page.dart 9/0`（677/677 ✓）· `player_widget.dart 12/0`（840/840 ✓）· `shorts_feed_page.dart 65/21`（252/252 ✓）· `lib/base/source_cache.dart` **新文件 51 行**（15/15 ✓）· `xhamster.dart 8/5`（1102/1098 的 4、89/87 的 2 都是**改前就有** ✓）→ 五个文件括号**全部对称/余额 0** ✓
 **没验证的** ❓：三个 mpv 参数在**真机 libmpv** 上是否真被接受、实际省几秒（本机无 Flutter SDK/无真机 ✗）→ 装机看"起播是否更快"即可；**就算某个名字不认也不会坏** ✓（静默忽略 ✓ 播放不受影响 ✗）
 
+---
+## 追加（2026-10-03 · **sim 侧第 3 轮**，工作区改动，**未提交未构建**）`/shorts…` 变成"能直接用的网页"---
+**用户拍板 ✓**：删掉我们自研的瀑布流 ✗ → 短片 tab 直接加载**站点自己的短片页**（App 走 WebView ✓）
+→ 模拟器要能**顶替那个页面**（同一个路径 ✓）。
+
+**改动（只动 `sim/**` ✓）**
+1. `server.mjs`（`:594-605`）：新增路由 —— `/shorts`、`/shorts/newest`、`/shorts/newest/2`、`/shorts/<slug>`
+   **一律发 `index.html`** ✓（页面按 `location.pathname` 进独立模式 ✓，**不维护第二份页面** ✗）
+2. `index.html`：
+   - CSS（`:30-41`）`body.standalone`：**拆掉手机外壳**（铺满视口 ✓）、隐藏状态栏/灵动岛/日志侧栏 ✓、隐藏"没有上一层"的 ✕ ✓
+   - `STANDALONE`（`:703`）= 路径以 `/shorts` 开头 ✓；`fitPhone` **不缩** ✓
+   - `startStandaloneShorts()`（`:4586`）：清单到手 → `xhMoments(site,1)`（**45 条** ✓）→ `viewShortsFeed()` 进流 ✓；
+     `/shorts/<slug>` **从那条开始** ✓（首屏里找不到就从头 ✓）
+   - `feedExit()`（`:4339`）独立模式下**直接返回** ✗（否则会把 WebView 甩到模拟器宫格 ✗；左边缘右划那条路也走它 ✓）
+   - `feedPlay`（`:4524`）：**只有真要播 m3u8 才加载 hls.js** ✓（短片主源是直链 mp4 ✓；原来每次进流都先去 3 个 CDN 试 ✗）
+
+**实测（端口 = 用户的 **8787** ✓ 只读取用、**没重启没 kill** ✓；Edge headless + CDP + 手机 UA ✓）**
+- `/shorts/newest` → **HTTP 200 / 313,302B**（= index.html ✓）；`body.className=standalone` ✓；`.phone` = 视口尺寸 ✓（外壳真拆了 ✓）
+- 列表 **45 条** ✓；**直链 mp4 起播** ✓（readyState=4、源 `video7.xhcdn.com` ✓）
+- 手势：**上滑换条** ✓（idx 0→1）、**单击暂停/继续** ✓（暂停时 `.feedpause` ✓ + ▶=1 ✓ + 标题条=1 ✓）、左边缘右划**不跑偏** ✓（流还在 ✓ 宫格 0 张 ✓）
+- `/shorts/<slug>` → **从该条开始** ✓（`feedItems[0].url` 就是那个 slug ✓）
+- **站外请求只有真实媒体** ✓：`video7.xhcdn.com` / `ip*.ahcdn.com`（站点自己的 CDN ✓）；
+  **hls.js 的 3 个 CDN 一次都没请求** ✓；**无失败** ✓、**无未捕获异常** ✓（唯一 404 = `/favicon.ico`，噪声 ✓）
+- ⚠️ **已知代价**：sim 这份"站点页"**每条要现抓一次详情页取源** ✓ → 换条要等 **5~15 秒** ✗（实测 #2 用 15s 起播 ✓，
+  进流时会并发预取 #2~#7 ✓，`feedSrcCache`=6 ✓）；偶发 `所有域名均无法访问：tw.xhamster.com 代理连接超时` ✗（约 1/7 条 ✓，
+  那条会显示"这条没有片源" ✓ 可以划走 ✓）。真站点是页面自带源、不会这样慢 ✗ —— **这是模拟器侧的保真度差距** ✓
+
+**⚠️ 两条规矩（用户当场提的 ✓，已写进 §六 第 10/11 条 ✓）**
+- **不许动用户的进程** ✗：我改了 `server.mjs` ✗ → **它自带的热重载把用户那个实例重启了** ✗（PID `26592`@14:43 → `15880`@21:11 ✓）
+  → 用户看到"进程没了" ✗。以后：能只改 `index.html` 就只改它 ✓（每请求现读 ✓，刷新即生效 ✓）；动 `server.mjs` **先问** ✓
+- **播放验证一律静音** ✗：我第一版把独立页排除了静音 ✗（还报了"未被静音"✗），且用了 `--autoplay-policy=…` ✗ →
+  **已改回全模式静音** ✓，并加了 §六 第 11 条 ✓。静音下复验 ✓：页面默认 `muted=true` ✓、显式 `muted=true; volume=0` ✓、
+  `currentTime 0.4→3.4` 在走 ✓、换条后仍 `muted=true` ✓
+
+---
+## 追加（2026-10-03 · **sim 侧第 4 轮**，工作区改动，**未提交未构建**）短片 tab：**内容区直接是播放器**---
+**用户澄清（第 3 轮方向错了 ✗）**：「**看到短片 tab 没，下面的卡片不要了。下面直接就是对接站点的短片播放器了开始播**」
+＋「播放器区域就在主分类、短片 tab 下面那块区域，**上面的 tab 要保持显示**」✓
+→ 第 3 轮那个 `/shorts…` **全屏独立页保留备用** ✓，但**短片 tab 的默认形态**改成**内嵌** ✓。
+
+**改动（只动 `sim/index.html` ✓；这轮 `server.mjs` 没动 ✓）**
+1. CSS（`:214-220`）新增 `.feed.embed`：`position:relative; inset:auto; flex:1 1 auto` ✓
+   → 放进 flex 流（插到 `.tabs` 之后 ✓）后**高度自然 = tab 行以下那块** ✓（**不全屏** ✗）；`.feed.embed .fclose` 隐藏 ✓
+2. `mountShortsFeed(site)`（`:4625`）+ `unmountShortsFeed()`（`:4638`）：
+   取数复用 `xhMoments`（第 1 页 = 页面 JSON 45 条 ✓）、渲染复用 `viewShortsFeed(…, embed=true)` ✓（**没新写播放器/取数** ✗）；
+   离开时暂停 + 藏起 ✓（切别的 tab / 回宫格都收 ✓）
+3. `viewList`（`:4018` 收尾 + `:4041` 分支）：进短片 tab → **直接 `mountShortsFeed` 并 return** ✓
+   → **不画卡片网格** ✗、**不用再点卡片** ✗（用户要的"点进来就是播放器在播" ✓）
+4. `viewShortsFeed(site, items, start, embed)`：内嵌时**不动** appbar / tabs / 底部导航 ✗（那是外壳 ✓），
+   只腾空卡片区 ✓ 并把 `#feed` 搬到 tab 行后面 ✓；状态栏类只加 `feedon/feedpause` ✓（**不加 hasbg/darkbg** ✗ ——
+   内嵌时状态栏在上方、不在黑底上 ✓）
+5. `feedExit()`（`:4349`）：独立模式 **或** 内嵌形态 → 直接返回 ✓（出口 = 切 tab ✓）
+
+**实测（端口 = 用户的 **8787** ✓ 只读取用、没重启没 kill ✓；Edge headless + CDP + 手机 UA ✓；**播放全程静音** ✓）**
+- **几何证据** ✓：tab 行 `y=114 h=37` → 底 **151**；内容区 `#feed` **y=151** ✓✓（正好接在 tab 行下面）、宽 = tab 行宽 ✓、高 671 ✓
+- **卡片网格没了** ✓：`#cards .card` = **0** ✓、卡片区 `display:none` ✓
+- **tab 行在** ✓：`display:flex` ✓、`[影片,分类,色情明星,短片]` ✓、选中 = **短片** ✓；顶栏/状态栏都在 ✓
+- **点进来就在播** ✓：`readyState=4`、`currentTime 0.6 → 3.1` 在走 ✓、源 = 直链 mp4 ✓
+- **静音** ✓：`muted=true`、`volume=0`（播放前**显式**设 ✓；浏览器侧 `--mute-audio` ✓，**没用** autoplay-policy ✗）
+- 手势：**上滑换条** ✓（0→1）、**单击暂停** ✓（paused=true ✓ 暂停标志/标题条 opacity=1 ✓）、**再单击继续** ✓
+- 回归：切到「影片」→ 内嵌流 `display:none` ✓（收起）、卡片回来 **54 张** ✓、选中项 = 影片 ✓；**无未捕获异常** ✓
+- 另存一张截图给用户看形态：**`sim/_shot_shorts_tab.png`**（240KB ✓；不要就说一声我删 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 5 轮**，工作区改动，**未提交未构建**）短片"数据加载不及时"→ 查因 + 提速 ---
+**用户报**："**数据加载的不是很及时**" ✗。lead 先让我"造源/预取/占位秒播"，随后纠正成"**直接加载真站页面**" ✗ ——
+**两个方向都实测了，结论如下（都有实锤 ✓）**：
+
+**① 「内容区 = 真站页面（iframe）」＝做不到** ✗✗（如实报 ✓ 没硬编 ✗）
+- ⚠️ **本节结论我一开始写错了、已更正** ✗→✓（我原先只测了 `/shorts/newest` 且没等 JS 跑完 ✗）：
+  **真站 `/shorts` 跑完 JS 后是有 feed 播放器的** ✓✓ —— 实测（真浏览器 + 手机/桌面 UA 两种 ✓）：
+  `document.querySelectorAll('video')` = **2 个** ✓，其中一个 `readyState=4 / currentTime=4s / paused=false` **正在播** ✓
+  （源 = `blob:` = MSE，站点自己 **muted 自动播** ✓）；页面里 `卡片数=0`、`可滚动=0`、
+  DOM 是 `data-opt-hydration="index-moments-static-moment"` + `momentSection-*` ✅ = **竖屏 feed** ✓
+  → 而 **`/shorts/newest` 才是卡片列表页** ✗（`video`=0、卡片 103 ✗）—— 两个 URL 是**两种页面** ✓
+- **真正的拦路石只有一条 = 站点自己的 CSP** ✗✗（这次用**真正的跨域页面**测的 ✓：
+  载体 `example.com` → 注入 `<iframe src="https://tw.xhamster.com/shorts">` ✓）：
+  `Framing 'https://tw.xhamster.com/' violates CSP directive: "frame-ancestors 'self'". The request has been blocked.` ✗
+  CDP 帧树**无子帧** ✗（= 真被拒 ✗）；头部同源也有 `X-Frame-Options: SAMEORIGIN` ✗
+  → **任何第三方页面都嵌不了它** ✗（不是我们改得动的 ✗）
+- ✅ **App 的 WebView 不受影响** ✓：它把真站页面当**顶层文档**加载 ✓（不是 iframe ✗）→ app-dev 那条路照走 ✓
+  （顺带：站点自己 muted 自动播 ✓ → 声音规矩也天然满足 ✓）
+- （顺带更正旧说法 ✓：经代理**页面路径没有 404** ✗ —— 手机 UA/桌面 UA 都 **200** ✓（310KB/388KB ✓）；
+  那个 404 是**接口** `/api/v1/moments` **带 `X-Requested-With` 头**时才出现 ✗）
+
+**② sim 侧真正能做的：把"取数"变成 0 网络** ✓（数据/视频仍是**真站的** ✓，没造假 ✗）
+- 根因（我上轮自己标过 ✓）：`feedSources` 是"详情页优先" ✗ → 每条抓 `/shorts/<slug>` ✗（5~15s ✗、1/7 超时 ✗）
+- 改（都在 `index.html` ✓）：
+  1. `xhMomentItems`（新顶层函数 ✓）：`moments` 条目 → item ✓，**mp4 取站点数组第一条 = 站点默认档 480p** ✓
+     （用户 2026-10-02 定的"用网站默认分辨率" ✓；也比 720p 少下一半数据 ✓）
+  2. `feedSources`：**条目自带源就直接用** ✓（0 网络 ✓）；只有页面 JSON 那 45 条（**确实无源** ✗）才抓详情页 ✓
+  3. **短片预热池** `warmShortsPool` ✓：进页面就并发抓 6 页 `moments`（≈35 条 ✓ **全带源** ✓，实测 1.7~2.2s ✓）
+  4. `preconnectHosts` ✓ + **滚动 preconnect**（每换一条把后面 8 条的主机先连上 ✓）：xHamster 的 mp4 主机**每条都不同** ✗
+     （`video7…` / `ip<随机号>.ahcdn.com` ✗）→ 慢的那几条全是**现做 DNS+TLS** ✗
+  5. `feedPrecacheOne` 修 **`mode:'no-cors'`** ✓：原来跨域 `fetch` 被 CORS 拒 ✗ → 异常被吞 ✗ → **等于没预热** ✗；
+     字节预热从 5 条收到 **2 条** ✓（no-cors 不能带 `Range` ✗ → 整文件下载 ✗，多了白耗带宽 ✗）
+  6. ⚠️ **`<video preload=auto>` 预热是死路** ✗（实测两遍 ✓）：`display:none` **一个请求都不发** ✗；
+     改"挪出屏幕 + opacity:0"**也不发** ✗（`readyState` 恒 0、网络面板 0 条 ✓）→ 只有 `fetch(no-cors)` 真发 ✓
+- **实测数字（端口 = 用户的 8787 ✓ 只读；Edge headless + CDP + 手机 UA ✓；全程静音 ✓）**：
+
+  | 指标 | 改前（每条抓详情页 ✗） | 改后 |
+  |---|---|---|
+  | 点「短片」tab → 出画面 | ~10s+ / 常超时 ✗ | **3.2s** ✗（未达 2s ✗） |
+  | 上滑换条（连续 5 次） | 5~15s / 条 ✗，1/7 失败 ✗ | 热主机 **216 / 246 / 246 / 767ms ✓**；冷主机 **1.5~3.8s ✗**（3/5 ≤2s） |
+  | 取数耗时 | 每条一次详情页 ✗ | **0 网络** ✓（日志 `短片取源 #N：条目自带 2 条` ✓） |
+
+- ❓ **残下的瓶颈 = 视频字节**：跨域 CDN 每主机现做 DNS+TLS+首包（走系统代理 ✓），**和本机网络强相关** ✗ ——
+  sim 侧已无更多手段 ✗；要**严格 ≤2s** 只剩两条（**都没做** ✗，等拍板 ✓）：
+  ① 每条整文件预下载 ✗（流量大 ✗）② **server 端带 Range 的缓存** ✗（要改 `server.mjs` ✗ → 触发热重载 ✗，按 §六-10 先问 ✓）
+- ⚠️ 另注：我的上滑是**背靠背 0.2 秒一次** ✗（比人手快 ✓）→ 人的节奏（每 2~4 秒划一次 ✓）基本都落在"热主机"那档 ✓
+
+**规矩遵守 ✓**：只改 `sim/index.html` ✓（`server.mjs` 这轮**没动** ✓ → 没触发热重载 ✓、没碰用户进程 ✓）；
+`node --check` 内联脚本 = **0** ✓；临时脚本/profile 全删 ✓（sim/ 已复核 ✓）；所有播放验证**全程静音** ✓
+
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）A 方案第 1 步：短片 tab 接入站点自己的网页 ---
+**用户拍板 ✓**：删掉自研瀑布流 ✗ → 短片 tab 的**内容区**直接嵌站点页面（`https://tw.xhamster.com/shorts` ✓）。
+⚠️ 修正一条早先的错判 ✗：`/shorts/newest` 是**卡片列表**（`<video>` = 0 个 ✗）→ **必须用 `/shorts`** ✓
+（sim-dev 真浏览器实测 ✅：`<video>` 2 个、其中一个 `readyState=4` **正在播** ✓、卡片数 0 ✓、DOM 带 `index-moments-static-moment` ✓，
+而且**站点自己就是 muted 自动播** ✓；模拟器嵌不了真站只是站点 CSP `frame-ancestors 'self'` 禁**跨域 iframe** ✗ —— 我们顶层 WebView **不受影响** ✓）。
+
+**第 1 步（本次 ✓）：只接，行为不改 ✗ —— 旧链路一行未删 ✓（可一夜回滚 ✓）**
+- `lib/base/site_ui.dart:94-99`：新增第 14 条站点事实 `String webTabUrl(String key) => '';` ✓（默认空 = 不嵌 ✓ → **其它站 / 其它 tab 行为完全不变** ✓）
+- `lib/sites/xhamster.dart:93-113`：实现它 ✓ —— `/shorts*` → **`https://tw.xhamster.com/shorts`** ✓（判定与 URL 拼接都留在站点文件 ✓）
+- `lib/web_embed.dart`（**新文件 154 行** ✓）：从 `web_page.dart` 抽出的**可嵌核心** ✓ —— controller + JS unrestricted + 手机 Safari UA ✓ + 进度条/错误重试 ✓ + `AutomaticKeepAliveClientMixin`（切 tab 回来**不重载** ✓）+ **静音保底** ✓（扫 `<video>` + **捕获式** `play` 监听 + 2 秒兜底 ✓，全程 try/catch ✗；用 `runJavaScript`（不带返回值 ✓）避开 iOS 14+ 对 `null/undefined` 直接报错 ✗）
+- `lib/web_page.dart`（**净删 59 行** → 59 行 ✓）：改成薄壳 ✓，**公开 API 没变** ✓ → `main.dart:161` / `detail_page.dart:247` **零改动** ✓（进度条从 AppBar 底下挪到网页顶部 ✓）
+- `lib/home_page.dart:725-732` + 新方法 `:250-287 _tabChild()` ✓：站点说这个 key 要嵌就 `WebEmbed(url, mute: true)` ✓，否则原 `_FeedView`（含原有 key 注释 ✓）；**顶栏 / tab 行 / 筛选行都在 TabBarView 外面** ✓ = 网页**只占内容区**、**不是全屏** ✓
+- 返回键 ✓：只在"**当前这个 tab 就是网页**"时拦 ✓（`canPop: _tab.index != indexOf(c)` ✓）—— keepAlive 会让后台实例留在树里 ✗，不判当前的话切走后返回键会被它吃掉 ✗✗
+- `lib/config.dart:31-37`：新增 `kDevWebSimBase`（**默认空 = 关** ✗；sim 侧已有 `/shorts`→`index.html` 路由 ✓，想看本地替身时指到 8787 ✓；**正式构建必须保持空** ✗）
+
+**numstat / 括号（Node + utf8 ✓）**：`site_ui 6/0` · `config 7/0` · `xhamster 16/0` · `home_page 50/14` · `web_page 12/71`（净删 ✓）· **新文件 `lib/web_embed.dart` 154 行（未跟踪 ✗ —— 构建时记得 `git add` ✓）** → 六个文件括号**全 0 / 对称** ✓（`xhamster` 的 4 与 2 个差是**改前就有** ✓）
+**没验证的** ❓：编译（本机无 SDK ✗）与真机表现（tab 行压得住 / 静音 / 返回键 / keepAlive ✓）→ **只能真机验** ✓；模拟器只覆盖"布局 + 本地替身" ✓
+**第 2 步（删 ≈950 行）** ✗ **未做** ✓ —— 两步走：先构建真机验过 ✓ 再删 ✓（清单已列：`shorts_feed_page.dart` 603 ✓ / `base/video_cache.dart` ✓ / `base/source_cache.dart` ✓ / `home_page` 的 push 分支与 `:152-173` 随机化 hack ✓ / `xhamster` 的 `_xhMoments*` 家族 ✓ / `site_ui` 的 `isShortsPath`+`resetShortsRandom` ✓）
+
+
+--- 追加（2026-10-03 本次构建 1.0.15 —— 短片 tab 改成果用站点自己的页面）---
+**用户决定**：删掉自研瀑布流，短片 tab 直接加载站点自己的 feed 页。
+**关键事实（sim-dev 实测更正）**：`https://tw.xhamster.com/shorts` 渲染后是**竖屏 feed + 播放器**（video=2，其中一个 rs=4 正在播，卡片数=0，站点自己 muted 自动播）；而 `/shorts/newest` 才是卡片列表页（video=0、卡片 103）—— 两者是不同页面。
+**模拟器为什么验不了**：站点禁跨域 iframe（CSP frame-ancestors self + X-Frame-Options SAMEORIGIN）；App 的 WebView 是顶层加载，不受影响。
+**第 1 步（本次）**：新增站点事实 `webTabUrl(key)`（默认空 → 其它站/其它 tab 行为不变）；xhamster 实现之（/shorts → https://tw.xhamster.com/shorts）；新增 `lib/web_embed.dart`；home_page tab 内容区分流 + 返回键规则；web_page 抽薄壳（公开 API 不变）。
+**旧链路一行未删**（shorts_feed_page / video_cache / source_cache / _xhMoments / push 分支）→ 真机验过后再删（约 950 行），可回滚。
+**真机要验**：tab 行/顶栏压得住 · 静音生效（含手点后）· 返回键先退网页 · 切 tab 回来不重载。
+
 ## 八、当前待办
 
+- [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
+      （真跨域测试 + CDP 帧树无子帧 ✓）。**但真站 `/shorts` 本身有 feed 播放器且站点自己 muted 自动播** ✓
+      → **App 的 WebView（顶层加载）能实现用户要的效果** ✓；模拟器侧只剩三选一（**等拍板** ✓）：
+      ① 不动（sim 用现有页内播放器 ✓，真站效果到手机上验 ✓）② 加「在真站打开」按钮 ✓ ③ 服务端反代+URL 重写 ✗（不推荐 ✗）
+- [ ] **短片"首帧 ≤2s"未达标** ❓（sim 侧取数已 0 网络 ✓，瓶颈在网络字节 ✗）：
+      要严格达标只剩 ①每条整文件预下载 ✗ ②`server.mjs` 端带 Range 缓存 ✗（要动服务端 → 先问 ✓）
+- [ ] **（sim 已就绪 ✓ 等 App 侧）短片 tab 内嵌站点短片页**：模拟器这边**内容区直接就是播放器**（点进来就播 ✓，
+      实测见上方 sim 第 4 轮 ✓）；App 侧那条（WebView 顶栏/tab 行保留、内容区加载站点页）等 app-dev ✓
 - [ ] **详情页播放器置顶**：代码已改好 ✓（固定顶部 + 下方单独滚动，括号校验通过）**未提交/未推** ✗
 - [ ] **桌面 ipa 落后**：桌面是 **1.0.1** ✓；**1.0.2**（含"加载失败提示不消失"修复）**已发 Releases 但未下到桌面** ✗
 - [ ] （可选）Actions artifact 名是否带版本 —— 现仍 `kpxx-ipa`，用户未表态

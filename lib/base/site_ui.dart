@@ -91,6 +91,12 @@ abstract class SiteUi {
   /// 选中短片 tab 时要重置短片随机种子 ✓。
   bool isShortsPath(String key) => false;
 
+  /// ⚠️ 这个 tab 的内容区要不要**直接嵌站点自己的网页** ✓（返回该网页 URL；**空串 = 不嵌** ✓ 默认 ✓）。
+  /// 用户 2026-10-03 拍板：xHamster「短片」tab → 直接嵌 `https://tw.xhamster.com/shorts` ✓
+  /// （用站点自己的竖屏 feed + 播放器 ✓，**我们不再抓数据** ✓）；**其余 tab / 其余站点一律照旧** ✓。
+  /// ⚠️ "哪个 key 要嵌、URL 怎么拼"属于**站点自己的事** ✗ → 判定与拼接都写在 `lib/sites/<站>.dart` ✓。
+  String webTabUrl(String key) => '';
+
   /// 点这张卡的**特殊去向**：`null` = 走详情页 ✓
   /// `list` = 进"他/她的视频列表"页（TagListPage ✓）· `shorts` = 进竖屏短片瀑布流 ✓。
   ///

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import 'app_bg.dart';
 import 'api.dart';
@@ -13,6 +14,7 @@ import 'sites/hanime1.dart';
 import 'sites/pornhub.dart';
 import 'sites/xhamster.dart';
 import 'sites.dart';
+import 'web_embed.dart';
 
 /// 单个站点的内容页：顶部分类 tab（可带子分类）+ 双列卡片列表。
 class HomePage extends StatefulWidget {
@@ -119,6 +121,10 @@ class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   late final Api _api = Api(site: widget.site);
+
+  /// ⚠️ "当前 tab 是站点网页"时用的控制器 ✓（用户 2026-10-03 拍板 A 方案 ✓）——
+  /// 只用于"返回键先退网页、退到底再关页" ✓；其余 tab 一律不碰 ✓。
+  WebViewController? _webCtl;
 
   /// 每 (分类|子分类) 一页列表状态
   final Map<String, _CategoryFeed> _feeds = {};
@@ -237,6 +243,49 @@ class _HomePageState extends State<HomePage>
 
   String? _themeFor(SiteTab c) =>
       _themeForKey(c.key, hasSubs: c.subs.isNotEmpty);
+
+  /// ⚠️ **tab 内容区的分流** ✓（用户 2026-10-03 拍板 A 方案：短片 tab **直接嵌站点自己的页面** ✓）——
+  /// 站点说这个 key 要嵌网页（`SiteUi.webTabUrl` ✓；**判定与 URL 都在站点文件里** ✓）就嵌 ✓，
+  /// 否则一切照旧走我们自己的列表 ✓（**其余 tab / 其余站点完全不受影响** ✓）。
+  Widget _tabChild(SiteTab c) {
+    final web = _api.ui?.webTabUrl(c.key) ?? '';
+    if (web.isEmpty) {
+      return _FeedView(
+        // ⚠️ key 必须**带上"选中项"** —— 用户 2026-10-03 实机报"选了分类按钮不显示对应的
+        //   明星" ✗。原 key 只有 分类/子分类，**不含 `_theme` / `_xhCtl.sel`** → 换了选中项
+        //   key 不变 → State 被复用，而 `_FeedViewState` **没有 didUpdateWidget** ✗
+        //   → 列表永远不会重新加载（「分类」tab 选那 388 个也一样不刷新 ✗）。
+        //   把两个选中项都写进 key：一变就换 State → 重新拉 ✓
+        // key 里的选中项也用 `_themeFor(c)` ✓（与取数同一个值 ✓）——
+        // 这样**别的 tab 不会因为切换它的选中项而白重拉** ✗，本 tab 选了才换 State ✓
+        key: ValueKey(
+            '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}|${_themeFor(c) ?? ''}'),
+        feed: _feedFor(c),
+        site: widget.site,
+      );
+    }
+    // ⚠️ 网页分支 ✓：**一律静音** ✗（`mute: true` ✓）；控制器交给宿主 ✓（返回键要用 ✓）
+    return PopScope(
+      // ⚠️ 只有"这个 tab **就是当前 tab**"时才拦返回键 ✓ —— keepAlive 会让它在后台也留在树里 ✗，
+      //    不判当前的话，切到别的 tab 后返回键会被它吃掉 ✗✗
+      canPop: _cats.isEmpty || _tab.index != _cats.indexOf(c),
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        // 网页能后退就让它后退 ✓，退到底了再关本页 ✓（与 `web_page.dart` 同一套规则 ✓）
+        final ctl = _webCtl;
+        if (ctl != null && await ctl.canGoBack()) {
+          ctl.goBack();
+          return;
+        }
+        if (mounted) Navigator.of(context).pop();
+      },
+      child: WebEmbed(
+        url: web,
+        mute: true,
+        onCreated: (ctl) => _webCtl = ctl,
+      ),
+    );
+  }
 
   /// 懒创建：feed 首次被可见页 build 时才真正发起请求（见 _FeedViewState）
   _CategoryFeed _feedFor(SiteTab c) {
@@ -677,20 +726,7 @@ class _HomePageState extends State<HomePage>
             child: TabBarView(
               controller: _tab,
               children: [
-                for (final c in _cats)
-                  _FeedView(
-                    // ⚠️ key 必须**带上"选中项"** —— 用户 2026-10-03 实机报"选了分类按钮不显示对应的
-                    //   明星" ✗。原 key 只有 分类/子分类，**不含 `_theme` / `_xhCtl.sel`** → 换了选中项
-                    //   key 不变 → State 被复用，而 `_FeedViewState` **没有 didUpdateWidget** ✗
-                    //   → 列表永远不会重新加载（「分类」tab 选那 388 个也一样不刷新 ✗）。
-                    //   把两个选中项都写进 key：一变就换 State → 重新拉 ✓
-                    // key 里的选中项也用 `_themeFor(c)` ✓（与取数同一个值 ✓）——
-                    // 这样**别的 tab 不会因为切换它的选中项而白重拉** ✗，本 tab 选了才换 State ✓
-                    key: ValueKey(
-                        '${c.key}|${_level1(c)?.key ?? ''}|${_level2(c)?.key ?? ''}|${_themeFor(c) ?? ''}'),
-                    feed: _feedFor(c),
-                    site: widget.site,
-                  ),
+                for (final c in _cats) _tabChild(c),
               ],
             ),
           ),
