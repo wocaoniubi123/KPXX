@@ -6,6 +6,7 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+import 'dart:convert';
 import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
