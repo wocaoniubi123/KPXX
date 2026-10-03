@@ -17,6 +17,7 @@ import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as hp;
 
 import '../api.dart';
+import '../app_background.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';

@@ -1780,6 +1780,23 @@ Error (Xcode): lib/sites/pornhub.dart:16: Error: 'Element' is imported from both
 - hanime1.dart：限定 Document×2 ✓
 - 全 lib 复查：**同时无前缀 import 两库的文件 = 0** ✓
 （build-watch 扫出这一类共 19 处引用 / 2 个文件 ✓，一次修完 ✓）
+
+--- 第 88 条续（第 12 次构建【失败】→ 修 4 处）---
+❌ **CI run 37092841420 失败**（commit 201448d）。**错误原文**：
+```
+Error (Xcode): lib/sites/hanime1.dart:34:35: Error: The getter 'kChipBorder' isn't defined for the class 'HanimeSite'.
+```
+**根因**：`kChipBorder`/`kTxt`/`kTxtSub`/`kStatusOverlay` 是 `lib/app_background.dart` 的**顶层 getter** ✓，
+搬进站点文件的 widget 代码裸用它 ✗ 而站点文件没 import ✓。
+✅ **这一类共 4 处 / 2 文件（build-watch 扫全 lib 25 个顶层 getter 得出）**：
+hanime1 L34 `kChipBorder` / L41 `kTxt`；pornhub L38 `kChipBorder` / L45 `kTxt`（两文件都没用到另两个 ✓）
+
+✅ **修法：各加 `import ../app_background.dart;`（一行收工 ✓，零复制 ✓）** ——
+理由：`kTxt`/`kChipBorder` 是**全局主题常量** ✓，属"公用基础设施"（与播放器/设置同类 ✓），
+不是站点逻辑 ✗，所以**不该搬到站点里**（搬了改主题要改 10 处 ✗）。依赖方向也核过：不成环 ✓。
+
+✅ build-watch 同时**主动校正了它上一轮的 4 个误报**（`_fmt`/`_nameOf` 其实都有声明 ✓，该类实际 0 处 ✓）——
+原因是它的同名多文件扫描只保留了一个声明文件 ✓。这种"自己纠正自己"的做法很好 ✓。
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
