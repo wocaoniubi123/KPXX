@@ -611,6 +611,41 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 **旧链路一行未删**（shorts_feed_page / video_cache / source_cache / _xhMoments / push 分支）→ 真机验过后再删（约 950 行），可回滚。
 **真机要验**：tab 行/顶栏压得住 · 静音生效（含手点后）· 返回键先退网页 · 切 tab 回来不重载。
 
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）修「一点播放就弹系统全屏播放器」（用户实测 1.0.15 ✗）---
+**用户反馈**：「怎么是 safari 的框架？？？？」+ 截图 ✓ → 查明：**不是 Safari** ✗ —— 那是 **iOS 原生全屏播放器** ✓
+（左上 X / AirPlay / 画中画 / 静音 / ⏸ / ±10s / 底部进度条 ✓），而且**回不到列表、无法滑动** ✗。
+**根因（查证 ✓）**：iOS 的 WKWebView **默认不允许 `<video>` 内联播放** ✓ —— 官方文档原文（pub.dev
+`WebKitWebViewControllerCreationParams`）里 `allowsInlineMediaPlayback=false` ✓（**默认值就是 false** ✗）→
+站点页里一点视频就被顶成**系统全屏** ✗（页面本身是内联 feed ✓，是我们这边没开这个开关 ✗）。
+**修（只动 `lib/web_embed.dart` ✓）**
+1. ⭐ 控制器创建参数 ✓：`WebKitWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(
+   params, allowsInlineMediaPlayback: true, mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{})` ✓
+   —— **类名/参数名照官方文档核过** ✓（不猜 ✗）；这两个都是 `WKWebViewConfiguration` 的**创建期只读项** ✓
+   → 只能走创建参数 ✓（`WebViewController.fromPlatformCreationParams` ✓，官方示例写法 ✓）。
+   ⚠️ 顺带清空 `mediaTypesRequiringUserAction`（默认 `{audio, video}` ✓）→ 让站点自己的**静音自动播**能起来 ✓
+   （否则每换一条都要手点一下 ✗）；静音仍由 JS 全程压着 ✓。
+2. JS 兜底（`_guardJs` ✓，与静音同一处 ✓）：每个 `<video>` 补 `playsInline = true` + `playsinline` /
+   `webkit-playsinline` 属性 ✓；`play` 捕获监听里也补一遍 ✓；站点若自己喊 `webkitEnterFullscreen()` ✗ →
+   在 `webkitbeginfullscreen` 里立刻 `webkitExitFullscreen()` ✓（能不拦就不拦 ✓）。
+3. 旧 `_muteJs` 已被 `_guardJs` **整体取代** ✓（无残留 ✓）；**返回键规则未动** ✓；`mute: false` 时跳过 JS 注入 ✓
+   （控制器参数仍生效 ✓ —— 目前两处调用都用默认 `mute: true` ✓）。
+**依据（file:line）**：`lib/web_embed.dart:56-84`（创建参数 ✓）· `:91-125`（`_guardJs` ✓）· `:17-23`（类注释 ✓）；
+API 出处 ✓：pub.dev `webview_flutter_wkwebview` → `WebKitWebViewControllerCreationParams`（含 `allowsInlineMediaPlayback` /
+`mediaTypesRequiringUserAction` ✓）+ `webview_flutter` → `WebViewController.fromPlatformCreationParams`（官方示例 ✓）。
+**numstat / 括号（Node + utf8 ✓）**：`lib/web_embed.dart 49/12` ✓（`()` 84/84 · `{}` 31/31 · `[]` 2/2 **全配平** ✓，行数 153→191 ✓）
+⚠️ 新增 import `package:webview_flutter_wkwebview/...` ✓（随 `webview_flutter` 一起装的 **iOS 实现包** ✓）；
+`depend_on_referenced_packages` 可能报一条 **info** ✓ **不拦构建** ✗（要消掉就往 pubspec 里显式加一行 ✓）。
+**没验证的** ❓：编译（本机无 SDK ✗）；真机三件事 —— ① 内联播放、不再弹系统全屏 ✓ ② 上滑换条能自动播 ✓
+③ 静音仍生效 ✓；⚠️ 若**站点自己在别处**强行全屏（或用了 iOS 不允许的 API ✓），兜底也可能压不住 ❓。
+
+
+--- 追加（2026-10-03 本次构建 1.0.16 —— 短片 WebView 内联播放）---
+**用户实测（1.0.15）**：短片 tab 能出站点页，但一点视频就弹 iOS 原生全屏播放器、回不到列表、无法滑动（他以为是 Safari，其实是系统全屏播放器）。
+**根因**：WKWebView 的 `allowsInlineMediaPlayback` **默认为 false**（pub 文档原文：Whether inline playback of HTML5 videos is allowed）→ 站点页里的 video 被系统顶成全屏。
+**修（只动 `lib/web_embed.dart`）**：iOS 创建参数改走 `WebKitWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(...)`，设 `allowsInlineMediaPlayback: true` + `mediaTypesRequiringUserAction: const {}`（后者让站点的静音自动播能起）；JS 兜底给每个 video 补 playsInline，并在 webkitbeginfullscreen 里退出全屏。
+**注意**：这两个开关只能在**创建时**给（WKWebViewConfiguration 创建期只读）；新增 import `webview_flutter_wkwebview` 可能引出 `depend_on_referenced_packages` info（不拦构建）。
+**真机待验**：内联播放 ✓ / 上滑换条能否自动播 ✓ / 静音仍生效 ✓ / 返回键不变 ✓。
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+// ⚠️ iOS 的 WebView 创建参数在这个包里 ✓（webview_flutter 的 iOS 实现 ✓、随它一起装 ✓；
+//    官方文档给的写法就是引这个包 ✓ —— `depend_on_referenced_packages` 可能会报一条 info ✓ 不拦构建 ✗）
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'app_background.dart';
 
@@ -14,6 +17,11 @@ import 'app_background.dart';
 /// ⚠️ **静音保底** ✓（要求：一律静音 ✗）：站点自己就是 muted 自动播 ✓，但用户手点后可能带声 ✗ →
 /// 这里在 `document` 上挂**捕获式** `play` 监听 ✓ + 定时扫一遍 `<video>` ✓，把 `muted/volume` 压住 ✓
 /// （平台层没有静音开关 ✗，只能走 JS ✓）；**全程 try/catch，静音失败绝不影响浏览** ✗。
+///
+/// ⚠️ **内联播放**（2026-10-03 用户实测 ✗）：iOS 的 WKWebView **默认不允许** `<video>` 内联播 ✓
+/// （`allowsInlineMediaPlayback=false` ✓，官方文档 ✓）→ 一点播放就弹**系统全屏播放器** ✗、且**回不到列表** ✗
+/// （用户把那套 UI 当成了 Safari ✗）→ 主修在创建参数（`initState` 里的 `allowsInlineMediaPlayback: true` ✓），
+/// JS 里再给每个 `<video>` 补 `playsInline` + `playsinline`/`webkit-playsinline` 兜底 ✓。
 class WebEmbed extends StatefulWidget {
   const WebEmbed({
     super.key,
@@ -55,7 +63,23 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   @override
   void initState() {
     super.initState();
-    _ctl = WebViewController()
+    // ⚠️ 2026-10-03 修（用户实测 ✗）：**iOS 必须允许"内联播放"** —— 否则 WKWebView 的默认是
+    //    `allowsInlineMediaPlayback = false` ✓（官方文档原文 ✓）→ 站点页里的 `<video>` 一播就被顶到
+    //    **系统全屏播放器** ✗（左上 X / AirPlay / 画中画那一套 ✓、**回不到列表** ✗ —— 用户还以为是 Safari ✗）。
+    // ⚠️ 顺带把"需要用户手势才能播"清空 ✓：站点自己就是**静音自动播** ✓，不清空的话每换一条都要点一下 ✗
+    //    （`mediaTypesRequiringUserAction` 默认 `{audio, video}` ✓）；静音由 `_guardJs` 全程压着 ✓。
+    // ⚠️ 这两个开关**只能在创建时**给 ✓（对应 `WKWebViewConfiguration` 的创建期只读项 ✗）→ 走 iOS 创建参数 ✓。
+    PlatformWebViewControllerCreationParams params =
+        const PlatformWebViewControllerCreationParams();
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params =
+          WebKitWebViewControllerCreationParams.fromPlatformWebViewControllerCreationParams(
+        params,
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    }
+    _ctl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(widget.ua)
       ..setNavigationDelegate(
@@ -65,7 +89,7 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _progress = 1);
-            _applyMute();
+            _applyGuard();
           },
           onWebResourceError: (e) {
             // 只处理主文档失败，子资源（图/广告）失败不打扰用户 ✓（原 web_page.dart 同款 ✓）
@@ -79,26 +103,39 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
     widget.onCreated?.call(_ctl);
   }
 
-  /// 静音：① 立刻扫一遍已有 `<video>` ✓ ② 挂**捕获式** `play` 监听 ✓（用户手点播放也一样压得住 ✓）
-  /// ③ 每 2 秒兜一次 ✓（站点自己的"取消静音"按钮也压回来 ✓ —— 用户要求"一律静音" ✗）。
-  Future<void> _applyMute() async {
+  /// 每次页面加载后注入 `_guardJs` ✓（静音 ✓ + 内联播放兜底 ✓ + 系统全屏兜底 ✓）
+  Future<void> _applyGuard() async {
     if (!widget.mute) return;
     try {
-      await _ctl.runJavaScript(_muteJs);
+      await _ctl.runJavaScript(_guardJs);
     } catch (_) {
       // 页面里没有 video / JS 被拦 → 静默 ✓（绝不弹错、绝不影响浏览 ✗）
     }
   }
 
-  static const String _muteJs = r'''
+  /// ① 静音：立刻扫一遍 `<video>` ✓ + 捕获式 `play` 监听 ✓（用户手点也压得住 ✓）+ 每 2 秒兜一次 ✓
+  /// ② **内联播放兜底** ✓：`playsInline` + `playsinline`/`webkit-playsinline` 属性
+  ///    （主修是 controller 的 `allowsInlineMediaPlayback` ✓，这里是保底 ✗）
+  /// ③ **系统全屏兜底** ✓：万一站点自己喊 `webkitEnterFullscreen()` ✗ → 立刻退出来 ✓（能不拦就不拦 ✓）
+  static const String _guardJs = r'''
 (function () {
-  function m(v) { try { v.muted = true; v.volume = 0; v.setAttribute('muted', 'muted'); } catch (e) {} }
-  function sweep() { try { document.querySelectorAll('video').forEach(m); } catch (e) {} }
+  function fix(v) {
+    try {
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      v.muted = true; v.volume = 0; v.setAttribute('muted', 'muted');
+    } catch (e) {}
+  }
+  function sweep() { try { document.querySelectorAll('video').forEach(fix); } catch (e) {} }
   sweep();
-  if (!window.__kpxxMute) {
-    window.__kpxxMute = true;
+  if (!window.__kpxxFix) {
+    window.__kpxxFix = true;
     document.addEventListener('play', function (e) {
-      try { if (e && e.target && e.target.tagName === 'VIDEO') m(e.target); } catch (err) {}
+      try { if (e && e.target && e.target.tagName === 'VIDEO') fix(e.target); } catch (err) {}
+    }, true);
+    document.addEventListener('webkitbeginfullscreen', function (e) {
+      try { var v = e.target; if (v && v.webkitExitFullscreen) v.webkitExitFullscreen(); } catch (err) {}
     }, true);
     setInterval(sweep, 2000);
   }
