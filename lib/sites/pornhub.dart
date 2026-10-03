@@ -19,7 +19,7 @@ import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Pornhub 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class PhSite implements SiteUi {
+class PhSite extends SiteUi {
   PhSite(this._f);
 
   final SiteFetcher _f;

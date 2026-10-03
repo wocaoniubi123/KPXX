@@ -20,7 +20,7 @@ import '../base/site_ui.dart';
 import '../models.dart';
 
 /// xHamster 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class XhSite implements SiteUi {
+class XhSite extends SiteUi {
   XhSite(this._f);
 
   final SiteFetcher _f;

@@ -16,7 +16,7 @@ import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Hanime1 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class HanimeSite implements SiteUi {
+class HanimeSite extends SiteUi {
   HanimeSite(this._f);
 
   final SiteFetcher _f;

@@ -14,7 +14,7 @@ import '../base/site_ui.dart';
 import '../models.dart';
 
 /// Pektino 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
-class PektinoSite implements SiteUi {
+class PektinoSite extends SiteUi {
   PektinoSite(this._f);
 
   final SiteFetcher _f;

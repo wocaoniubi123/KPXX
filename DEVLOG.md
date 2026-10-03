@@ -1407,6 +1407,35 @@ Encountered error while archiving for device.
 **📈 进度**：轮次 **32/40**；第 1 次构建失败 → 已修 → 重推 ✓。
 `api.dart` **381 行** ✓ · `home_page.dart` **1827 行** ✓ · `xhamster.dart` **391 行** ✓（删掉 1 行 ✓）。
 
+
+--- 第 87 条续（Round 32 · 第 2 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37088323751` 失败**（commit 2de9dcc ✓，失败步骤「Flutter build IPA」✓）
+
+**错误原文（1 条 ✓）**：
+```
+Error (Xcode): lib/sites/pornhub.dart:22:7: Error: The non-abstract class 'PhSite' is missing implementations for these members:
+```
+⚠️ **该条的"成员名单"在 CI 日志里是空的** ✗（下一行是空行 ✓）→ 无法原样抄 ✓，只能按源码推 ✓。
+
+🔴🔴 **这是我在 Round 17 犯的【设计错误】✗✓（重要，记牢 ✗）**：
+- 我在 `site_ui.dart` 里写了"**默认值 = 没这个特性 → 涉及不到的站点一行都不用写**" ✗ ——
+  ✅ **这只对 `extends` 成立** ✗，**对 `implements` 完全不成立** ✗✓✓！
+- Dart 语义 ✅[实锤，被编译器证明]：**`implements` 不继承接口里带实现体的成员** ✗ ——
+  哪怕方法有默认体，实现类**也必须自己重写** ✓，否则报 "missing implementations" ✓。
+- 后果 ✓：4 个 `implements SiteUi` 的类**全部缺成员** ✗ ——
+  `PhSite` 缺 5（masonry/isShortsPath/hasCatGroups/hasFilterRow/hasStarTab ✓）·
+  `HanimeSite` 缺 12 · `PektinoSite` 缺 12 · `XhSite` 缺 3 ✓。
+  ⚠️ 本次 CI **只报了 PhSite 一条** ✓（❓ 为什么没一起报，日志看不出来 ✓）→ 若只补它，下次还会一个个冒 ✗。
+
+✅ **修法（一次消掉整类错误 ✓）**：4 个类 **`implements SiteUi` → `extends SiteUi`** ✓✓
+- 前提已核 ✓：4 个类**都没有别的父类** ✓；`SiteUi` 是 `abstract class`、**无构造函数、无字段** ✓ → `extends` 不会引入构造冲突 ✓
+- 结果 ✓：`HanimeSite` / `PektinoSite` / `PhSite` / `XhSite` 全部 `extends SiteUi` ✓
+- ✅ **全项目再扫 `implements`：没有其它用法** ✓
+
+⚠️ **重要背景（build-watch 查证 ✓）**：`lib/base/site_ui.dart` 是 R17（`35e87f5`）新建的 ✓，
+而**上一次绿色构建 `9806df8` 时 `lib/base` 目录还不存在** ✓ → ✅ **R17~R31 共 23 个提交是第一次被真正编译** ✓
+→ **后面可能还有别的编译错误排队** ✓（如实告知用户 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
