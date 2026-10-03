@@ -1577,6 +1577,44 @@ Error (Xcode): lib/sites/wordpress.dart:287:22: Error: The getter 'site' isn't d
 ② "裸用旧宿主其它成员"泛扫 126 条 → 绝大多数是**同名参数/局部变量** ✓ → 噪音太大，不成立结论 ✓。
 ✅ **这种"信噪比不够就不给结论"的态度是对的** ✓（比硬给一堆误报强 ✓）。
 
+
+--- 第 87 条续（Round 32 · 第 8 次构建 🎉【成功】· 拿到 ipa）---
+🎉🎉 **CI run 37090135273 成功**（commit d63b57e，attempt=1，构建耗时 **4m21s**）
+
+## ✅ 产物
+- **ipa 路径**：C:\Users\Administrator\Desktop\kpxx.ipa
+- **文件大小**：**16,358,675 字节**（我自己也核过一遍 ✓）
+- **修改时间**：2026-10-03 10:37:30
+- **头 4 字节**：PK（正常 ipa）
+- 命令：gh run download 37090135273 -D G:\ZCode\_ipa → 解出 _ipa\kpxx-ipa\kpxx.ipa → Copy-Item 到桌面
+- 临时目录 G:\ZCode\_ipa **已删除** ✓；下载时桌面无旧 kpxx.ipa（未删任何文件 ✓）；桌面另有 kpxx-ipa.zip 非本次产生、未触碰 ✓
+
+## 📋 8 次构建循环全记录（前 7 次失败全是我的错 ✗，原文均已在上面各条记录）
+1. xhamster.dart:227 「_rand is already declared」→ 类里 _rand 声明两遍（搬站 + 短片各一份）
+2. pornhub.dart:22 「PhSite is missing implementations」→ **我 R17 的设计错**：
+   **implements 不继承默认实现** ✗（只有 extends 会）→ 4 个类全改 extends
+3. home_page.dart:1302 「_api is not defined for _FeedViewState」→ R19/21 把 _api 用到没有它的类里；
+   顺带自查又抓到 ArticleCard 2 处（作用域近似检查的功劳）
+4. api.dart:323 「initialData is not defined for HuangguoSite」→ 它是 static，被当实例调
+5. pektino.dart:103 「secClock is not defined for PektinoSite」→ **我 R9/15/26 上移底座函数时插进了类/函数体内部** ✗
+   （3 个文件：fetch.dart 的 secClock、fmt.dart 的 cleanSubTitle/videoOrdinal、parse.dart 的 toRelPath）
+6. kmsvip.dart:65 「hosts is not defined for KmSite」→ 用了 Api 的转发成员，站点里应写 _f.hosts（同类 _client/_host）
+7. wordpress.dart:287 「site is not defined for WpSite」→ 用了 Api 的 site 字段，应写 _f.site
+
+## ✅ 结论
+✅ **R17~R31 共 24 个提交首次真正编译通过** —— 站点独立改造的**代码层面全部成立** ✓
+⚠️ **但这只证明「能编译」** ✗：**行为是否与改造前一致，必须装到机器上实测** ✓
+（改造原则是"不重写逻辑、行为不变"，但只有真机能确认）
+
+## 📌 遗留待办（未做，如实列出）
+1. _fetchSourcesAt 里的**黄果分支**（站点逻辑散在公共函数里）—— 彻底下放需动共享换源函数结构
+2. 5 个 switch (site.template)：50 个 case 现在都是**一行委托**、零站点逻辑；🔍 我建议**不换接口**（R30 有证据，用户未表态）
+3. **CI 缺 flutter analyze 步骤**：本次最大教训 —— 每 4 分钟只暴露一条 Dart 错误；加一步就能一次拿全（build-watch 两次建议，用户未表态）
+4. dplayerSources 已只剩一份、isStarList 冗余已清（R31）
+
+## ⚠️ 本轮我自己的两个失误（如实记 ✗）
+- 第 5 次修复时第一版脚本"2 插 2 删"把 fmt.dart 弄坏 ✗ → git checkout 回滚后按"只补第一个"重做 ✓
+- 本条的 DEVLOG 第一次写入失败 ✗（heredoc 里含反引号/竖线的 markdown 表格把 JS 字符串弄坏 → SyntaxError → 未写入）→ 改用"数组拼行、不用反引号"重写成功 ✓
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
