@@ -19,6 +19,7 @@
 //   '/shorts/…' 不展开档位）→ 这里直接用 `sources` 里的第一条 ✓。
 
 import 'dart:async';
+import 'fetched_image.dart';
 import 'site_error_log.dart';
 
 import 'package:flutter/material.dart';
@@ -144,11 +145,14 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     if (hit != null) return Future.value(hit);
     final flying = _fetching[url];
     if (flying != null) return flying;
+    // 🔎 发出前先记一笔 ✓（否则「卡住」和「抛错」都没日志 ✗）
+    SiteErrorLog.log('短片', '取源开始 #$i $url');
+    final _t0 = DateTime.now().millisecondsSinceEpoch;
     final f = widget.api.detail(url).then((d) {
       final srcs = (d.videos.isNotEmpty) ? d.videos.first.sources : const <String>[];
       // 🔎 取源诊断（用户 2026-10-03 报：短片页一直转圈 ✓ —— 上一条埋点只盖了翻页 ✗，这条盖第一页 ✓）
       SiteErrorLog.log('短片',
-          '取源 #$i $url → videos=${d.videos.length} srcs=${srcs.length} 首条=${srcs.isEmpty ? "（空）" : srcs.first.split('?').first}');
+          '取源成功 #$i ${DateTime.now().millisecondsSinceEpoch - _t0}ms → videos=${d.videos.length} srcs=${srcs.length} 首条=${srcs.isEmpty ? "（空）" : srcs.first.split('?').first}');
       _srcCache[url] = srcs;
       _fetching.remove(url);
       return srcs;
@@ -162,7 +166,11 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
 
   Future<void> _open(int i) async {
     if (i < 0 || i >= _items.length) return;
-    final srcs = await _sourcesOf(i);
+    // ⚠️ 取源加超时 ✓：原来没有超时 → 一旦卡住就无限转圈（用户截图那个转圈 ✓）
+    final srcs = await _sourcesOf(i).timeout(const Duration(seconds: 20), onTimeout: () {
+      SiteErrorLog.log('短片', '取源超时 ✗ #$i（20 秒没回来）');
+      return const <String>[]; // 当空处理 → 走上层「取不到源」的分支 ✓ 不再干转 ✗
+    });
     if (!mounted) return;
     if (srcs.isEmpty) return;
     var kp = _kp;
@@ -321,7 +329,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                   fit: StackFit.expand,
                   children: [
                     if (it.cover.isNotEmpty)
-                      Image.network(it.cover, fit: BoxFit.contain),
+                      // ⚠️ 2026-10-03 修（用户报「短片卡片加载不出来」✗）：原来用 Image.network ✗ ——
+                      // **不带 Referer/UA** ✗ → xHamster 封面是防盗链的 ✓ → 403；且 Image.network 失败时
+                      // **什么都不画** ✗ → 屏上只剩背景 + 转圈 ✓（正是用户截图 ✓）。改用带站点头的 FetchedImage ✓
+                      FetchedImage(url: it.cover, fit: BoxFit.contain),
                     const Center(
                       child: SizedBox(
                         width: 22, height: 22,
