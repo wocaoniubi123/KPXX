@@ -1,4 +1,9 @@
 // 站点专属清单/档案已下放到各站点文件 ✓（循环 import 是允许的 ✓）
+import 'sites/kmsvip.dart';
+import 'sites/xvideos.dart';
+import 'sites/hanime1.dart';
+import 'sites/porna.dart';
+import 'sites/wordpress.dart';
 import 'sites/huangguo.dart';
 import 'sites/pektino.dart';
 import 'sites/madou.dart';

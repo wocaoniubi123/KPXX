@@ -8,6 +8,8 @@
 //   （"站点逻辑散在公共函数里"的典型 ✓），本次改成调本类公开方法 ✓；彻底下放列为**待办** ✓。
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import '../base/site_ui.dart';
 
@@ -515,4 +517,4 @@ const SiteEntry kSite06 = SiteEntry(
       ]),
     ],
     color: Color(0xFFFFB300),
-  ),;
+  );

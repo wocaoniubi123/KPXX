@@ -6,6 +6,8 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import '../base/site_ui.dart';
 import 'dart:typed_data';
@@ -173,4 +175,4 @@ const SiteEntry kSite11 = SiteEntry(
       SiteTab('1', '视频广场'),
     ],
     color: Color(0xFFFF4D6A),
-  ),;
+  );

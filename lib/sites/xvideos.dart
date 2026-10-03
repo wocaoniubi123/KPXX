@@ -7,6 +7,8 @@
 // 所以是"两段拼接"搬来的 ✓（中间那段 kmsvip 代码留在 `api.dart` 未动 ✓）。
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import '../base/site_ui.dart';
 
@@ -470,4 +472,4 @@ const SiteEntry kSite10 = SiteEntry(
       SiteTab('/pornstars-index', '色情明星'),
     ],
     color: Color(0xFFFF9900),
-  ),;
+  );

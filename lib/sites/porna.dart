@@ -10,6 +10,8 @@
 // （`msCards` 只在本文件内用 → 保持私有 ✓）
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import '../base/site_ui.dart';
 
@@ -712,4 +714,4 @@ const SiteEntry kSite07 = SiteEntry(
       ]),
     ],
     color: Color(0xFF3B5998),
-  ),;
+  );

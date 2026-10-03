@@ -544,4 +544,4 @@ const SiteEntry kSite09 = SiteEntry(
     // 相关推荐走 AJAX POST（/video/load-playlist-chunk + _token），v1 未接
     showRelated: false,
     color: Color(0xFF5B2A86),
-  ),;
+  );

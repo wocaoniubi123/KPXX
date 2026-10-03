@@ -11,6 +11,8 @@
 // 并把 `Api.category/detail/search` 里 `case SiteTemplate.xhamster:` 改成委托本类 ✓。
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import 'dart:math';
 
@@ -1326,4 +1328,4 @@ const SiteEntry kSite14 = SiteEntry(
       themeEmptyLabel: '分类选择',
     ),
     color: Color(0xFFF5A623),
-  ),;
+  );

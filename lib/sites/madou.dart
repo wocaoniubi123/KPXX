@@ -281,4 +281,4 @@ const SiteEntry kSite12 = SiteEntry(
       SiteTab('/tags', '热门标签'),
       SiteTab('筛选', '筛选', mdScreens),
     ],
-  ),;
+  );

@@ -6,6 +6,8 @@
 // ⚠️ import 由脚本按**代码里实际用到的符号**推导 ✓（不是手写的 ✓）。
 
 import 'package:html/dom.dart';
+
+import 'package:flutter/material.dart';
 import '../sites.dart';
 import 'dart:convert';
 import '../base/site_ui.dart';
@@ -412,7 +414,7 @@ const SiteEntry kSite01 = SiteEntry(
       SiteTab('51hd', '往期活动'),
     ],
     color: Color(0xFFFF6B6B),
-  ),;
+  );
 
 /// 本站档案：每日大赛
 const SiteEntry kSite02 = SiteEntry(
@@ -443,7 +445,7 @@ const SiteEntry kSite02 = SiteEntry(
       SiteTab('aijc', 'AI剧场'),
     ],
     color: Color(0xFF7C4DFF),
-  ),;
+  );
 
 /// 本站档案：91吃瓜
 const SiteEntry kSite03 = SiteEntry(
@@ -478,7 +480,7 @@ const SiteEntry kSite03 = SiteEntry(
       SiteTab('lqzk', '猎奇重口'),
     ],
     color: Color(0xFF2F80ED),
-  ),;
+  );
 
 /// 本站档案：911爆料网
 const SiteEntry kSite04 = SiteEntry(
@@ -516,7 +518,7 @@ const SiteEntry kSite04 = SiteEntry(
       SiteTab('zqbb', '世界杯宝贝'),
     ],
     color: Color(0xFF27AE60),
-  ),;
+  );
 
 /// 本站档案：51fans
 const SiteEntry kSite05 = SiteEntry(
@@ -545,4 +547,4 @@ const SiteEntry kSite05 = SiteEntry(
       SiteTab('yczm', '官方公告板'),
     ],
     color: Color(0xFFE91E63),
-  ),;
+  );

@@ -720,4 +720,4 @@ const SiteEntry kSite13 = SiteEntry(
       themeEmptyLabel: '分类选择',
     ),
     color: Color(0xFFFF9000),
-  ),;
+  );

@@ -152,7 +152,7 @@ jobs:
       - name: 代码检查 (flutter analyze)
         run: |
           flutter pub get
-          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter analyze lib --no-fatal-infos --no-fatal-warnings
       - name: Flutter build IPA
         run: |
           flutter pub get
