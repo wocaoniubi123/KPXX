@@ -26,10 +26,3 @@ class Site {
     return http.Client();
   }
 }
-
-/// ⚠️ **只给开发用**的开关：把"要嵌站点网页的那些 tab"指到**本机模拟器** ✓
-/// （用户自己跑的 8787 ✓ 只读使用 ✓ 绝不 kill/重启 ✗）。
-///
-/// 默认 **空串 = 关闭** ✗ —— **正式构建必须保持空** ✓（模拟器**嵌不了真站**：站点 CSP
-/// `frame-ancestors 'self'` 禁跨域 iframe ✗ → 这条只在"想看本地替身的布局"时才用 ✓）。
-const String kDevWebSimBase = '';

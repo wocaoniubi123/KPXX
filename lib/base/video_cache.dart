@@ -29,14 +29,16 @@ class VideoCache {
   static final VideoCache i = VideoCache._();
 
   // ---- 上限（都是有意定的值 ✓）----
-  /// 单文件上限：超过就不预下 ✓（短片不该有这么大 ✗，别为一个源把带宽/磁盘吃光 ✗）
+  /// 单文件上限：超过就不预下 ✓（⚠️ B 项：`sim-dev` 实测 `Content-Length` 未到前**别改死** ✗ ——
+  /// 首条源是 `…/720p.h264.mp4` ✓，45 秒 720p 约 20~40MB ✗，现在这条 32MB **可能把常片挡在门外** ❓）
   static const int maxFileBytes = 32 * 1024 * 1024;
-  /// 目录总量上限（LRU 清到它以下 ✓）
-  static const int maxTotalBytes = 320 * 1024 * 1024;
+  /// 目录总量上限（LRU 清到它以下 ✓）—— E ✓：320 → **640MB**（用户存储不限 ✓）
+  static const int maxTotalBytes = 640 * 1024 * 1024;
   /// 最多保留的文件个数（LRU ✓）
   static const int maxFiles = 24;
-  /// 并发下载条数：**2** ✓ —— 留带宽给"正在播的那条" ✗（抢带宽反而更卡 ✗）
-  static const int concurrent = 2;
+  /// 并发下载条数：**5** ✓（用户 2026-10-03 拍板"**并发改成 5 试试**" ✓）
+  /// ⚠️ 真机若发现**播放变卡** ✗ → **就改这一行**回 1~2 ✓（缓/卡时另有一层"让路" ✓ 见 `pause()` ✓）
+  static const int concurrent = 5;
   /// 半截 `.part` 的最长存活时间（App 被杀掉留下的残渣 ✓）
   static const Duration partTtl = Duration(hours: 1);
 
@@ -46,6 +48,8 @@ class VideoCache {
   final Set<String> _running = {}; // 正在下 ✓
   final List<String> _queue = []; // 待下（按窗口顺序 ✓）
   bool _pumping = false;
+  /// C ✓：播放器在缓冲时**让路**（停止消费响应流 ✓、进度保留 ✓）
+  bool _paused = false;
 
   /// 建目录 + 清一次 LRU ✓（进短片页时调一次即可；重复调只会再清一次 ✓）
   Future<void> init() async {
@@ -99,7 +103,9 @@ class VideoCache {
     _pumping = true;
     Future(() async {
       try {
-        while (_queue.isNotEmpty && _running.length < concurrent) {
+        while (!_paused &&
+            _queue.isNotEmpty &&
+            _running.length < concurrent) {
           final u = _queue.removeAt(0);
           if (!_want.contains(u)) continue;
           _running.add(u);
@@ -112,6 +118,26 @@ class VideoCache {
         _pumping = false;
       }
     });
+  }
+
+  /// **暂停预下载** ✓（用户 2026-10-03 拍板 C ✓）：播放器在缓冲时调 → 带宽全让给"正在播的那条" ✗。
+  /// 做法是**停止消费响应流**（不新起任务 ✓ + 在下的那些在循环里等 ✓）—— TCP 背压会让服务端慢下来 ✓，
+  /// 且**不丢进度** ✓（恢复后从原地继续 ✓）。
+  void pause() => _paused = true;
+
+  /// 恢复（在下的继续 ✓、待下的接着起 ✓）
+  void resume() {
+    if (!_paused) return;
+    _paused = false;
+    _pump();
+  }
+
+  /// **放弃某一条** ✓（A 项用 ✓）：`_open()` 发现本地还没就绪、要**在线播**了 ✗ →
+  /// 把它从"想要"里摘掉 ✓ → 在下的 `_download` 会走既有的中止分支（删 `.part` ✓）→ 不跟播放抢流量 ✓。
+  /// ⚠️ 已经下好的不动 ✓（`_ready` 里的留着 ✓）
+  void drop(String url) {
+    _want.remove(url);
+    _queue.remove(url);
   }
 
   Future<void> _download(String url) async {
@@ -129,14 +155,18 @@ class VideoCache {
           .timeout(const Duration(seconds: 15));
       if (resp.statusCode != 200) return;
       final len = resp.contentLength ?? 0;
-      if (len > maxFileBytes) return; // 太大 → 不预下 ✓
+      if (len > maxFileBytes) return; // 太大 → 不预下 ✓（B 项待实测后调 ✓）
       final out = part.openWrite();
       var got = 0;
       var aborted = false;
       try {
         await for (final chunk in resp.stream) {
+          // ⚠️ C：被暂停（播放器在缓冲 ✓）→ **不消费**、原地等 ✓（背压生效 ✓、进度不丢 ✓）
+          while (_paused && _want.contains(url)) {
+            await Future.delayed(const Duration(milliseconds: 400));
+          }
           if (!_want.contains(url) || got + chunk.length > maxFileBytes) {
-            aborted = true; // 已被划走 / 超上限 → 不再收 ✓
+            aborted = true; // 已被划走 / 被 drop / 超上限 → 不再收 ✓
             break;
           }
           got += chunk.length;

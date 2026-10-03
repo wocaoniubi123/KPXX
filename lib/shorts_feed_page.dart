@@ -68,6 +68,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   //    （用户实测"点进来要好几秒才有画面"✗）→ 现在换成共享的 ✓（同一 url 只飞一次 ✓）。
 
   bool _playing = false; // 播放中（决定状态栏与 X 显示与否）
+  /// C ✓（用户 2026-10-03 拍板）：播放器**缓冲**时让预下载**让路** —— 去抖计时器（短暂抖动不折腾 ✓）
+  Timer? _bufTimer;
+  bool _bufPaused = false;
   bool _loadingMore = false;
   bool _done = false;
   /// 最近一次"续拉"是**失败**（网络/被挡/限流 ✓）——**不是**没内容 ✗ → 允许下次滑动重试 ✓
@@ -103,6 +106,13 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     }
     _pc.dispose();
     _idle.dispose();
+    // ⚠️ C：退出时把"让路"撤掉 ✓ —— 缓存是**全局单例** ✗，留着暂停会把预下载永久停住 ✗
+    _bufTimer?.cancel();
+    _bufTimer = null;
+    if (_bufPaused) {
+      _bufPaused = false;
+      VideoCache.i.resume();
+    }
     // 退出必须恢复（不然整个 App 都还是沉浸式 ✗）
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -131,6 +141,30 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       }
     } else {
       _autoAdvanced = false;
+    }
+    // ⚠️ C ✓：缓冲就让预下载让路（去抖后 ✓）
+    _watchBuffering(s.buffering);
+  }
+
+  /// C ✓（用户 2026-10-03 拍板）：**播放器一缓冲，预下载就让路** ✗ —— 带宽全给当前这条 ✓。
+  /// ⚠️ 去抖 1.5 秒 ✓：网络抖动导致的瞬时 buffering 不折腾 ✓（真卡住才让路 ✓）；
+  /// ⚠️ 恢复是**立刻**的 ✓（缓冲一结束就放开 ✓）。
+  void _watchBuffering(bool buffering) {
+    if (buffering) {
+      if (_bufPaused || _bufTimer != null) return; // 已经在让路 / 已经排上队 ✓
+      _bufTimer = Timer(const Duration(milliseconds: 1500), () {
+        _bufTimer = null;
+        if (!mounted) return;
+        _bufPaused = true;
+        VideoCache.i.pause();
+      });
+      return;
+    }
+    _bufTimer?.cancel();
+    _bufTimer = null;
+    if (_bufPaused) {
+      _bufPaused = false;
+      VideoCache.i.resume();
     }
   }
 
@@ -179,6 +213,11 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     // ⚠️ **预下载好的本地文件优先** ✓：还是**同一个** mpv，只是把地址换成 `file://` ✓
     //（用户 2026-10-03 定的方案 ✓）；没下完 / 不是直链 mp4（m3u8…）→ 回落在线直连 ✓
     final local = VideoCache.i.ready(srcs.first);
+    if (local == null) {
+      // ⚠️ A 项（用户 2026-10-03 拍板 ✓）：本地**还没就绪** → 这一次只能在线播 → 把它的预下载**放弃** ✗
+      //    （不许跟播放抢同一份流量 ✓；入口那一小段"抢跑"没抢到就干脆让路 ✓）
+      VideoCache.i.drop(srcs.first);
+    }
     await kp.open(local?.uri.toString() ?? srcs.first);
   }
 
@@ -221,7 +260,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   /// 划 1 条 → 窗口整体前移 → 缓存自动补新的一条 ✓、并把已经划走那条**中止** ✗（省带宽 ✓）。
   Future<void> _primeWindow(int count) async {
     final urls = <String>[];
-    for (var k = 1; k <= count; k++) {
+    // ⚠️ A 项 ✓：**`k` 从 0 起** —— 必须把**当前条**也放进窗口 ✓。
+    //    入口（点卡片）那一刻已经给它起过预下载 ✓；这里若不含它，`window()` 会把"不在窗口里"的下载**中止** ✗
+    //    → 抢跑白做 ✓。等 `_open()` 真的开播而本地还没就绪时，那边会 `drop()` 它 ✓（那时才该让路 ✓）。
+    for (var k = 0; k <= count; k++) {
       final j = _cur + k;
       if (j >= _items.length) break;
       final srcs = await _sourcesOf(j); // 命中共享缓存在途的 Future 时立即返回 ✓

@@ -16,7 +16,6 @@ import 'dart:convert';
 // —— material 会同时导出 `Element`/`Text`/`Key`，与 html/dom、encrypt 撞名 ✗（2026-10-03 analyze 报的 7 条错误就是这个 ✓）
 // `Color` 本来就定义在 dart:ui ✓ Flutter 只是转发 ✓
 import 'dart:ui' show Color;
-import '../config.dart';
 import '../sites.dart';
 import 'dart:math';
 
@@ -90,21 +89,6 @@ class XhSite extends SiteUi {
   /// xHamster 的短片路径（选中时要重置随机种子 ✓）
   @override
   bool isShortsPath(String key) => key.startsWith('/shorts');
-
-  /// ⚠️ 短片 tab = **直接嵌站点自己的页面** ✓（用户 2026-10-03 拍板 A 方案 ✓ —— 我们不再抓/解析短片数据 ✓）
-  /// 真浏览器实测（sim-dev ✓）：`/shorts` 是**竖屏 feed + 站点自己的播放器** ✓
-  /// （`<video>` 2 个、其中一个 `readyState=4` 在播 ✓、卡片数 0 ✓、DOM 带 `index-moments-static-moment` ✓），
-  /// 而且**站点自己就是 muted 自动播** ✓✓（静音保底仍由 App 侧 JS 压着 ✓）。
-  /// ⚠️ **必须用 `/shorts`** ✗ —— `/shorts/newest` 是**另一种页面**（卡片列表、`<video>` = 0 个 ✗）。
-  /// ⚠️ 站点禁**跨域 iframe**（CSP `frame-ancestors 'self'` ✓）→ 只影响"别人嵌它" ✗；
-  ///    我们自己的 WebView 是**顶层加载** ✓ **不受影响** ✓（模拟器里嵌不了正是这个原因 ✓）。
-  @override
-  String webTabUrl(String key) {
-    if (!key.startsWith('/shorts')) return '';
-    // ⚠️ 开发开关：`kDevWebSimBase` 默认空串 = 关闭 ✗（只在手动指本地模拟器时非空 ✓）
-    if (kDevWebSimBase.isNotEmpty) return '$kDevWebSimBase/shorts';
-    return 'https://tw.xhamster.com/shorts';
-  }
 
   /// xHamster 的分类选择器按分组展示（40 个演员分类 ✓）
   @override

@@ -646,6 +646,77 @@ API 出处 ✓：pub.dev `webview_flutter_wkwebview` → `WebKitWebViewControlle
 **注意**：这两个开关只能在**创建时**给（WKWebViewConfiguration 创建期只读）；新增 import `webview_flutter_wkwebview` 可能引出 `depend_on_referenced_packages` info（不拦构建）。
 **真机待验**：内联播放 ✓ / 上滑换条能否自动播 ✓ / 静音仍生效 ✓ / 返回键不变 ✓。
 
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）WebView 方案作废 → **逐字节回退**到瀑布流 ✓ ---
+**用户决定 ✗**：WebView 方案作废 ✓ → 短片 tab 回**自研瀑布流** ✓（1.0.15 里旧链路一行未删 ✓，所以这是纯撤销 ✓）。
+**回退范围（= 撤销 1.0.15 那两步 ✓）**
+- `lib/home_page.dart`：撤 tab 分流（`_tabChild` ✓）、撤 `PopScope`/返回键规则 ✓、撤 `_webCtl` ✓、撤两个 import ✓
+  → **tab 内容区恢复原样 `_FeedView`（含原 key 注释一字不差 ✓）** ✓
+- `lib/sites/xhamster.dart`：撤 `webTabUrl` 实现 ✓ + 撤那行 `import '../config.dart'` ✓
+- `lib/base/site_ui.dart`：撤 `webTabUrl` 这条站点事实 ✓ ｜ `lib/config.dart`：撤 `kDevWebSimBase` ✓（撤完无引用 ✓）
+- **保留** ✓：`lib/web_embed.dart`（191 行 ✓，**含 iOS 内联播放修复** ✓）与 `lib/web_page.dart`（薄壳 ✓）——
+  它们只服务**整页** `WebPage` ✓（`main.dart:161` / `detail_page.dart:247` ✓），内联播放修复对那两处是**净改善** ✓，
+  回退它们只会白增风险 ✗ → **留着** ✓（这是本轮我替它做的取舍 ✓）
+**验证（关键 ✓）**：`git diff 012743c（= 1.0.14 基线）-- <那 4 个文件>` → **输出为空** ✓✓ = **逐字节回到 1.0.14** ✓；
+残留检查 ✓：那 4 个文件里 `webTabUrl` / `_webCtl` / `kDevWebSimBase` / `WebEmbed` / `webview_flutter` **0 命中** ✓；
+括号余额全 0 ✓（`xhamster` 的 4 个差仍是**改前就有** ✓）。
+**当前工作区**：`lib/web_embed.dart`（内联播放修复 `49/12` ✓）· `sim/*`（**sim-dev 的** ✗）· DEVLOG ✓ —— 其余全部干净 ✓
+
+--- 追加（2026-10-03 · 工作区改动，**未提交未构建**）预缓冲优化：A + C + E + 并发 5（**B 等实测** ✗）---
+**用户拍板** ✓：A 首条也预下载 ✓ · B 放宽单文件上限（**等 `sim-dev` 的 `Content-Length`** ✗）· C 缓冲让路 ✓ · E 总量 640MB ✓ · **并发改成 5 试试** ✓
+**A 首条也预下载** ✓
+- `home_page.dart:1160-1168`：短片分支的入口预热接 `.then((srcs) => VideoCache.i.window(<String>[srcs.first]))` ✓
+  （`window()` 内部自带 `await init()` ✓（`video_cache.dart:86` ✓）→ 入口不用自己建目录 ✓）
+- `shorts_feed_page.dart:266`：`_primeWindow` 的循环 **`k` 从 0 起** ✓ —— 必须把**当前条**也放进窗口 ✗，
+  否则 `window()` 会把"不在窗口里"的下载**中止** ✗ → 入口那次抢跑就白做了 ✓
+- `shorts_feed_page.dart:215-219`：`_open()` 里 `ready()` 没命中 → `VideoCache.i.drop(srcs.first)` ✓
+  （放弃它的预下载 ✓：不跟**在线播**抢同一份流量 ✓）
+- `video_cache.dart:136-140`：新增 `drop(url)` ✓（摘 `_want`/`_queue` ✓ → 在下的 `_download` 走**既有**中止分支删 `.part` ✓；**已下好的不动** ✓）
+**C 缓冲让路** ✓
+- `video_cache.dart:52 / 106 / 126 / 129 / 165`：`_paused` ✓ + `pause()`/`resume()` ✓ + `_pump` 暂停时不起新任务 ✓ +
+  `_download` 循环里 `while (_paused && _want.contains(url)) await Future.delayed(400ms)` ✓
+  —— **不消费响应流 = TCP 背压** ✓（服务端自己慢下来 ✓）且**进度不丢** ✓（恢复即续下 ✓）
+- `shorts_feed_page.dart:146 / 152-169`：`_onTick` 里 `_watchBuffering(s.buffering)` ✓、**去抖 1.5 秒** ✓（抖动不折腾 ✓）、缓冲一结束**立刻**恢复 ✓；
+  `dispose`（`:113-117` ✓）里**必须 resume** ✗ —— 缓存是**全局单例** ✗，留着暂停会把预下载永久停住 ✗
+**E + 并发** ✓（`video_cache.dart:35-41`）：总量 320 → **640MB** ✓；`concurrent` 2 → **5** ✓（用户拍板 ✓）
+—— ⚠️ 并发就**这一个常量** ✓（真机若播放变卡 ✗ → **改这一行**回 1~2 ✓）；文件数 24 保留 ✓（等 B 数据再定 ✓）
+**没做的** ✗：B —— `maxFileBytes` 仍是 32MB ✓（代码里留了注释说明"等实测" ✓）
+**numstat / 括号（Node + utf8 ✓）**：`video_cache 38/8` ✓（134/134 · 61/61 · 7/7 ✓）· `shorts_feed_page 43/1` ✓（272/272 · 69/69 · 15/15 ✓）·
+`home_page 20/50` ✓（684/684 · 138/138 · 60/60 ✓）—— **余额全 0** ✓；`site_ui/config/xhamster` 仍是回退项 ✓
+**没验证的** ❓：编译（本机无 SDK ✗）；真机四件事 —— ① 首条是否真秒开 ✓ ② **并发 5 会不会播得更卡** ✗（会就回 1~2 ✓）
+③ 缓冲让路是否真缓解"划过去要等" ✓ ④ 回看是否更快 ✓；⚠️ 一个**小竞态** ❓：快速来回划时"窗口重加"可能晚于 `_open()` 的 `drop` ✓
+（那条会一边播一边继续下 ✗ —— 影响很小 ✓，先不额外加锁 ✓ `ponytail:` 天花板已记 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧=只探测**）短片源**真实体积**实测（给 app-dev 定预下载上限 ✓）---
+**取样**：moments 1~3 页 17 条（手机 UA ✓）+ `/shorts/<slug>` 详情页 5 条（**桌面 UA = App 的 `_xhDesk`** ✓）；
+体积用 `HEAD` 的 `Content-Length`（不给就 `Range: bytes=0-0` 读 `Content-Range` ✓）；**全程没播放**（不需要 ✗）。
+
+| 档位 | n | 最小 | 中位数 | 最大 |
+|---|---|---|---|---|
+| 480p（详情页，桌面 UA） | 10 | 0.95 MB | **2.25 MB** | 2.77 MB |
+| **720p（详情页，桌面 UA）** | 6 | 1.92 MB | **4.40 MB** | **5.10 MB** |
+| 480p（moments，手机 UA） | 10 | 1.32 MB | 1.56 MB | 1.89 MB |
+| 全部合计 | 16 | 0.95 MB | **2.65 MB** | **5.10 MB** |
+
+- ✅ **结论 1：`maxFileBytes = 32MB` 根本不是瓶颈** ✗ —— 观测最大 **5.1MB**（32MB = 6 倍余量 ✓）。
+  **建议上限 16MB** ✓（= 观测 p100 的 ~3 倍余量 ✓；真想保守就保持 32MB ✓ 也无害 ✓）。**别再拍脑袋 ✗，按这个数 ✓**
+- ⚠️ **结论 2：真正的拦路石是"形态"** ✗：**只有 m3u8、没有 mp4 的占 7/17（约 41%）** ✗（moments 样本 ✓）
+  → 这部分**永远没有文件可预下载** ✗（详情页样本里 1/5 也是如此 ✓）
+- ⚠️ **结论 3：源集**随 UA**不同** ✗（这条对 App 很关键 ✓）：**手机 UA 只给 480p 一路 mp4** ✗；
+  **桌面 UA 才给 480p + 720p 两路 mp4** ✓（App 用 `_xhDesk` = 桌面 UA ✓ → 能拿到 720p ✓，代价是 ~2 倍体积 ✓）
+- 附：m3u8 各档（auto/480p/720p/1080p）**全是 m3u8 变体清单** ✗ 的条目，实测大小只有 **268~577 字节**（= playlist ✗，不是视频 ✗）
+
+**规矩 ✓**：只探测 ✓ **没改任何代码** ✗；**没起任何本地服务** ✓（真站探测不需要 ✓）；**没碰用户进程** ✗（8787 全程没访问 ✓）；
+**没播放** ✓（只 HEAD/Range ✗ → 不存在出声问题 ✓）；4 个临时脚本**全删** ✓
+
+
+--- 追加（2026-10-03 本次构建 1.0.17 —— 回退 WebView + 瀑布流预缓冲优化）---
+**用户决定**：WebView 方案作废（点了会弹系统全屏、无法滑动），改回瀑布流，转而优化预缓冲。
+**回退**：撤掉 tab 分流 / webTabUrl（站点事实 + xhamster 实现）/ 为 WebView 加的返回键规则 / kDevWebSimBase；`git diff 012743c` 对那 4 个文件为空 = 逐字节回到 1.0.14。web_embed/web_page 保留（只服务整页 WebPage，含 iOS 内联播放修复，是净改善）。
+**优化（A/C/E + 并发 5）**：A 首条也预下载（入口预热接 VideoCache.window([源])、_primeWindow 从 k=0 起、_open 未命中的 drop 让路）；C 播放 buffering 时暂停预下载（去抖 1.5s、恢复即续下、dispose 必 resume —— 全局单例不然会永久停住）；E 总量 320→640MB；并发 2→5（单一常量，卡了改回 1~2）。
+**B 证伪**：实测（sim-dev）短片体积中位数 2.65MB / 最大 5.10MB → 32MB 上限从未触发，放宽无收益。教训：该实测的不要估算（我按长视频码率估成 20~40MB）。
+**未治**：约 41% 的条目只有 m3u8（无 mp4）→ 无法预下载，只能在线拉。
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
