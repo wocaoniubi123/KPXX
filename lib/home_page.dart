@@ -134,10 +134,10 @@ class _HomePageState extends State<HomePage>
   String _sort = 'favorite'; // 排序
 
   // ---- Hanime1 的筛选器（照站点：標籤/排序方式/發佈日期/時長）----
-  final _hn = HnFilters();
+  final _hnCtl = HnFilterController();
 
   // ---- Pornhub「色情明星」tab 的筛选器（排序/类型/时间/更多）----
-  final _phStar = PhStarFilters();
+  final _phCtl = PhStarController();
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -218,12 +218,12 @@ class _HomePageState extends State<HomePage>
   ///    也变成了分类选择器选择标签后的数据"** ✗ —— 根因：`_theme` 是**页面级单值** ✗，
   ///    而 `_feedFor` 与 `_applyFilters` **两处**都把它发给了**每个** tab ✗。
   /// 修法：只有"**本 tab 自己挂筛选行**"（用户在这个 tab 上能选）才吃 `_theme` ✓，其余一律 `null` ✓。
-  /// - xHamster「色情明星」tab 吃它自己的 `_xhStar` ✓（演员分类/榜單，与 388 视频分类隔离 ✓）
-  /// - Pornhub「色情明星」tab 有**自己那套**筛选（`_phStar`，走 `extra` ✓）→ 不吃 `_theme` ✓
+  /// - xHamster「色情明星」tab 吃它自己的 `_xhCtl.sel` ✓（演员分类/榜單，与 388 视频分类隔离 ✓）
+  /// - Pornhub「色情明星」tab 有**自己那套**筛选（`_phCtl.filters`，走 `extra` ✓）→ 不吃 `_theme` ✓
   String? _themeForKey(String key, {required bool hasSubs}) {
     // 星标 tab 吃它自己的选中值（判定下放各站 ✓）
     if (_api.ui?.isStarTabKey(key) ?? false) {
-      return _xhStar;
+      return _xhCtl.sel;
     }
     return _tabShowsFilterRowKey(key, hasSubs: hasSubs) ? _theme : null;
   }
@@ -243,7 +243,7 @@ class _HomePageState extends State<HomePage>
           // ⚠️ **选中项只发给"本 tab 自己挂筛选行"的那种 tab** ✓（唯一判据见 `_themeFor`）
           // —— 用户 2026-10-03 实机报：**"Pornhub 分类 tab 选了分类后，色情明星 tab 也变成了
           //    那个标签的数据"** ✗。根因就是这里原先无条件把**页面级单值** `_theme` 发给了每个 tab ✗。
-          //    xHamster 的「色情明星」tab 吃它自己的 `_xhStar` ✓（与那 388 个视频分类彻底隔离 ✓）。
+          //    xHamster 的「色情明星」tab 吃它自己的 `_xhCtl.sel` ✓（与那 388 个视频分类彻底隔离 ✓）。
           ..theme = _themeFor(c)
           ..duration = _duration
           ..sort = _sort
@@ -251,8 +251,8 @@ class _HomePageState extends State<HomePage>
           // 星标 tab 的选中项走 extra（哪些站走，判定在站点里 ✓）
           ..extra = ((_api.ui?.starUsesExtra ?? false) &&
                   (_api.ui?.isStarTabKey(c.key) ?? false))
-              ? _phStar.toParams()
-              : _hn.toParams());
+              ? _phCtl.filters.toParams()
+              : _hnCtl.filters.toParams());
   }
 
   /// 切筛选：所有分类的列表都重拉（筛选是页面级状态，照站点）
@@ -273,7 +273,7 @@ class _HomePageState extends State<HomePage>
   /// Pornhub 色情明星：把当前筛选应用到所有列表 + 重建
   void _applyPhStar() {
     setState(() {});
-    final p = _phStar.toParams();
+    final p = _phCtl.filters.toParams();
     for (final f in _feeds.values) {
       // ⚠️ **只推给它自己那个 feed** ✓ —— 原先推给**所有** feed ✗，与刚修的 `_applyFilters`
       // 是**同一类泄漏** ✓（用户 2026-10-03 报的就是这种："分类 tab 的选中项跑到色情明星 tab"✗）。
@@ -284,11 +284,11 @@ class _HomePageState extends State<HomePage>
   /// xHamster「色情明星」tab **自己的**选中路径（演员分类 / 榜單），与站点级 `_theme`
   /// （「分类」tab 的 388 视频分类）**分开存放** ✗ —— 用户 2026-10-02 明确：
   /// "色情明星的分类选择要显示正确的明星"（那 388 个是视频分类，挂到演员 tab 上是错的 ✗）。
-  String? _xhStar;
+  final _xhCtl = XhStarController();
 
   /// xHamster「色情明星」的筛选行：一个按钮 → 弹窗里两段（榜單 3 / 演员分类 40）
   Widget _xhStarRow() {
-    final sel = _xhStar == null ? null : _tabNameOf([...xhStarNav, ...xhStarCats], _xhStar!);
+    final sel = _xhCtl.sel == null ? null : _tabNameOf([...xhStarNav, ...xhStarCats], _xhCtl.sel!);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -297,13 +297,13 @@ class _HomePageState extends State<HomePage>
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              filterBtn(sel ?? '明星分類', _xhStar != null, _openXhStarDialog),
+              filterBtn(sel ?? '明星分類', _xhCtl.sel != null, _openXhStarDialog),
               // ⚠️ 「重置」要放在**选择器按钮后面**（用户 2026-10-03："重置是让你加到这个选择器
               //   按钮后面，跟分类tab下面的那个一样" ✗）—— 不能只放在弹窗里 ✓
-              if (_xhStar != null) ...[
+              if (_xhCtl.sel != null) ...[
                 const SizedBox(width: 6),
                 filterBtn('重置', false, () {
-                  setState(() => _xhStar = null);
+                  setState(_xhCtl.clear);
                   _reloadXhStar();
                 }),
               ],
@@ -343,7 +343,7 @@ class _HomePageState extends State<HomePage>
           // 「重置」：清掉选中项 + 丢掉该 tab 的列表缓存（列表会退回 /pornstars 全部明星 ✓）。
           TextButton(
             onPressed: () {
-              setState(() => _xhStar = null);
+              setState(_xhCtl.clear);
               _reloadXhStar();
               Navigator.pop(ctx);
             },
@@ -370,20 +370,19 @@ class _HomePageState extends State<HomePage>
     return null;
   }
   /// Pornhub 的色情明星筛选行（照站点四个控件）：
-  Widget _phStarRow() => PhStarBar(filters: _phStar, onChanged: _applyPhStar);
+  Widget _phStarRow() => _phCtl.row(onChanged: _applyPhStar);
 
   /// Hanime1：把当前筛选应用到所有列表 + 重建
   void _applyHn() {
     setState(() {});
-    final p = _hn.toParams();
+    final p = _hnCtl.filters.toParams();
     for (final f in _feeds.values) {
       f.applyExtra(p);
     }
   }
 
   /// Hanime1 的筛选行（四个下拉，照站点）
-  Widget _hnFilterRow() =>
-      HnFilterBar(api: _api, filters: _hn, onChanged: _applyHn);
+  Widget _hnFilterRow() => _hnCtl.row(api: _api, onChanged: _applyHn);
 
   /// Pektino 的筛选行（照站点：筛选按钮 + 时长/排序下拉）；
   /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」；2026-10-01 从"展开"改"弹窗"）
@@ -479,10 +478,10 @@ class _HomePageState extends State<HomePage>
   /// 筛选弹窗里的一组标签胶囊（主题区 / 语言区共用）。
   /// after：选完后的收尾动作（弹窗场景 = 关闭弹窗）。
   /// 标签芯片组。[starSel] = true 时它服务的是 xHamster「色情明星」tab 的**独立选中项**
-  /// `_xhStar`（演员分类），而不是站点级 `_theme`（视频分类）—— 两者**绝不能混** ✗
+  /// `_xhCtl.sel`（演员分类），而不是站点级 `_theme`（视频分类）—— 两者**绝不能混** ✗
   /// （用户 2026-10-02："色情明星的分类选择要显示正确的明星"）。
   Widget _filterChips(List<SiteTab> items, [VoidCallback? after, bool starSel = false]) {
-    bool sel(SiteTab t) => starSel ? _xhStar == t.key : _theme == t.key;
+    bool sel(SiteTab t) => starSel ? _xhCtl.sel == t.key : _theme == t.key;
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -492,7 +491,7 @@ class _HomePageState extends State<HomePage>
             borderRadius: BorderRadius.circular(8),
             onTap: () {
               if (starSel) {
-                setState(() => _xhStar = _xhStar == t.key ? null : t.key);
+                setState(() => _xhCtl.sel = _xhCtl.sel == t.key ? null : t.key);
                 _reloadXhStar();
               } else {
                 _theme = _theme == t.key ? null : t.key;
@@ -674,7 +673,7 @@ class _HomePageState extends State<HomePage>
                 for (final c in _cats)
                   _FeedView(
                     // ⚠️ key 必须**带上"选中项"** —— 用户 2026-10-03 实机报"选了分类按钮不显示对应的
-                    //   明星" ✗。原 key 只有 分类/子分类，**不含 `_theme` / `_xhStar`** → 换了选中项
+                    //   明星" ✗。原 key 只有 分类/子分类，**不含 `_theme` / `_xhCtl.sel`** → 换了选中项
                     //   key 不变 → State 被复用，而 `_FeedViewState` **没有 didUpdateWidget** ✗
                     //   → 列表永远不会重新加载（「分类」tab 选那 388 个也一样不刷新 ✗）。
                     //   把两个选中项都写进 key：一变就换 State → 重新拉 ✓
@@ -1313,7 +1312,7 @@ class _SearchPageState extends State<SearchPage> {
   String _kw = '';
 
   // ---- Hanime1：搜索页顶部也有筛选行（照站点四个下拉）----
-  final _hn = HnFilters();
+  final _hnCtl = HnFilterController();
 
   /// 转场动画结束后再聚焦（弹键盘）：键盘第一次冷启动开销大，和页面转场叠在一起
   /// 会掉帧（用户实报"第一次点开搜索有点掉帧"）。页面滑入完再弹，两者错峰。
@@ -1363,7 +1362,7 @@ class _SearchPageState extends State<SearchPage> {
     setState(() => _searched = true);
     _loading = true;
     try {
-      final next = await _api.search(kw, page: _page, extra: _hn.toParams());
+      final next = await _api.search(kw, page: _page, extra: _hnCtl.filters.toParams());
       if (next.isEmpty) {
         _done = true;
       } else {
@@ -1425,7 +1424,7 @@ class _SearchPageState extends State<SearchPage> {
           if (_api.ui?.hasFilterRow ?? false)
             HnFilterBar(
               api: _api,
-              filters: _hn,
+              filters: _hnCtl.filters,
               onChanged: () {
                 setState(() {});
                 if (_searched) {

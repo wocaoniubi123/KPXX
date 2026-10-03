@@ -296,6 +296,19 @@ class HnFilters {
       ];
 }
 
+/// **本站筛选的「状态 + 筛选行」**（用户 2026-10-03 要求：站点专属逻辑回到站点文件 ✓）
+///
+/// ⚠️ 原先状态（`_hn`）与筛选行的组装都写在公共页面 `home_page.dart` 里 ✗；
+/// 现在**状态归本站** ✓，页面只保留"选完要重新拉列表"这根线（用 [row] 的 onChanged 传进来 ✓）。
+class HnFilterController {
+  /// 本站的筛选值（标签 / 排序方式 / 發佈日期 / 時長 ✓）
+  final HnFilters filters = HnFilters();
+
+  /// 筛选行（页面直接插进列表头 ✓）
+  Widget row({required Api api, required VoidCallback onChanged}) =>
+      HnFilterBar(api: api, filters: filters, onChanged: onChanged);
+}
+
 /// Hanime1 的筛选行（照站点四个下拉）。单选类"选完即关"；
 /// 標籤是 240 个标签的多选弹窗（确定/清除/取消）。
 class HnFilterBar extends StatelessWidget {

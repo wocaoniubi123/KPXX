@@ -282,6 +282,16 @@ class PhStarFilters {
   int get moreCount => more.values.where((v) => v.isNotEmpty).length;
 }
 
+/// **本站「色情明星」筛选的状态 + 筛选行**（用户 2026-10-03 要求：站点专属逻辑回到站点文件 ✓）
+///
+/// ⚠️ 原先 `_phStar` 与行组装都在公共页面里 ✗；现在状态归本站 ✓，页面只提供"重新拉列表"回调 ✓。
+class PhStarController {
+  final PhStarFilters filters = PhStarFilters();
+
+  Widget row({required VoidCallback onChanged}) =>
+      PhStarBar(filters: filters, onChanged: onChanged);
+}
+
 /// Pornhub 色情明星筛选行（四个控件，照站点；前三个单选、选完即关）
 class PhStarBar extends StatelessWidget {
   final PhStarFilters filters;
