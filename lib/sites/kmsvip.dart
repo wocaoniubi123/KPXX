@@ -62,12 +62,12 @@ class KmSite {
     final sig =
         md5.convert(utf8.encode('data=$hex' 'maomi_pass_xyz')).toString();
     final order = [
-      if (hosts.contains(_host)) _host,
-      ...hosts.where((h) => h != _host),
+      if (_f.hosts.contains(_f.host)) _f.host,
+      ..._f.hosts.where((h) => h != _f.host),
     ];
     for (final h in order) {
       try {
-        final r = await _client
+        final r = await _f.client
             .post(
               Uri.parse('https://$h$path'),
               headers: {
@@ -82,7 +82,7 @@ class KmSite {
             )
             .timeout(const Duration(seconds: 10));
         if (r.statusCode != 200) continue;
-        _host = h;
+        _f.host = h;
         final plain = _kmAes.decryptBytes(
             Encrypted(_kmBytes(utf8.decode(r.bodyBytes).trim())),
             iv: _kmIv);
@@ -146,5 +146,5 @@ class KmSite {
       related: const [],
       seriesPrefix: '',
     );
-  }
+  }
 }

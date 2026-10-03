@@ -1533,6 +1533,28 @@ Error (Xcode): lib/sites/pektino.dart:***03:***4: Error: The method 'secClock' i
 ✅ **build-watch 的作用域扫描结论** ✓：32 个 lib 文件里**只有这 3 个中招** ✓，其余 29 个干净 ✓ →
 ✅ **"顶层名字被嵌套"这一整类，修完即清空** ✓✓（它明确说明不夸大、别类不保证 ✓）。
 
+
+--- 第 87 条续（Round 32 · 第 6 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37089570077` 失败**（commit 1da6556 ✓，编译阶段 ✓）
+
+**错误原文（1 条）**：
+```
+Error (Xcode): lib/sites/kmsvip.dart:65:***: Error: The getter 'hosts' isn't defined for the class 'KmSite'.
+```
+**根因** ✓：`KmSite._kmPost` 里用了 `hosts`(L65/66)、`_client`(L70)、`_host`(L65/66/85) ✗ ——
+**这些名字在 `KmSite` 里都不存在** ✗：它们是 `Api` 的**转发成员** ✓（`Api.hosts` / `Api._client` / `Api._host` ✓），
+搬站时**没跟着改** ✓。✅ `base/fetch.dart` 里就是它们的**真身** ✓（`hosts` 字段 / `host` getter+setter / `client` getter ✓）。
+✅ **修法**：`hosts`→`_f.hosts` ✓ · `_client`→`_f.client` ✓ · `_host`→`_f.host` ✓（含 `_host = h` → `_f.host = h` ✓）。
+
+⚠️ **我第一版脚本漏了一处（如实记 ✗）**：正则写成 `(^|[^_\w.$])hosts\b` ✗ ——
+本意是跳过 `_f.hosts` ✓，但**展开运算符 `...hosts` 里的 `.` 也被一起排除** ✗ →
+第 66 行 `...hosts.where(...)` 没改到 ✓ → ✅ **复核时发现并单独精确修掉** ✓（`..._f.hosts.where(...)` ✓）。
+
+✅ **这一类（"用了 `Api` 专有成员"）build-watch 从严复核过** ✓：
+32 个文件、14 个私有候选逐个验证**声明行** ✓ → ✅ **真缺口只有 kmsvip 这 3 个** ✓；
+✅ 它**还主动纠正了上一轮的误报** ✓（`_secClock`/`_token`/… 只在注释里 ✓，并说明"公开名那一层没能给出可信结果" ✓ 诚实 ✓）。
+⚠️ 我自己扫的那 20 处里，19 处是 `base/fetch.dart` 里的**声明本身** ✓（合法 ✓），只有 kmsvip 那条是真的 ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
