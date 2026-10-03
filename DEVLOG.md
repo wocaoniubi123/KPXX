@@ -84,3 +84,55 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 `0897af6` 批 2 三站状态机 → success ✓（Release `v2026.10.03-0520`，附件 `kpxx-1.0.1.ipa` ✓）
 `f128439` 播放器修复 → success ✓（版本 **1.0.2** ✓）
 桌面：`kpxx.ipa` = **1.0.1**（16,369,038 字节 @ 13:21:34）⚠️ 待更新
+
+---
+
+## 十、探测站点流程（**加新站 / 修选择器时照这个走** ✓）
+
+### 1. 先确认"事实"，再写代码 ✓
+- 用 **`recon` 子智能体**（只读侦察兵 ✓）：给它站点 URL / 路径，让它**打开真实页面**核实并产出「**事实 + 证据**」；
+  ⚠️ **禁止凭印象写选择器** ✗ —— 每条结论都要带证据（哪段 HTML、哪个字段、什么条件下 ✓）
+- 结论标注口径：✅[实锤]（看过原文/实测）· 🔍[推断]（附依据）· ❓[未知]（**不许猜着写** ✗）
+
+### 2. 要摸清的东西（按这个清单问 ✓）
+| 要摸什么 | 说明 |
+|---|---|
+| **列表页** | URL 形态（分页怎么拼 ✓）、卡片容器选择器、每张卡的标题/链接/封面/时长/角标取哪个节点 |
+| **分类/子分类** | 分类 key 与显示名、是否多级、URL 拼接规则（`/category/{k}/` 之类 ✓）|
+| **筛选器** | 站点有哪些筛选维度（排序/日期/时长/标签/明星…）、参数怎么拼进 URL |
+| **搜索** | 路径形态、分页规则、是否需要原文本编码 |
+| **详情页** | 播放源怎么拿（`.dplayer[data-config]` ✓ / 内嵌 JSON ✓ / 加密接口 ✓）、Referer 要求、多集/合集怎么表示 |
+| **分页/续拉** | 是"页码"还是"游标"、到底了怎么判断 |
+| **反爬** | 是否需要特定 UA / Referer / 加密签名 / AES |
+
+### 3. 改完必须真机验 ✓
+⚠️ **编译过 ≠ 行为对** ✗ —— 选择器写错**不会报错** ✗，只会"列表空 / 播放黑屏" ✓
+→ 列表、搜索、详情、播放各点一遍 ✓；出问题去 **设置 → 诊断 → 错误日志** 看是哪个站、什么错 ✓
+
+### 4. 本地模拟器（可选，验选择器用 ✓）
+`sim/server.mjs` + `sim/index.html`，端口 **8787**，用 `?site=N` 切换站点 ✓ —— 用来在**不碰真站**的情况下验解析 ✓
+（本机访问走系统代理 ✓；模拟器不代表 App 的真实网络行为 ✗）
+
+## 十一、各站显示元素（**从代码自动抽取，非手工整理** ✓）
+
+> 下表由脚本扫 `lib/sites/*.dart` 生成 ✓：`SiteEntry` 数 = 该文件覆盖几个站；"覆写的站点事实" = 它重写了 `SiteUi` 的哪些方法 ✓（没列的走默认值 = 无该特性 ✓）
+
+| 文件 | 站名 | 模板 | 站点数 | 域名 | 覆写的站点事实 | 卡片额外元素 |
+|---|---|---|---|---|---|---|
+| `hanime1.dart` | Hanime1 | `hanime1` | 1 | `'hanime1.me'` | （全默认） | badge · series/集数 |
+| `huangguo.dart` | 黄果短剧 | `huangguo` | 1 | `'huangguoai.com'` | sourcesFromHtml | badge · series/集数 · lazyUrl(合集) · 加密接口 |
+| `kmsvip.dart` | 快猫 | `kmsvip` | 1 | `'kmsvip.xyz'` | （全默认） | badge · series/集数 · 加密接口 |
+| `madou.dart` | 麻豆社 | `madou` | 1 | `'madou.club'` | （全默认） | series/集数 |
+| `pektino.dart` | Pektino | `pektino` | 1 | `'pektino.com'` | （全默认） | coverAspect · badge · series/集数 · 加密接口 |
+| `porna.dart` | 91porna | `porna` | 1 | `'91porna.com'` | （全默认） | badge · series/集数 · 加密接口 |
+| `pornhub.dart` | Pornhub | `pornhub` | 1 | `'cn.pornhub.com'` | specialTap · showsFilterRow · isStarTabKey | coverAspect · badge · series/集数 |
+| `wordpress.dart` | 51吃瓜 | `wordpress` | 5 | `'51cg1.com'` | （全默认） | series/集数 · lazyUrl(合集) · 加密接口 |
+| `xhamster.dart` | xHamster | `xhamster` | 1 | `'tw.xhamster.com'` | isShortsPath · specialTap · showsFilterRow · isStarTabKey | coverAspect · badge · series/集数 · 加密接口 |
+| `xvideos.dart` | XVideos | `xvideos` | 1 | `'www.xvideos.com'` | specialTap | badge · series/集数 · 加密接口 |
+
+**字段含义**（`SiteUi` 的 13 条站点事实 ✓）：
+`masonry` 瀑布流 · `portraitStarCards` 明星卡用竖版 · `hasStarFilterRow` 明星 tab 有专用筛选行 · 
+`starRowKind` 明星 tab 挂哪家的筛选行 · `isShortsPath` 哪些路径算竖屏短片 · `specialTap` 点卡片的去向（list/shorts/详情）· 
+`hasCatGroups` 分组分类 · `hasFilterRow` 有筛选行 · `showsFilterRow` 哪类 tab 显示筛选行 · 
+`isStarTabKey` 哪个 tab 是"明星" · `hasStarTab` 有明星 tab · `starUsesExtra` 筛选走 `extra` 参数 · 
+`sourcesFromHtml` 自己解析播放源（默认 null = 走通用 `.dplayer` ✓）
