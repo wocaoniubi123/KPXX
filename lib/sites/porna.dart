@@ -41,6 +41,7 @@ class PornaSite extends SiteUi {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('search:$keyword', page: page);
@@ -48,14 +49,17 @@ class PornaSite extends SiteUi {
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签）✓，
   /// 其余是搜索关键词（视频页的 keywords ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) =>
       list(slug.startsWith('/') ? slug : 'search:$slug', page: page);
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -212,7 +216,7 @@ class PornaSite extends SiteUi {
       final img = el.querySelector('img[data-src]') ?? el.querySelector('img');
       String title = '';
       for (final d in el.querySelectorAll('div')) {
-        if ((d.className ?? '').contains('line-clamp-2')) {
+        if (d.className.contains('line-clamp-2')) {
           title = d.text.replaceAll(RegExp(r'\s+'), ' ').trim();
           break;
         }
@@ -407,6 +411,7 @@ class PornaSite extends SiteUi {
   /// - 标题/简介/时长/时间/标签 来自页面内嵌的 LD+JSON（VideoObject）
   /// - 播放地址要再请求 `/index/detail_play`：参数 img=封面路径、u=页面里内嵌的
   ///   160 位 hex token、t=时间戳/2100（照抄前端 JS 的算法），响应里就是 m3u8。
+@override
   Future<ArticleDetail> detail(String url) async {
     final html = await _f.text(url);
     final doc = hp.parse(html);

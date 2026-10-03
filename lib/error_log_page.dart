@@ -100,7 +100,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             : _text.trim().isEmpty
                 ? Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Text(
                         '暂无错误记录 ✓\n\n（有站点出错时，这里会记下「时间 + 站点名 + 错误信息」）',
                         textAlign: TextAlign.center,

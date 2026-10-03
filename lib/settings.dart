@@ -235,7 +235,6 @@ class PlayHistory extends ChangeNotifier {
   /// ② 新增 [force] ✓ —— 用户**拖/点进度条**（位置跳变 ✓）时**绕过节流立刻落盘** ✓，
   ///    否则随后"自动重试重新加载"会从旧记录开始 ✗（用户实测过：跳完进度又从头播 ✗）。
   Future<void> touch(PlayRecord r, {bool force = false, int minDeltaSec = 2}) async {
-    final old = _m[r.key];
     _m[r.key] = r;
     notifyListeners(); // 列表/进度条实时刷新
     final last = _savedSec[r.key];
@@ -332,8 +331,8 @@ class PlayHistory extends ChangeNotifier {
       'ts': 5.0,
     });
     assert(messy != null && messy!.position == Duration.zero, '坏字段退化到 0');
-    assert(!messy!.finished, 'f 不是 true 就当 false');
-    assert(messy!.videoIndex == 0 && messy!.updatedAt == 0, '非 int 数字退化');
+    assert(!messy.finished, 'f 不是 true 就当 false');
+    assert(messy.videoIndex == 0 && messy.updatedAt == 0, '非 int 数字退化');
 
     // 3) 进度计算
     assert(mk(u: '/p.html', p: 0).progress == 0, '没动过 = 0');

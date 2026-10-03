@@ -5,7 +5,6 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
-import 'play_history_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 import 'sites.dart';

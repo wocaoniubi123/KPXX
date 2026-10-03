@@ -27,19 +27,23 @@ class KmSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 本站**没有搜索功能**（照站点实况 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async =>
       throw Exception('该站点没有搜索功能');
 
   /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) async => const [];
 
   /// 首页 = listHot（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) =>
       list('/api/videos/listHot', page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -140,6 +144,7 @@ class KmSite extends SiteUi {
   /// 快猫详情：/api/videos/detail（必须带 uId——站点访客默认 60364099，不带会报
   /// "用户未登录"）。播放地址取详情里的 **https 直链**（列表中那份是 http://IP/…
   /// 形式，iOS ATS 不允许 http，且从开发机实测不可达）。
+@override
   Future<ArticleDetail> detail(String url) async {
     final j =
         await _kmPost('/api/videos/detail', {'mvId': url, 'uId': '60364099'});

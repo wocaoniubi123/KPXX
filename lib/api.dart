@@ -1,16 +1,12 @@
 import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
-import 'package:encrypt/encrypt.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import 'base/fetch.dart';
 import 'base/site_ui.dart';
-import 'config.dart';
+import 'base/source_cache.dart';
 import 'models.dart';
 import 'sites/pornhub.dart';
 import 'sites/pektino.dart';
@@ -51,8 +47,6 @@ class Api {
 
   List<String> get hosts => _f.hosts;
   String get _host => _f.host;
-  set _host(String h) => _f.host = h;
-  http.Client get _client => _f.client;
 
   String get base => 'https://$_host';
 
@@ -139,9 +133,6 @@ class Api {
           {Map<String, String>? extraHeaders}) =>
       _f.text(path, extraHeaders: extraHeaders);
 
-  /// 绝对地址请求（跨域）—— **实现搬到了 `SiteFetcher.abs`** ✓（底座公用 ✓）
-  Future<String> _fetchAbs(String url) => _f.abs(url);
-
   // ---------------------------------------------------------------------------
   // 列表
 
@@ -219,18 +210,14 @@ class Api {
   // 公共小工具
 
   /// 合集里某一集的视频源 —— **按需取**：播放器切到那一集才调这里。
-  /// 取过的记住（同一集来回切不重复抓），最多缓存 60 篇。
-  /// 同一个地址被"同时"要（详情页点击预取 + 播放器换片各调一次）时
-  /// **共享同一个请求**，不重复抓。
-  Future<List<String>> videoSourcesAt(String url) {
-    final hit = _lazyCache[url];
-    if (hit != null) return Future.value(hit);
-    final pending = _lazyInflight[url];
-    if (pending != null) return pending;
-    final task = _fetchSourcesAt(url);
-    _lazyInflight[url] = task;
-    return task.whenComplete(() => _lazyInflight.remove(url));
-  }
+  /// ⚠️ #9：去重+缓存**只留底座**（`SourceCache.i` ✓，LRU 80 ✓）——原来的 `_lazyCache`/`_lazyInflight` 已删 ✓。
+  /// 两条契约照旧 ✓：**出错要抛**（`rethrowOnError: true` ✓，`player_widget.dart:789` 的重试依赖它 ✗）、
+  /// **空结果不缓存** ✓；key 带命名空间 `d|` ✓（短片那条是 `s|` ✓ —— 取名策略不同，不能共用 ✗）。
+  Future<List<String>> videoSourcesAt(String url) => SourceCache.i.get(
+        'd|$url',
+        () => _fetchSourcesAt(url),
+        rethrowOnError: true,
+      );
 
   /// 真去抓某一集的源（去重与缓存入口见 [videoSourcesAt]）
   Future<List<String>> _fetchSourcesAt(String url) async {
@@ -247,10 +234,7 @@ class Api {
         out.addAll(_dplayerSources(dp));
       }
     }
-    if (out.isNotEmpty) {
-      if (_lazyCache.length >= 60) _lazyCache.remove(_lazyCache.keys.first);
-      _lazyCache[url] = out;
-    }
+    // ⚠️ #9：缓存已统一交给 `SourceCache`（在 `videoSourcesAt` 里 ✓）—— 这里**只管抓** ✓
     return out;
   }
 
@@ -280,8 +264,8 @@ class Api {
 
 
   /// 合集按需取源的缓存（url -> 播放源）与"进行中"的请求（同一集去重）
-  static final Map<String, List<String>> _lazyCache = {};
-  static final Map<String, Future<List<String>>> _lazyInflight = {};
+  // ⚠️ #9：原来这里有两张静态表（`_lazyCache` / `_lazyInflight`）—— 已随"只留一份缓存"删掉 ✗
+  //    统一走 `lib/base/source_cache.dart` ✓（LRU 80 ✓、在途共享 ✓、出错语义按调用方传 ✓）
 
 
 

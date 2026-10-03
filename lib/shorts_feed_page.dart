@@ -186,7 +186,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   Future<List<String>> _sourcesOf(int i) {
     if (i < 0 || i >= _items.length) return Future.value(const []);
     final url = _items[i].url;
-    return SourceCache.i.get(url, () async {
+    // ⚠️ #9：key 带命名空间 `s|` ✓（详情页的合集取源用 `d|` ✓ —— 两条策略不同，**不能共用 key** ✗）
+    return SourceCache.i.get('s|$url', () async {
       final d = await widget.api.detail(url);
       return SourceCache.sourcesOfDetail(d);
     });
@@ -221,22 +222,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     await kp.open(local?.uri.toString() ?? srcs.first);
   }
 
-  /// ⚠️ **只给短片这个实例**调 mpv 的"起播"参数 ✓（用户 2026-10-03 拍板 ③ ✓）
-  /// **绝不改 `player_widget.dart` 的共用配置** ✗（别处不调它就完全不受影响 ✓）。
-  ///
-  /// 设了什么、为什么（都只碰"**起播门槛**"，**没动**解码/硬解/网络层 ✗）：
-  /// - `demuxer-lavf-analyzeduration` = **2.0** ✓（ffmpeg 探测"这是什么流"的最长时间 ✓，默认 5 秒 ✗ → 少等）；
-  /// - `demuxer-lavf-probesize` = **1500000** ✓（探测用字节数 ✓，默认 5000000 ✗ → 少等）；
-  /// - `cache-pause-initial` = **no** ✓（别等缓存填满才开播 ✓；mpv 默认本就是 no ✓，这里显式钉住 ✓）。
-  /// ⚠️ 三个值都是**保守的中间值** ✗（短片也可能卡网 ✓ —— 不能为了快把探测量砍到极限 ✗）；
-  /// ⚠️ 逐条 try/catch ✓：某个属性名在这版 libmpv 上不认（版本差异 ✓）也**绝不影响播放** ✗（静默忽略 ✓）。
-  void _tuneMpvStartup(KpPlayer kp) {
-    try {
-      kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '2.0');
-      kp.setMpvOptionQuiet('demuxer-lavf-probesize', '1500000');
-      kp.setMpvOptionQuiet('cache-pause-initial', 'no');
-    } catch (_) {}
-  }
+  /// 起播参数：**实现收在 `KpPlayer.tuneStartupQuiet`** ✓（#5 起详情页也用同一个 ✓，只有一份 ✗）；
+  /// 开关也那边（`KpPlayer.tuneStartup` ✓ 默认开 ✓，改一处即可关 ✗）。
+  /// ⚠️ 旧注释里"**只给短片这个实例**"已作废 ✗（详情页现在也调 ✓）。
+  void _tuneMpvStartup(KpPlayer kp) => KpPlayer.tuneStartupQuiet(kp);
 
   /// **预缓存 5 条**（滑动窗口）：从当前的下一条起，保证前面 5 条都已抓好源；
   /// 每往前滑一条，就补一条 —— 用户 2026-10-02："我划到第二条你就要再预缓冲一条补上，

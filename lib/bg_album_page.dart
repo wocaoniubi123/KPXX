@@ -146,7 +146,7 @@ class BgAlbumPage extends StatelessWidget {
     try {
       if (!await Gal.hasAccess()) {
         if (!await Gal.requestAccess()) {
-          messenger.showSnackBar(SnackBar(
+          messenger.showSnackBar(const SnackBar(
               content: Text('没有相册权限，导不出去 —— 去「设置 → 隐私 → 照片」里给 KPXX 打开')));
           return;
         }

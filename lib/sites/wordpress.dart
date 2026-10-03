@@ -66,6 +66,7 @@ class WpSite extends SiteUi {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final kw = Uri.encodeComponent(keyword);
@@ -74,12 +75,14 @@ class WpSite extends SiteUi {
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) async {
     final path = page <= 1 ? '/tag/$slug/' : '/tag/$slug/page/$page/';
     return parseArticles(await _f.text(path));
   }
 
   /// 首页最新列表（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) async {
     final path = page <= 1 ? '/' : '/page/$page/';
     return parseArticles(await _f.text(path));
@@ -87,6 +90,7 @@ class WpSite extends SiteUi {
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// k 以 `/` 开头 = 站内路径型（如 51fans1 的 `/order/hot/` ✓）；否则是分类 slug ✓
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -110,7 +114,7 @@ class WpSite extends SiteUi {
     final out = <Article>[];
 
     for (final el in doc.querySelectorAll('article[itemscope]')) {
-      final cls = el.className ?? '';
+      final cls = el.className;
       // 广告卡与站外推广卡
       // 注意：分类页的链接是相对路径（/archives/xxx/），但**搜索页是绝对地址**
       // （https://host/archives/xxx/）——只认相对路径会把搜索结果全丢掉。
@@ -187,6 +191,7 @@ class WpSite extends SiteUi {
   }
 
   /// WordPress 系详情页
+@override
   Future<ArticleDetail> detail(String url) async {
     final html = await _f.text(url);
     final doc = hp.parse(html);

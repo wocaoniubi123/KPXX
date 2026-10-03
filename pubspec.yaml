@@ -29,6 +29,10 @@ dependencies:
   # 区间放开：让 pub 自动挑与当前 Flutter SDK 兼容的最新版
   #（写 ^4.8.0 可能解析到要求更高 SDK 的版本导致 pub get 失败）
   webview_flutter: '>=4.7.0 <5.0.0'
+  # iOS 的 WebView 创建参数（allowsInlineMediaPlayback 等）在这个包里：
+  # 随 webview_flutter 一起装，但**显式声明**以消除 depend_on_referenced_packages
+  # （锁文件里已是 3.22.0，这里只放开区间 ✓）
+  webview_flutter_wkwebview: '>=3.0.0 <4.0.0'
   # 设置持久化：2.5.4+ 需要 Flutter 3.35，钉在 3.24 能用的范围
   shared_preferences: '>=2.3.5 <2.5.4'
   # 亮度调节（media_kit_video 本来就依赖它，版本区间要保持一致，否则解析冲突）

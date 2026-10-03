@@ -132,8 +132,8 @@ class PlayRecordTile extends StatelessWidget {
     final left = done
         ? (total.isEmpty ? '已看完' : '已看完 · $total')
         : (total.isEmpty
-            ? '已看 ${_pct}%'
-            : '已看 ${_pct}% · ${_fmt(record.position)} / $total');
+            ? '已看 $_pct%'
+            : '已看 $_pct% · ${_fmt(record.position)} / $total');
     final ago = _ago(record.updatedAt);
     return Row(
       children: [

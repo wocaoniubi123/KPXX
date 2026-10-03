@@ -8,7 +8,7 @@
 //   · `_fetchText`    → `text()`   域名轮换 + 5xx 重试一次 + 8 秒超时 + UTF-8 解码
 //   · `_fetchAbs`     → `abs()`    绝对地址（跨域），Referer 用该地址自己的域名，拿不到返回空串
 //   · `_client`       → `client`   iOS = NSURLSession（见 config.dart，铁律 3）
-//   · `hosts`/`_host` → `hosts`/`host`（含"上次跑通的域名排最前"）
+//   · `hosts`/`host` → `hosts`/`host`（含"上次跑通的域名排最前"）
 //
 // ⚠️ **不要往这里加任何"某站怎么办"的分支** ✗ —— 那些一律写进 `lib/sites/<站点>.dart` ✓。
 
@@ -23,21 +23,19 @@ import '../sites.dart';
 class SiteFetcher {
   SiteFetcher(this.site)
       : hosts = site.hosts,
-        _host = site.hosts.isNotEmpty ? site.hosts.first : '';
+        host = site.hosts.isNotEmpty ? site.hosts.first : '';
 
   final SiteEntry site;
   final List<String> hosts;
-  String _host;
+  String host;
 
   /// 共享客户端（iOS = NSURLSession，见 config.dart 的 Site.httpClient）
   static final http.Client _client = Site.httpClient;
 
-  String get base => 'https://$_host';
+  String get base => 'https://$host';
 
   /// 当前正在用的域名（"上次跑通的那个"）。**可写** —— 有几个站的解析里会配合切换。
-  String get host => _host;
 
-  set host(String h) => _host = h;
 
   /// 给少数需要在 `Api` 里直接用裸 client 的地方留的口子（2048/2277 行那两处）。
   http.Client get client => _client;
@@ -48,8 +46,8 @@ class SiteFetcher {
   Future<String> text(String path,
       {Map<String, String>? extraHeaders}) async {
     final order = [
-      if (hosts.contains(_host)) _host,
-      ...hosts.where((h) => h != _host),
+      if (hosts.contains(host)) host,
+      ...hosts.where((h) => h != host),
     ];
     for (final h in order) {
       // 5xx 是站点偶发（51fans1 实测会间歇性 500），同一个域名再试一次
@@ -66,7 +64,7 @@ class SiteFetcher {
             },
           ).timeout(const Duration(seconds: 8));
           if (r.statusCode == 200) {
-            _host = h;
+            host = h;
             return utf8.decode(r.bodyBytes);
           }
           if (r.statusCode < 500) break; // 4xx 重试没用，直接换域名

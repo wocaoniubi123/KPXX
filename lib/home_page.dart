@@ -100,18 +100,6 @@ String _tabNameOf(List<SiteTab> items, String key) {
   return key;
 }
 
-/// Hanime1 筛选选项（照站点四个下拉；'' 一律 = 全部）
-const List<String> _hnSorts = [
-  '最新上市', '最新上傳', '本日排行', '本週排行', '本月排行',
-  '觀看次數', '讚好比例', '時長最長', '他們在看',
-];
-const List<String> _hnDates = [
-  '過去 24 小時', '過去 2 天', '過去 1 週', '過去 1 個月', '過去 3 個月', '過去 1 年',
-];
-const List<String> _hnDurations = [
-  '1 分鐘 +', '5 分鐘 +', '10 分鐘 +', '20 分鐘 +', '30 分鐘 +', '60 分鐘 +',
-  '0 - 10 分鐘', '0 - 20 分鐘',
-];
 
 
 
@@ -163,7 +151,6 @@ class _HomePageState extends State<HomePage>
         if (i >= 0 && i < _cats.length) {
           final c = _cats[i];
           if (_api.ui?.isShortsPath(c.key) ?? false) {
-            _api.ui?.resetShortsRandom();
             // ⚠️ 2026-10-03 修（用户实机：短片 tab 一直转圈 ✗）：
             // 这里把该分类的 feed **从缓存里删掉** ✗ → 之后新建的 feed 是**空的** ✗（items 为空、_done 为 false ✓）→
             // 渲染分支 feed.items.isEmpty → 转圈 ✗，且**没人触发它去加载** ✗ → 永远转 ✓。
@@ -992,8 +979,13 @@ class _FeedViewState extends State<_FeedView>
                       child: CircularProgressIndicator()),
                 );
               },
-              itemBuilder: (ctx, i) =>
-                  ArticleCard(article: feed.items[i], site: widget.site),
+              itemBuilder: (ctx, i) {
+                // ⭐ 预取（#8 ✓）：顺手把"再往后第 8 张"的封面拉进内存缓存 ✓
+                //（自研 FetchedImage 不会被框架预取 ✗；失败静默 ✓、与显示时共用同一个在途请求 ✓）
+                FetchedImage.warm(
+                    i + 8 < feed.items.length ? feed.items[i + 8].cover : null);
+                return ArticleCard(article: feed.items[i], site: widget.site);
+              },
             ),
     );
   }
@@ -1089,7 +1081,7 @@ class RowsGrid extends StatelessWidget {
 class ArticleCard extends StatelessWidget {
   final Article article;
   final SiteEntry site;
-  const ArticleCard({required this.article, required this.site});
+  const ArticleCard({super.key, required this.article, required this.site});
 
   @override
   Widget build(BuildContext context) {
@@ -1158,7 +1150,9 @@ class ArticleCard extends StatelessWidget {
             //    进页面就不用再白等这一次详情页请求（用户实测"点进来要好几秒才有画面"✗）。
             //    走**共享缓存** ✓：页面里的 `_sourcesOf` 会命中这个**在途 Future** ✓
             //    → **同一个 url 只飞一次** ✗（不会变成两次请求 ✓）；失败也不影响导航 ✓（缓存里会清掉 ✓）。
-            SourceCache.i.get(article.url, () async {
+            //    ⚠️ #9：key 带命名空间 `s|` ✓ —— 与详情页的合集取源（`d|` ✓）**分开** ✗
+            //    （两条路取源策略不同 ✗，同一 url 结果可能不同 ✗ → 绝不能共用 key ✗）
+            SourceCache.i.get('s|${article.url}', () async {
               final d = await Api(site: site).detail(article.url);
               return SourceCache.sourcesOfDetail(d);
             }).then((srcs) {

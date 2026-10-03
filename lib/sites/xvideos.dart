@@ -15,7 +15,6 @@ import 'dart:ui' show Color;
 import '../sites.dart';
 import '../base/site_ui.dart';
 
-import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
@@ -28,14 +27,17 @@ class XvSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 详情页标签 = /tags/{slug}（翻页规则同分类页 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) => list('/tags/$slug', page: page);
 
   /// 首页 = Newest 列表（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list('/new', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
   /// 主分类 key = /best、/new、/channels-index、/pornstars-index（见 list ✓）
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -108,6 +110,7 @@ class XvSite extends SiteUi {
 
 
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final path = '/?k=${Uri.encodeComponent(keyword)}'
@@ -264,6 +267,7 @@ class XvSite extends SiteUi {
     return out;
   }
 
+@override
   Future<ArticleDetail> detail(String url) async {
     final html = await _f.text(url, extraHeaders: _xvLang);
     final doc = hp.parse(html);

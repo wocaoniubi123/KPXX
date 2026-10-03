@@ -27,16 +27,33 @@ class SourceCache {
 
   /// 取源：命中 / 在途 → 返回**同一个 Future** ✓；没有才发起一次 ✓
   /// ⚠️ **失败不进缓存** ✗（否则这一次的失败会一直粘着 ✗，用户再滑也拿不到源 ✓）
-  Future<List<String>> get(String url, Future<List<String>> Function() fetch) {
+  /// ⚠️ `rethrowOnError`（#9 ✓）：默认 false = 吞掉返回空表 ✓（短片路**一字不变** ✓）；
+  ///    详情路（`Api.videoSourcesAt` ✓）传 true → **原样抛** ✓（播放器 `player_widget.dart:789` 依赖它 ✗）；
+  ///    该模式下**空结果也不缓存** ✓（与旧 `if (out.isNotEmpty)` 逐字一致 ✓）。
+  Future<List<String>> get(
+    String url,
+    Future<List<String>> Function() fetch, {
+    bool rethrowOnError = false,
+  }) {
     final hit = _map.remove(url);
     if (hit != null) {
       _map[url] = hit; // LRU：挪到队尾 ✓
       return hit;
     }
-    final f = fetch().catchError((Object _) {
-      _map.remove(url);
-      return const <String>[];
-    });
+    Future<List<String>> run() async {
+      try {
+        final out = await fetch();
+        // 详情那条路：空结果**不缓存** ✓（照旧实现 ✓）；短片那条路照旧缓存 ✓（一字不变 ✗）
+        if (out.isEmpty && rethrowOnError) _map.remove(url);
+        return out;
+      } catch (e) {
+        _map.remove(url);
+        if (rethrowOnError) rethrow; // 详情路：原样抛 ✓
+        return const <String>[]; // 短片路：吞掉 ✓
+      }
+    }
+
+    final f = run();
     _map[url] = f;
     while (_map.length > maxEntries) {
       _map.remove(_map.keys.first); // 淘汰最久没用的 ✓

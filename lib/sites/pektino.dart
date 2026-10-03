@@ -12,8 +12,6 @@ import 'dart:convert';
 import 'dart:ui' show Color;
 import '../sites.dart';
 
-import 'package:html/dom.dart';
-import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
@@ -26,19 +24,23 @@ class PektinoSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条 ✓；原 `Api.search` 原样搬来 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('all', keyword, page: page);
 
   /// "标签" = 主题筛选（走同一个接口，全时段 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) => list('all', slug, page: page);
 
   /// 首页 = 每日榜（和站点首页一致 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list('timely', '', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range ✓；
   /// 主题/时长/排序是主分类页面里的筛选器（多级分类），由列表页传入 ✓
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -67,6 +69,7 @@ class PektinoSite extends SiteUi {
       _pektinoList(range, category,
           page: page, duration: duration, sort: sort);
 
+@override
   Future<ArticleDetail> detail(String url) => _pektinoDetail(url);
   // Pektino（X/Twitter 视频保存排行站：Next.js）
   //
@@ -139,7 +142,9 @@ class PektinoSite extends SiteUi {
     final plain = html.replaceAll(r'\"', '"').replaceAll(r'\\', r'\');
     final starts = <int>[];
     var at = -1;
-    while ((at = plain.indexOf('"url_cd"', at + 1)) >= 0) starts.add(at);
+    while ((at = plain.indexOf('"url_cd"', at + 1)) >= 0) {
+      starts.add(at);
+    }
     final entries = <Map<String, String>>[];
     for (var i = 0; i < starts.length; i++) {
       final end = i + 1 < starts.length ? starts[i + 1] : plain.length;
@@ -147,7 +152,7 @@ class PektinoSite extends SiteUi {
       final chunk = plain.substring(starts[i], end > cap ? cap : end);
       String grab(String key) {
         final m =
-            RegExp('"' + key + r'":\s*("(?:[^"]*)"|[0-9.]+|null)').firstMatch(chunk);
+            RegExp('"$key":\\s*("(?:[^"]*)"|[0-9.]+|null)').firstMatch(chunk);
         if (m == null) return '';
         final v = m.group(1)!;
         return v == 'null' ? '' : (v.startsWith('"') ? v.substring(1, v.length - 1) : v);
@@ -163,7 +168,9 @@ class PektinoSite extends SiteUi {
         'tweet_account': grab('tweet_account'),
       };
       // 只收"真视频条目"（有 mp4 有封面），挡掉 tags 表之类的噪音
-      if (e['url']!.isNotEmpty && e['thumbnail']!.isNotEmpty) entries.add(e);
+      if (e['url']!.isNotEmpty && e['thumbnail']!.isNotEmpty) {
+        entries.add(e);
+      }
     }
     Map<String, String>? main;
     final rel = <Map<String, String>>[];

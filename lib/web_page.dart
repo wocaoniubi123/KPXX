@@ -40,7 +40,10 @@ class _WebPageState extends State<WebPage> {
         final ctl = _ctl;
         if (ctl != null && await ctl.canGoBack()) {
           ctl.goBack();
-        } else if (mounted) {
+        } else if (context.mounted) {
+          // ⚠️ 用 `context.mounted` 而不是 `mounted`：analyze 报
+          //    `use_build_context_synchronously`（`mounted` 在它看来是"不相关的检查" ✗）
+          //    —— 语义相同 ✓，只是把守卫挂在真正要用的那个 context 上 ✓
           Navigator.of(context).pop();
         }
       },

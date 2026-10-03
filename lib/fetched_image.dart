@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as im;
 
+import 'base/image_cache.dart';
 import 'config.dart';
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
@@ -54,6 +55,11 @@ class FetchedImage extends StatefulWidget {
     this.memWidth,
   });
 
+  /// **预热**（#8 ✓ 用户拍板）：把这张图的字节先抓进内存缓存 ✓ —— **fire-and-forget** ✓、失败静默 ✓。
+  /// ⚠️ 自研组件**不会被框架预取** ✗（列表用的是我们自己的 `FetchedImage` ✓）→ 由列表 itemBuilder 顺手调 ✓。
+  /// ⚠️ 与"真正显示时"**共用同一个在途 Future** ✓（走 `_inflight` ✓）→ 不会重复下载 ✓。
+  static void warm(String? url) => _FetchedImageState.warm(url);
+
   @override
   State<FetchedImage> createState() => _FetchedImageState();
 }
@@ -89,6 +95,16 @@ class _FetchedImageState extends State<FetchedImage> {
       setState(() => _bytes = hit);
       return;
     }
+    // ⭐ 磁盘缓存（2026-10-03 用户拍板 #7 ✓）：冷启动的第一张图走这里 ✓ ——
+    // 命中就是**解密后的明文** ✓ → 不再下载、不再跑 `compute` 解密 isolate ✓（`_fetchAndDecode:147-150`）
+    await ImageDiskCache.i.init(); // 幂等 ✓
+    final disk = ImageDiskCache.i.take(url);
+    if (disk != null) {
+      _cache[url] = disk; // 顺手进内存缓存 ✓
+      if (!mounted) return;
+      setState(() => _bytes = disk);
+      return;
+    }
     final f = _inflight.putIfAbsent(url, () => _download(url));
     final bytes = await f;
     if (!mounted) return;
@@ -97,6 +113,13 @@ class _FetchedImageState extends State<FetchedImage> {
     } else {
       setState(() => _bytes = bytes);
     }
+  }
+
+  /// 预热（#8 ✓）：已有就跳过 ✓、否则挂进 `_inflight` ✓（= 与真正显示时同一个请求 ✓）
+  static void warm(String? url) {
+    if (url == null || url.isEmpty) return;
+    if (_cache.containsKey(url)) return;
+    _inflight.putIfAbsent(url, () => _download(url));
   }
 
   /// 偶发失败（本地代理超时、图床限流、密文被截断）重试一次就好；
@@ -150,6 +173,8 @@ class _FetchedImageState extends State<FetchedImage> {
       img = await compute(_decryptInIsolate, raw);
     }
     if (img == null || !_looksLikeImage(img)) return null;
+    // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
+    ImageDiskCache.i.put(url, img);
     if (_cache.length >= _maxCache) {
       // 只淘汰最早的一批（Map 迭代按插入序 ≈ FIFO）。整片 clear 会让
       // 已经在屏幕上的图全部重新下载一遍，看起来就是"列表又变慢了"。

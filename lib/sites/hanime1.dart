@@ -6,7 +6,6 @@
 // —— 因为各调用点的参数表不同（有的带 `extra` 有的不带 ✗），包一层极易写错签名 ✗。
 // `hanimeTags()` 本来就是公开的 ✓（`home_page` 会用 ✓，`Api` 里留了转发 ✓）。
 
-import 'dart:convert';
 import '../sites.dart';
 
 import 'package:flutter/material.dart';
@@ -29,17 +28,20 @@ class HanimeSite extends SiteUi {
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页标签：站内 /search? 路径直接请求（?query= / ?tags[]= 两种链接 ✓）；其余当搜索词 ✓
+@override
   Future<List<Article>> tag(String slug, {required int page}) async {
     if (slug.startsWith('/search')) return searchAt(slug, page: page);
     return search(slug, page: page);
   }
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre= ✓；
   /// extra = 筛选行（sort/date/duration/tags[]）✓
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -151,6 +153,7 @@ class HanimeSite extends SiteUi {
   }
 
   /// 搜索：关键词走 /search?query=
+@override
   Future<List<Article>> search(String keyword,
           {int page = 1, List<MapEntry<String, String>>? extra}) =>
       searchAt('/search?query=${Uri.encodeComponent(keyword)}',
@@ -159,6 +162,7 @@ class HanimeSite extends SiteUi {
   /// Hanime1 的「內容標籤」（240 个，tags[] 多选用）——打开标签弹窗时从 /search
   /// 动态抓一次、内存缓存（不常变，没必要硬编码 240 条）
   static List<String>? _hnTagCache;
+@override
   Future<List<String>> hanimeTags() async {
     final cached = _hnTagCache;
     if (cached != null) return cached;
@@ -173,6 +177,7 @@ class HanimeSite extends SiteUi {
   }
 
   /// 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低）
+@override
   Future<ArticleDetail> detail(String url) async {
     final html = await _f.text(url);
     final doc = hp.parse(html);
@@ -316,7 +321,7 @@ class HnFilterBar extends StatelessWidget {
   final HnFilters filters;
   final VoidCallback onChanged;
   const HnFilterBar(
-      {required this.api, required this.filters, required this.onChanged});
+      {super.key, required this.api, required this.filters, required this.onChanged});
 
   Future<void> _pickSingle(BuildContext context, String title,
           List<String> options, String current, void Function(String) apply) =>
@@ -387,7 +392,7 @@ class HnFilterBar extends StatelessWidget {
 class HnTagDialog extends StatefulWidget {
   final Api api;
   final List<String> init;
-  const HnTagDialog({required this.api, required this.init});
+  const HnTagDialog({super.key, required this.api, required this.init});
 
   @override
   State<HnTagDialog> createState() => HnTagDialogState();
@@ -501,14 +506,6 @@ Widget _hnFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
       ),
     );
 
-/// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
-/// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
-String _nameOf(List<MapEntry<String, String>> items, String key) {
-  for (final t in items) {
-    if (t.key == key) return t.value;
-  }
-  return key;
-}
 
 // ⚠️ 以下 3 个清单原在 home_page.dart 顶层（私有 ✗，跨库不可见）→ 2026-10-03 复制到本站 ✓
 

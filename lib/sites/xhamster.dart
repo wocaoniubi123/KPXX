@@ -33,6 +33,7 @@ class XhSite extends SiteUi {
 
   /// ⚠️ 站点**有**搜索（'搜尋所有女優' 那个框 ✓），但**路径没实测过** ✗ →
   /// **明确抛错**，不猜一个地址糊上去 ✓（猜错了会静默变成空列表，更难查 ✓）。
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async =>
       throw Exception('xHamster 搜索暂未接通（路径未实测）');
@@ -40,9 +41,11 @@ class XhSite extends SiteUi {
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表 ✓）；详情页标签也走这里 ✓。
   /// 全是站内路径，交给 list 分流（它会避开"把演员页当演员列表解析"的坑 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
 
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list('/', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
@@ -51,6 +54,7 @@ class XhSite extends SiteUi {
   ///   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
   ///   · 「色情明星」tab：默认 '/pornstars'；选中后 '/pornstars/top/us' 等
   ///   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关 ✓）
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -117,6 +121,7 @@ class XhSite extends SiteUi {
   Future<List<Article>> list(String path, {int page = 1}) =>
       _xhList(path, page: page);
 
+@override
   Future<ArticleDetail> detail(String url) => _xhDetail(url);
 
   /// 短片随机起始页 / 每批打乱（原先在 `Api` 里，跟着搬过来 ✓）
@@ -140,7 +145,7 @@ class XhSite extends SiteUi {
   static String _xhUn(String? s) {
     if (s == null || s.isEmpty) return '';
     try {
-      return jsonDecode('"' + s + '"') as String;
+      return jsonDecode('"$s"') as String;
     } catch (_) {
       return s;
     }
@@ -243,11 +248,7 @@ class XhSite extends SiteUi {
   /// **起始页取随机 1~48**（该范围实测有内容 🔍），列表内往后顺延；每批打乱；按 url 去重。
   /// `resetShortsRandom()` 让下一次取数**重新随机**（切 tab 回来时调，与 sim 行为一致 ✓）。
 
-  int? _xhShortsFrom;
 
-  void resetShortsRandom() {
-    _xhShortsFrom = null;
-  }
 
   /// 短片列表：**每页都抓页面里内嵌的 JSON** ✓（第 1 页 `/shorts/newest` ✓，第 2 页起 `/shorts/newest/{N}` ✓）
   /// （用户 2026-10-03 定："**短片不用 api 请求了。直接抓 json 吧**" ✓）
@@ -399,19 +400,19 @@ class XhSite extends SiteUi {
     // 短片页的源**常常不是 m3u8** ✗，而是页面 JSON 里的**直链 mp4**，且斜杠是**转义**的 ✓：
     // "h264":[{"url":"https:\/\/video7.xhcdn.com\/…\/480p.h264.mp4","quality":"480p"}]
     // 原来只跑 m3u8 正则 ✗ → 这类页面解析出 0 条 → 上层静默返回 → 无限转圈 ✓。
-    final _h264 = RegExp(r'"url":"(https?:\\?/\\?/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"').allMatches(html);
-    final _byQ = <int, String>{};
-    for (final hm in _h264) {
+    final h264 = RegExp(r'"url":"(https?:\\?/\\?/[^"]+?\.mp4[^"]*)"[^}]*?"quality":"(\d{3,4})p"').allMatches(html);
+    final byQ = <int, String>{};
+    for (final hm in h264) {
       final q = int.tryParse(hm.group(2) ?? '') ?? 0;
-      _byQ.putIfAbsent(q, () => hm.group(1)!.replaceAll(r'\/', '/'));
+      byQ.putIfAbsent(q, () => hm.group(1)!.replaceAll(r'\/', '/'));
     }
-    final _mp4 = _byQ.isEmpty
+    final mp4 = byQ.isEmpty
         ? <String>[]
-        : ((_byQ.keys.toList()..sort((a, b) => b.compareTo(a)))
-            .map((k) => _byQ[k]!)
+        : ((byQ.keys.toList()..sort((a, b) => b.compareTo(a)))
+            .map((k) => byQ[k]!)
             .toList());
     final m = RegExp(r'https://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(html);
-    var srcs = _mp4; // ⚠️ 直链 mp4（短片页常见）优先 ✓；为空才走下面的 m3u8 ✓
+    var srcs = mp4; // ⚠️ 直链 mp4（短片页常见）优先 ✓；为空才走下面的 m3u8 ✓
     if (srcs.isEmpty && m != null) { // ← 直链 mp4 优先，没命中才回落 ✓
       final master = m.group(0)!;
       if (url.startsWith('/shorts/')) {

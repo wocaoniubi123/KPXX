@@ -37,6 +37,7 @@ class MadouSite extends SiteUi {
   }
 
   /// 搜索 = /?s={kw} ✓；翻页参数是 **paged**（不是 page ✓），照站点原样 ✓
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final kw = Uri.encodeComponent(keyword);
@@ -46,6 +47,7 @@ class MadouSite extends SiteUi {
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是裸 slug（/tag/{slug} ✓）；以 / 开头的是卡片上的分类路径 ✓
+@override
   Future<List<Article>> tag(String slug, {required int page}) async {
     if (slug.startsWith('/')) {
       return cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'));
@@ -55,11 +57,13 @@ class MadouSite extends SiteUi {
   }
 
   /// 首页第 N 页 = /page/N（没有 /page/1 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) async =>
       cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -119,6 +123,7 @@ class MadouSite extends SiteUi {
   }
 
   /// 详情：标题/分类/标签/相关推荐/播放源（站点没有时长、系列、简介、发布时间）
+@override
   Future<ArticleDetail> detail(String url) async {
     final doc = hp.parse(await _f.text(url));
     final title = (doc.querySelector('.article-title')?.text ?? '').trim();

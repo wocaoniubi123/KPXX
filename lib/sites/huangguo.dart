@@ -52,6 +52,7 @@ class HuangguoSite extends SiteUi {
   }
 
   /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     if (page > 1) return [];
@@ -62,6 +63,7 @@ class HuangguoSite extends SiteUi {
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 专题等路径型（点"专题"卡片进来）走页面列表 ✓；标签页是普通列表页（没有分页 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) async {
     if (slug.startsWith('/')) return pageList(slug, page: page);
     if (page > 1) return [];
@@ -69,10 +71,12 @@ class HuangguoSite extends SiteUi {
   }
 
   /// 首页 = 第一个频道的「最新」（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) =>
       list(first, sort: 'latest', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -384,6 +388,7 @@ class HuangguoSite extends SiteUi {
   /// 详情：页面内嵌 `<script id="videoInitialData" type="application/json">`，
   /// 里面有 title/description/time/coverSrc/tagLinks 以及
   /// epPlaySrcs = {"1": m3u8, "2": m3u8, ...}（整部剧所有集，一次拿全，不用逐集抓）。
+@override
   Future<ArticleDetail> detail(String url) async {
     final html = await _f.text(url);
     final doc = hp.parse(html);

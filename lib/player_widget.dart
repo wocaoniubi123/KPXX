@@ -188,7 +188,6 @@ class KpPlayer extends ValueNotifier<KpState> {
       // （真失败时位置不会前进 ✓ 所以不会误清 ✓）
       if (s.error &&
           (s.position - _lastPos).abs().inMilliseconds >= 500) {
-        _stalled = false;
         value = value.copyWith(error: false, errorText: '');
       }
       if (!s.playing || s.error) {
@@ -200,7 +199,6 @@ class KpPlayer extends ValueNotifier<KpState> {
         _stuckMs += 1000;
         if (_stuckMs >= _stuckLimitMs) {
           _stuckMs = 0;
-          _stalled = true; // 这次算"看门狗判的"：位置恢复前进时由它自己撤掉
           value = value.copyWith(
             error: true,
             errorText: _lastFatal.isEmpty
@@ -227,7 +225,6 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   /// 当前这个 error 是不是**看门狗自己判的卡住**（只有它才由看门狗自己撤）。
   /// 起播失败那类 error 不归它管 —— 撤了会把"真失败"静默掉。
-  bool _stalled = false;
 
   /// 位置连续多久不前进就判为卡住（毫秒）
   static const int _stuckLimitMs = 9000;
@@ -261,13 +258,34 @@ class KpPlayer extends ValueNotifier<KpState> {
       position: Duration.zero,
     );
     _everStarted = false; // 新源重新算"还没播起来"
-    _stalled = false; // 错误已经清了 → 看门狗那个"我判的卡住"标记一并撤
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
   /// ⚠️ **选择性**给某个实例设 libmpv 属性 ✓（目前只有短片页用 ✓：调"起播更快"的参数 ✓）。
   /// **不是**共用配置 ✗ —— 别处不调它就完全不受影响 ✓。
   /// **失败静默** ✗：属性名在 mpv 版本间有差异 ✓，设不上（或这一版不认 ✓）也绝不能影响播放 ✗。
+  /// ⚠️ 起播参数总开关（用户 2026-10-03 拍板 #5 ✓）：**默认开** ✓ ——
+  /// 真机若发现某站起播反而变卡 ✗，把这里改成 `false` 即可**一键关掉** ✗
+  /// （短片页与详情页**共用这一处** ✓，不散落 ✗）。
+  static const bool tuneStartup = true;
+
+  /// **起播参数**（2026-10-03 用户拍板 #5：详情页也套上 ✓）——⚠️ **只对"传进来的这个实例"生效** ✗，
+  /// **绝不碰本文件的共用配置** ✓（别处不调它 → 完全不受影响 ✓）。
+  /// 设什么、为什么（都只碰"**起播门槛**" ✓，**没动**解码/硬解/网络层 ✗）：
+  /// - `demuxer-lavf-analyzeduration` = **2.0** ✓（ffmpeg 探测"这是什么流"的最长时间，默认 5 秒 ✗ → 少等）；
+  /// - `demuxer-lavf-probesize` = **1500000** ✓（探测用字节数，默认 5000000 ✗ → 少等）；
+  /// - `cache-pause-initial` = **no** ✓（别等缓存填满才开播 ✓；mpv 默认本就是 no ✓，这里显式钉住 ✓）。
+  /// ⚠️ 三个值都是**保守的中间值** ✗（也可能卡网 ✓ —— 不能为了快把探测量砍到极限 ✗）；
+  /// ⚠️ 逐条 try/catch ✓：某个名字在这版 libmpv 上不认也**绝不影响播放** ✗（静默忽略 ✓）。
+  static void tuneStartupQuiet(KpPlayer kp) {
+    if (!tuneStartup) return;
+    try {
+      kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '2.0');
+      kp.setMpvOptionQuiet('demuxer-lavf-probesize', '1500000');
+      kp.setMpvOptionQuiet('cache-pause-initial', 'no');
+    } catch (_) {}
+  }
+
   void setMpvOptionQuiet(String name, String value) {
     try {
       final plat = _p.platform; // media_kit 的 `Player.platform` ✓（iOS 上是 NativePlayer ✓）
@@ -799,6 +817,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     var kp = _kp;
     if (kp == null) {
       kp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
+      // ⭐ 详情页/全屏也套上起播参数（#5 ✓）——与短片页**同一个实现** ✓（`KpPlayer.tuneStartupQuiet` ✓）
+      KpPlayer.tuneStartupQuiet(kp);
       _attach(kp); // 立刻上屏
       setState(() => _busy = false);
     }

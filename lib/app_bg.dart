@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:image_picker/image_picker.dart';
@@ -498,7 +497,7 @@ class AppBg extends ChangeNotifier {
       }
     }
     return 'bg_album/ 里 $n 个文件 · 索引 ${_album.length} 条 · '
-        '当前 ${_current == null ? '内置默认' : _current}';
+        '当前 ${_current ?? '内置默认'}';
   }
 
   /// debug 自检（`load()` 里 assert 跑一次；release 会剥掉 assert）：

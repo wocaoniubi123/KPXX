@@ -9,14 +9,12 @@
 //
 // 对外入口：`list()` / `detail()` ✓（原方法私有 ✗，跨文件调不到 → 包一层公开 ✓）。
 
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as hp;
 
-import '../api.dart';
 import '../app_background.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
@@ -33,6 +31,7 @@ class PhSite extends SiteUi {
 
 
   /// 搜索 = /video/search?search=<kw>（站点自己的搜索页形态 ✓；kw 是原始文本，自己编码 ✓）
+@override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) =>
       list('/video/search?search=${Uri.encodeComponent(keyword)}', page: page);
@@ -40,14 +39,17 @@ class PhSite extends SiteUi {
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是 `/video/search?search=<编码词>` ✓；演员卡传来的是 `/pornstar/xxx` ✓。
   /// 两者对本站都只是"一个站内路径"→ 直接当列表抓 ✓（演员路径回来的是视频卡 ✓）
+@override
   Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
 
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
+@override
   Future<List<Article>> home({required int page, String first = ''}) => list('/', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 列表 key 本身就是站内路径 ✓；「分类」tab 选中的分类是 theme（/video?c=27 ✓）。
   /// 「色情明星」tab 的筛选走 extra（o / performerType / t / 更多筛选各组的 key ✓）
+@override
   Future<List<Article>> category(String key,
           {required int page,
           String? k,
@@ -102,6 +104,7 @@ class PhSite extends SiteUi {
   Future<List<Article>> list(String path, {int page = 1}) =>
       _phList(path, page: page);
 
+@override
   Future<ArticleDetail> detail(String url) => _phDetail(url);
   // Pornhub（cn.pornhub.com）
   //
@@ -296,7 +299,7 @@ class PhStarController {
 class PhStarBar extends StatelessWidget {
   final PhStarFilters filters;
   final VoidCallback onChanged;
-  const PhStarBar({required this.filters, required this.onChanged});
+  const PhStarBar({super.key, required this.filters, required this.onChanged});
 
   /// 控件按钮上的文字：选中的显示选项名，没选显示默认名
   String _label(List<SiteTab> opts, String cur, String dft) {
@@ -365,7 +368,7 @@ class PhStarBar extends StatelessWidget {
 /// 组内单选、组间独立；確定写回、清除全空、取消不改。
 class PhMoreDialog extends StatefulWidget {
   final Map<String, String> init;
-  const PhMoreDialog({required this.init});
+  const PhMoreDialog({super.key, required this.init});
   @override
   State<PhMoreDialog> createState() => PhMoreDialogState();
 }
@@ -457,14 +460,6 @@ Widget _phFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
       ),
     );
 
-/// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
-/// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
-String _nameOf(List<MapEntry<String, String>> items, String key) {
-  for (final t in items) {
-    if (t.key == key) return t.value;
-  }
-  return key;
-}
 
 /// 单选弹窗（本站自带副本 ✓）
 Future<void> _phPickOptionDialog(

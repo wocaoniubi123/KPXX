@@ -15,8 +15,10 @@ import '../config.dart';
 ///   划到它时把 `file://` 交给**同一个** mpv ✓（mpv 读本地文件没有任何问题 ✓）。
 ///
 /// ⚠️ 三条边界（都有意为之）：
-/// 1. **只接直链 mp4** ✓ —— m3u8（HLS）是分段播放列表，要逐段下再合并 ✗ → 直接**跳过** ✗，
-///    那种源仍旧在线播放 ✓（行为与今天完全一样 ✓）。
+/// 1. **接"直链 mp4" 与 "m3u8"** ✓ —— 后者走 `_downloadHls` ✓（#1 ✓ 2026-10-03 用户拍板 ✓，
+///    `sim-dev` 实测：**无 `#EXT-X-KEY`** ✗、**不是短时效** ✓、一条 ≈0.35~1.19MB ✓）
+///    转成"**分段落盘 + 本地清单**" ✓；**解析不出来（加密/byterange/嵌套 master）就放弃** ✗
+///    → 那种源仍旧在线播放 ✓（与今天完全一样 ✓）。
 /// 2. **只有"下完的"才给播放器用** ✓ —— 下到一半的文件，如果 mp4 的 `moov` 在**文件尾部** ✗，
 ///    mpv 会播到一半断掉 ✗（`sim-dev` 提过这个风险 ✓）。下载先写 `.part`，整份下完才**改名**成
 ///    `.mp4` ✓；`ready()` 只认 `.mp4` ✓ —— 没下完就回落 `http` 直连 ✓（后台继续下 ✓）。
@@ -32,10 +34,20 @@ class VideoCache {
   /// 单文件上限：超过就不预下 ✓（⚠️ B 项：`sim-dev` 实测 `Content-Length` 未到前**别改死** ✗ ——
   /// 首条源是 `…/720p.h264.mp4` ✓，45 秒 720p 约 20~40MB ✗，现在这条 32MB **可能把常片挡在门外** ❓）
   static const int maxFileBytes = 32 * 1024 * 1024;
-  /// 目录总量上限（LRU 清到它以下 ✓）—— E ✓：320 → **640MB**（用户存储不限 ✓）
-  static const int maxTotalBytes = 640 * 1024 * 1024;
-  /// 最多保留的文件个数（LRU ✓）
-  static const int maxFiles = 24;
+  /// 目录总量上限（LRU 清到它以下 ✓）—— 320 → 640 → 300 → **200MB**（用户 2026-10-03 最终拍板 ✓）
+  ///
+  /// ⚠️ **两个上限"谁先撞线听谁"** ✓（见 `_prune()` ✓）：从**最新**往旧走 → 累计字节 > 200MB **或** 已留够
+  ///    `maxFiles` 个 → **从这里起全部删掉** ✓
+  ///    → **实际留下 = min(maxFiles, 累计不超 200MB 的条数)** ✓
+  /// 算式（拿 `sim-dev` 2026-10-03 的实测中位数算 ✓）：
+  ///   · 全部中位 **2.65MB** → `200 ÷ 2.65 ≈ 75` ✓ → **条数先撞线** → 留 **70 个 ≈ 186MB**（93% ✓）
+  ///   · 720p 中位 **4.40MB** → `200 ÷ 4.40 ≈ 45` ✓ → **容量先撞线** → 留 **45 个 ≈ 198MB**
+  ///   · 最坏（实测最大 **5.10MB**）→ `200 ÷ 5.10 ≈ 39` ✓ → **至少也留 39 条** ✓
+  static const int maxTotalBytes = 200 * 1024 * 1024;
+  /// 最多保留的文件个数（LRU ✓）—— 24 → **70** ✓（就按上面那个算式算的 ✓）
+  /// 为什么是 70 而不是 75 ✗：75 是"全部等于中位数"的理想值 ✓，取 70 = **留约 7% 余量** ✓。
+  /// 它的作用是"**防一堆小文件把条数撑爆**"的闸 ✓ —— 文件偏大时轮不到它管 ✓（容量会先撞线 ✓）。
+  static const int maxFiles = 70;
   /// 并发下载条数：**5** ✓（用户 2026-10-03 拍板"**并发改成 5 试试**" ✓）
   /// ⚠️ 真机若发现**播放变卡** ✗ → **就改这一行**回 1~2 ✓（缓/卡时另有一层"让路" ✓ 见 `pause()` ✓）
   static const int concurrent = 5;
@@ -63,19 +75,23 @@ class VideoCache {
         _dir = null; // 拿不到目录 → 整个缓存功能静默失效 ✓
       }
     }
-    await prune();
+    await _prune();
   }
 
   /// **下完的**本地文件（没有/没下完 → null ✓）。**同步**：`_open` 里要用 ✓
+  /// ⚠️ #1（2026-10-03 用户拍板 ✓）：**mp4 直链**与 **m3u8 转本地**都**只从这一个出口**给 ✓
+  /// —— 上层**不分叉** ✗（`_open()` 拿到的永远是"能直接播的本地文件" ✓）。
   File? ready(String url) {
     final hit = _ready[url];
     if (hit != null && hit.existsSync()) return hit;
     final dir = _dir;
     if (dir == null) return null;
-    final f = File('${dir.path}/${_keyOf(url)}.mp4');
-    if (f.existsSync()) {
-      _ready[url] = f;
-      return f;
+    for (final ext in const ['mp4', 'm3u8']) {
+      final f = File('${dir.path}/${_keyOf(url)}.$ext');
+      if (f.existsSync()) {
+        _ready[url] = f;
+        return f;
+      }
     }
     return null;
   }
@@ -92,7 +108,7 @@ class VideoCache {
       if (_ready.containsKey(u) || _running.contains(u) || _queue.contains(u)) {
         continue;
       }
-      if (!_isDirectMp4(u)) continue; // m3u8/HLS 跳过 ✗（见类注释 ✓）
+      if (!_isDirectMp4(u) && !_isM3u8(u)) continue; // 只接 **mp4 直链** 与 **m3u8**（其余跳过 ✗）
       _queue.add(u);
     }
     _pump();
@@ -143,6 +159,7 @@ class VideoCache {
   Future<void> _download(String url) async {
     final dir = _dir;
     if (dir == null) return;
+    if (_isM3u8(url)) return _downloadHls(url); // ⚠️ #1：HLS 走另一条路 ✓（下面 mp4 那条**一字不动** ✗）
     final part = File('${dir.path}/${_keyOf(url)}.part');
     final done = File('${dir.path}/${_keyOf(url)}.mp4');
     try {
@@ -183,7 +200,7 @@ class VideoCache {
       }
       await part.rename(done.path); // 整份下完才"变成"可播文件 ✓
       _ready[url] = done;
-      await prune();
+      await _prune();
     } catch (_) {
       // 静默 ✓：失败=没有预缓冲，播放照旧走在线 ✓
       try {
@@ -193,20 +210,29 @@ class VideoCache {
   }
 
   /// LRU：清过期 `.part` + 按"最后修改时间"新→旧留，超条数/超总量就删尾 ✓
-  Future<void> prune() async {
+  Future<void> _prune() async {
     final dir = _dir;
     if (dir == null) return;
     try {
       final entries = <MapEntry<File, DateTime>>[];
       final now = DateTime.now();
       for (final e in await dir.list().toList()) {
-        if (e is! File) continue;
         DateTime m;
         try {
           m = await e.lastModified();
         } catch (_) {
           continue;
         }
+        // ⚠️ #1：HLS 的目录形态也要清 ✗（否则 `*.hls` / `*.hls.part` 永远留着 ✗）
+        if (e is Directory) {
+          if (e.path.endsWith('.part') && now.difference(m) > partTtl) {
+            try {
+              await e.delete(recursive: true);
+            } catch (_) {}
+          }
+          continue;
+        }
+        if (e is! File) continue;
         if (e.path.endsWith('.part')) {
           if (now.difference(m) > partTtl) {
             try {
@@ -230,6 +256,13 @@ class VideoCache {
           try {
             await f.delete();
           } catch (_) {}
+          // ⚠️ #1：删到 HLS 清单时，**连它的分段目录一起删** ✓（否则 `*.hls` 永远清不掉 ✗）
+          if (f.path.endsWith('.m3u8')) {
+            try {
+              final d = Directory('${f.path.substring(0, f.path.length - 5)}.hls');
+              if (await d.exists()) await d.delete(recursive: true);
+            } catch (_) {}
+          }
           _ready.removeWhere((_, v) => v.path == f.path);
         }
       }
@@ -240,6 +273,134 @@ class VideoCache {
   static bool _isDirectMp4(String url) {
     final p = Uri.tryParse(url)?.path.toLowerCase() ?? '';
     return p.endsWith('.mp4');
+  }
+
+  /// m3u8（HLS）✓ —— #1（2026-10-03 用户拍板 ✓）：**不再跳过** ✗，转成本地可播形态 ✓
+  static bool _isM3u8(String url) {
+    final p = Uri.tryParse(url)?.path.toLowerCase() ?? '';
+    return p.endsWith('.m3u8');
+  }
+
+  /// **m3u8 → 本地可播** ✓（#1 ✓）
+  ///
+  /// 依据（`sim-dev` 实测 ✓）：① **无 `#EXT-X-KEY`** ✗（7 条样本 0 条加密 ✓）② **不是短时效** ✓
+  /// （签名在**路径票据**里 ✓ 约 3.5 小时 ✓；+6 分钟复测同分段仍 200 ✓）③ 体量小 ✓
+  /// （分段 3~20、单段 88~180KB、一条 ≈0.35~1.19MB ✓）→ **不用为它放大上限** ✓。
+  ///
+  /// 流程 ✓：master（`#EXT-X-STREAM-INF`）→ **跟一层**变体 ✓ → 媒体清单 → **逐段下** ✓ →
+  /// 写本地清单（分段走**相对路径** `${key}.hls/xxx` ✓，mpv 按清单所在目录解析 ✓）→
+  /// 分段目录先 rename ✓、**清单最后 rename** ✓ → **全部下完才算就绪** ✗（`ready()` 只认改名后的 `.m3u8` ✓）。
+  /// ⚠️ **不做**：解密 ✗、鉴权重放 ✗（探测证明不需要 ✓）。遇到 `#EXT-X-KEY` / `#EXT-X-BYTERANGE` /
+  /// 嵌套 master（变体里还是 `#EXT-X-STREAM-INF` ✓）→ **直接放弃** ✗（= 没预下载，回落在线播 ✓，与今天一样 ✓）。
+  /// `ponytail:` 分段目录的字节**没算进** `maxTotalBytes` ✗（只算清单文件 ✓）—— 按"每条约 ≤2~3MB、上限 70 条"
+  /// 估最坏多占 ≤200MB ✓；真要精算再给 `_prune` 加目录求和 ✓。
+  Future<void> _downloadHls(String url) async {
+    final dir = _dir;
+    if (dir == null) return;
+    final key = _keyOf(url);
+    final partDir = Directory('${dir.path}/$key.hls.part');
+    final doneDir = Directory('${dir.path}/$key.hls');
+    final partPl = File('${dir.path}/$key.m3u8.part');
+    final donePl = File('${dir.path}/$key.m3u8');
+    try {
+      if (await donePl.exists()) return;
+      final master = await _hlsText(url);
+      if (master == null) return;
+      var mediaUrl = url;
+      var media = master;
+      if (master.contains('#EXT-X-STREAM-INF')) {
+        final v = _hlsFirstUri(master);
+        if (v == null) return;
+        mediaUrl = Uri.parse(url).resolve(v).toString();
+        final t = await _hlsText(mediaUrl);
+        if (t == null) return;
+        media = t;
+      }
+      if (media.contains('#EXT-X-KEY') || media.contains('#EXT-X-BYTERANGE')) return; // 放弃 ✗
+      final segs = _hlsSegmentUris(media);
+      if (segs.isEmpty) return; // 嵌套 master / 解析不出 → 放弃 ✗
+      if (await partDir.exists()) await partDir.delete(recursive: true);
+      await partDir.create(recursive: true);
+      var total = 0;
+      final names = <String>[];
+      for (var i = 0; i < segs.length; i++) {
+        // ⚠️ 与 mp4 那条**同款**让路/放弃检查 ✓（C 项 ✓ 请求数不变 ✗）
+        while (_paused && _want.contains(url)) {
+          await Future.delayed(const Duration(milliseconds: 400));
+        }
+        if (!_want.contains(url)) return;
+        final segUrl = Uri.parse(mediaUrl).resolve(segs[i]).toString();
+        final r = await Site.httpClient
+            .get(Uri.parse(segUrl))
+            .timeout(const Duration(seconds: 20));
+        if (r.statusCode != 200 || r.bodyBytes.isEmpty) return;
+        total += r.bodyBytes.length;
+        if (total > maxFileBytes) return; // 超单文件上限 → 放弃 ✓（与 mp4 同款口径 ✓）
+        final name = 'seg_${i.toString().padLeft(4, '0')}.ts';
+        await File('${partDir.path}/$name').writeAsBytes(r.bodyBytes, flush: true);
+        names.add(name);
+      }
+      await partPl.writeAsString(
+          '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n'
+          '${names.map((n) => '#EXTINF:10.0,\n$key.hls/$n\n').join()}'
+          '#EXT-X-ENDLIST\n',
+          flush: true);
+      if (await doneDir.exists()) await doneDir.delete(recursive: true);
+      await partDir.rename(doneDir.path); // ① 先搬分段 ✓
+      await partPl.rename(donePl.path); // ② 清单最后 → 此刻起 `ready()` 才认 ✓
+      _ready[url] = donePl;
+      await _prune();
+    } catch (_) {
+      // 静默 ✓：没预下成 = 回落在线播 ✓（与今天行为一致 ✓）
+    } finally {
+      try {
+        if (await partDir.exists()) await partDir.delete(recursive: true);
+      } catch (_) {}
+      try {
+        if (await partPl.exists()) await partPl.delete();
+      } catch (_) {}
+    }
+  }
+
+  Future<String?> _hlsText(String url) async {
+    final r =
+        await Site.httpClient.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+    return utf8.decode(r.bodyBytes, allowMalformed: true);
+  }
+
+  /// master 里的**第一条变体 URI** ✓（`#EXT-X-STREAM-INF` 之后第一条非注释非空行 ✓）
+  static String? _hlsFirstUri(String text) {
+    final lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (!lines[i].trim().startsWith('#EXT-X-STREAM-INF')) continue;
+      for (var j = i + 1; j < lines.length; j++) {
+        final t = lines[j].trim();
+        if (t.isEmpty || t.startsWith('#')) continue;
+        return t;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /// 媒体清单里的**分段 URI** ✓（`#EXTINF` 之后第一条非注释非空行 ✓）；
+  /// ⚠️ 一看到 `#EXT-X-STREAM-INF`（= 这其实是 master ✗）就返回空 → 上层放弃 ✓
+  static List<String> _hlsSegmentUris(String text) {
+    final out = <String>[];
+    final lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final t0 = lines[i].trim();
+      if (t0.startsWith('#EXT-X-STREAM-INF')) return const [];
+      if (!t0.startsWith('#EXTINF')) continue;
+      for (var j = i + 1; j < lines.length; j++) {
+        final t = lines[j].trim();
+        if (t.isEmpty || t.startsWith('#')) continue;
+        out.add(t);
+        break;
+      }
+    }
+    return out;
   }
 
   /// url → 稳定文件名（FNV-1a ✓：不依赖 `String.hashCode` 的进程内实现 ✓，无需额外依赖 ✓）
