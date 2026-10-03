@@ -62,6 +62,9 @@ class Api {
   /// ✅ **全项目唯一一处"哪个模板对应哪个站点类"的选择** ✓ ——
   /// 站点专属的判断/UI 全在各 lib/sites/<站>.dart 里 ✓，这里只做接线 ✓；
   /// 没实现 SiteUi 的站点返回 null ✓ → 调用处 `?? 默认值` ✓ = 改造前行为 ✓。
+  /// 便捷：当前站点的 UI 事实（可能就是 null ✓）
+  SiteUi? get _ui => ui;
+
   SiteUi? get ui => switch (site.template) {
         SiteTemplate.xhamster => _xhSite,
         SiteTemplate.pornhub => _phSite,
@@ -318,15 +321,11 @@ class Api {
   Future<List<String>> _fetchSourcesAt(String url) async {
     final html = await _fetchText(url);
     final out = <String>[];
-    if (site.template == SiteTemplate.huangguo) {
-      // 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep）
-      final data = HuangguoSite.initialData(hp.parse(html));
-      final ep = int.tryParse('${data?['ep'] ?? ''}') ?? 0;
-      final eps = data?['epPlaySrcs'];
-      if (eps is Map) {
-        final v = '${eps['$ep'] ?? ''}';
-        if (v.isNotEmpty) out.add(v);
-      }
+    // ⚠️ 站点专属的解析已**下放各站** ✓（见 SiteUi.sourcesFromHtml ✓）——
+    // 本站返回非 null 就用自己的（黄果 ✓），返回 null 才走通用做法（.dplayer 配置 ✓）。
+    final own = _ui?.sourcesFromHtml(html);
+    if (own != null) {
+      out.addAll(own);
     } else {
       final doc = hp.parse(html);
       for (final dp in doc.querySelectorAll('.dplayer[data-config]')) {

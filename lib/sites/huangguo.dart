@@ -23,6 +23,21 @@ class HuangguoSite {
 
   final SiteFetcher _f;
 
+  /// 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep ✓）。
+  /// ⚠️ 原在共享 `_fetchSourcesAt` 里按模板分叉 ✗，现下放本站 ✓（body 原样搬来 ✓）。
+  @override
+  List<String>? sourcesFromHtml(String html) {
+    final out = <String>[];
+    final data = HuangguoSite.initialData(hp.parse(html));
+    final ep = int.tryParse('${data?['ep'] ?? ''}') ?? 0;
+    final eps = data?['epPlaySrcs'];
+    if (eps is Map) {
+      final v = '${eps['$ep'] ?? ''}';
+      if (v.isNotEmpty) out.add(v);
+    }
+    return out;
+  }
+
   /// 详情入口：**按路径分流**到不同的解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
   /// 吃瓜社区的帖子是图文帖（/archives/N/ ✓），跟视频详情不是一套 ✓
   Future<ArticleDetail> detailOf(String url) {
@@ -445,5 +460,5 @@ class HuangguoSite {
       related: related.where((a) => a.url != url).take(12).toList(),
       seriesPrefix: seriesPrefix(title),
     );
-  }
+  }
 }

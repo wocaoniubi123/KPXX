@@ -31,6 +31,13 @@ abstract class SiteUi {
   /// （合并会让 Pornhub 多匹配 all/top ✗ = 改变行为 ✓）。
   bool isStarList(String slug) => false;
 
+  /// 从**详情页 HTML** 里挖出播放源（各站自己解析 ✓）。
+  ///
+  /// 返回 `null` = 用**通用做法**（找页面里的 `.dplayer[data-config]` 配置 ✓）；
+  /// 返回列表（可为空）= 本站自己解析（**不再走通用路径** ✓）。
+  /// ⚠️ 原先这段逻辑在共享的 `_fetchSourcesAt` 里按模板 if 分叉 ✗ ——
+  /// 那正是"站点逻辑散在公用函数里"的典型 ✓，现在下放给站点 ✓。
+  List<String>? sourcesFromHtml(String html) => null;
   /// 「色情明星」tab 挂**哪种**专用筛选行：`ph` = Pornhub 那套 ✓；`xh` = xHamster 那套 ✓。
   /// ⚠️ 两家是**两个不同的 widget** ✗ → 不能用同一个布尔 ✓，所以这里给"是哪家" ✓。
   String? get starRowKind => null;
