@@ -224,7 +224,6 @@ class XhSite implements SiteUi {
   /// 意义在哪里？？？"）—— 站点接口是**固定分页序**，所以只打乱是不够的 ✗（池子还是那几条）：
   /// **起始页取随机 1~48**（该范围实测有内容 🔍），列表内往后顺延；每批打乱；按 url 去重。
   /// `resetShortsRandom()` 让下一次取数**重新随机**（切 tab 回来时调，与 sim 行为一致 ✓）。
-  static final Random _rand = Random();
 
   int? _xhShortsFrom;
 

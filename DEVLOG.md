@@ -1376,6 +1376,37 @@ Round 29 开始读 DEVLOG 时发现"上一轮没落地" ✗ → **立刻补跑**
 - **下一步**：成功 → `gh run download` 取 ipa 复制到桌面 `kpxx.ipa` ✓；失败 → 把 `--log-failed` 的**错误原文**抄进本日志 ✓ → 修 → 再推 → 直到出包 ✓
 - ⚠️ **待验证的真实范围**：Round 5 ～ 31 的全部改动（约 27 轮）**首次**进入真实编译 ✓ —— 这是本次构建最可能暴露问题的地方 ✓。
 
+
+--- 第 87 条续（Round 32 · 第 1 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37088136073` 失败**（步骤「Flutter build IPA」，未走到上传产物 ✓；耗时约 1 分钟 ✓）
+
+**错误原文（全日志只有这 1 条编译错误 ✓）**：
+```
+Error (Xcode): lib/sites/xhamster.dart:227:23: Error: '_rand' is already declared in this scope.
+```
+同步骤上下文（原文 ✓）：
+```
+Failed to build iOS app
+Error (Xcode): lib/sites/xhamster.dart:227:23: Error: '_rand' is already declared in this scope.
+Encountered error while archiving for device.
+##[error]Process completed with exit code ***.
+```
+
+**根因** ✓：`XhSite` 这个类里 `static final Random _rand = Random();` **声明了两遍** ✗
+（`L109` = 从 `Api` 搬过来的那份 ✓；`L227` = 短片随机起始页那轮新加的 ✓）。
+
+**修法** ✓：删掉 `L227` 那份 ✓（保留 `L109`，按注释它语义归属更清楚 ✓；两行内容完全相同 ✓）。
+判据：删除后 `_rand` 声明 **1 处 ✓**、引用 3 处（`out.shuffle(_rand)` ✓ 仍在用 ✓）、文件末行仍是 `}` ✓。
+
+⚠️ **顺带做了两次"重复声明"扫描，都不靠谱（如实记 ✗）**：
+- 第一版（按两空格缩进匹配）报 **190 处** ✗ —— 把**方法内局部变量**（`if`/`for`/`out`… ✓）全算进去了 ✓
+- 第二版（只认"类型 + 名字"成员形态）报 **84 处** ✗ —— 仍是**不同方法里的同名局部 `final`** ✓（合法 ✓）
+- ✅ **结论：没有作用域感知就查不出这类错** ✗ —— **只有编译器能查** ✓（除非写真正的 Dart 解析器 ✓，不值得 ✓）
+- ⚠️ 所以：**同一类错误如果还有，只能靠下一次 CI 暴露** ✓（已告知用户 ✓）
+
+**📈 进度**：轮次 **32/40**；第 1 次构建失败 → 已修 → 重推 ✓。
+`api.dart` **381 行** ✓ · `home_page.dart` **1827 行** ✓ · `xhamster.dart` **391 行** ✓（删掉 1 行 ✓）。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
