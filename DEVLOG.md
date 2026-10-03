@@ -1469,6 +1469,35 @@ Error (Xcode): lib/home_page.dart:1302:24: Error: The getter '_api' isn't define
    仓库里**没有** `analysis_options.yaml` ✓（所以只会报真问题 ✓），
    ✅ **这样一次就能拿到全部 Dart 错误** ✓✓，而不是每 4 分钟挖一条 ✓。（**等用户拍板** ✓，我没动 workflow ✗）
 
+
+--- 第 87 条续（Round 32 · 第 4 次构建【失败】+ 修复 + 重推）---
+❌ **CI run `37088946971` 失败**（commit 9d47b38 ✓，编译阶段 ✓，非签名/上传 ✓）
+
+**错误原文（1 条，行号列号未屏蔽 ✓）**：
+```
+Error (Xcode): lib/api.dart:323:28: Error: The method 'initialData' isn't defined for the class 'HuangguoSite'.
+```
+**根因** ✓：`huangguo.dart:341` 把 `initialData` 声明成了 **`static`** ✗ ——
+✅ **静态方法不能按实例调用** ✓（Dart 的措辞就是 "isn't defined for the class" ✓）。
+
+✅ **修法**：`_hgSite.initialData(...)` → **`HuangguoSite.initialData(...)`** ✓（类名调用 ✓，
+`HuangguoSite` 在 api.dart 已被引用 ✓ 无需新 import ✓）。`git diff --numstat` = **1/1** ✓（干净单行改 ✓）。
+
+🎯 **又加了一条"这一类"的检查并扫全项目** ✓：找出每个站点类里的 **static 成员** ✓，
+再扫 api/home_page/detail_page 里所有 `_xxSite.<成员>` 调用 ✓ → **只有这 1 处** ✓（已修 ✓）。
+（顺带把各站的 static 清单也看清了：`XhSite` 最多有 10 个 ✓、`HanimeSite` 5 个 ✓、`KmSite` 2 个 ✓ …）
+
+✅ **build-watch 的独立验证（重要 ✓）**：它把 lib 里 10 个站点字段的 **53 处 `_xxSite.<成员>` 调用**
+逐个对着各类文件核了一遍 → **52 处 OK，唯一有问题就是 L323** ✓ →
+✅ **"站点对象上的成员调用"这一类，除 L323 外已无残留** ✓✓（它明确说明"只覆盖这一形态，不夸大" ✓）。
+⚠️ 但它也指出：**日志里没有"错误总数"线索** ❓（每轮 CFE 只抛第一条 ✓），
+且这批 R17~R31 重构 **24 个提交从未编译过** ✓ → **错误总量未知** ✓，只能一个个来 ✓。
+
+⚠️⚠️ **因此再次强烈建议（等用户拍板 ✓）**：在 CI 的 `Flutter build IPA` **前**加一步
+`flutter analyze --no-fatal-infos --no-fatal-warnings` ✓ ——
+仓库无 `analysis_options.yaml` ✓（噪音低 ✓），✅ **一次就能拿到全部 Dart 错误** ✓✓，
+把"每 4 分钟挖一条"变成"一次看完再一起修" ✓ —— 目前每轮往返约 6 分钟 ✓，这条能省下**好几轮** ✓。
+
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

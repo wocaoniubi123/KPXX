@@ -320,7 +320,7 @@ class Api {
     final out = <String>[];
     if (site.template == SiteTemplate.huangguo) {
       // 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep）
-      final data = _hgSite.initialData(hp.parse(html));
+      final data = HuangguoSite.initialData(hp.parse(html));
       final ep = int.tryParse('${data?['ep'] ?? ''}') ?? 0;
       final eps = data?['epPlaySrcs'];
       if (eps is Map) {
