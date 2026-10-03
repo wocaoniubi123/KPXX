@@ -13,6 +13,7 @@
 // ⚠️ **不要往这里加任何"某站怎么办"的分支** ✗ —— 那些一律写进 `lib/sites/<站点>.dart` ✓。
 
 import 'dart:convert';
+import '../site_error_log.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -69,7 +70,11 @@ class SiteFetcher {
             return utf8.decode(r.bodyBytes);
           }
           if (r.statusCode < 500) break; // 4xx 重试没用，直接换域名
-        } catch (_) {
+        } catch (e, st) {
+
+          // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
+
+          await SiteErrorLog.log(site.name, e, st);
           // 超时/连接失败：不再重试同域名，换下一个
           break;
         }
@@ -91,7 +96,11 @@ class SiteFetcher {
       }).timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) return '';
       return utf8.decode(r.bodyBytes);
-    } catch (_) {
+    } catch (e, st) {
+
+      // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
+
+      await SiteErrorLog.log(site.name, e, st);
       return '';
     }
   }
@@ -136,7 +145,11 @@ class SiteFetcher {
       if (found.isEmpty) return null;
       found.sort((a, b) => b.key.compareTo(a.key)); // 高 → 低
       return [for (final f in found) f.value];
-    } catch (_) {
+    } catch (e, st) {
+
+      // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
+
+      await SiteErrorLog.log(site.name, e, st);
       return null;
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'error_log_page.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
@@ -58,6 +59,8 @@ class SettingsPage extends StatelessWidget {
             _playCard(context),
             const SizedBox(height: 14),
             _bgCard(context),
+            const SizedBox(height: 14),
+            _logCard(context),
           ],
         ),
       ),
@@ -252,7 +255,25 @@ class SettingsPage extends StatelessWidget {
 
   /// 卡片：**没有背景色**，只有子节点的内边距（背景图直接透出来）。
   /// 卡片间距由 ListView 里的 SizedBox(height: 14) 给（同模拟器 .scard 的 margin-bottom）
-  Widget _card({required Widget child}) => child;
+  /// 诊断入口：**错误日志**（用户 2026-10-03 要求 ✓ —— 点开就能看 / 能清 / 能复制 ✓）
+  Widget _logCard(BuildContext context) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _head(icon: Icons.bug_report_outlined, title: '诊断'),
+          _button(
+            label: '错误日志',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ErrorLogPage()),
+            ),
+          ),
+          _note('有站点出错时会记下「时间 + 站点名 + 错误信息」，方便定位是哪个站挂了'),
+        ],
+      ),
+    );
+  }
+
 
   /// 标题行：浅橙圆角方块 + 图标 + 标题（右侧可选一个可点的小字）
   Widget _head({
