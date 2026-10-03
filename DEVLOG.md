@@ -1644,6 +1644,38 @@ Error (Xcode): lib/sites/wordpress.dart:287:22: Error: The getter 'site' isn't d
 - 拆(4/5)：`parse.dart` 的 `toRelPath`/`dplayerSources` 复制到使用它们的站点 ✓
 - 拆(5/5)：`api.dart` 的 5 个 switch → 接口 ✓
 - 然后：推送 + 构建 + 下载到桌面 ✓
+
+--- 第 88 条续（拆 (5/5) 的可行性核实 · 未动代码）---
+⚠️ **核实结论：这一步要改的不只是签名，还有各站方法【体内的取参逻辑】** ✗ —— 先把证据摆出来。
+
+**为什么**：站点类已经 `extends SiteUi` ✗ → Dart **单继承** ✗ → 不能再 `extends SiteDispatch` ✓
+→ 正解是**把 5 个分发方法加进 `SiteUi`** ✓。但 ✅ **覆写要求签名兼容** ✗：
+子类的具名参数**不能比父类少** ✗ → 每个站都得对齐到**并集签名** ✓：
+```
+category(String key, {required int page, String? k, String? theme, String? duration,
+    String? sort, List<MapEntry<String,String>>? extra, Future<List<Article>> Function({int page})? home})
+home({required int page, String first = ''})
+tag(String slug, {required int page})
+search(String keyword, {int page = 1, List<MapEntry<String,String>>? extra})
+detail(String url)
+```
+⚠️ 关键：现在**各站形态差异很大** ✗（实测 10 个文件 ✓）：
+- `category` 有 **4 种**：`(key,{page})` · `(key,{page,extra})` · `(key,{page,theme,duration,sort})` ·
+  `(k,String? theme,{page,extra})` · `(k,{page,required home})` · `(key,String k,{page})` ✗
+- `home` 有 **2 种**：`({page})` vs `(String first,{page})` ✗（`first` 现在是**位置参数** ✗，并集里是**具名** ✗）
+- 所以不只是"改签名" ✗ —— 站内方法**体里读参数的方式**也得跟着改 ✓
+  （例：madou 用 `k`（位置 ✗）→ 并集里是 `String? k` 具名 ✗ → 体内要写 `final kk = k ?? key;` ✓；
+    `home` 从"必填"变"可空" ✗ → 要 `home!(page: page)` ✓）。
+
+**成本/收益（如实）**：
+- 收益：`api.dart` 消掉 5 个 switch ≈ **-45 行** ✓；站点逻辑**已经在各站** ✓（这点不会变 ✓）
+- 成本：**改动 11 个文件**（10 站点 + api ✓）× **每个文件 5 个方法** ✓，其中约一半要改**方法体** ✗；
+  且本地**无 Flutter SDK** ✗ → **只能靠 CI 验证**（上次 8 次构建爆了 7 次 ✓，全是这类跨文件签名问题 ✓）
+
+⚠️ **因此按用户规矩「重大改动前先确认」在此停下 ✗，等拍板** ✓。
+🔍 我的建议（供参考 ✓）：**收益只有 -45 行、且不改变"站点逻辑归属"** ✓ → 
+   可以考虑**保留 5 个 switch**（它们已是"每 case 一行、零站点逻辑"的纯接线 ✓）；
+   若仍要做，我会**分成 2~3 批**（每批 3~4 个站 ✓）并**每批后构建一次** ✓，避免一次性 11 文件全爆 ✗。
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
