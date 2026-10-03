@@ -718,9 +718,9 @@ const SiteEntry kSite13 = SiteEntry(
     // （themeEmptyLabel，照模拟器定稿）；durations/sorts 给空列表 → 那两个按钮不画。
     filters: SiteFilters(
       themes: phCats,
-      languages: const [],
-      durations: const [],
-      sorts: const [],
+      languages: [],
+      durations: [],
+      sorts: [],
       themeLabel: '分类',
       themeEmptyLabel: '分类选择',
     ),

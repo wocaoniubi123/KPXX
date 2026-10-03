@@ -499,7 +499,7 @@ const List<SiteTab> xhStarCats = [
   SiteTab('/pornstars/all/categories/teen', '青少年'),
 ];
 final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
-  MapEntry("製作", const [
+  const MapEntry("製作", [
     SiteTab("/categories/3d", "3D"),
     SiteTab("/categories/pmv", "PMV"),
     SiteTab("/categories/show", "Show"),
@@ -525,7 +525,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/hentai", "變態"),
     SiteTab("/categories/softcore", "軟性色情"),
   ]),
-  MapEntry("行動", const [
+  const MapEntry("行動", [
     SiteTab("/categories/creampie", "中出"),
     SiteTab("/categories/scissoring", "交叉剪刀"),
     SiteTab("/categories/cumswap", "交換精液"),
@@ -585,7 +585,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/dirty-talk", "髒話調情"),
     SiteTab("/categories/orgasm", "高潮"),
   ]),
-  MapEntry("戀物癖", const [
+  const MapEntry("戀物癖", [
     SiteTab("/categories/human-furniture", "人體家具"),
     SiteTab("/categories/human-ashtray", "人體菸灰缸"),
     SiteTab("/categories/condom", "保險套"),
@@ -652,11 +652,11 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/body-hair-fetish", "體毛癖"),
     SiteTab("/categories/orgasm-control", "高潮控制"),
   ]),
-  MapEntry("指示", const [
+  const MapEntry("指示", [
     SiteTab("/categories/lesbian", "女同性戀"),
     SiteTab("/categories/bisexual", "雙性戀"),
   ]),
-  MapEntry("年齡", const [
+  const MapEntry("年齡", [
     SiteTab("/categories/18-year-old", "18歲"),
     SiteTab("/categories/milf", "媽媽我想做愛"),
     SiteTab("/categories/babe", "寶貝"),
@@ -668,7 +668,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/old-man", "老頭子"),
     SiteTab("/categories/teen", "青少年"),
   ]),
-  MapEntry("種族", const [
+  const MapEntry("種族", [
     SiteTab("/categories/amwf", "AMWF"),
     SiteTab("/categories/asian", "亞洲"),
     SiteTab("/categories/desi", "南亞裔"),
@@ -682,7 +682,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/african", "非洲"),
     SiteTab("/categories/black", "黑人"),
   ]),
-  MapEntry("身體", const [
+  const MapEntry("身體", [
     SiteTab("/categories/bwc", "BWC"),
     SiteTab("/categories/saggy-tits", "下垂奶"),
     SiteTab("/categories/nipples", "乳頭"),
@@ -729,7 +729,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/flexible", "靈活"),
     SiteTab("/categories/cameltoe", "駱駝蹄"),
   ]),
-  MapEntry("頭髮", const [
+  const MapEntry("頭髮", [
     SiteTab("/categories/colored-hair", "彩色頭髮"),
     SiteTab("/categories/brunette", "棕髮女郎"),
     SiteTab("/categories/short-hair", "短髮"),
@@ -737,7 +737,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/blonde", "金髮"),
     SiteTab("/categories/long-hair", "長髮"),
   ]),
-  MapEntry("人數", const [
+  const MapEntry("人數", [
     SiteTab("/categories/threesome", "三人行"),
     SiteTab("/categories/foursome", "四人行"),
     SiteTab("/categories/couple", "情侶"),
@@ -746,7 +746,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/group-sex", "群交"),
     SiteTab("/categories/gangbang", "輪姦"),
   ]),
-  MapEntry("性玩具", const [
+  const MapEntry("性玩具", [
     SiteTab("/categories/strapon", "假陽具"),
     SiteTab("/categories/dildo", "假雞巴"),
     SiteTab("/categories/ball-gagged", "口球束縛"),
@@ -762,7 +762,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/vibrator", "震動棒"),
     SiteTab("/categories/hitachi", "震動玩具"),
   ]),
-  MapEntry("服飾", const [
+  const MapEntry("服飾", [
     SiteTab("/categories/thong", "丁字褲"),
     SiteTab("/categories/latex", "乳膠"),
     SiteTab("/categories/panties", "內褲"),
@@ -787,7 +787,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/pantyhose", "連褲襪"),
     SiteTab("/categories/high-heels", "高跟鞋"),
   ]),
-  MapEntry("設想", const [
+  const MapEntry("設想", [
     SiteTab("/categories/asmr", "ASMR"),
     SiteTab("/categories/medieval", "中世紀"),
     SiteTab("/categories/agent", "代理人"),
@@ -888,7 +888,7 @@ final List<MapEntry<String, List<SiteTab>>> xhCatGroups = [
     SiteTab("/categories/interview", "面試"),
     SiteTab("/categories/surprise", "驚喜"),
   ]),
-  MapEntry("位置", const [
+  const MapEntry("位置", [
     SiteTab("/categories/sauna", "三溫暖"),
     SiteTab("/categories/fitness", "健身"),
     SiteTab("/categories/gym", "健身房"),
@@ -1371,9 +1371,9 @@ const SiteEntry kSite14 = SiteEntry(
     // ⚠️ 这里 388 项、是 PH 的近 4 倍，但机制一模一样，**UI 一行都不用改**。
     filters: SiteFilters(
       themes: xhCats,
-      languages: const [],
-      durations: const [],
-      sorts: const [],
+      languages: [],
+      durations: [],
+      sorts: [],
       themeLabel: '分类',
       themeEmptyLabel: '分类选择',
     ),

@@ -219,7 +219,7 @@ class VideoCache {
       for (final e in await dir.list().toList()) {
         DateTime m;
         try {
-          m = await e.lastModified();
+          m = (await e.stat()).modified;
         } catch (_) {
           continue;
         }
