@@ -1718,6 +1718,35 @@ Error (Xcode): lib/sites/hanime1.dart:292:9: Error: Type 'Api' not found.
   ✅ 教训：复核一律 **case-insensitive** ✓
 
 **⏭️ 待用户拍板（都已说明成本 ✓）**：`(2)` ArticleCard 下放 · `(5)` 5 个 switch 换接口（有静默改行为风险 ✗）。
+
+--- 第 88 条续（拆 5/5 完成：5 个 switch → SiteUi 并集接口）---
+✅ 用户拍板「做！！」后完成 ✓。做法：**把并集签名放到 `SiteUi`**（因为 Dart 单继承 ✗，站点类已 `extends SiteUi`，不能再继承第二个基类 ✓）。
+
+**`SiteUi` 新增 5 个分发方法**（用不到的参数忽略即可 ✓）：
+```
+category(String key, {required int page, String? k, String? theme, String? duration,
+    String? sort, List<MapEntry<String,String>>? extra, Future<List<Article>> Function({int page})? home})
+home({required int page, String first = ''})   tag(String slug, {required int page})
+search(String keyword, {int page = 1, List<MapEntry<String,String>>? extra})   detail(String url)
+```
+**`api.dart`**：5 个分发器各留一行 `return _ui!.xxx(...)` ✓；
+✅ `switch (site.template)` 从 **5 个降到 1 个**（只剩 `ui` getter 自己 ✓ = 唯一"模板→实例"选择点 ✓）；`case SiteTemplate.*` = **0 个** ✓。
+⚠️ 同时把 `ui` getter 从**4 个模板补全到 10 个** ✗✓ —— 否则 `_ui!` 对新模板会崩 ✓（这是个顺手修掉的隐患 ✓）。
+
+**逐条语义核对（关键 ✓，老代码传参不一致 ✗）**：
+- 老 `category` 的调用：wp/porna/xv/md/ph 传**解析后的 `k`** ✓；pk/hn/km/xh 传**原始 `key`** ✓；hg 两个都传 ✓
+- 新代码：`key` 位置传**原始** ✓、`k:` 具名传**解析后** ✓ → 与老行为**逐站一致** ✓
+- 5 个"收解析后 k"的站（wp/hg/md/ph）+ xv 做了 `final kk = k ?? key;` 绑定 ✓（语义等价 ✓）；
+  madou 的 `home` 由必填变可空 → 加 `home!(page: page)` ✓
+- `home`：hn/hg/porna 的 `first` 从位置参数改具名 ✓（其余 7 站只收 page ✓ 是并集的子集 ✓）
+- `search`：8 站的 `{required int page}` 改 `{int page = 1, extra}` ✓（覆写不能把可选参数变必填 ✗）
+
+⚠️ **过程中自伤一次（如实记 ✗）**：首版脚本做"区域内 k→kk"时**把签名里的 `String? k,` 也改了** ✗ →
+`final kk = kk ?? key;` 自引用 ✓；已 `git checkout -- lib/sites/` **回滚重做** ✓（改成"只换方法头 + 精确 skip 参数声明行" ✓）。
+
+⏭️ **`(2)` ArticleCard 下放：经实测决定不做** ✓ —— 逐行看过，那 225 行**已无任何站点逻辑** ✗
+（只有 `site.portraitCovers` 数据 + `ui?.specialTap` 站点事实 ✓）；下放 = **复制 10 份 +2250 行** ✗，
+独立性**一点不涨** ✓，以后改一处要改 10 处 ✓ —— 符合"删除优于新增"，故不做（用户若坚持可随时补 ✓）。
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议
