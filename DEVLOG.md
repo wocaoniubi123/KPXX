@@ -1615,6 +1615,35 @@ Error (Xcode): lib/sites/wordpress.dart:287:22: Error: The getter 'site' isn't d
 ## ⚠️ 本轮我自己的两个失误（如实记 ✗）
 - 第 5 次修复时第一版脚本"2 插 2 删"把 fmt.dart 弄坏 ✗ → git checkout 回滚后按"只补第一个"重做 ✓
 - 本条的 DEVLOG 第一次写入失败 ✗（heredoc 里含反引号/竖线的 markdown 表格把 JS 字符串弄坏 → SyntaxError → 未写入）→ 改用"数组拼行、不用反引号"重写成功 ✓
+
+--- 第 88 条：拆共享件（用户新指令：「二、🟡 可以拆的都拆了……全部拆完构建下载」）---
+✅ **拆(3/5)：_fetchSourcesAt 的黄果分支下放** —— 不是简单搬走 ✓，而是做了一个**通用机制**：
+   SiteUi 新增 `sourcesFromHtml(html)` ✓（默认返回 null = 走通用 .dplayer 路径 ✓）；
+   HuangguoSite 覆盖它返回自己的源 ✓；api.dart 不再按模板 if 分叉 ✓（`_ui?.sourcesFromHtml(html)` ✓）。
+   site_ui +7 行 / huangguo +15 行 / api 8-9 行 ✓
+
+✅ **拆(1/5)：分站 widget 搬进各自站点文件**（本轮最大的一块 ✓）
+- **hanime1**：`_HnFilters`/`_HnFilterBar`/`_HnTagDialog`/`_HnTagDialogState` → `sites/hanime1.dart` ✓
+  公开改名 `Hn*` ✓；并把 `pickOptionDialog` **复制一份**成私有的 `_hnPickOptionDialog` ✓（harness 独立 ✓）
+  另加 `import package:flutter/material.dart` ✓
+- **pornhub**：`PhStarFilters`/`PhStarBar`/`PhMoreDialog`/`PhMoreDialogState` → `sites/pornhub.dart` ✓（同上 ✓）
+- `home_page.dart`：**1830 → 1436 行**（-394 ✓）；引用改成 `HnFilters()`/`HnFilterBar(...)`/`PhStarBar(...)` ✓；
+  并加了 `import sites/hanime1.dart` + `import sites/pornhub.dart` ✓
+- 判据：段的圆/花括号净 **0/0** ✓（写盘前核对 ✓）；改完 `home_page` 里 `_Hn*`/`_Ph*` 残留 **0** ✓；
+  各文件 self-contained ✓（已确认 `_label`/`_pickMore`/`_pickSingle`/`_pickTags`/`_load` 都是**搬过去那些类自己的方法** ✓）
+
+⚠️ **过程中的两次自伤/误报（如实记 ✗）**：
+1. pornhub 第一次定位只抓到 24 行（只搬走了 PhStarFilters ✓）→ 用类声明重新定位后补搬 146 行 ✓
+   （当时状态**自洽** ✓：PhStarBar 通过新 import 能拿到 PhStarFilters ✓，没有中间坏态 ✓）
+2. 我的"外部依赖"检查器**两次误报**：① 只认大写下划线名 → 漏了小写顶层函数（如 pickOptionDialog ✓）；
+   ② 找定义时要求行首 → 漏了缩进的类内方法 → 误报 `_label`/`_pickMore` 缺失 ✓。
+   ✅ 教训：**检查器要认"缩进的成员定义"和"行首调用"两种形态** ✗（今天已踩 3 次同类正则盲区 ✓）。
+
+**⏭️ 还没做（本目标剩余）**：
+- 拆(2/5)：`ArticleCard` 卡片渲染下放（⚠️ 它现在**已经没有站点逻辑** ✓ —— 走 `site.ui`/`_f.site` ✓，再拆=把 225 行复制 10 份，**建议先跟用户确认** ✓）
+- 拆(4/5)：`parse.dart` 的 `toRelPath`/`dplayerSources` 复制到使用它们的站点 ✓
+- 拆(5/5)：`api.dart` 的 5 个 switch → 接口 ✓
+- 然后：推送 + 构建 + 下载到桌面 ✓
 ### 8.3 明确不做（Forward 专有，我们没有）
 - ❌ 封面代理（App/sim 自己解密）
 - ❌ `WidgetMetadata` / `link` 夹带封面 / `cover_type` 参数协议

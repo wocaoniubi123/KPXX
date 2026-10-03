@@ -8,6 +8,8 @@
 
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
@@ -228,4 +230,232 @@ class HanimeSite extends SiteUi {
       duration: duration,
     );
   }
+}
+
+/// 单选弹窗（**本站自带副本** ✓；原与 Pektino 共用，2026-10-03 站点独立改造时各站一份 ✓）：选项 key → 显示名，当前项橙色 + ✓，
+/// 选完即关。（"这样的选择样式"——2026-10-01 用户指定）
+Future<void> _hnPickOptionDialog(
+  BuildContext context,
+  String title,
+  List<MapEntry<String, String>> options,
+  String current,
+  void Function(String key) apply,
+) async {
+  final v = await showDialog<String>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: Text(title, style: const TextStyle(fontSize: 16)),
+      children: [
+        for (final o in options)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, o.key),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    o.value,
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: o.key == current
+                            ? const Color(0xFFE8590C)
+                            : const Color(0xFF333333)),
+                  ),
+                ),
+                if (o.key == current)
+                  const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+  if (v != null && v != current) apply(v);
+}
+
+/// Hanime1 的四合一筛选状态（照站点：標籤/排序方式/發佈日期/時長）
+class HnFilters {
+  String sort = '';
+  String date = '';
+  String duration = '';
+  final List<String> tags = [];
+  List<MapEntry<String, String>> toParams() => [
+        if (sort.isNotEmpty) MapEntry('sort', sort),
+        if (date.isNotEmpty) MapEntry('date', date),
+        if (duration.isNotEmpty) MapEntry('duration', duration),
+        for (final t in tags) MapEntry('tags[]', t),
+      ];
+}
+
+/// Hanime1 的筛选行（照站点四个下拉）。单选类"选完即关"；
+/// 標籤是 240 个标签的多选弹窗（确定/清除/取消）。
+class HnFilterBar extends StatelessWidget {
+  final Api api;
+  final HnFilters filters;
+  final VoidCallback onChanged;
+  const HnFilterBar(
+      {required this.api, required this.filters, required this.onChanged});
+
+  Future<void> _pickSingle(BuildContext context, String title,
+          List<String> options, String current, void Function(String) apply) =>
+      _hnPickOptionDialog(
+        context,
+        title,
+        [
+          const MapEntry('', '全部'),
+          for (final o in options) MapEntry(o, o),
+        ],
+        current,
+        (v) {
+          apply(v);
+          onChanged();
+        },
+      );
+
+  Future<void> _pickTags(BuildContext context) async {
+    final sel = await showDialog<List<String>>(
+      context: context,
+      builder: (_) => HnTagDialog(api: api, init: List.of(filters.tags)),
+    );
+    if (sel != null) {
+      filters.tags
+        ..clear()
+        ..addAll(sel);
+      onChanged();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final f = filters;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            filterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
+                f.tags.isNotEmpty, () => _pickTags(context)),
+            const SizedBox(width: 6),
+            filterBtn(
+                f.sort.isEmpty ? '排序方式' : f.sort,
+                f.sort.isNotEmpty,
+                () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
+                    (v) => f.sort = v)),
+            const SizedBox(width: 6),
+            filterBtn(
+                f.date.isEmpty ? '發佈日期' : f.date,
+                f.date.isNotEmpty,
+                () => _pickSingle(context, '發佈日期', _hnDates, f.date,
+                    (v) => f.date = v)),
+            const SizedBox(width: 6),
+            filterBtn(
+                f.duration.isEmpty ? '時長' : f.duration,
+                f.duration.isNotEmpty,
+                () => _pickSingle(context, '時長', _hnDurations, f.duration,
+                    (v) => f.duration = v)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hanime1 标签弹窗：240 个标签多选（打开时动态抓取一次），确定/清除/取消。
+class HnTagDialog extends StatefulWidget {
+  final Api api;
+  final List<String> init;
+  const HnTagDialog({required this.api, required this.init});
+
+  @override
+  State<HnTagDialog> createState() => HnTagDialogState();
+}
+
+class HnTagDialogState extends State<HnTagDialog> {
+  List<String>? _all;
+  bool _error = false;
+  late final List<String> _sel = List.of(widget.init);
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final t = await widget.api.hanimeTags();
+      if (mounted) setState(() => _all = t);
+    } catch (_) {
+      if (mounted) setState(() => _error = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = _all;
+    return AlertDialog(
+      title: const Text('內容標籤', style: TextStyle(fontSize: 16)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: _error
+              ? const Center(child: Text('标签加载失败'))
+              : all == null
+                  ? const Center(
+                      child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2)))
+                  : SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final t in all)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => setState(() => _sel.contains(t)
+                                  ? _sel.remove(t)
+                                  : _sel.add(t)),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: _sel.contains(t)
+                                      ? const Color(0xFFE8590C)
+                                      : const Color(0xFFF0F0F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  t,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: _sel.contains(t)
+                                          ? Colors.white
+                                          : const Color(0xFF444444)),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, <String>[]),
+          child: const Text('清除'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _sel),
+          child: const Text('確定'),
+        ),
+      ],
+    );
+  }
 }

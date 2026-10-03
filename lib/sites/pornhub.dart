@@ -11,6 +11,8 @@
 
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as hp;
 
@@ -238,4 +240,176 @@ class PhSite extends SiteUi {
     );
   }
   // ---------------------------------------------------------------------------
+}
+
+/// Pornhub「色情明星」tab 的筛选状态（照站点右上角那四个控件）：
+/// 最受欢迎 ▾ / 色情明星和模特 ▾ / 每月 ▾ / + 更多筛选设置。
+/// 值都直接是**URL 参数值**（o / performerType / t，选项见 sites.dart 的 phStar*），
+/// 空串 = 该控件的默认（站点默认就是最受欢迎 / 色情明星和模特 / 每月）。
+class PhStarFilters {
+  String sort = '';
+  String type = '';
+  String time = '';
+
+  /// 参数名（gender/ethnicity/tattoos/hair/piercings/cup/breasttype）→ 选中值
+  final Map<String, String> more = {};
+
+  /// 拼成 `extra`（Api 的 pornhub 分支会把它接在 /pornstars 后面）
+  List<MapEntry<String, String>> toParams() => [
+        if (sort.isNotEmpty) MapEntry('o', sort),
+        if (type.isNotEmpty) MapEntry('performerType', type),
+        if (time.isNotEmpty) MapEntry('t', time),
+        for (final e in more.entries)
+          if (e.value.isNotEmpty) MapEntry(e.key, e.value),
+      ];
+
+  /// 「更多筛选设置」里选中了几个（按钮高亮用）
+  int get moreCount => more.values.where((v) => v.isNotEmpty).length;
+}
+
+/// Pornhub 色情明星筛选行（四个控件，照站点；前三个单选、选完即关）
+class PhStarBar extends StatelessWidget {
+  final PhStarFilters filters;
+  final VoidCallback onChanged;
+  const PhStarBar({required this.filters, required this.onChanged});
+
+  /// 控件按钮上的文字：选中的显示选项名，没选显示默认名
+  String _label(List<SiteTab> opts, String cur, String dft) {
+    for (final o in opts) {
+      if (o.key == cur) return cur.isEmpty ? dft : o.name;
+    }
+    return dft;
+  }
+
+  Future<void> _pick(BuildContext context, String title, List<SiteTab> opts,
+          String cur, void Function(String) apply) =>
+      pickOptionDialog(
+        context,
+        title,
+        [for (final o in opts) MapEntry(o.key, o.name)],
+        cur,
+        (v) {
+          apply(v);
+          onChanged();
+        },
+      );
+
+  Future<void> _pickMore(BuildContext context) async {
+    final sel = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => PhMoreDialog(init: Map.of(filters.more)),
+    );
+    if (sel != null) {
+      filters.more
+        ..clear()
+        ..addAll(sel);
+      onChanged();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final f = filters;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            filterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
+                () => _pick(context, '排序', phStarSorts, f.sort,
+                    (v) => f.sort = v)),
+            const SizedBox(width: 6),
+            filterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
+                () => _pick(context, '类型', phStarTypes, f.type,
+                    (v) => f.type = v)),
+            const SizedBox(width: 6),
+            filterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
+                () => _pick(context, '时间区段', phStarTimes, f.time,
+                    (v) => f.time = v)),
+            const SizedBox(width: 6),
+            filterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Pornhub「+ 更多筛选设置」：7 组（性别/种族/纹身/发色/穿环/罩杯/胸型），
+/// 组内单选、组间独立；確定写回、清除全空、取消不改。
+class PhMoreDialog extends StatefulWidget {
+  final Map<String, String> init;
+  const PhMoreDialog({required this.init});
+  @override
+  State<PhMoreDialog> createState() => PhMoreDialogState();
+}
+
+class PhMoreDialogState extends State<PhMoreDialog> {
+  late final Map<String, String> _sel = Map.of(widget.init);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('更多筛选设置'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final g in phStarMore) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 6),
+                child: Text(g.name,
+                    style: const TextStyle(
+                        fontSize: 13, color: Color(0xFF666666))),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final o in g.subs)
+                    GestureDetector(
+                      onTap: () => setState(() {
+                        if (o.key.isEmpty) {
+                          _sel.remove(g.key); // 「全部」= 该组不传参数
+                        } else {
+                          _sel[g.key] = o.key;
+                        }
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: (_sel[g.key] ?? '') == o.key
+                              ? const Color(0xFFE8590C)
+                              : const Color(0xFFF0F0F2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(o.name,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: (_sel[g.key] ?? '') == o.key
+                                    ? Colors.white
+                                    : const Color(0xFF444444))),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context, <String, String>{}),
+            child: const Text('清除')),
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        TextButton(
+            onPressed: () => Navigator.pop(context, _sel),
+            child: const Text('確定')),
+      ],
+    );
+  }
 }

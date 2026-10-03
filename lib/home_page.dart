@@ -8,6 +8,8 @@ import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
 import 'shorts_feed_page.dart';
+import 'sites/hanime1.dart';
+import 'sites/pornhub.dart';
 import 'sites.dart';
 
 /// 单个站点的内容页：顶部分类 tab（可带子分类）+ 双列卡片列表。
@@ -19,45 +21,6 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-/// 单选弹窗（Hanime1 / Pektino 共用）：选项 key → 显示名，当前项橙色 + ✓，
-/// 选完即关。（"这样的选择样式"——2026-10-01 用户指定）
-Future<void> pickOptionDialog(
-  BuildContext context,
-  String title,
-  List<MapEntry<String, String>> options,
-  String current,
-  void Function(String key) apply,
-) async {
-  final v = await showDialog<String>(
-    context: context,
-    builder: (ctx) => SimpleDialog(
-      title: Text(title, style: const TextStyle(fontSize: 16)),
-      children: [
-        for (final o in options)
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, o.key),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    o.value,
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: o.key == current
-                            ? const Color(0xFFE8590C)
-                            : const Color(0xFF333333)),
-                  ),
-                ),
-                if (o.key == current)
-                  const Icon(Icons.check, size: 16, color: Color(0xFFE8590C)),
-              ],
-            ),
-          ),
-      ],
-    ),
-  );
-  if (v != null && v != current) apply(v);
-}
 
 /// 筛选行按钮（Hanime1 / Pektino 共用）：生效时橙色 + " ●"
 Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
@@ -109,365 +72,8 @@ const List<String> _hnDurations = [
   '0 - 10 分鐘', '0 - 20 分鐘',
 ];
 
-/// Hanime1 的四合一筛选状态（照站点：標籤/排序方式/發佈日期/時長）
-class _HnFilters {
-  String sort = '';
-  String date = '';
-  String duration = '';
-  final List<String> tags = [];
-  List<MapEntry<String, String>> toParams() => [
-        if (sort.isNotEmpty) MapEntry('sort', sort),
-        if (date.isNotEmpty) MapEntry('date', date),
-        if (duration.isNotEmpty) MapEntry('duration', duration),
-        for (final t in tags) MapEntry('tags[]', t),
-      ];
-}
 
-/// Hanime1 的筛选行（照站点四个下拉）。单选类"选完即关"；
-/// 標籤是 240 个标签的多选弹窗（确定/清除/取消）。
-class _HnFilterBar extends StatelessWidget {
-  final Api api;
-  final _HnFilters filters;
-  final VoidCallback onChanged;
-  const _HnFilterBar(
-      {required this.api, required this.filters, required this.onChanged});
 
-  Future<void> _pickSingle(BuildContext context, String title,
-          List<String> options, String current, void Function(String) apply) =>
-      pickOptionDialog(
-        context,
-        title,
-        [
-          const MapEntry('', '全部'),
-          for (final o in options) MapEntry(o, o),
-        ],
-        current,
-        (v) {
-          apply(v);
-          onChanged();
-        },
-      );
-
-  Future<void> _pickTags(BuildContext context) async {
-    final sel = await showDialog<List<String>>(
-      context: context,
-      builder: (_) => _HnTagDialog(api: api, init: List.of(filters.tags)),
-    );
-    if (sel != null) {
-      filters.tags
-        ..clear()
-        ..addAll(sel);
-      onChanged();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final f = filters;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            filterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
-                f.tags.isNotEmpty, () => _pickTags(context)),
-            const SizedBox(width: 6),
-            filterBtn(
-                f.sort.isEmpty ? '排序方式' : f.sort,
-                f.sort.isNotEmpty,
-                () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
-                    (v) => f.sort = v)),
-            const SizedBox(width: 6),
-            filterBtn(
-                f.date.isEmpty ? '發佈日期' : f.date,
-                f.date.isNotEmpty,
-                () => _pickSingle(context, '發佈日期', _hnDates, f.date,
-                    (v) => f.date = v)),
-            const SizedBox(width: 6),
-            filterBtn(
-                f.duration.isEmpty ? '時長' : f.duration,
-                f.duration.isNotEmpty,
-                () => _pickSingle(context, '時長', _hnDurations, f.duration,
-                    (v) => f.duration = v)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Hanime1 标签弹窗：240 个标签多选（打开时动态抓取一次），确定/清除/取消。
-class _HnTagDialog extends StatefulWidget {
-  final Api api;
-  final List<String> init;
-  const _HnTagDialog({required this.api, required this.init});
-
-  @override
-  State<_HnTagDialog> createState() => _HnTagDialogState();
-}
-
-class _HnTagDialogState extends State<_HnTagDialog> {
-  List<String>? _all;
-  bool _error = false;
-  late final List<String> _sel = List.of(widget.init);
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final t = await widget.api.hanimeTags();
-      if (mounted) setState(() => _all = t);
-    } catch (_) {
-      if (mounted) setState(() => _error = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final all = _all;
-    return AlertDialog(
-      title: const Text('內容標籤', style: TextStyle(fontSize: 16)),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 420),
-          child: _error
-              ? const Center(child: Text('标签加载失败'))
-              : all == null
-                  ? const Center(
-                      child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2)))
-                  : SingleChildScrollView(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final t in all)
-                            InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () => setState(() => _sel.contains(t)
-                                  ? _sel.remove(t)
-                                  : _sel.add(t)),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: _sel.contains(t)
-                                      ? const Color(0xFFE8590C)
-                                      : const Color(0xFFF0F0F2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  t,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: _sel.contains(t)
-                                          ? Colors.white
-                                          : const Color(0xFF444444)),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, <String>[]),
-          child: const Text('清除'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _sel),
-          child: const Text('確定'),
-        ),
-      ],
-    );
-  }
-}
-
-/// Pornhub「色情明星」tab 的筛选状态（照站点右上角那四个控件）：
-/// 最受欢迎 ▾ / 色情明星和模特 ▾ / 每月 ▾ / + 更多筛选设置。
-/// 值都直接是**URL 参数值**（o / performerType / t，选项见 sites.dart 的 phStar*），
-/// 空串 = 该控件的默认（站点默认就是最受欢迎 / 色情明星和模特 / 每月）。
-class _PhStarFilters {
-  String sort = '';
-  String type = '';
-  String time = '';
-
-  /// 参数名（gender/ethnicity/tattoos/hair/piercings/cup/breasttype）→ 选中值
-  final Map<String, String> more = {};
-
-  /// 拼成 `extra`（Api 的 pornhub 分支会把它接在 /pornstars 后面）
-  List<MapEntry<String, String>> toParams() => [
-        if (sort.isNotEmpty) MapEntry('o', sort),
-        if (type.isNotEmpty) MapEntry('performerType', type),
-        if (time.isNotEmpty) MapEntry('t', time),
-        for (final e in more.entries)
-          if (e.value.isNotEmpty) MapEntry(e.key, e.value),
-      ];
-
-  /// 「更多筛选设置」里选中了几个（按钮高亮用）
-  int get moreCount => more.values.where((v) => v.isNotEmpty).length;
-}
-
-/// Pornhub 色情明星筛选行（四个控件，照站点；前三个单选、选完即关）
-class _PhStarBar extends StatelessWidget {
-  final _PhStarFilters filters;
-  final VoidCallback onChanged;
-  const _PhStarBar({required this.filters, required this.onChanged});
-
-  /// 控件按钮上的文字：选中的显示选项名，没选显示默认名
-  String _label(List<SiteTab> opts, String cur, String dft) {
-    for (final o in opts) {
-      if (o.key == cur) return cur.isEmpty ? dft : o.name;
-    }
-    return dft;
-  }
-
-  Future<void> _pick(BuildContext context, String title, List<SiteTab> opts,
-          String cur, void Function(String) apply) =>
-      pickOptionDialog(
-        context,
-        title,
-        [for (final o in opts) MapEntry(o.key, o.name)],
-        cur,
-        (v) {
-          apply(v);
-          onChanged();
-        },
-      );
-
-  Future<void> _pickMore(BuildContext context) async {
-    final sel = await showDialog<Map<String, String>>(
-      context: context,
-      builder: (_) => _PhMoreDialog(init: Map.of(filters.more)),
-    );
-    if (sel != null) {
-      filters.more
-        ..clear()
-        ..addAll(sel);
-      onChanged();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final f = filters;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            filterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
-                () => _pick(context, '排序', phStarSorts, f.sort,
-                    (v) => f.sort = v)),
-            const SizedBox(width: 6),
-            filterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
-                () => _pick(context, '类型', phStarTypes, f.type,
-                    (v) => f.type = v)),
-            const SizedBox(width: 6),
-            filterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
-                () => _pick(context, '时间区段', phStarTimes, f.time,
-                    (v) => f.time = v)),
-            const SizedBox(width: 6),
-            filterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Pornhub「+ 更多筛选设置」：7 组（性别/种族/纹身/发色/穿环/罩杯/胸型），
-/// 组内单选、组间独立；確定写回、清除全空、取消不改。
-class _PhMoreDialog extends StatefulWidget {
-  final Map<String, String> init;
-  const _PhMoreDialog({required this.init});
-  @override
-  State<_PhMoreDialog> createState() => _PhMoreDialogState();
-}
-
-class _PhMoreDialogState extends State<_PhMoreDialog> {
-  late final Map<String, String> _sel = Map.of(widget.init);
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('更多筛选设置'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final g in phStarMore) ...[
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 6),
-                child: Text(g.name,
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFF666666))),
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final o in g.subs)
-                    GestureDetector(
-                      onTap: () => setState(() {
-                        if (o.key.isEmpty) {
-                          _sel.remove(g.key); // 「全部」= 该组不传参数
-                        } else {
-                          _sel[g.key] = o.key;
-                        }
-                      }),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: (_sel[g.key] ?? '') == o.key
-                              ? const Color(0xFFE8590C)
-                              : const Color(0xFFF0F0F2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(o.name,
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: (_sel[g.key] ?? '') == o.key
-                                    ? Colors.white
-                                    : const Color(0xFF444444))),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context, <String, String>{}),
-            child: const Text('清除')),
-        TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        TextButton(
-            onPressed: () => Navigator.pop(context, _sel),
-            child: const Text('確定')),
-      ],
-    );
-  }
-}
 
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
@@ -489,10 +95,10 @@ class _HomePageState extends State<HomePage>
   String _sort = 'favorite'; // 排序
 
   // ---- Hanime1 的筛选器（照站点：標籤/排序方式/發佈日期/時長）----
-  final _hn = _HnFilters();
+  final _hn = HnFilters();
 
   // ---- Pornhub「色情明星」tab 的筛选器（排序/类型/时间/更多）----
-  final _phStar = _PhStarFilters();
+  final _phStar = PhStarFilters();
 
   List<SiteTab> get _cats => widget.site.categories;
 
@@ -725,7 +331,7 @@ class _HomePageState extends State<HomePage>
     return null;
   }
   /// Pornhub 的色情明星筛选行（照站点四个控件）：
-  Widget _phStarRow() => _PhStarBar(filters: _phStar, onChanged: _applyPhStar);
+  Widget _phStarRow() => PhStarBar(filters: _phStar, onChanged: _applyPhStar);
 
   /// Hanime1：把当前筛选应用到所有列表 + 重建
   void _applyHn() {
@@ -738,7 +344,7 @@ class _HomePageState extends State<HomePage>
 
   /// Hanime1 的筛选行（四个下拉，照站点）
   Widget _hnFilterRow() =>
-      _HnFilterBar(api: _api, filters: _hn, onChanged: _applyHn);
+      HnFilterBar(api: _api, filters: _hn, onChanged: _applyHn);
 
   /// Pektino 的筛选行（照站点：筛选按钮 + 时长/排序下拉）；
   /// 点「筛选」弹出标签弹窗（照站点「按标签筛选」；2026-10-01 从"展开"改"弹窗"）
@@ -1668,7 +1274,7 @@ class _SearchPageState extends State<SearchPage> {
   String _kw = '';
 
   // ---- Hanime1：搜索页顶部也有筛选行（照站点四个下拉）----
-  final _hn = _HnFilters();
+  final _hn = HnFilters();
 
   /// 转场动画结束后再聚焦（弹键盘）：键盘第一次冷启动开销大，和页面转场叠在一起
   /// 会掉帧（用户实报"第一次点开搜索有点掉帧"）。页面滑入完再弹，两者错峰。
@@ -1778,7 +1384,7 @@ class _SearchPageState extends State<SearchPage> {
         children: [
           // Hanime1：搜索页顶部也有筛选行（照站点四个下拉）
           if (_api.ui?.hasFilterRow ?? false)
-            _HnFilterBar(
+            HnFilterBar(
               api: _api,
               filters: _hn,
               onChanged: () {
