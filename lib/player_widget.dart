@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'site_error_log.dart';
 
 // ValueListenable 不在 material.dart 的导出里，要单独引
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -164,6 +165,7 @@ class KpPlayer extends ValueNotifier<KpState> {
           _lastFatal = e;
         } else {
           value = value.copyWith(error: true, errorText: e);
+          SiteErrorLog.log('播放器', 'error 流（还没播起来）：$e');
         }
       }),
       // 引擎日志只静默留存最后一条 fatal：不再当错误弹提示
@@ -201,6 +203,8 @@ class KpPlayer extends ValueNotifier<KpState> {
         if (_stuckMs >= _stuckLimitMs) {
           _stuckMs = 0;
           _stalled = true; // 这次算"看门狗判的"：位置恢复前进时由它自己撤掉
+          SiteErrorLog.log('播放器',
+              '⚠️ 判缓冲超时：位置 ${_fmt(s.position)} 已 ${_stuckMs}ms 不动 | duration=${_fmt(s.duration)} buffering=${s.buffering}');
           value = value.copyWith(
             error: true,
             errorText: _lastFatal.isEmpty
@@ -245,6 +249,9 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
+    // 🔎 诊断日志（用户 2026-10-03 要求：慢站 seek 失败排查 ✓）——可在「设置→诊断→错误日志」复制 ✓
+    SiteErrorLog.log('播放器',
+        'open 源=${url.length > 100 ? url.substring(0, 100) : url} | Referer=${httpHeaders != null}');
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
     //
@@ -275,12 +282,21 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// 播放倍速——长按快进用：按住时 2.0、松手回 1.0
   Future<void> setRate(double r) => _p.setRate(r);
 
-  Future<void> seek(Duration d) => _p.seek(_clampDur(d, value.duration));
+  Future<void> seek(Duration d) {
+    final t = _clampDur(d, value.duration);
+    SiteErrorLog.log('播放器',
+        'seek ${_fmt(d)} → 实际 ${_fmt(t)} | duration=${_fmt(value.duration)} pos=${_fmt(value.position)} buffering=${value.buffering} err=${value.error}');
+    return _p.seek(t);
+  }
 
   /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
   /// 位置"，而 `seek()` 会按 `value.duration` 裁剪，万一时长还没报上来
   /// （或报了个半截值）就会被裁小 —— 表现同样是"从头发"。
-  Future<void> seekExact(Duration d) => _p.seek(d);
+  Future<void> seekExact(Duration d) {
+    SiteErrorLog.log('播放器',
+        'seekExact ${_fmt(d)} | duration=${_fmt(value.duration)} pos=${_fmt(value.position)}');
+    return _p.seek(d);
+  }
 
   Future<void> shutdown() async {
     _stallTimer?.cancel();
