@@ -216,15 +216,22 @@ class PlayHistory extends ChangeNotifier {
 
   PlayRecord? find(String site, String url) => _m['$site|$url'];
 
-  /// 播放中不断调这里。节流：进度比上次落盘前进 <10 秒且已有记录 → 只更新内存。
-  /// 进度回退（快退/从头看）同样会落盘（取绝对值判断），否则退出时会把新位置丢掉。
-  Future<void> touch(PlayRecord r) async {
+  /// 播放中不断调这里。
+  ///
+  /// 节流：进度比上次落盘变化 <[minDeltaSec] 秒就只更新内存 ✓（不落盘 ✗）。
+  /// 进度回退（快退/从头看）同样会落盘（取绝对值判断 ✓），否则退出时会把新位置丢掉 ✓。
+  ///
+  /// ⚠️ 2026-10-03（用户要求两处改动 ✓）：
+  /// ① 节流从 **10 秒收紧到 2 秒** ✓ —— 用户反馈"记录放得太宽、进度容易丢" ✓；
+  /// ② 新增 [force] ✓ —— 用户**拖/点进度条**（位置跳变 ✓）时**绕过节流立刻落盘** ✓，
+  ///    否则随后"自动重试重新加载"会从旧记录开始 ✗（用户实测过：跳完进度又从头播 ✗）。
+  Future<void> touch(PlayRecord r, {bool force = false, int minDeltaSec = 2}) async {
     final old = _m[r.key];
     _m[r.key] = r;
     notifyListeners(); // 列表/进度条实时刷新
     final last = _savedSec[r.key];
     final p = r.position.inSeconds;
-    if (last == null || (p - last).abs() >= 10) {
+    if (force || last == null || (p - last).abs() >= minDeltaSec) {
       _savedSec[r.key] = p;
       await _save();
     }

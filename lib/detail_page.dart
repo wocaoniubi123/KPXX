@@ -111,12 +111,38 @@ class DetailPageState extends State<DetailPage> {
   bool _lastFinished = false;
 
   /// 播放器回调：位置/时长/播完都齐了才写（时长还没拿到就不记，免得进度算成 0）
+  /// 续播位置：**不管从哪点进来**，只要播放记录里有这条视频就续 ✓（用户 2026-10-03 要求）
+  ///
+  /// ⚠️ 三种**不续**的情况：① 没记录 ✓ ② 已播完 ✓ ③ **只剩不到 5 秒** ✓
+  /// （③ 的阈值是用户 2026-10-03 定的：改成「最后 5 秒」✓ —— 免得点进去立刻又播完 ✓）
+  Duration? _resumeFrom() {
+    try {
+      final r = PlayHistory.i.find(widget.site.name, widget.baseUrl);
+      if (r == null || r.position <= Duration.zero) return null;
+      if (r.finished) return null;
+      if (r.duration > Duration.zero &&
+          (r.duration - r.position) <= const Duration(seconds: 5)) {
+        return null;
+      }
+      return r.position;
+    } catch (_) {
+      return null; // 查记录失败绝不拦播放 ✓
+    }
+  }
+
   void _reportProgress(Duration pos, Duration dur, bool finished) {
+    // ⚠️ 2026-10-03（用户报「跳进度后自动重试又从头开始」）：
+    // **跳变**（拖/点/滑进度条 ✓）= 用户指定了新位置 → 立刻把新位置写进记录 ✓，
+    // 这样随后即使自动重试/重载换源，也能从**你要的位置**续播 ✓，而不是回到 0 ✗。
+    // （普通前进维持原样 ✓，不额外增加写盘 ✗）
+    final jumped = _lastPos != null &&
+        (pos - _lastPos!).abs() >= const Duration(seconds: 10);
     _lastPos = pos;
     _lastDur = dur;
     _lastFinished = finished;
     if (dur <= Duration.zero) return;
-    _writeRecord(pos: pos, dur: dur, finished: finished);
+    // ⚠️ 跳变（拖/点/滑进度条）= 用户指定了新位置 → **绕过节流立刻落盘** ✓
+    _writeRecord(pos: pos, dur: dur, finished: finished, force: jumped);
   }
 
   /// 离开时补写：播放器实例还在（dispose 前调用），位置从它身上直接取
@@ -136,22 +162,26 @@ class DetailPageState extends State<DetailPage> {
     required Duration pos,
     required Duration dur,
     required bool finished,
+    bool force = false, // true = 绕过节流立刻落盘 ✓（跳进度时用）
   }) {
     final d = _detail;
     if (d == null || d.videos.isEmpty) return; // 纯图文页不记
     // 站点名要和 kSites 里的对得上（记录列表点回来时要靠它反查 SiteEntry）；
     // 详情页收的 site 本来就是 kSites 里那一条，直接用它的 name
-    PlayHistory.i.touch(PlayRecord(
-      site: widget.site.name,
-      url: widget.baseUrl,
-      title: d.title,
-      cover: _coverOf(d),
-      videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
-      position: pos,
-      duration: dur,
-      finished: finished,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    ));
+    PlayHistory.i.touch(
+      PlayRecord(
+        site: widget.site.name,
+        url: widget.baseUrl,
+        title: d.title,
+        cover: _coverOf(d),
+        videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
+        position: pos,
+        duration: dur,
+        finished: finished,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+      force: force, // ⚠️ 具名参数必须在位置参数之后 ✓
+    );
   }
 
   /// 记录列表的封面：优先用正文首图（详情页已经下载过、多半在内存缓存里），
@@ -172,10 +202,15 @@ class DetailPageState extends State<DetailPage> {
       _switcher?.dispose();
       final sw = VideoSwitcher(d.videos.length)
         ..index.addListener(_onVideoIndexChanged);
-      // 从播放记录进来：定位到上次看的第几集（越界就回第一集）
-      if (widget.initialVideoIndex > 0 &&
-          widget.initialVideoIndex < d.videos.length) {
-        sw.index.value = widget.initialVideoIndex;
+      // 定位到上次看的第几集（越界就回第一集）✓
+      // ⚠️ 2026-10-03 用户要求：**不管从哪进来**都要续到上次那一集 ✓ ——
+      // 调用方给了集数就用它 ✓（从播放记录点进来）；没给就**自己查记录** ✓。
+      // 集号来自 PlayRecord.videoIndex ✓（和 d.videos 同一套下标 ✓，建 switcher 时就应用 → **不会闪第 1 集** ✓）。
+      final wantIdx = widget.initialVideoIndex > 0
+          ? widget.initialVideoIndex
+          : (PlayHistory.i.find(widget.site.name, widget.baseUrl)?.videoIndex ?? 0);
+      if (wantIdx > 0 && wantIdx < d.videos.length) {
+        sw.index.value = wantIdx;
       }
       _switcher = sw;
       setState(() => _detail = d);
@@ -395,7 +430,8 @@ class DetailPageState extends State<DetailPage> {
                               videos.isEmpty ? null : videos[idx].lazyUrl,
                           onFetchSources: _api.videoSourcesAt,
                           // 续播：只有从「播放记录」点进来才传（站点入口进来是 null）
-                          initialPosition: widget.initialPosition,
+                          // ⚠️ 2026-10-03 用户要求：**不管从哪进来**，只要播放记录里有这条就续播 ✓
+                        initialPosition: widget.initialPosition ?? _resumeFrom(),
                           onProgress: _reportProgress,
                         ),
                     Expanded(
