@@ -1664,16 +1664,50 @@ String liveMasterUrl(int id) =>
     'https://edge-hls.doppiocdn.net/hls/$id/master/${id}_auto.m3u8'
     '?playlistType=standard&pkey=$kLivePkey';
 
-/// 从 master 清单里挑**第一条变体**的地址（用于"变体可达性"校验 ✓）。
-/// ⚠️ 为什么加这条：实测 **id=209778341 的 master 200 / 无诱饵，但它的变体是 `403`（10 字节）** ✗
-///   —— 只校验 master 会**放过这种流** → 播放器拿到 403 干等/黑屏 ✗。
-///   解析不到就返回空串 ✓（调用方按"校验不过"处理 ✓）。
-String firstVariantUrl(String master) {
-  for (final l in master.split('\n')) {
-    final t = l.trim();
-    if (t.startsWith('http') && t.contains('.m3u8')) return t;
+/// 会话内**按房间缓存**"上次用过的变体 URL" ✓（键 = model id ✓ 值 = 变体 URL ✓ 不持久化 ✓）
+/// —— 下次进同一房间可**跳过"抓 master"那一跳**（真机实测那一跳 ~0.9 秒 ✗）✓；失败自动回退 ✓ 见 [_directFallbackTimer] ✓。
+final Map<int, String> _variantCache = <int, String>{};
+
+/// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
+/// ⚠️ **档位偏好已撤掉** ✗（2026-10-05 用户拍板：**不许降分辨率、他要看画质** ✓）——
+///   曾短暂改成"优先 480p"✗，现已恢复"**取 master 里的第一档**"（多数房间就是 `NAME="source"` / 720p ✓）。
+///   ⇒ **本函数只负责"按 master 顺序取第一条"** ✓（省掉的是网络往返，与画质无关 ✓ 那两条改动仍在 ✓）。
+/// ⚠️ 档位**不在 URL 里** ✗ —— 实测 master 原文（真页 curl，2026-10-05）：
+///   `#EXT-X-STREAM-INF:BANDWIDTH=2427392,CODECS="avc1.4d0029,mp4a.40.2",RESOLUTION=720x960,FRAME-RATE=30.000,…,NAME="source"`
+///   而**下一行**才是那条变体的 URL ✓ ⇒ 解析必须"读 `STREAM-INF` + 取下一行" ✓ 不能拿 URL 去匹配档位 ✗。
+/// 解析不到就返回空串 ✓（调用方按"没有可用清晰度"处理 ✓）。
+String pickVariantUrl(String master) {
+  final lines = master.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    final t = lines[i].trim();
+    if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
+    // 下一行 = URL ✓（跳过空行；遇到下一个注释就说明本档没跟 URL ✗）
+    for (var j = i + 1; j < lines.length; j++) {
+      final u = lines[j].trim();
+      if (u.isEmpty) continue;
+      if (u.startsWith('#')) break;
+      return u;
+    }
   }
   return '';
+}
+
+/// 把"这条变体属于哪一档"打出来（**只用于日志** ✓ —— 方便以后排查"选到哪档了" ✓）
+/// 返回那条 `#EXT-X-STREAM-INF:` 的属性串（去掉前缀 ✓），找不到就返回 `'(未找到档位信息)'` ✓。
+String variantInfoOf(String master, String url) {
+  final lines = master.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    final t = lines[i].trim();
+    if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
+    for (var j = i + 1; j < lines.length; j++) {
+      final u = lines[j].trim();
+      if (u.isEmpty) continue;
+      if (u.startsWith('#')) break;
+      if (u == url) return t.replaceFirst('#EXT-X-STREAM-INF:', '').trim();
+      break;
+    }
+  }
+  return '(未找到档位信息)';
 }
 
 class LiveRoomPage extends StatefulWidget {
@@ -1790,6 +1824,65 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
   }
 
+  /// ② 当前交给播放器的**变体 URL** ✓（出画时用它确认"缓存可用" ✓）
+  String? _kpVariantUrl;
+
+  /// ② 直拼兜底时限（毫秒）= **6000**：
+  /// 本机 curl 实测"master 0.52~0.80s + 变体 0.48~0.76s + 首分片 0.32~0.90s" ≈ **2.5 秒** 是网络那段 ✓
+  /// ⇒ 6 秒 ≈ **2.4 倍**余量 ✓（够它起、又不至于让人干等 ✗）；只在**直拼那条路**上用 ✓ 只回退一次 ✓。
+  static const int _kDirectFallbackMs = 6000;
+
+  /// ② 直拼兜底：`_kDirectFallbackMs` 内没就绪 → **回退走"抓 master → 取变体 → open"一次** ✓（只一次 ✓）
+  void _directFallbackTimer(int id, KpPlayer kp) {
+    _wd?.cancel();
+    _wd = Timer(const Duration(milliseconds: _kDirectFallbackMs), () async {
+      if (!mounted || !identical(_kp, kp)) return;
+      if (kp.value.position > Duration.zero || kp.value.ready) return; // 已经就绪 ✓
+      _log('直拼兜底：id=$id 那条缓存 URL 在 ${_kDirectFallbackMs}ms 内没就绪 → **回退抓 master** ✓（只回退一次 ✓）');
+      _variantCache.remove(id); // 这条不好用 ⇒ 别再直拼它 ✗
+      try {
+        await kp.shutdown();
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _kp = null;
+        _err = '正在打开直播…';
+        _secs = 0;
+      });
+      _checkAndPlay(); // 再走一遍 ✓（缓存已删 ⇒ 这次走 master ✓）
+    });
+  }
+
+  /// ② 直拼那条路的 listener ✓（与 master 那条路**同样的**错误上报 + 出画后确认缓存 ✓）
+  void _attachKp(int id, KpPlayer kp) {
+    kp.addListener(() {
+      if (!identical(_kp, kp)) return;
+      if (kp.value.position > Duration.zero) {
+        if (!_logStarted) {
+          _logStarted = true;
+          _log('KpState: started=true（出画面 ✓ 总耗时 ${_sw.elapsedMilliseconds}ms）');
+          final u = _kpVariantUrl;
+          if (u != null && u.isNotEmpty) {
+            _variantCache[id] = u;
+            _log('缓存已确认可用（id=$id）✓（keys=${_variantCache.length}）');
+          }
+        }
+        _wd?.cancel();
+        _wd = null;
+        return;
+      }
+      if (kp.value.error) {
+        final t = kp.value.errorText;
+        if (t != _lastErrLog) {
+          _lastErrLog = t;
+          _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
+        }
+        final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
+        if (msg != _err && mounted) setState(() => _err = msg);
+      }
+    });
+  }
+
   /// 屏幕上的阶段文案（判据只用 `KpState` 那几个：`ready` / `started` / `position` ✓）：
   /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）
   /// → 超过 [kLiveStillMs] 还没出画 → `仍在加载… Ns`（**只改文案，别停别报错** ✓）
@@ -1844,6 +1937,44 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     KpPlayer? kp;
     try {
       final url = liveMasterUrl(id);
+      // ⚠️ 2026-10-05 ①：**先看内存缓存**（同一房间这次会话进过 ✓）—— 命中就**跳过 master 那一跳**，
+      //   直接拿上次那条变体 URL 开 → 省掉"抓 master"那 ~0.9 秒 ✓（键 = model id ✓ 值 = 上次用过的变体 URL ✓
+      //   只缓存"真出过画面"的 ✓ 见 listener 里 `started` 那段 ✓；失败自动回退 ✓ 见下面的兜底计时器 ✓）。
+      final cached = _variantCache[id];
+      if (cached != null && cached.isNotEmpty) {
+        _log('缓存命中：id=$id → 跳过 master，直接开上次那条变体 = $cached');
+        kp = KpPlayer();
+        KpPlayer.tuneStartupQuiet(kp);
+        _tapMpvLog(kp);
+        kp.setMpvOptionQuiet('hwdec', 'no');
+        kp.setMpvOptionQuiet('cache-secs', '2');
+        kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
+        kp.setMpvOptionQuiet('cache-pause-initial', 'no');
+        // ⚠️ 2026-10-05：覆盖 `tuneStartupQuiet` 的 2.0 → **0.5** ✓（lead 本地 A/B 最快的一组：
+        //   2.0=3011ms vs **0.5=2904ms** ✓；1.0=3037ms ✗；**`probesize` 别动** ✗ 实测变小反而更慢 3595/3198ms ✓；
+        //   同键名 `demuxer-lavf-analyzeduration` ✓ `player_widget.dart` 一个字没动 ✓）
+        kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '0.5');
+        _kpVariantUrl = cached;
+        await kp.open(cached, httpHeaders: <String, String>{'User-Agent': Site.ua});
+        if (!mounted) {
+          kp.shutdown();
+          return;
+        }
+        _secs = 0;
+        _stageT?.cancel();
+        _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
+          if (!mounted || (_kp != null && _kp!.value.started)) {
+            t.cancel();
+            return;
+          }
+          setState(() => _secs++);
+        });
+        final k2 = kp;
+        _directFallbackTimer(id, k2); // 直拼失败 → 回退走"抓 master"那条 ✓（只回退一次 ✓）
+        _attachKp(id, k2);
+        setState(() => _kp = kp);
+        return;
+      }
       _log('master URL 原文 = $url');
       final tM0 = _sw.elapsedMilliseconds;
       final r = await Site.httpClient
@@ -1861,31 +1992,25 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return; // ⚠️ 广告清单 → 千万别播 ✗
       }
-      // ⚠️ 2026-10-05 新增（实测逼出来的）：**master 干净不等于能播** ✗ ——
-      //   实测 id=209778341：master **200 / 无诱饵**，但它的变体是 **403（10 字节）** ✗
-      //   ⇒ 只校验 master 会放过这种流 → 播放器拿到 403 黑屏/干等 ✗。
-      //   这里再抓一次**第一条变体**（很小 ✓ 实测 0.48~0.76 秒 ✓ 3 秒超时 ✓）：
-      //   非 200 就**不播**、直接报错 ✓（本机实测耗时：master 0.52~0.80s + 变体 0.48~0.76s ≈ 1.3 秒 ✓ 不是"转圈几分钟"的来源 ✓）
-      final vu = firstVariantUrl(r.body);
-      _log('master 里第一条变体 = ${vu.isEmpty ? '(没有 ✗)' : vu}');
+      // ⚠️ 2026-10-05 ①②（真机日志：master 857ms + **变体再单独校验 1257ms** ✗ ⇒ 共 2.1 秒才 open）：
+      //   ① **不再单独抓变体校验** ✗ —— 从 master 里取出变体 URL 后**直接 open** ✓
+      //      （省掉那一跳 ~1.2 秒 ✓；"变体 403 白开一次"由看门狗 + 下面的兜底兜着 ✓ 不再为它加网络往返 ✗）；
+      //   ③ 取档：**取 master 里的第一档** ✓（"优先 480p"已按用户要求**撤掉** ✗ —— **不许降分辨率** ✓）。
+      //   ⚠️ master 的校验（200 + `MOUFLON-ADVERT`）**保留** ✓ —— "别放广告"的底线 ✗ 不能省 ✓。
+      final vu = pickVariantUrl(r.body);
+      _log('master 选档结果（**第一档** ✓ 不降分辨率 ✓）= ${vu.isEmpty ? '(没有 ✗)' : vu}');
+      _log('选中这一档的属性 = ${variantInfoOf(r.body, vu)}');
       if (vu.isEmpty) {
         _log('错误：清单里没有可用清晰度 → 不播 ✗');
         if (mounted) setState(() => _err = '这条流的清单里没有可用的清晰度 ✗');
         return;
       }
-      final tV0 = _sw.elapsedMilliseconds;
-      final rv = await Site.httpClient
-          .get(Uri.parse(vu), headers: <String, String>{'User-Agent': Site.ua})
-          .timeout(const Duration(seconds: 3));
-      _log('校验变体 → HTTP ${rv.statusCode} / ${rv.body.length} 字节 / 耗时 ${_sw.elapsedMilliseconds - tV0}ms');
-      if (rv.statusCode != 200) {
-        _log('错误：变体非 200（HTTP ${rv.statusCode}）→ 不播 ✗');
-        if (mounted) {
-          setState(() => _err = '这条流现在不可用（清晰度 HTTP ${rv.statusCode}）✗');
-        }
-        return;
-      }
-      _log('校验通过 ✓ 准备起播（变体只用于校验 ✓ 播放交 master ✓）');
+      _kpVariantUrl = vu; // ① 交给播放器的就是这条 ✓（出画后 listener 会把它确认为"可用缓存" ✓）
+      _variantCache[id] = vu; // 先记住（真正"可用"由 started 时确认 ✓ 见 [_attachKp] ✓）
+      _log('已缓存该房间的变体 URL（下次直接拼 ✓；keys=${_variantCache.length}）');
+      // ⚠️ ① 已删：原来这里单独抓一次变体校验（+1257ms ✗ 真机实测）—— 现在**取到就直接 open** ✓
+      //   "变体 403 白开一次"由**看门狗（只换文案）+ 真出错时 listener 报错**兜着 ✓ 不再加网络往返 ✗。
+      _log('准备起播（master 已校验 ✓ 变体不单独校验 ✗ 直接交给播放器 ✓）');
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
@@ -1928,6 +2053,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       kp.setMpvOptionQuiet('cache-secs', '2');
       kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
       kp.setMpvOptionQuiet('cache-pause-initial', 'no'); // 站点侧再显式钉一次 ✓（与 tuneStartupQuiet 同值 ✓ 无害 ✓）
+      // ⚠️ 2026-10-05：覆盖 	uneStartupQuiet 的 2.0 → **0.5** ✓（lead 本地 A/B 实测最快的一组：2.0=3011ms vs 0.5=**2904ms** ✓；
+      //   1.0=3037ms ✗；**probesize 别动** ✗ 实测变小反而慢 3595/3198ms ✓ 同键名 demuxer-lavf-analyzeduration ✓）。
+      kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '0.5');
       // 起播计时（只为屏幕提示 ✓）：从"开始 open"起每秒 +1 ✓，出画/销毁就停 ✓
       _secs = 0;
       _stageT?.cancel();
@@ -2007,6 +2135,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
           if (!_logStarted) {
             _logStarted = true;
             _log('KpState: started=true（出画面 ✓ 从进入页面算总耗时 ${_sw.elapsedMilliseconds}ms）');
+            // ② 这条 URL **真出过画面** ⇒ 才算"缓存可用" ✓（下次直拼 ✓）
+            final u = _kpVariantUrl;
+            if (u != null && u.isNotEmpty) {
+              _variantCache[widget.id] = u;
+              _log('缓存已确认可用（id=${widget.id} → $u；keys=${_variantCache.length}）');
+            }
           }
           // 出画了 → 撤掉看门狗 ✓（这一刻起不再重开/不再报"没画面" ✓）
           _wd?.cancel();

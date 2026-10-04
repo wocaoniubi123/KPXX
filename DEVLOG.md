@@ -2428,6 +2428,48 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）
 - **未提交** `sim/**`；清理：`G:\ZCode\_mpv_tmp\`（274.2 MB）与 `_recon_tmp\` **均已删、`Test-Path=False`**；用户 PATH 已还原；mpv/node/curl 残留进程 0；`%TEMP%` 与工作区残留复核 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.35**）起播再压：去掉变体校验 + 按房间直拼缓存 + `analyzeduration=0.5`（**未降画质**）
+
+### 一、真机基线（1.0.34 日志）
+```
++857ms    校验 master → 200 / 1292 字节
++2114ms   校验变体 → 200 / 734 字节（1257ms）
++2149ms   kp.open() 返回（34ms）
++9289ms   started=true（出画面；对比喂 master 的 1.0.28 是 26100ms）
+```
+
+### 二、本版三件（都在 `lib/sites/xhamsterlive.dart`）
+| # | 改动 | 省什么 | 位置 |
+|---|---|---|---|
+| ① | **去掉"变体单独校验"** —— 从 master 解析出变体后**直接 `kp.open()`**（**master 的校验保留**：200 + 非 `MOUFLON-ADVERT`） | 省一次网络往返（真机实测曾占 **1257ms**） | `pickVariantUrl()` → `:2090` open |
+| ② | **按房间缓存变体 URL**（`Map<int,String> _variantCache`）：下次进同一房间**直接拼地址、跳过 master**；**6 秒**没出画面 → **回退一次**并丢掉缓存；**只有真出过画面**才"确认可用" | 省 master 那一跳（约 0.9s） | 缓存 `:1669`/写 `:2134`；直拼 `:1943-1954`；兜底 `:1827`/`:1969` |
+| ③ | **`demuxer-lavf-analyzeduration` 覆盖为 `0.5`**（`tuneStartupQuiet` 设的 2.0 → 房间页侧覆盖；**`player_widget.dart` 未动** ✓） | 本地 A/B 最快组（2904ms vs 3011ms） | `:1956`（直拼路）+ `:2058`（master 路），均在各自 `open()` 之前 |
+- **档位偏好已撤** ✗（用户拍板：不许降分辨率）⇒ 恢复"取 master 第一档"（多数 `NAME="source"` / 720p ✓）；**新增日志**会打印选中档的属性原文（`RESOLUTION=720x960,NAME="source"`）⇒ 一眼可辨 ✓
+- **保留**：`hwdec=no` · 缓存三选项（`cache-secs=2`/`demuxer-max-bytes=8388608`/`cache-pause-initial=no`）· 看门狗（不重开、不误报、90 秒兜底）· 不静音 · X/toggle
+
+### 三、⚠️ 预期与上限（recon 本地 A/B 结论，必须记录）
+**9 组 mpv 配置 A/B（单档变体 URL，各 3 次）：2.90~3.60 秒，差异在噪声级** ⇒ **光调 mpv 参数压不到 2 秒** ✗
+**它把 2.9 秒拆开了**（ffmpeg 时间轴原文）：
+```
+[0.012s] 打开清单
+[0.469s] 清单到达             ← 一次 HTTPS 往返 ≈0.45s
+[0.914s] init 段开始          ← ≈0.44s
+[1.376s] init 到达
+[1.858s] 首段请求
+[2.334s] 首帧显示             ← 第 4 次往返
+```
+⇒ **2.9s ≈ 4 次串行 HTTPS 往返(≈1.8s) + 进程/解码初始化(≈1.1s)；参数只占 0.1s**
+⇒ **对照：hls.js 同机同房同 URL = 1775 / 2034 ms**（≈用户说的"网页 2 秒"）⇒ 差的 ~0.9s ≈ 2 次多余往返
+⇒ **要真进 2 秒，只能减少串行往返（架构改动：App 侧并发预取/连接复用，把数据就近喂给 mpv）** —— 该方案 recon **未测**，本轮**先出 A 包（配置层）**，B 方案待用户拍板
+- `probesize` **别动**：实测变小反而更慢（500k=3595ms / 50k=3198ms）✗
+
+### 四、状态
+- numstat：`lib/sites/xhamsterlive.dart` **162/28**（只此一个文件 ✓ `player_widget.dart` 未动 ✓ 有 `git grep` 原文为证 ✓）
+- 括号三对平衡；行尾纯 LF
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；三件改动**均只能真机/CI 验**
+- **未提交** `sim/**`；清理：`G:\ZCode\_mpv_tmp\`（347.8 MB）与 `_recon_tmp\` 均删、`Test-Path=False`；**用户 PATH 未被改动**（本轮 zip 直解、绕开 winget）；mpv 进程 0；`%TEMP%` 与工作区残留复核 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
