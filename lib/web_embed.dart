@@ -31,6 +31,7 @@ class WebEmbed extends StatefulWidget {
     this.ua = _ua,
     this.extraJs = '',
     this.toggleX = false,
+    this.darkShell = false,
   });
 
   final String url;
@@ -54,6 +55,16 @@ class WebEmbed extends StatefulWidget {
   /// 关着的时候由宿主自己**吞掉点击** ✗，别让点击漏到网页里 ✓。
   final bool toggleX;
 
+  /// **深色外壳**（默认关 ✗ —— 不改任何现有调用方的观感 ✓；用户 2026-10-05 拍板：只房间页开 ✓）：
+  /// 打开时三件事一起生效 ✓ ——
+  ///   ① 控制器设**黑底**（`setBackgroundColor` ✓，WKWebView 默认白底 ✗）；
+  ///   ② 页面就绪前**盖一层黑 + 「正在加载…」**（含 10 秒保险丝 ✓）；
+  ///   ③ `Stack` 最底再铺一层黑（兜住任何缝隙 ✓）。
+  /// 关着 = **与加这个开关之前一模一样**：不设底色、不铺盖 ✓。
+  /// ⚠️ 目前只有**直播房间页**（`xhamsterlive.dart` 的 `LiveRoomPage` ✓）传 true ✓；
+  ///   `web_page.dart`（详情页"打开原页"/"网页"型站点 ✓）**不传** → 永远是 false ✓。
+  final bool darkShell;
+
   static const String _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -66,6 +77,17 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   late final WebViewController _ctl;
   double _progress = 0;
   String? _error;
+
+  /// 本次导航是否已做过"进度过半"那次注入 ✓（`onPageStarted` 时重置 ✓）——
+  /// 进度事件很密 ✗ 每次都注入等于白烧 JS ✓（注入本身是幂等的 ✓ 但没必要 ✗）
+  bool _mid = false;
+
+  /// 页面是否**已经可以露出来**了 ✓（见 build 里那层深色占位 ✓）：
+  /// 就绪前 WebView 是**白的** ✗（WKWebView 默认白底 ✓），必须先拿深色盖住 ✓。
+  bool _ready = false;
+
+  /// 保险丝：万一 `onPageFinished` 不来（页面卡住/被拦 ✓），也别让深色占位**永远**盖着 ✗
+  Timer? _readyFuse;
 
   /// ⚠️ 切到别的 tab 再回来**不重载** ✓（站点自己的 feed 有滚动位置/正在播的那条 ✓）；
   /// 之前短片 tab 那种"每次切回来重新随机"是**自研列表**的行为 ✗，现在归站点 ✓。
@@ -98,10 +120,24 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
         NavigationDelegate(
           onProgress: (p) {
             if (mounted) setState(() => _progress = p / 100);
+            // ⚠️ 2026-10-05：**多挂一个注入点**（幂等 ✓）—— 页面过半就先注入一次：
+            //    站点若在 SPA 里改文档/整棵重渲染，越早把样式挂上越保险 ✓；
+            //    ⚠️ 每次导航**只做一次** ✗（进度事件很密 ✓ 每次都调 = 白烧 JS ✗）
+            if (!_mid && p >= 0.5) {
+              _mid = true;
+              _inject();
+            }
+            if (p >= 1) _markReady(); // 页面加载完 → 可以露出来了 ✓（与 onPageFinished 双保险 ✓）
+          },
+          onPageStarted: (_) {
+            _mid = false; // 新导航 → 允许再一次"过半注入" ✓
+            _inject(); // 越早越好：DOM 一有这些元素就该被藏掉 ✓（幂等的，重复执行无副作用 ✓）
+            _coverAgain(); // 新导航 → 重新盖上深色占位 ✓（否则又露一次白 ✗）
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _progress = 1);
-            _applyGuard();
+            _inject();
+            _markReady(); // 页面就绪 → 撤掉深色占位 ✓
           },
           onWebResourceError: (e) {
             // 只处理主文档失败，子资源（图/广告）失败不打扰用户 ✓（原 web_page.dart 同款 ✓）
@@ -112,27 +148,60 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
         ),
       )
       ..loadRequest(Uri.parse(widget.url));
+    // ⚠️ 2026-10-05（用户报"点直播间先出现一整屏白"）—— **黑底只在 [darkShell] 打开时设** ✓：
+    //    WKWebView 默认 `opaque=true` + 滚动视图白底 ✗ → 页面首帧之前**整屏白** ✗（根因 ✓）。
+    //    iOS 侧这个 API 的实现（`webview_flutter_wkwebview` 3.18.0
+    //    `webkit_webview_controller.dart:556-563` ✓）是：webView 设透明 + **scrollView 刷成这个色** ✓
+    //    → 传**黑色**得到的是"黑底"而不是"透明露白" ✓（用户担心的那条正是它要避开的 ✓）。
+    //    ⚠️ 默认关：**其它调用方（详情页"打开原页"/"网页"型站点）行为与以前逐字相同** ✗ 不设底色 ✓。
+    if (widget.darkShell) {
+      _ctl.setBackgroundColor(const Color(0xFF000000));
+    }
     widget.onCreated?.call(_ctl);
   }
 
-  /// 每次页面加载后注入：先 `_guardJs`（静音/内联播放/系统全屏兜底 ✓），
-  /// 再 `widget.extraJs`（站点专属 ✓，没有就不跑 ✓）。两边都**独立 try/catch** ✓：
-  /// 一个失败不影响另一个 ✓、也不影响浏览 ✓。
-  Future<void> _applyGuard() async {
-    if (widget.mute) {
-      try {
-        await _ctl.runJavaScript(_guardJs);
-      } catch (_) {
-        // 页面里没有 video / JS 被拦 → 静默 ✓（绝不弹错、绝不影响浏览 ✗）
-      }
+  /// 注入一次（`onPageStarted` / 进度过半 / `onPageFinished` 都会调 ✓ —— **幂等**，重复跑没关系 ✓）：
+  /// ① `_guardJs`（静音/内联播放/系统全屏兜底 ✓）；② `widget.extraJs`（站点专属 ✓，没有就不跑 ✓）。
+  ///
+  /// ⚠️ 2026-10-05 修（房间页"注入没生效"排查发现）—— **两段之间不许 await** ✗：
+  ///    原来是 `await _guardJs` 之后再跑 `extraJs` ✗ → 前一次 `runJavaScript` 只要**不回调**
+  ///    （WKWebView 在文档被替换/进程切换时可能不回 ✓），后一段就**永远不跑** ✗ 且两处 catch 都是空的
+  ///    → 现场零现象 ✗。现在两段**各自独立**（见 [_runQuiet] ✓）：谁挂了都不连坐 ✓。
+  void _inject() {
+    if (widget.mute) _runQuiet(_guardJs);
+    if (widget.extraJs.isNotEmpty) _runQuiet(widget.extraJs);
+  }
+
+  /// 跑一段 JS：**发出去就不管** ✓（不 await ✗ —— 见 [_inject] 的说明 ✓）；
+  /// 所有失败一律**静默** ✓（页面里没有 video / JS 被拦 / 引擎不回调 → 绝不影响浏览 ✗、绝不弹错 ✗）
+  void _runQuiet(String js) {
+    try {
+      _ctl.runJavaScript(js).catchError((Object _) {});
+    } catch (_) {
+      // 同步抛（控制器已释放等）→ 同样静默 ✓
     }
-    if (widget.extraJs.isNotEmpty) {
-      try {
-        await _ctl.runJavaScript(widget.extraJs);
-      } catch (_) {
-        // 站点注入失败 → 保持原样 ✓（站点页面照常显示 ✓，绝不弹错 ✗）
-      }
-    }
+  }
+
+  /// 页面就绪 → **撤掉深色占位** ✓（露 WebView ✓）；顺手把保险丝撤了 ✓
+  /// ⚠️ [darkShell] 关着 → 直接返回 ✓（那套 `_ready`/保险丝一个都不跑 ✗，与加开关前逐字相同 ✓）
+  void _markReady() {
+    if (!widget.darkShell) return;
+    _readyFuse?.cancel();
+    _readyFuse = null;
+    if (mounted && !_ready) setState(() => _ready = true);
+  }
+
+  /// 新导航 → **重新盖上深色占位** ✓（WebView 会白一下 ✗），并重挂保险丝 ✓
+  /// ⚠️ [darkShell] 关着 → 直接返回 ✓（不铺盖、不起定时器 ✓）
+  void _coverAgain() {
+    if (!widget.darkShell) return;
+    _readyFuse?.cancel();
+    _readyFuse = Timer(const Duration(seconds: 10), () {
+      // ⚠️ 保险丝：`onPageFinished` 万一不来（页面卡死/被拦 ✓），10 秒后也得露出来 ✗
+      //    —— 一直盖着黑比白屏更糟 ✗（用户会以为死了 ✓）
+      if (mounted) setState(() => _ready = true);
+    });
+    if (mounted && _ready) setState(() => _ready = false);
   }
 
   /// ① 静音：立刻扫一遍 `<video>` ✓ + 捕获式 `play` 监听 ✓（用户手点也压得住 ✓）+ 每 2 秒兜一次 ✓
@@ -164,6 +233,12 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
 })();
 ''';
 
+  @override
+  void dispose() {
+    _readyFuse?.cancel(); // 保险丝别在页面销毁后还 setState ✓
+    super.dispose();
+  }
+
   void _reload() {
     setState(() {
       _error = null;
@@ -177,6 +252,11 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
     super.build(context); // keepAlive 必需 ✓
     return Stack(
       children: [
+        // ⚠️ 2026-10-05（用户报"点进去先出现一整屏白"）：**最底那层先铺深色** ✓ ——
+        //    WebView 就绪前会露出它自己的白底 ✗（根因见 initState 里 `setBackgroundColor` 那段 ✓）
+        //    ⚠️ **只在 [darkShell] 打开时铺** ✗ —— 默认关 = 与加这个开关之前**一模一样** ✓
+        if (widget.darkShell)
+          const Positioned.fill(child: ColoredBox(color: Color(0xFF000000))),
         if (_error != null)
           Center(
             child: Padding(
@@ -206,7 +286,21 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
               minHeight: 2,
             ),
           ),
+        // ⚠️ 页面就绪前**盖住 WebView** ✓（用户要"极简"：一块深色 + 一行小字 ✓，别花哨 ✗）
+        //    —— 光设底色还不够：站点自己的白底页面在解析出来之前也会闪一下 ✓
+        //    ⚠️ 同样**只在 [darkShell] 打开时**铺 ✓（`_ready` 关着时永远是 false ✗ 不会误盖 ✓）
+        if (widget.darkShell && _error == null && !_ready)
+          Positioned.fill(child: _loadingCover()),
       ],
     );
   }
+
+  /// 页面就绪前的深色占位 ✓（黑底 + 一行最小提示；与房间页的黑背景一致 ✓）
+  Widget _loadingCover() => const ColoredBox(
+        color: Color(0xFF000000),
+        child: Center(
+          child: Text('正在加载…',
+              style: TextStyle(color: Color(0xFF8A8F98), fontSize: 13)),
+        ),
+      );
 }

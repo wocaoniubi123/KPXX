@@ -388,73 +388,73 @@ const List<LiveFilter> kLiveMainFiltersGirls = [
   LiveFilter('女主播', '女主播', [
     LiveFilterGroup('特别', [
       LiveTag('Oktoberfest Party', null),
-      LiveTag('中文', null),
+      LiveTag('中文', 'tagLanguageChinese'),
       LiveTag('美国人', 'tagLanguageUSModels'),
       LiveTag('乌克兰女主播', 'tagLanguageUkrainian'),
-      LiveTag('新主播', null),
+      LiveTag('新主播', 'autoTagNew'),
       LiveTag('VR摄像头', 'autoTagVr'),
       LiveTag('虐恋', 'subcultureBdsm'),
       LiveTag('购票表演', 'groupShow'),
     ]),
     LiveFilterGroup('年龄', [
-      LiveTag('少女18+', null),
+      LiveTag('少女18+', 'ageTeen'),
       LiveTag('鲜嫩青年22+', 'ageYoung'),
       LiveTag('熟女', 'ageMilf'),
       LiveTag('成熟', 'ageMature'),
       LiveTag('老奶奶', 'ageOld'),
     ]),
     LiveFilterGroup('种族', [
-      LiveTag('阿拉伯人', null),
+      LiveTag('阿拉伯人', 'ethnicityMiddleEastern'),
       LiveTag('亚洲人', 'ethnicityAsian'),
       LiveTag('黑珍珠', 'ethnicityEbony'),
       LiveTag('印度人', 'ethnicityIndian'),
-      LiveTag('拉丁人', null),
+      LiveTag('拉丁人', 'ethnicityLatino'),
       LiveTag('混血主播', 'ethnicityMultiracial'),
       LiveTag('白人', 'ethnicityWhite'),
     ]),
     LiveFilterGroup('体型', [
-      LiveTag('瘦', null),
+      LiveTag('瘦', 'bodyTypePetite'),
       LiveTag('运动型', 'bodyTypeAthletic'),
       LiveTag('中', 'bodyTypeMedium'),
-      LiveTag('丰满', null),
+      LiveTag('丰满', 'bodyTypeCurvy'),
       LiveTag('大号美女', 'bodyTypeBBW'),
     ]),
     LiveFilterGroup('头发', [
-      LiveTag('金发', null),
+      LiveTag('金发', 'hairColorBlonde'),
       LiveTag('黑', 'hairColorBlack'),
       LiveTag('棕发小妞', 'hairColorBrown'),
-      LiveTag('红发', null),
+      LiveTag('红发', 'hairColorRed'),
       LiveTag('彩色', 'hairColorColorful'),
     ]),
     LiveFilterGroup('私秀表演', [
-      LiveTag('8-12代币', null),
+      LiveTag('8-12代币', 'privatePriceEight'),
       LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
-      LiveTag('32-60代币', null),
+      LiveTag('32-60代币', 'privatePriceThirtyTwoSixty'),
       LiveTag('90+代币', 'privatePriceNinetyPlus'),
-      LiveTag('可录制私秀', null),
+      LiveTag('可录制私秀', 'autoTagRecordablePrivate'),
       LiveTag('偷窥表演', 'autoTagSpy'),
       LiveTag('视频通话(直播)', 'autoTagP2P'),
     ]),
     LiveFilterGroup('最受欢迎', [
-      LiveTag('互动玩具', null),
+      LiveTag('互动玩具', 'autoTagInteractiveToy'),
       LiveTag('移动流', 'mobile'),
       LiveTag('群交', 'tagGroupSex'),
-      LiveTag('巨乳', null),
+      LiveTag('巨乳', 'specificsBigTits'),
       LiveTag('阴部多毛', 'specificsHairy'),
       LiveTag('户外', 'doPublicPlace'),
-      LiveTag('大屁股', null),
+      LiveTag('大屁股', 'specificsBigAss'),
       LiveTag('肛交', 'doAnal'),
       LiveTag('潮吹', 'doSquirt'),
       LiveTag('炮机', 'fuckMachine'),
-      LiveTag('粗暴', null),
+      LiveTag('粗暴', 'doHardcore'),
       LiveTag('口交', 'doBlowjob'),
       LiveTag('小胸部', 'specificSmallTits'),
       LiveTag('孕妇', 'specificPregnant'),
-      LiveTag('拳交', null),
+      LiveTag('拳交', 'doFisting'),
       LiveTag('自慰', 'doMasturbation'),
       LiveTag('剃光', 'specificShaven'),
       LiveTag('深喉', 'doDeepThroat'),
-      LiveTag('恋足', null),
+      LiveTag('恋足', 'doFootFetish'),
       LiveTag('办公室', 'doOffice'),
       LiveTag('全部分类', null),
     ]),
@@ -465,10 +465,10 @@ const List<LiveFilter> kLiveMainFiltersCouples = [
   LiveFilter('情侣', '情侣', [
     LiveFilterGroup('特别', [
       LiveTag('Oktoberfest Party', null),
-      LiveTag('中文', null),
+      LiveTag('中文', 'tagLanguageChinese'),
       LiveTag('美国人', 'tagLanguageUSModels'),
       LiveTag('乌克兰情侣主播', 'tagLanguageUkrainian'),
-      LiveTag('新主播们', null),
+      LiveTag('新主播们', 'autoTagNew'),
       LiveTag('VR摄像头', 'autoTagVr'),
       LiveTag('购票表演', 'groupShow'),
     ]),
@@ -476,35 +476,35 @@ const List<LiveFilter> kLiveMainFiltersCouples = [
       LiveTag('印度人', 'ethnicityIndian'),
     ]),
     LiveFilterGroup('私秀表演', [
-      LiveTag('8-12代币', null),
+      LiveTag('8-12代币', 'privatePriceEight'),
       LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
-      LiveTag('32-60代币', null),
+      LiveTag('32-60代币', 'privatePriceThirtyTwoSixty'),
       LiveTag('90+代币', 'privatePriceNinetyPlus'),
-      LiveTag('可录制私秀', null),
+      LiveTag('可录制私秀', 'autoTagRecordablePrivate'),
       LiveTag('偷窥表演', 'autoTagSpy'),
       LiveTag('视频通话(直播)', 'autoTagP2P'),
     ]),
     LiveFilterGroup('最受欢迎', [
-      LiveTag('互动玩具', null),
+      LiveTag('互动玩具', 'autoTagInteractiveToy'),
       LiveTag('移动流', 'mobile'),
       LiveTag('群交', 'tagGroupSex'),
       LiveTag('户外', 'doPublicPlace'),
       LiveTag('肛交', 'doAnal'),
       LiveTag('潮吹', 'doSquirt'),
       LiveTag('炮机', 'fuckMachine'),
-      LiveTag('粗暴', null),
+      LiveTag('粗暴', 'doHardcore'),
       LiveTag('口交', 'doBlowjob'),
       LiveTag('孕妇', 'specificPregnant'),
-      LiveTag('拳交', null),
-      LiveTag('狗式', null),
+      LiveTag('拳交', 'doFisting'),
+      LiveTag('狗式', 'doDoggyStyle'),
       LiveTag('自慰', 'doMasturbation'),
       LiveTag('深喉', 'doDeepThroat'),
-      LiveTag('恋足', null),
+      LiveTag('恋足', 'doFootFetish'),
       LiveTag('办公室', 'doOffice'),
       LiveTag('假阳具或震动器', 'doDildoOrVibrator'),
       LiveTag('老少配22+', 'autoTagOldYoung'),
       LiveTag('69姿势', 'do69Position'),
-      LiveTag('哥特', null),
+      LiveTag('哥特', 'subcultureGoth'),
       LiveTag('全部分类', null),
     ]),
   ], single: true),
@@ -514,70 +514,70 @@ const List<LiveFilter> kLiveMainFiltersMen = [
   LiveFilter('男主播', '男主播', [
     LiveFilterGroup('特别', [
       LiveTag('Oktoberfest Party', null),
-      LiveTag('中文', null),
+      LiveTag('中文', 'tagLanguageChinese'),
       LiveTag('美国人', 'tagLanguageUSModels'),
       LiveTag('乌克兰男主播', 'tagLanguageUkrainian'),
-      LiveTag('新主播们', null),
+      LiveTag('新主播们', 'autoTagNew'),
       LiveTag('VR摄像头', 'autoTagVr'),
       LiveTag('购票表演', 'groupShow'),
     ]),
     LiveFilterGroup('性取向', [
-      LiveTag('双性恋', null),
+      LiveTag('双性恋', 'orientationBisexual'),
       LiveTag('同性恋', 'orientationGay'),
       LiveTag('直男', 'orientationStraight'),
     ]),
     LiveFilterGroup('年龄', [
-      LiveTag('小鲜肉', null),
+      LiveTag('小鲜肉', 'tagMenTwinks'),
       LiveTag('鲜嫩青年22+', 'ageYoung'),
       LiveTag('老爹', 'ageDaddies'),
       LiveTag('成熟', 'ageMature'),
       LiveTag('老爷爷', 'ageGrandpas'),
     ]),
     LiveFilterGroup('种族', [
-      LiveTag('阿拉伯人', null),
+      LiveTag('阿拉伯人', 'ethnicityMiddleEastern'),
       LiveTag('亚洲人', 'ethnicityAsian'),
       LiveTag('黑珍珠', 'ethnicityEbony'),
       LiveTag('印度人', 'ethnicityIndian'),
-      LiveTag('拉丁', null),
+      LiveTag('拉丁', 'ethnicityLatino'),
       LiveTag('混血主播', 'ethnicityMultiracial'),
       LiveTag('白人', 'ethnicityWhite'),
     ]),
     LiveFilterGroup('体型', [
-      LiveTag('瘦', null),
+      LiveTag('瘦', 'bodyTypeSkinny'),
       LiveTag('肌肉发达', 'bodyTypeMuscular'),
       LiveTag('中', 'bodyTypeMedium'),
       LiveTag('矮胖', 'bodyTypeChunky'),
       LiveTag('大', 'bodyTypeBig'),
     ]),
     LiveFilterGroup('头发', [
-      LiveTag('金发', null),
+      LiveTag('金发', 'hairColorBlonde'),
       LiveTag('黑', 'hairColorBlack'),
       LiveTag('褐色头发', 'hairColorBrown'),
-      LiveTag('红发', null),
+      LiveTag('红发', 'hairColorRed'),
       LiveTag('彩色', 'hairColorColorful'),
     ]),
     LiveFilterGroup('私秀表演', [
-      LiveTag('8-12代币', null),
+      LiveTag('8-12代币', 'privatePriceEight'),
       LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
-      LiveTag('32-60代币', null),
+      LiveTag('32-60代币', 'privatePriceThirtyTwoSixty'),
       LiveTag('90+代币', 'privatePriceNinetyPlus'),
-      LiveTag('可录制私秀', null),
+      LiveTag('可录制私秀', 'autoTagRecordablePrivate'),
       LiveTag('偷窥表演', 'autoTagSpy'),
       LiveTag('视频通话(直播)', 'autoTagP2P'),
     ]),
     LiveFilterGroup('最受欢迎', [
-      LiveTag('互动玩具', null),
+      LiveTag('互动玩具', 'autoTagInteractiveToy'),
       LiveTag('移动流', 'mobile'),
       LiveTag('群交', 'tagGroupSex'),
       LiveTag('户外', 'doPublicPlace'),
-      LiveTag('大屁股', null),
+      LiveTag('大屁股', 'specificsBigAss'),
       LiveTag('肛交', 'doAnal'),
       LiveTag('炮机', 'fuckMachine'),
-      LiveTag('粗暴', null),
+      LiveTag('粗暴', 'doHardcore'),
       LiveTag('大乳头', null),
       LiveTag('口交', 'doBlowjob'),
-      LiveTag('拳交', null),
-      LiveTag('狗式', null),
+      LiveTag('拳交', 'doFisting'),
+      LiveTag('狗式', 'doDoggyStyle'),
       LiveTag('自慰', 'doMasturbation'),
       LiveTag('多毛腋下', null),
       LiveTag('指交', null),
@@ -595,69 +595,69 @@ const List<LiveFilter> kLiveMainFiltersTrans = [
   LiveFilter('跨性別', '跨性別', [
     LiveFilterGroup('特别', [
       LiveTag('Oktoberfest Party', null),
-      LiveTag('中文', null),
+      LiveTag('中文', 'tagLanguageChinese'),
       LiveTag('美国人', 'tagLanguageUSModels'),
       LiveTag('乌克兰变性人主播', 'tagLanguageUkrainian'),
-      LiveTag('新主播们', null),
+      LiveTag('新主播们', 'autoTagNew'),
       LiveTag('VR摄像头', 'autoTagVr'),
       LiveTag('购票表演', 'groupShow'),
     ]),
     LiveFilterGroup('年龄', [
-      LiveTag('少年18+', null),
+      LiveTag('少年18+', 'ageTeen'),
       LiveTag('鲜嫩青年22+', 'ageYoung'),
       LiveTag('熟女', 'ageMilf'),
       LiveTag('成熟', 'ageMature'),
       LiveTag('老奶奶', 'ageOld'),
     ]),
     LiveFilterGroup('种族', [
-      LiveTag('阿拉伯人', null),
+      LiveTag('阿拉伯人', 'ethnicityMiddleEastern'),
       LiveTag('亚洲人', 'ethnicityAsian'),
       LiveTag('黑珍珠', 'ethnicityEbony'),
       LiveTag('印度人', 'ethnicityIndian'),
-      LiveTag('拉丁人', null),
+      LiveTag('拉丁人', 'ethnicityLatino'),
       LiveTag('混血主播', 'ethnicityMultiracial'),
       LiveTag('白人', 'ethnicityWhite'),
     ]),
     LiveFilterGroup('体型', [
-      LiveTag('瘦', null),
+      LiveTag('瘦', 'bodyTypePetite'),
       LiveTag('运动型', 'bodyTypeAthletic'),
       LiveTag('中', 'bodyTypeMedium'),
-      LiveTag('丰满', null),
+      LiveTag('丰满', 'bodyTypeCurvy'),
       LiveTag('大号美女', 'bodyTypeBBW'),
     ]),
     LiveFilterGroup('头发', [
-      LiveTag('金发', null),
+      LiveTag('金发', 'hairColorBlonde'),
       LiveTag('黑', 'hairColorBlack'),
       LiveTag('棕发小妞', 'hairColorBrown'),
-      LiveTag('红发', null),
+      LiveTag('红发', 'hairColorRed'),
       LiveTag('彩色', 'hairColorColorful'),
     ]),
     LiveFilterGroup('私秀表演', [
-      LiveTag('8-12代币', null),
+      LiveTag('8-12代币', 'privatePriceEight'),
       LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
-      LiveTag('32-60代币', null),
+      LiveTag('32-60代币', 'privatePriceThirtyTwoSixty'),
       LiveTag('90+代币', 'privatePriceNinetyPlus'),
-      LiveTag('可录制私秀', null),
+      LiveTag('可录制私秀', 'autoTagRecordablePrivate'),
       LiveTag('偷窥表演', 'autoTagSpy'),
       LiveTag('视频通话(直播)', 'autoTagP2P'),
     ]),
     LiveFilterGroup('最受欢迎', [
-      LiveTag('互动玩具', null),
+      LiveTag('互动玩具', 'autoTagInteractiveToy'),
       LiveTag('移动流', 'mobile'),
       LiveTag('群交', 'tagGroupSex'),
-      LiveTag('巨乳', null),
+      LiveTag('巨乳', 'specificsBigTits'),
       LiveTag('户外', 'doPublicPlace'),
-      LiveTag('大屁股', null),
+      LiveTag('大屁股', 'specificsBigAss'),
       LiveTag('肛交', 'doAnal'),
       LiveTag('潮吹', 'doSquirt'),
       LiveTag('大阴蒂', null),
       LiveTag('炮机', 'fuckMachine'),
-      LiveTag('粗暴', null),
+      LiveTag('粗暴', 'doHardcore'),
       LiveTag('大乳头', null),
       LiveTag('口交', 'doBlowjob'),
       LiveTag('小胸部', 'specificSmallTits'),
-      LiveTag('拳交', null),
-      LiveTag('狗式', null),
+      LiveTag('拳交', 'doFisting'),
+      LiveTag('狗式', 'doDoggyStyle'),
       LiveTag('自慰', 'doMasturbation'),
       LiveTag('多毛腋下', null),
       LiveTag('指交', null),
@@ -1323,27 +1323,34 @@ class LiveFilterBar extends StatelessWidget {
     );
   }
 
-  /// 下划线 tab（选中 = 橙字加粗 + 2px 下划线 ✓；未选中 = 普通字 + 透明下划线占位 ✓）
+  /// 筛选入口按钮（**照 sim 的 `.pkbar button` / `button.mf-btn` ✓，2026-10-05 用户真机反馈"没有边框" ✗**）：
+  /// sim 原文（`sim/index.html:322-323`）：
+  ///   `border: 1px solid rgba(60,60,60,.35); background: transparent; border-radius: 8px;
+  ///    padding: 5px 10px; font-size: 13px;`
+  /// 选中态（`sim/index.html:413`）：`border-color: #e8590c; color: #e8590c; font-weight: 600;`
+  /// ⚠️ sim 这一排**没有下划线** ✗（那是**上面主分类 TabBar** 的样式 ✓，见 `:1087` 的 `indicatorColor` ✓）
+  ///    —— 原来这里错用了"文字 + 2px 橙下划线"的 tab 观感 ✗，现按 sim 换成**带边框的按钮** ✓。
+  /// ⚠️ 边框色 `rgba(60,60,60,.35)` → `0x593C3C3C`（0x59=89 ≈ 0.35×255 ✓）。
   Widget _tab(LiveFilter f, VoidCallback tap) {
     final on = sel.count(f) > 0;
     return InkWell(
       onTap: tap,
+      borderRadius: BorderRadius.circular(8), // 水波纹也照圆角 ✓
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 9, 10, 7),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5), // sim: 5px 10px ✓
         decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: on ? const Color(0xFFE8590C) : Colors.transparent,
-              width: 2,
-            ),
+          border: Border.all(
+            color: on ? const Color(0xFFE8590C) : const Color(0x593C3C3C),
+            width: 1,
           ),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           // 固定文字（主 tab = 「筛选」✓）优先 ✓；否则给已选摘要 ✓
           label ?? sel.btnText(f),
           style: TextStyle(
-            fontSize: 14,
-            fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+            fontSize: 13, // sim: 13px ✓（原来 14 是为下划线 tab 定的）
+            fontWeight: on ? FontWeight.w600 : FontWeight.w400, // sim .on: 600 ✓
             color: on
                 ? (AppBg.i.isDark
                     ? const Color(0xFFFFB07A)
@@ -1355,12 +1362,19 @@ class LiveFilterBar extends StatelessWidget {
     );
   }
 
+  /// 「重置」按钮：sim 里它也是 `.pkbar` 里的一颗 `<button>`（`sim/index.html:5914` ✓，红字 `#e03131` ✓）
+  /// → 同样带边框 + 圆角 ✓（与相邻的入口按钮一致 ✓，只是文字色是红的 ✓）
   Widget _resetTab() => InkWell(
         onTap: _reset,
+        borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 9, 10, 7),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0x593C3C3C), width: 1),
+            borderRadius: BorderRadius.circular(8),
+          ),
           child: const Text('重置',
-              style: TextStyle(fontSize: 14, color: Color(0xFFE03131))),
+              style: TextStyle(fontSize: 13, color: Color(0xFFE03131))),
         ),
       );
 }
@@ -1686,12 +1700,34 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     ensureStyle();
     nudge();
 
-    // ---------- 复查：SPA 会重渲染（样式被摘掉/画面被重置）→ 0.5s / 1.5s / 3s 各再来一次 ----------
-    //（`ensureStyle` 有 ID 去重 ✓、`nudge` 幂等 ✓、全程 try/catch ✓）
+    // ---------- 复查：**自愈**（不依赖 App 侧的定时 ✗，2026-10-05 加固 ✓）----------
+    // ⚠️ 排查"注入没生效"时发现的洞：原来只有 0.5 / 1.5 / 3 秒三次定时复查 ✗ ——
+    //    站点要是 3 秒之后才重渲染、或把 style 摘掉 ✗ 就没人补了 ✓。
+    // 现在：**MutationObserver 盯着整个文档**（整棵换 head/body、或谁把 style 摘掉 ✓ 都会被叫醒
+    // → 幂等补一次 ✓）+ **每秒心跳兜底**（观察者漏掉的场景 ✓，跑 60 次后停 ✓）。
+    // 幂等保证：`ensureStyle` 有 ID 去重 ✓、`nudge` 幂等 ✓、`window.__kpxxRoomObs` 防重复挂 ✓、
+    // 观察者回调 50ms 去抖 ✓（SPA 频繁改 DOM 也不会把 CPU 烧起来 ✓）。全程 try/catch ✓。
     function recheck() {
       try { ensureStyle(); } catch (e) {}
       nudge();
     }
+    try {
+      if (!window.__kpxxRoomObs) {
+        window.__kpxxRoomObs = true;
+        var pend = false;
+        var obs = new MutationObserver(function () {
+          if (pend) return;
+          pend = true;
+          setTimeout(function () { pend = false; recheck(); }, 50);
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+        var beats = 0;
+        var hb = setInterval(function () {
+          recheck();
+          if (++beats >= 60) clearInterval(hb); // ≈1 分钟后停 ✓（那时该渲染的早渲染完了 ✓）
+        }, 1000);
+      }
+    } catch (e) {}
     setTimeout(recheck, 500);
     setTimeout(recheck, 1500);
     setTimeout(recheck, 3000);
@@ -1720,6 +1756,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                 url: 'https://zh.xhamsterlive.com/${widget.username}',
                 toggleX: true, // 房间页没有控制栏 → **单击**必须先显示 X ✓（与模拟器一致 ✓）
                 extraJs: _roomInjectJs, // 藏外框 + 画面铺满 + 关那两个弹窗 ✓（见下 ✓）
+                // ⚠️ 2026-10-05（用户拍板）：**只有房间页**要"黑底 + 就绪前黑盖" ✓
+                //    —— WKWebView 默认白底，点进来会先整屏白 ✗；其它 WebEmbed 用法保持原样 ✓
+                //    （开关本身定义在 `lib/web_embed.dart` 的 `WebEmbed.darkShell` ✓ 默认 false ✓）
+                darkShell: true,
               ),
               if (_showX)
                 // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）

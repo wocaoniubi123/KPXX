@@ -1882,6 +1882,49 @@ HTML 里逐个数出现次数：sultry520 **5** ✓ · LINA-LILI **5** ✓ · Ma
 - ⚠️ `lib/sites/porna.dart` 与 `pornhub.dart` 的 `git diff` 会显示**整文件重写**（CRLF blob + `core.autocrlf=true` 的产物），**实际改动只有几行**（用 `--ignore-cr-at-eol` 才是真实量）
 - **未提交**：`sim/**` 全部改动（模拟器侧，按用户「不提交」）
 
+---
+## 追加（2026-10-05 · **App 侧 $newVer**）房间页去壳（三修）+ 直播筛选映射补齐 + 筛选入口边框 + 白屏
+
+### 背景：为什么不能用我们自己的播放器（recon 实锤，结论性）
+用户要"提取播放流交给 App 自己的播放器"。recon 把清单扒开，**站点是双重反盗链**：
+- **标准位置全被占位**：清单里所有 `#EXT-X-PART` 的 URI、以及 `#EXTINF` 下面那一行，**全部指向同一个占位地址** `.../b-hls-07/media.mp4` → 实测 **404**
+- **私有标签里那份"像真 URL"的是诱饵**：`#EXT-X-MOUFLON:URI:` —— 三个在线房间共 **25/25 条全 404**（换编码 / 补 pkey / 换主机 / 加 Referer / **页面内同源同会话 fetch** / **拿播放器刚请求过的那份清单**，八种姿势全试）
+- **反证**：**站点播放器自己发出的分片地址能拉**（无 Referer、支持 Range、200/206）—— 但 token 与清单里的**完全不同** ⇒ 真地址另有来源，**不在清单里**
+⇒ mpv/ffmpeg 这类只认标准 m3u8 的播放器**播不出来**。**"藏外框 + 画面铺满"是唯一可行路。**
+
+### 一、房间页注入健壮化（用户报"点进去还是一整张网页"）
+**根因**：`extraJs` 是 `await _guardJs` **之后**才跑的 → **前一段只要不回调，后一段就被永久挂住**（两处 catch 都是空的 → 现场零现象）；另外站点是 SPA，`onPageFinished` 之后若整页替换，注入会落在被丢弃的文档上。
+（先逐个证伪了：时序 / SPA 重渲染 / 选择器失效 / CSS 语法 / CSP —— 全不成立，真页实测"同一份 CSS 注入进去能把外框全变 none"）
+**修法**：
+1. **三个注入点**（幂等）：`onPageStarted`（最早机会）/ `onProgress` 过半 / `onPageFinished`
+2. **两段注入解耦**（`_inject` + `_runQuiet`）：各自独立 try/catch，"发出去就不管"，谁挂都不连坐
+3. `_roomInjectJs` **尾部加 MutationObserver 自愈**：盯 `document.documentElement`（childList+subtree，50ms 去抖）→ style 被摘/head 被换都补回；`window.__kpxxRoomObs` 防重复挂
+4. 顺带核 `_guardJs`（**静音守护**）：它**本来就自愈**（2 秒扫一次）→ 风险只在 Dart 侧那个 await，已被第 2 条解掉
+**实测**：真页注入后外框全 `none`；**手动删掉 style → 400ms 后自动补回**；整页 style 全删 → 400ms 后仍补回
+
+### 二、4 个主 tab 的筛选映射补齐（用户报"怎么这么多未映射"）
+**根因**：生成脚本抽取时**键没 trim** —— `LIVE_TAG_MAP` 里**每行第一个键**带着换行/缩进 → 查不到 → `null`。
+**证据**：64 条错的**全在源码行首**（chinese/new/teens/arab/latin/petite/curvy/blondes/redheads/hardcore/fisting/bisexuals/twinks/skinny/goth…），而**同一行后面的键全对**（american/ukrainian/vr/bdsm/young/milfs/asian/ebony/indian/mixed/white…）——"行首全错、行中全对"只有这一个解释
+**修法**：重新跑抽取（键一律 `trim()`），**只补 id**（名称/顺序/分组/`single` 语义一律不动）；脚本带**同序同名断言**（Dart 与 sim 逐项比对，不符就报错退出）
+**结果**：**211 项 = 193 有 id / 18 真无 / 与 sim 不一致 = 0**；重跑一次显示"本次要改 = 0"（幂等 ✓）。用户截图那几项：中文（4 个 tab 全补）/新主播/少女18+/阿拉伯人/拉丁人 全部补上
+**那 18 项真无**（sim 也没有 → 标「未映射」是对的）：`Oktoberfest Party`×4、`全部分类`×4（`/tags/*`）、男主播最受欢迎 6 项、跨性別最受欢迎 4 项
+⚠️ 用户截图里的 `混血主播` 与数据不符（`git show 6ecf38b` 核过它一直是 `ethnicityMultiracial`）→ 存疑，疑为截图那行被截断（"（未映射）"属于「拉丁人」）
+
+### 三、筛选入口按钮补边框（用户报"分类选择器怎么没有边框"）
+- sim 原文：`.pkbar button { border: 1px solid rgba(60,60,60,.35); border-radius: 8px; padding: 5px 10px }` + 选中态 `.mf-btn.on { border-color:#e8590c; color:#e8590c; font-weight:600 }`
+- App 照抄到 `LiveFilterBar`（含「重置」按钮）；**顺手去掉原来那 2px 橙下划线** —— sim 这一排没有下划线（那是**上面主分类 TabBar** 的样式，未动）
+- 弹窗里的 chip **本来就跟 sim 逐字段一致**（默认透明边框、选中橙框）→ 没改
+
+### 四、点卡片先整屏白（用户报）
+**根因**：① `WebEmbed` 创建控制器时**根本没设底色** → iOS WKWebView 默认不透明+白底 ⇒ 首帧前整屏白（房间页 Scaffold 明明是黑的，被 WebView 白底盖住）② 就绪前**没有任何占位**
+**修法**：底色设 **纯黑**（插件 iOS 实现是设 `scrollView` 背景色，传黑得黑、不会透白）+ 就绪前**黑盖 +「正在加载…」**（极简）+ **10 秒保险丝**（`onPageFinished` 不来也要露出来）
+**⚠️ 影响面按用户拍板收窄**：新增开关 **`darkShell`（默认 false）**，**只有房间页传 true**；`detail_page.dart:247`（详情页"打开原页"）与 `main.dart:170`（"网页"型站点）**逐字不变**（不设底色、无盖子）。4 处新增逻辑**全部在开关之下**（关着时连 10 秒定时器都不起）
+_注：注入链（三注入点/解耦）是**共享能力**，但那两条老路径 `extraJs` 为空 → 只跑静音守护，行为与改前等价_
+
+### 五、状态
+- **未编译**：本机无 Flutter SDK → 本次构建即验证；括号余额与 HEAD 基线逐项一致、行尾未翻转
+- **未提交**：`sim/**` 全部改动（模拟器侧，按用户「不提交」）
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
