@@ -1730,9 +1730,71 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     unawaited(SiteErrorLog.log('直播/${widget.username}#${widget.id}', '+${_sw.elapsedMilliseconds}ms $msg'));
   }
 
+  /// ⚠️ 2026-10-05（lead 要求）：**把 mpv 自己的日志接进来** —— 真机日志已证明卡点在 mpv 内部
+  /// （我们这侧 1.7 秒全做完 ✓ mpv 从 open 到 `ready` ~27 秒 ✗）⇒ 要看清它卡在 DNS/TLS/HTTP/分片哪一步 ✓。
+  /// **API 实证**（包源码，本机下载后查的 ✓）：
+  ///   · `kp.videoController.player` 是**公开**的 ✓（`media_kit_video-1.2.5` 的
+  ///     `lib/src/video_controller/video_controller.dart:56-58`：`class VideoController { … final Player player; }` ✓）
+  ///     ⇒ 站点侧就能拿到 `Player` ✓ **不用动 `player_widget.dart`** ✓（它里面 `_p` 是私有的 ✗ 本来也碰不到 ✓）；
+  ///   · 日志流：`media_kit-1.1.11` 的 `lib/src/models/player_stream.dart:91` = `final Stream<PlayerLog> log;` ✓
+  ///     每条 = `PlayerLog{prefix, level, text}`（`lib/src/models/player_log.dart:15-23` ✓）。
+  /// ⚠️ 过滤 + 限速（不然全量 mpv 日志会把 512KB 的日志文件冲爆 ✗）：
+  ///   只留 [kMpvLogKeywords] 里的关键字行 ✓（http/tls/dns/hls/demux/error/cache/buffer…）；
+  ///   每秒最多 4 条 ✓；每次打开最多 [kMpvLogMax] 条 ✓（到顶记一行"已达上限" ✓）；单行截到 400 字符 ✓。
+  static const List<String> kMpvLogKeywords = <String>[
+    'http', 'tls', 'dns', 'hls', 'demux', 'cache', 'buffer', 'stream',
+    'error', 'fail', 'timeout', 'retry', 'conn', 'proxy', 'refused', 'reset',
+  ];
+  static const int kMpvLogMax = 200;
+  int _mpvN = 0;
+  int _mpvSec = -1;
+  int _mpvInSec = 0;
+
+  /// 订阅 mpv 日志 ✓（失败绝不影响播放 ✓ —— 整段 try/catch ✓）
+  void _tapMpvLog(KpPlayer kp) {
+    try {
+      kp.videoController.player.stream.log.listen((e) {
+        if (!mounted) return;
+        if (_mpvN >= kMpvLogMax) {
+          if (_mpvN == kMpvLogMax) {
+            _mpvN++;
+            _log('mpv 日志：已达上限 $kMpvLogMax 条 → 后续不再记 ✓（下一轮要更多就把这个常量调大 ✓）');
+          }
+          return;
+        }
+        final raw = '${e.prefix} ${e.level} ${e.text}'.replaceAll('\n', ' ');
+        final low = raw.toLowerCase();
+        var hit = false;
+        for (final k in kMpvLogKeywords) {
+          if (low.contains(k)) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) return; // 不相关行丢掉 ✓（过滤 ✓）
+        final now = _sw.elapsedMilliseconds ~/ 1000;
+        if (now == _mpvSec && _mpvInSec >= 4) return; // 每秒最多 4 条 ✓（限速 ✓）
+        if (now != _mpvSec) {
+          _mpvSec = now;
+          _mpvInSec = 0;
+        }
+        _mpvInSec++;
+        _mpvN++;
+        _log('mpv[${now}s] ${raw.length > 400 ? raw.substring(0, 400) : raw}');
+      }, onError: (Object _) {});
+    } catch (_) {
+      // 拿不到日志流也不影响播放 ✓
+    }
+  }
+
   /// 屏幕上的阶段文案（判据只用 `KpState` 那几个：`ready` / `started` / `position` ✓）：
   /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）→ 出画后**空**（不显示 ✓）
+  /// ⚠️ 2026-10-05 修（真机日志里发现的）：**放弃之后这个轮询还在打** ✗（日志里 +17.7s 已"报错停止"，
+  ///   +21.7s/+26.7s 却还有"等待 20s/25s" ✗）⇒ 放弃时把 [`_stageT`] 停掉 ✓，[`_gaveUp`] 之后不再显示/不再记 ✓。
+  bool _gaveUp = false;
+
   String get _stage {
+    if (_gaveUp) return ''; // 已经放弃（看门狗两次都超时 ✓）→ 别再刷"等待 Ns" ✗
     final k = _kp;
     if (k != null && k.value.started) return ''; // 出画面 ✓ 不显示 ✓
     if (k == null && _err != '正在打开直播…') return ''; // 中间已经在报错 ✗ 别再叠一行 ✓
@@ -1809,6 +1871,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
+      _tapMpvLog(kp); // ① 从这一刻起把 mpv 自己的日志接进来 ✓（过滤+限速 ✓ 见上面说明 ✓）
       _log('mpv(open 前)：tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
       // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
       //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；
@@ -1835,8 +1898,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       _secs = 0;
       _stageT?.cancel();
       _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
-        if (!mounted || (_kp != null && _kp!.value.started)) {
-          t.cancel();
+        if (!mounted || _gaveUp || (_kp != null && _kp!.value.started)) {
+          t.cancel(); // 出画 ✓ 或已放弃 ✓ → 停掉 ✓（别一直跑 ✗）
           return;
         }
         setState(() => _secs++);
@@ -1958,6 +2021,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       _log('看门狗：第二次 8 秒也过了 → 报错停止 ✓（总耗时 ${_sw.elapsedMilliseconds}ms，'
           'position=${kp.value.position.inMilliseconds}ms ready=${kp.value.ready} '
           'error=${kp.value.error} errorText=${kp.value.errorText.isEmpty ? '(空)' : kp.value.errorText}）');
+      // ⚠️ 2026-10-05 修：**放弃了就要真停** ✓ —— 那个每秒轮询（_stageT）也 cancel 掉 ✓
+      //    （真机日志里出现过"+17.7s 已报错停止，+21.7s/+26.7s 还在打'等待 20s/25s'"✗）
+      _gaveUp = true;
+      _stageT?.cancel();
+      _stageT = null;
       if (mounted) {
         setState(() => _err = '这条直播一直没出画面，可能主播没有在推流 ✗');
       }

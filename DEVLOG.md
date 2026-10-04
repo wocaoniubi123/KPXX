@@ -2191,6 +2191,53 @@ X 层本就在 `Video` 之后（Stack 最上）；位置 / 默认隐藏 / 静音
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标了 3 个未编译风险点（`unawaited` 的来源、字符串插值、`errorText` 类型）
 - **未提交** `sim/**`（按用户「不提交」）；清理：`%TEMP%` 与工作区临时残留复核均为 0；**日志只写 App 沙盒，未往工作区写任何文件**
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.30**）接入 **mpv 自己的日志**（定位"起播 28.7 秒"的卡点）
+
+### 真机日志（1.0.29）—— 卡点已定在 mpv 内部
+```
++0ms      master URL 原文
++757ms    校验 master → HTTP 200 / 1292 字节 / 耗时 757ms / 广告=false
++1684ms   校验变体 → HTTP 200 / 739 字节 / 耗时 927ms
++1717ms   kp.open() 返回 ✓ 耗时 32ms（无异常）
++6687ms   等待 5s：ready=false started=false position=0 duration=0
++9720ms   看门狗：8s 到 → 重开一次（kp.open() 返回 1ms）
++11687ms  等待 10s：仍无
++16687ms  等待 15s：仍无
++17723ms  看门狗：第二次 8s 也过 → 报错停止
++21686/+26687ms  等待 20s/25s（← 放弃后仍在打，见下"顺手修"）
++28702ms  KpState: ready=true（duration=2482ms）   ← **28.7 秒才拿到时长**
++28721ms  KpState: started=true（出画面，总耗时 28721ms）
++40704ms  离开房间页
+```
+⇒ **我们这侧（校验 + `open()` 调用）1.7 秒全搞定**；`kp.open()` 是异步立刻返回（32ms）；**mpv 侧从 open 到 ready 约 27 秒** ⇒ 慢在 **mpv 内部**（不是网络、不是我们的代码）
+
+### 一、接入 mpv 日志（**绕开共用件**，`player_widget.dart` 未动）
+**API 实证**（包源码，本机下载后查）：
+- `media_kit_video-1.2.5/lib/src/video_controller/video_controller.dart:56-58` —— `class VideoController { … final Player player; }`（`player` 是**公开**字段）
+- `media_kit-1.1.11/lib/src/models/player_stream.dart:91` —— `final Stream<PlayerLog> log;`
+- `media_kit-1.1.11/lib/src/models/player_log.dart:15-23` —— `class PlayerLog { String prefix; String level; String text; }`
+⇒ `KpPlayer._p` 虽私有，但 **`kp.videoController.player.stream.log`** 从站点侧就能拿到 ⇒ **无需改共用件**
+
+**实现（只在站点文件）**：
+- `_tapMpvLog(KpPlayer kp)`（`:1754`）+ 调用点在 `KpPlayer()` 与 `tuneStartupQuiet()` **之后立刻**（早于 `open()`）
+- **过滤**：关键字白名单（`http / tls / dns / hls / demux / cache / buffer / stream / error / fail / timeout / retry / conn / proxy / refused / reset`，大小写不敏感），不命中丢弃
+- **限速**：每秒最多 **4** 条、每次打开最多 **200** 条（到顶记一行提示）、单行截 **400** 字符；整段 try/catch（拿不到日志也不影响播放）
+- 前缀 `mpv[<秒>s]`，与既有日志同格式（`[时间] [直播/<名>#<id>] +NNNms mpv[Ns] …`），用户仍在 **设置 → 错误日志 → 复制全部** 导出
+
+### 二、顺手修的一个小 bug（真机日志里发现的）
+看门狗 `+17723ms` 已"报错停止"，但 `+21686/+26687ms` 的"等待 20s/25s"**还在打** ⇒ 5 秒轮询在放弃后没停
+**修**：新增 `bool _gaveUp`（`:1794`）+ `_stage` 开头 `if (_gaveUp) return '';`（`:1797`）+ 轮询守卫加 `|| _gaveUp`（自行 `t.cancel()`）+ 放弃分支真停（`_gaveUp = true; _stageT?.cancel(); _stageT = null;`）
+
+### 三、**没动**的东西（等 mpv 日志再定）
+- **8 秒看门狗阈值一个字没动** —— 从现有日志**判不出**"重开有没有重置 mpv 计时"（`kp.open()` 异步立刻返回，不反映 mpv 内部进度）；🔍[推断] 若 mpv 首帧本来就要十几~二十几秒，**8 秒重开反而可能是打断**（候选，待 mpv 日志定）
+- 若默认日志级别里 mpv 不给 http/tls 细节 ⇒ 下一步调 `--msg-level`（**先去手册查实选项名与取值，不猜**）
+
+### 四、状态
+- 只改 `lib/sites/xhamsterlive.dart`（numstat **70/2**）；`player_widget.dart` / `site_error_log.dart` / `error_log_page.dart` **均未动**
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标 2 个未编译风险点（`.listen(onError:)` 写法、`PlayerLog` 字段名来自包源码）
+- **未提交** `sim/**`；清理：删 `%TEMP%\mk2`（本轮下载的两个包 tar + 解压目录）；`%TEMP%` 与工作区临时残留复核均为 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
