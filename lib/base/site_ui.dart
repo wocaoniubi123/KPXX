@@ -1,11 +1,12 @@
 
+import '../app_background.dart';
+import '../models.dart';
+import 'package:flutter/material.dart';
+
 /// A2（2026-10-05 重构）：标签弹窗的**公共外壳** —— 只统一尺寸与滚动
 ///   标题 / 内容 / 按钮全部由调用方给（各站差异一律保留，不许统一）。
 ///   默认 constrained = true：420 上限 + 可滚动（原 home_page 的筛选与明星弹窗、hanime1 的标签弹窗）
 ///   pornhub 的 PhMoreDialog 传 false：它自己用 shrinkWrap ListView、没有 420 上限
-import '../app_background.dart';
-import '../models.dart';
-import 'package:flutter/material.dart';
 
 Widget siteTagDialog({
   required Widget title,
