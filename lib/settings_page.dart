@@ -157,6 +157,19 @@ class SettingsPage extends StatelessWidget {
             onPick: (v) => AppSettings.i.setBufferMb(v),
           ),
           _note('改完重进视频生效；1G 在低内存机型上可能被杀进程'),
+          _divider(),
+          // ⚠️ 用户 2026-10-05 拍板：**解码方式**三选一 ✓（改的是**播放器的硬件解码** ✓ 影响**所有站点** ✓）
+          _row(
+            title: '硬件解码',
+            sub: '播放器的硬件解码方式（影响所有站点）',
+          ),
+          _seg(
+            values: AppSettings.hwdecOptions,
+            selected: AppSettings.i.hwdec,
+            label: (v) => AppSettings.hwdecLabels[v],
+            onPick: (v) => AppSettings.i.setHwdec(v),
+          ),
+          _note('自动＝按引擎默认；硬解失败会自动回落软解；软解最兼容、最吃 CPU。改完重进视频生效'),
         ],
       ),
     );

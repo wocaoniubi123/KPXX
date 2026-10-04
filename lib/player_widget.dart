@@ -388,6 +388,18 @@ class KpPlayer extends ValueNotifier<KpState> {
       kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '2.0');
       kp.setMpvOptionQuiet('demuxer-lavf-probesize', '1500000');
       kp.setMpvOptionQuiet('cache-pause-initial', 'no');
+      // **硬件解码方式**（用户 2026-10-05 拍板：设置 → 播放 三选一 ✓ **影响所有站点** ✓）——
+      //   0 自动 = **不设 `hwdec`** ✓（保持上游默认 ✓ 手册："Hardware decoding is **not enabled by default**" ✓）；
+      //   1 硬解 = `hwdec=auto` ✓（手册："If hardware decoding is not possible, mpv **will fall back on software
+      //     decoding**" ✓ 正是"安全档" ✓；⚠️ 手册这一版的值列表里**没有 `auto-safe`** ✗ ⇒ 不猜、不用 ✓）；
+      //   2 软解 = `hwdec=no` ✓。
+      //   ⚠️ 键名 `hwdec` ✓；所有调用点都在 `open()` **之前** ✓（mpv 只在打开流时读它 ✓）。
+      final hw = AppSettings.i.hwdec;
+      if (hw == 1) {
+        kp.setMpvOptionQuiet('hwdec', 'auto');
+      } else if (hw == 2) {
+        kp.setMpvOptionQuiet('hwdec', 'no');
+      }
     } catch (_) {}
   }
 

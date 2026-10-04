@@ -19,11 +19,28 @@ class AppSettings extends ChangeNotifier {
   static const int defaultBufferMb = 200;
   static const String _kBuffer = 'buffer_mb';
 
+  /// **硬件解码方式**（用户 2026-10-05 拍板加的三选一 ✓ 默认**自动** ✓）
+  /// 取值 = 索引：0 自动（不设 `hwdec` ✓ 保持上游默认）/ 1 硬解（`hwdec=auto` ✓）/ 2 软解（`hwdec=no` ✓）
+  /// ⚠️ 映射依据 = mpv 手册 `--hwdec=<api1,api2,...|no|auto|auto-copy>`：
+  ///   "Specify the hardware video decoding API that should be used if possible. … **If hardware decoding is
+  ///    not possible, mpv will fall back on software decoding.** Hardware decoding is **not enabled by default**"
+  ///   ⇒ 硬解用 `auto`（**失败会自己回落软解** ✓ 正是我们要的"安全档" ✓）；
+  ///   ⇒ 手册这一版的值列表里**没有 `auto-safe`** ✗（那是更新版 mpv 的写法）⇒ **不猜、不用它** ✓。
+  static const List<int> hwdecOptions = [0, 1, 2];
+  static const int defaultHwdec = 0;
+  static const String _kHwdec = 'hwdec_mode';
+  /// 三档显示名（给设置页用 ✓）
+  static const List<String> hwdecLabels = ['自动', '硬解', '软解'];
+
   int _step = defaultStep;
   int get step => _step;
 
   int _bufferMb = defaultBufferMb;
   int get bufferMb => _bufferMb;
+
+  int _hwdec = defaultHwdec;
+  /// 0=自动 / 1=硬解 / 2=软解 ✓（见 [hwdecOptions] ✓）
+  int get hwdec => _hwdec;
 
   /// 播完是否自动播下一篇里的下一个视频（默认关）
   static const String _kAutoNext = 'auto_next';
@@ -46,6 +63,11 @@ class AppSettings extends ChangeNotifier {
       final b = sp.getInt(_kBuffer);
       if (b != null && bufferOptions.contains(b) && b != _bufferMb) {
         _bufferMb = b;
+        changed = true;
+      }
+      final hd = sp.getInt(_kHwdec);
+      if (hd != null && hwdecOptions.contains(hd) && hd != _hwdec) {
+        _hwdec = hd;
         changed = true;
       }
       final an = sp.getBool(_kAutoNext);
@@ -90,6 +112,19 @@ class AppSettings extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setInt(_kBuffer, v);
+    } catch (_) {
+      // 存失败也不影响本次会话使用
+    }
+  }
+
+  /// 改解码方式（0 自动 / 1 硬解 / 2 软解 ✓）—— 与上面几个 setter 同一套写法（照抄 bufferMb ✓）
+  Future<void> setHwdec(int v) async {
+    if (!hwdecOptions.contains(v) || v == _hwdec) return;
+    _hwdec = v;
+    notifyListeners();
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setInt(_kHwdec, v);
     } catch (_) {
       // 存失败也不影响本次会话使用
     }

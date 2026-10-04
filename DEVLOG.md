@@ -2470,6 +2470,43 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；三件改动**均只能真机/CI 验**
 - **未提交** `sim/**`；清理：`G:\ZCode\_mpv_tmp\`（347.8 MB）与 `_recon_tmp\` 均删、`Test-Path=False`；**用户 PATH 未被改动**（本轮 zip 直解、绕开 winget）；mpv 进程 0；`%TEMP%` 与工作区残留复核 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.36**）⭐ 直播改用**系统播放器（iOS = AVPlayer）** + 设置新增「硬件解码」
+
+### 一、为什么换播放器（关键决策，有网搜 + 实测依据）
+- **一直用内置 mpv/ffmpeg 就是根子上的选错**：本地 mpv 实测的账 —— **每次分片请求都新建 TCP 连接**（经代理每次 CONNECT+TLS ≈0.44~0.48s，4 次串行 ≈1.8s）+ 探测 + 进程/解码初始化 ⇒ 2.9s（真机 5.5s）
+- **浏览器（hls.js）同机同房同 URL 只要 1775/2034 ms** —— 因为它复用热连接、不重复握手
+- **站点自己在 iPhone 上走的也是原生 `<video>`（= AVPlayer）** ⇒ 这就是它 ~2 秒能出的原因
+- 网搜佐证：Flutter 官方 `video_player` **iOS 端 = AVPlayer**、Android = ExoPlayer（"开箱即用效果最好"）；**AVPlayer 在 iOS 14+ 原生支持 LL-HLS**
+- 失败的便宜尝试（已排除）：`multiple_requests` / `Connection: keep-alive` / `http_version=1.1` —— 前两者实测无提速（`http_version=1.1` 在 https 上是**无效选项**、会让播放直接失败，已明确禁用）
+
+### 二、直播房间页整块换播放器（`lib/sites/xhamsterlive.dart`，`191 440`，**净删 249 行**）
+- **依赖**：`pubspec.yaml` 加 **`video_player: 2.9.5`**（钉版本的依据：它是 `environment.sdk` 允许本仓 **Dart 3.5.4** 的**最新一版**；2.10.0 起要 ^3.6.0、2.12+ 要 ^3.12 —— pub.dev 各版原文为证）
+- **渲染**：`VideoPlayerController.networkUrl(url, httpHeaders: {'User-Agent': Site.ua})` → `initialize()` → `VideoPlayer` **等比铺满、零控件** ✓（正合"只要画面 + X"）
+- **不静音** ✓（`setVolume(1.0)`）；**X 一个数没动**（76×76 / 图标 40 / SafeArea / 点屏幕 toggle / 默认隐藏）
+- **保留**（与播放器无关的公共部分）：**按房间记变体 URL + 跳过 master** ✓、**master 的广告校验**（`MOUFLON-ADVERT`）✓、**交给播放器的是我们挑的单档变体（source/720p，不降画质）** ✓、直拼失败自动回退抓 master 一次 ✓
+- **看门狗/状态字/日志改判据**：`isInitialized` / `position` / `isBuffering` / `errorDescription`（8 秒 → "仍在加载…"、90 秒兜底提示、**不重开不误报**）
+- **mpv 专属项全清**：`hwdec` 覆盖 / `cache-secs` / `demuxer-max-bytes` / `cache-pause-initial` / `analyzeduration` 覆盖 / mpv 日志通道 —— 零残留（`git grep "KpPlayer\|setMpvOptionQuiet\|hwdec" -- lib/sites/xhamsterlive.dart` = **空**）
+- **`player_widget.dart` 一个字没动**（其它站点继续用 mpv）✓
+
+### 三、设置新增「硬件解码：自动 / 硬解 / 软解」（用户拍板）
+- `lib/settings.dart`（照 `bufferMb` 那套：`SharedPreferences` + 常量键 + `load()` 校验 + `setHwdec()`）；`lib/settings_page.dart` 播放组加一行（复用现成 `_row/_seg/_note`）
+- **映射（mpv 手册原文为依据）**：**自动 = 不设**（手册明写"硬件解码默认不开启"）· **硬解 = `auto`**（手册明写"硬解不可能时回落软解"）· **软解 = `no`**
+  - ⚠️ 如实纠正：我提过的 `auto-safe` **不在这版 mpv 手册的值列表里** ⇒ 未采用 ✓
+- **生效范围**：**除直播外的所有播放**（4 处建播放器的地方都经过 `tuneStartupQuiet` ⇒ 一处生效 ✓；`git grep` 确认无任何站点另设 `hwdec` ✓）
+- ⚠️ **文案待改**：副标题现在写"影响所有站点"，而直播已改系统播放器 ⇒ 应为"仅内置播放器生效"（用户已同意改，本轮未动，下轮一起）
+
+### 四、⚠️ 未验（如实，全部只能真机/CI）
+- **AVPlayer 能不能吃这条 HLS（fMP4 + `#EXT-X-MAP` + 自定义 UA）、几秒出画面** —— 只有真机能证 ❓
+- `video_player 2.9.5` 的 API 面：**只有 `httpHeaders` 一处是从该版源码 grep 到的**，其余签名**未逐一核对** ❓
+- `hwdec` 三个取值在真机上是否被 media_kit 采纳 ❓；**"自动"很可能实际=软解**（mpv 手册：硬解默认不开；media_kit 有无另设默认**未查证** ❓）
+
+### 五、状态
+- 逐文件 numstat：`lib/sites/xhamsterlive.dart` **191/440** · `pubspec.yaml` **4/0** · `lib/player_widget.dart` **12/0** · `lib/settings.dart` **35/0** · `lib/settings_page.dart` **13/0**
+- 括号三对平衡；行尾纯 LF（`settings_page.dart` 原本就是 CRLF 文件，新增行**沿用 CRLF**、未混行尾 ✓）
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）
+- **未提交** `sim/**`；清理：`_swap.cjs` / `_new_state.txt` / `%TEMP%\vp2`（pub.dev 响应 + `video_player-2.9.5.tar.gz` + 解压目录）**均已删净，`Test-Path=False`**；`%TEMP%` 与工作区残留复核 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

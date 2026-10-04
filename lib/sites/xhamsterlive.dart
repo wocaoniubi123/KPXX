@@ -36,8 +36,10 @@ import 'dart:convert';
 //  `Element`/`Text`/`Key` 撞名 ✗，因为本站不 import html/dom ✓ 也不 import encrypt ✓）
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
-// ⚠️ 播放器画面面（`Video(controller:)`）来自 media_kit_video ✓ —— 与 `player_widget.dart` 用的是同一个 ✓
-import 'package:media_kit_video/media_kit_video.dart' show Video, NoVideoControls;
+// ⭐ 2026-10-05（用户拍板）：直播房间页改用 **iOS 原生播放器** —— `video_player` 的 iOS 实现**就是 AVPlayer** ✓
+//   （站点自己在 iPhone 上走的就是原生 `<video>` = AVPlayer ✓ 这正是它 ~2 秒出画面的原因 ✓）
+//   mpv（`media_kit_video` / `KpPlayer`）那条路已从直播页**整条移除** ✗；`player_widget.dart` **没动** ✓ 别的站点还在用 ✓
+import 'package:video_player/video_player.dart';
 
 import '../app_background.dart';
 import '../app_bg.dart';
@@ -1665,7 +1667,7 @@ String liveMasterUrl(int id) =>
     '?playlistType=standard&pkey=$kLivePkey';
 
 /// 会话内**按房间缓存**"上次用过的变体 URL" ✓（键 = model id ✓ 值 = 变体 URL ✓ 不持久化 ✓）
-/// —— 下次进同一房间可**跳过"抓 master"那一跳**（真机实测那一跳 ~0.9 秒 ✗）✓；失败自动回退 ✓ 见 [_directFallbackTimer] ✓。
+/// —— 下次进同一房间可**跳过"抓 master"那一跳**（真机实测那一跳 ~0.9 秒 ✗）✓；直拼那条失败会自动回退抓 master ✓（只回退一次 ✓ 见 `_checkAndPlay` / `_open` ✓）。
 final Map<int, String> _variantCache = <int, String>{};
 
 /// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
@@ -1727,192 +1729,60 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 默认**隐藏** ✓（点屏幕才出现 ✓）
   bool _showX = false;
 
-  /// 校验通过后的**我们自己的播放器** ✓（null = 还没开播 / 打不开 ✓）
-  KpPlayer? _kp;
-
-  /// 状态/错误提示 —— **不静默、不白屏** ✓：校验不过就把原因写在屏幕上 ✓
+  /// 状态/错误提示 —— **不静默、不白屏** ✓
   String _err = '正在打开直播…';
 
-  /// 起播看门狗（**不许无限转圈** ✓）：超时没出画面 → **只换屏幕文案** ✓（见 [kLiveGiveUpMs] ✓）
-  Timer? _wd;
+  /// ③ 当前交给播放器的**变体 URL** ✓（出画时用它确认"缓存可用" ✓）
+  String? _kpVariantUrl;
 
-  // ⚠️ 2026-10-05：原 `_kLiveStartMs = 8000`（8 秒重开 / 16 秒判失败）**已删** ✗ ——
-  //   按真机实测改成"只换屏幕文案"的两个门槛：[kLiveStillMs] / [kLiveGiveUpMs] ✓（见下面 ✓）。
-  //   （旧的"两次合计 ~16 秒"那段说明随之作废 ✗ 已删 ✓）
+  /// ⭐ 2026-10-05（用户拍板）**改用 iOS 原生播放器**：`video_player` = iOS 端 **AVPlayer** ✓
+  ///   —— 站点自己在 iPhone 上就是走原生 `<video>`（= AVPlayer）✓ 这是我们"~2 秒出画面"的参照物 ✓；
+  ///   mpv/ffmpeg 那条路已从直播页**整条移除** ✗（每次请求新建连接 + 探测 + 进程开销 ✗）。
+  ///   ⚠️ `player_widget.dart`（mpv 那套）**没动** ✓ 别的站点还在用 ✓。
+  VideoPlayerController? _c;
 
-  /// 起播计时（秒）—— 只用来在**屏幕上**显示卡在哪一步 ✓（真机取证 ✓ 不写文件 ✗ 不加日志 ✗）
+  /// 起播计时（秒）—— 屏幕提示用 ✓
   int _secs = 0;
   Timer? _stageT;
+  Timer? _wd;
+  bool _gaveUp = false;
 
-  /// 直播**全量日志**用：从"进入房间页"起算的毫秒表 ✓（配 [SiteErrorLog] 里自带的时间戳 ✓）
+  /// 全量日志（复用 `SiteErrorLog` ✓ 见 [_log] ✓）
   final Stopwatch _sw = Stopwatch();
   bool _logReady = false;
   bool _logStarted = false;
   int _logPosSec = -1;
-
-  /// 上一条已记过的**播放器错误文本** ✓（同一条只记一次 ✗ 防止按 tick 刷盘 —— 见 listener 里那段说明 ✓）
   String _lastErrLog = '';
 
-  /// 记一条直播日志 ✓（**复用 [SiteErrorLog]** ✓：同一个文件/格式/导出方式 ✓ 不新建一套 ✗）。
-  /// ⚠️ 节流（用户要求"不许影响性能" ✓）：只在**里程碑**记 ✓ ——
-  ///   进入页面 / URL / 校验（状态码+字节+耗时）/ mpv 选项 / open 前后 / `ready`/`started` 的**跳变** /
-  ///   position **每 5 秒**一条 / 看门狗 / 每一条错误 / 出画面总耗时 / 离开页面 ✓
-  ///   —— 绝不每次 tick 都写盘 ✗（`KpState` tick 一秒可能有几十次 ✗）。
+  /// 只是"换个文案"的门槛（**不停不报错** ✓）：8 秒
+  static const int kLiveStillMs = 8000;
+
+  /// 真正"看上去没戏"的门槛：**90 秒**（到点也**只是提示一句** ✓ 不停播放 ✓）
+  /// 理由：recon 实测分片地址只活 ~25~28 秒、清单窗口 3 段 ⇒ 播放器本来就要十几~二十几秒才拿稳 ✓，
+  ///   真机实测成功点 25.2 秒 ✓ ⇒ 90 秒 ≈ 3.5 倍余量 ✓。
+  static const int kLiveGiveUpMs = 90000;
+
+  /// `initialize()` 的硬超时（毫秒）= **8000**：
+  /// 网络那一段本机实测 ≈2.5 秒 ✓ ⇒ 8 秒 ≈3 倍余量 ✓；超时就当"这条不通"→ 直拼那条会回退 ✓（master 那条只报错 ✓）。
+  static const int _kInitTimeoutMs = 8000;
+
+  /// 记一条直播日志 ✓（**复用 [SiteErrorLog]** ✓ 节流规则见各调用点 ✓ 绝不按 tick 写盘 ✗）
   void _log(String msg) {
-    // `unawaited` = 明确"不等它" ✓（`SiteErrorLog.log` 自己吞错 ✓ 绝不把主流程带崩 ✓）
     unawaited(SiteErrorLog.log('直播/${widget.username}#${widget.id}', '+${_sw.elapsedMilliseconds}ms $msg'));
   }
 
-  /// ⚠️ 2026-10-05（lead 要求）：**把 mpv 自己的日志接进来** —— 真机日志已证明卡点在 mpv 内部
-  /// （我们这侧 1.7 秒全做完 ✓ mpv 从 open 到 `ready` ~27 秒 ✗）⇒ 要看清它卡在 DNS/TLS/HTTP/分片哪一步 ✓。
-  /// **API 实证**（包源码，本机下载后查的 ✓）：
-  ///   · `kp.videoController.player` 是**公开**的 ✓（`media_kit_video-1.2.5` 的
-  ///     `lib/src/video_controller/video_controller.dart:56-58`：`class VideoController { … final Player player; }` ✓）
-  ///     ⇒ 站点侧就能拿到 `Player` ✓ **不用动 `player_widget.dart`** ✓（它里面 `_p` 是私有的 ✗ 本来也碰不到 ✓）；
-  ///   · 日志流：`media_kit-1.1.11` 的 `lib/src/models/player_stream.dart:91` = `final Stream<PlayerLog> log;` ✓
-  ///     每条 = `PlayerLog{prefix, level, text}`（`lib/src/models/player_log.dart:15-23` ✓）。
-  /// ⚠️ 过滤 + 限速（不然全量 mpv 日志会把 512KB 的日志文件冲爆 ✗）：
-  ///   只留 [kMpvLogKeywords] 里的关键字行 ✓（http/tls/dns/hls/demux/error/cache/buffer…）；
-  ///   每秒最多 4 条 ✓；每次打开最多 [kMpvLogMax] 条 ✓（到顶记一行"已达上限" ✓）；单行截到 400 字符 ✓。
-  static const List<String> kMpvLogKeywords = <String>[
-    'http', 'tls', 'dns', 'hls', 'demux', 'cache', 'buffer', 'stream',
-    'error', 'fail', 'timeout', 'retry', 'conn', 'proxy', 'refused', 'reset',
-    // ⚠️ 2026-10-05 追加（真机病灶 = 第一条分片加载失败、但**看不到底层 HTTP 状态码** ✗）：
-    //    要的就是状态码 / 重连 / 超时 那几类行 ✓
-    'status', '403', '404', '500', '502', '503', '504', 'forbidden',
-    'reconnect', 'network', 'eof', 'unavailable',
-  ];
-  static const int kMpvLogMax = 200;
-  int _mpvN = 0;
-  int _mpvSec = -1;
-  int _mpvInSec = 0;
-
-  /// 订阅 mpv 日志 ✓（失败绝不影响播放 ✓ —— 整段 try/catch ✓）
-  void _tapMpvLog(KpPlayer kp) {
-    try {
-      kp.videoController.player.stream.log.listen((e) {
-        if (!mounted) return;
-        if (_mpvN >= kMpvLogMax) {
-          if (_mpvN == kMpvLogMax) {
-            _mpvN++;
-            _log('mpv 日志：已达上限 $kMpvLogMax 条 → 后续不再记 ✓（下一轮要更多就把这个常量调大 ✓）');
-          }
-          return;
-        }
-        final raw = '${e.prefix} ${e.level} ${e.text}'.replaceAll('\n', ' ');
-        final low = raw.toLowerCase();
-        var hit = false;
-        for (final k in kMpvLogKeywords) {
-          if (low.contains(k)) {
-            hit = true;
-            break;
-          }
-        }
-        if (!hit) return; // 不相关行丢掉 ✓（过滤 ✓）
-        final now = _sw.elapsedMilliseconds ~/ 1000;
-        if (now == _mpvSec && _mpvInSec >= 4) return; // 每秒最多 4 条 ✓（限速 ✓）
-        if (now != _mpvSec) {
-          _mpvSec = now;
-          _mpvInSec = 0;
-        }
-        _mpvInSec++;
-        _mpvN++;
-        _log('mpv[${now}s] ${raw.length > 400 ? raw.substring(0, 400) : raw}');
-      }, onError: (Object _) {});
-    } catch (_) {
-      // 拿不到日志流也不影响播放 ✓
-    }
-  }
-
-  /// ② 当前交给播放器的**变体 URL** ✓（出画时用它确认"缓存可用" ✓）
-  String? _kpVariantUrl;
-
-  /// ② 直拼兜底时限（毫秒）= **6000**：
-  /// 本机 curl 实测"master 0.52~0.80s + 变体 0.48~0.76s + 首分片 0.32~0.90s" ≈ **2.5 秒** 是网络那段 ✓
-  /// ⇒ 6 秒 ≈ **2.4 倍**余量 ✓（够它起、又不至于让人干等 ✗）；只在**直拼那条路**上用 ✓ 只回退一次 ✓。
-  static const int _kDirectFallbackMs = 6000;
-
-  /// ② 直拼兜底：`_kDirectFallbackMs` 内没就绪 → **回退走"抓 master → 取变体 → open"一次** ✓（只一次 ✓）
-  void _directFallbackTimer(int id, KpPlayer kp) {
-    _wd?.cancel();
-    _wd = Timer(const Duration(milliseconds: _kDirectFallbackMs), () async {
-      if (!mounted || !identical(_kp, kp)) return;
-      if (kp.value.position > Duration.zero || kp.value.ready) return; // 已经就绪 ✓
-      _log('直拼兜底：id=$id 那条缓存 URL 在 ${_kDirectFallbackMs}ms 内没就绪 → **回退抓 master** ✓（只回退一次 ✓）');
-      _variantCache.remove(id); // 这条不好用 ⇒ 别再直拼它 ✗
-      try {
-        await kp.shutdown();
-      } catch (_) {}
-      if (!mounted) return;
-      setState(() {
-        _kp = null;
-        _err = '正在打开直播…';
-        _secs = 0;
-      });
-      _checkAndPlay(); // 再走一遍 ✓（缓存已删 ⇒ 这次走 master ✓）
-    });
-  }
-
-  /// ② 直拼那条路的 listener ✓（与 master 那条路**同样的**错误上报 + 出画后确认缓存 ✓）
-  void _attachKp(int id, KpPlayer kp) {
-    kp.addListener(() {
-      if (!identical(_kp, kp)) return;
-      if (kp.value.position > Duration.zero) {
-        if (!_logStarted) {
-          _logStarted = true;
-          _log('KpState: started=true（出画面 ✓ 总耗时 ${_sw.elapsedMilliseconds}ms）');
-          final u = _kpVariantUrl;
-          if (u != null && u.isNotEmpty) {
-            _variantCache[id] = u;
-            _log('缓存已确认可用（id=$id）✓（keys=${_variantCache.length}）');
-          }
-        }
-        _wd?.cancel();
-        _wd = null;
-        return;
-      }
-      if (kp.value.error) {
-        final t = kp.value.errorText;
-        if (t != _lastErrLog) {
-          _lastErrLog = t;
-          _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
-        }
-        final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
-        if (msg != _err && mounted) setState(() => _err = msg);
-      }
-    });
-  }
-
-  /// 屏幕上的阶段文案（判据只用 `KpState` 那几个：`ready` / `started` / `position` ✓）：
-  /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）
-  /// → 超过 [kLiveStillMs] 还没出画 → `仍在加载… Ns`（**只改文案，别停别报错** ✓）
-  /// → 超过 [kLiveGiveUpMs] → 那行"一直没出画面"的提示 ✓（**也只是文案** ✓ 播放器继续跑 ✓）；
-  ///   出画后**空**（不显示 ✓）。
-  /// ⚠️ 2026-10-05（lead 按实测重构）：不再是"8 秒重开 / 16 秒判失败" ✗ ——
-  ///   真机日志证明：`+9671ms` 我们重开 → `+9738ms` mpv 立刻报 `hls: Error when loading first segment` +
-  ///   `avformat_open_input() failed` ✗（= **"open 被我们中止"的形态** 🔍），而 `+25222ms` 它其实
-  ///   `ready=true` 出画面了 ✓ ⇒ **重开既在打断、判失败又是误报** ✗ ⇒ 两个都拆掉 ✓。
-  bool _gaveUp = false;
-
-  /// 只是"换个文案"的门槛（**不停不报错** ✓）：8 秒
-  /// —— 与我们原先的重开门槛同值 ✓（真机上它 25.2 秒才成，8 秒远早于成功点 ⇒ 拿它当"还在加载"的提示点 ✓）。
-  static const int kLiveStillMs = 8000;
-
-  /// 真正"看上去没戏"的门槛：**90 秒**（**到点也只是提示一句** ✓ 不停播放 ✓）
-  /// 理由：① recon 实测"分片地址只活 ~25~28 秒、清单窗口 3 段（≈6s）"⇒ 播放器本来就要十几~二十几秒才拿稳 ✓；
-  ///       ② 真机实测成功点 = **25.2 秒** ✓ ⇒ 90 秒 ≈ **3.5 倍**余量 ✓（既不会误报、也不会让人无限干等没提示 ✓）。
-  static const int kLiveGiveUpMs = 90000;
-
+  /// 屏幕上的阶段文案（判据 = `VideoPlayerValue` ✓：`isInitialized` / `isBuffering` / `position` ✓）：
+  /// `打开中…` → `连接中…/缓冲中…` → 超 8 秒 `仍在加载…` → 超 90 秒那行提示 ✓；出画后**空** ✓
   String get _stage {
-    final k = _kp;
-    if (k != null && k.value.started) return ''; // 出画面 ✓ 不显示 ✓（这条**优先**：90s 后若真出来了也要消失 ✓）
+    final c = _c;
+    if (c != null && c.value.position > Duration.zero) return ''; // 出画 ✓ 不显示 ✓
     if (_gaveUp) return '这条直播一直没出画面，可能主播没有在推流 ✗（已等 ${_secs}s）';
-    if (k == null && _err != '正在打开直播…') return ''; // 中间已经在报错 ✗ 别再叠一行 ✓
+    if (c == null && _err != '正在打开直播…') return ''; // 中间已在报错 ✗ 不叠一行 ✓
     final s = '${_secs}s';
-    if (k == null) return '打开中… $s';
-    if (!k.value.ready) return '连接中… $s';
-    if (_secs * 1000 >= kLiveStillMs) return '仍在加载… $s'; // 超过 8 秒还没出画 → 换个文案 ✓ **继续等** ✓
-    return '缓冲中… $s'; // `ready` = duration>0（清单已解析 ✓）但 position 还是 0 ⇒ 还没出画 ✓
+    if (c == null) return '打开中… $s';
+    if (!c.value.isInitialized) return '连接中… $s';
+    if (_secs * 1000 >= kLiveStillMs) return '仍在加载… $s';
+    return '缓冲中… $s';
   }
 
   @override
@@ -1923,58 +1793,42 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     _checkAndPlay();
   }
 
-  /// 打开前**先抓一次 master**（很小 ✓ 实测 1.3~1.9KB）校验：**200 且正文里没有 `MOUFLON-ADVERT`** ✓。
-  /// ⚠️ 2026-10-05 用户拍板：**兜底（WebEmbed）已删** ✗ ⇒ 校验不过 / 抓取失败 / 打开失败时
-  ///   **不播**（播了就是广告 ✗）→ 屏幕上给**明确提示** ✓（不静默、不白屏 ✓）。
-  /// 全部走 [Site.httpClient]（与全 App 同一套网络配置/代理 ✓）+ 站点 UA ✓。
+  @override
+  void dispose() {
+    _log('离开房间页（页面存活 ${_sw.elapsedMilliseconds}ms）');
+    _sw.stop();
+    _wd?.cancel();
+    _stageT?.cancel();
+    final c = _c;
+    _c = null;
+    if (c != null) {
+      try {
+        c.removeListener(_onTick);
+      } catch (_) {}
+      unawaited(c.dispose());
+    }
+    super.dispose();
+  }
+
+  /// ③ 校验/缓存逻辑**保留**（与播放器无关 ✓ 省的是**我们自己**的抓取 ✓）：
+  /// ① 缓存命中 → **跳过 master** 直接用上次那条变体 ✓（失败自动回退一次 ✓）；
+  /// ② 没缓存 → 抓 master（**判 `MOUFLON-ADVERT` 的底线保留** ✓）→ 取**第一条变体**（保画质 ✓ 不交 master 让播放器挑低档 ✗）
+  ///    → 缓存 → 交给 AVPlayer ✓。
   Future<void> _checkAndPlay() async {
     final id = widget.id;
     if (id <= 0) {
       _log('错误：没拿到 id（id=$id）→ 打不开 ✗');
-      setState(() => _err = '这个房间没拿到 id，打不开直播 ✗');
+      if (mounted) setState(() => _err = '这个房间没拿到 id，打不开直播 ✗');
       return;
     }
-    KpPlayer? kp;
+    final cached = _variantCache[id];
+    if (cached != null && cached.isNotEmpty) {
+      _log('缓存命中：id=$id → 跳过 master，直接用上次那条变体 = $cached');
+      await _open(cached, id, allowFallback: true);
+      return;
+    }
     try {
       final url = liveMasterUrl(id);
-      // ⚠️ 2026-10-05 ①：**先看内存缓存**（同一房间这次会话进过 ✓）—— 命中就**跳过 master 那一跳**，
-      //   直接拿上次那条变体 URL 开 → 省掉"抓 master"那 ~0.9 秒 ✓（键 = model id ✓ 值 = 上次用过的变体 URL ✓
-      //   只缓存"真出过画面"的 ✓ 见 listener 里 `started` 那段 ✓；失败自动回退 ✓ 见下面的兜底计时器 ✓）。
-      final cached = _variantCache[id];
-      if (cached != null && cached.isNotEmpty) {
-        _log('缓存命中：id=$id → 跳过 master，直接开上次那条变体 = $cached');
-        kp = KpPlayer();
-        KpPlayer.tuneStartupQuiet(kp);
-        _tapMpvLog(kp);
-        kp.setMpvOptionQuiet('hwdec', 'no');
-        kp.setMpvOptionQuiet('cache-secs', '2');
-        kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
-        kp.setMpvOptionQuiet('cache-pause-initial', 'no');
-        // ⚠️ 2026-10-05：覆盖 `tuneStartupQuiet` 的 2.0 → **0.5** ✓（lead 本地 A/B 最快的一组：
-        //   2.0=3011ms vs **0.5=2904ms** ✓；1.0=3037ms ✗；**`probesize` 别动** ✗ 实测变小反而更慢 3595/3198ms ✓；
-        //   同键名 `demuxer-lavf-analyzeduration` ✓ `player_widget.dart` 一个字没动 ✓）
-        kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '0.5');
-        _kpVariantUrl = cached;
-        await kp.open(cached, httpHeaders: <String, String>{'User-Agent': Site.ua});
-        if (!mounted) {
-          kp.shutdown();
-          return;
-        }
-        _secs = 0;
-        _stageT?.cancel();
-        _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
-          if (!mounted || (_kp != null && _kp!.value.started)) {
-            t.cancel();
-            return;
-          }
-          setState(() => _secs++);
-        });
-        final k2 = kp;
-        _directFallbackTimer(id, k2); // 直拼失败 → 回退走"抓 master"那条 ✓（只回退一次 ✓）
-        _attachKp(id, k2);
-        setState(() => _kp = kp);
-        return;
-      }
       _log('master URL 原文 = $url');
       final tM0 = _sw.elapsedMilliseconds;
       final r = await Site.httpClient
@@ -1990,13 +1844,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (ad) {
         _log('错误：拿到广告清单（MOUFLON-ADVERT）→ 不播 ✗');
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
-        return; // ⚠️ 广告清单 → 千万别播 ✗
+        return;
       }
-      // ⚠️ 2026-10-05 ①②（真机日志：master 857ms + **变体再单独校验 1257ms** ✗ ⇒ 共 2.1 秒才 open）：
-      //   ① **不再单独抓变体校验** ✗ —— 从 master 里取出变体 URL 后**直接 open** ✓
-      //      （省掉那一跳 ~1.2 秒 ✓；"变体 403 白开一次"由看门狗 + 下面的兜底兜着 ✓ 不再为它加网络往返 ✗）；
-      //   ③ 取档：**取 master 里的第一档** ✓（"优先 480p"已按用户要求**撤掉** ✗ —— **不许降分辨率** ✓）。
-      //   ⚠️ master 的校验（200 + `MOUFLON-ADVERT`）**保留** ✓ —— "别放广告"的底线 ✗ 不能省 ✓。
       final vu = pickVariantUrl(r.body);
       _log('master 选档结果（**第一档** ✓ 不降分辨率 ✓）= ${vu.isEmpty ? '(没有 ✗)' : vu}');
       _log('选中这一档的属性 = ${variantInfoOf(r.body, vu)}');
@@ -2005,258 +1854,164 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (mounted) setState(() => _err = '这条流的清单里没有可用的清晰度 ✗');
         return;
       }
-      _kpVariantUrl = vu; // ① 交给播放器的就是这条 ✓（出画后 listener 会把它确认为"可用缓存" ✓）
-      _variantCache[id] = vu; // 先记住（真正"可用"由 started 时确认 ✓ 见 [_attachKp] ✓）
+      _kpVariantUrl = vu;
+      _variantCache[id] = vu;
       _log('已缓存该房间的变体 URL（下次直接拼 ✓；keys=${_variantCache.length}）');
-      // ⚠️ ① 已删：原来这里单独抓一次变体校验（+1257ms ✗ 真机实测）—— 现在**取到就直接 open** ✓
-      //   "变体 403 白开一次"由**看门狗（只换文案）+ 真出错时 listener 报错**兜着 ✓ 不再加网络往返 ✗。
-      _log('准备起播（master 已校验 ✓ 变体不单独校验 ✗ 直接交给播放器 ✓）');
-      if (!mounted) return;
-      kp = KpPlayer();
-      KpPlayer.tuneStartupQuiet(kp);
-      // ⚠️⚠️ 2026-10-05 **紧急回退**：这里原来设了 `msg-level=ffmpeg/demuxer=debug,ffmpeg=debug` ✗
-      //   —— 用户反馈"什么日志都没输出！" ⇒ lead 判断：**debug 级会让 `stream.log` 每秒几千条** ✗，
-      //   事件流把 Dart 侧压死（UI/写日志被饿死 ✗），更致命的是 `SiteErrorLog` 有 **512KB 截断**逻辑
-      //   （写之前超限就 `writeAsString('', flush: true)` 清空 ✓ 见 `lib/site_error_log.dart:21/37-39` ✓）
-      //   ⇒ 被灌大后就是**反复清空** ⇒ 用户看到"什么都没有" ✗✗。
-      //   ⇒ **已删掉那行** ✓ **回到 mpv 默认日志级别** ✓（我们自己的 `_log()` 行 + 默认级别的 mpv 行照旧 ✓）。
-      //   ⚠️ 以后要再看 HTTP 细节，**别走"提高 mpv 日志级别"这条路**（会把事件流量级抬高 ✗）——
-      //     改成在 Player 创建参数里设（那要动共用件 ⇒ 先报 lead ✓）或换其它抓法 ✓。
-      _tapMpvLog(kp); // mpv 日志通道保留 ✓（默认级别下量很小 ✓ 过滤 + 每秒 4 条 + 200 条上限照旧 ✓）
-      // ⚠️ 2026-10-05（真机日志新线索）：**硬件解码失败** —— 日志原文
-      //   `mpv[26s] ffmpeg/video error h264: hardware accelerator failed to decode picture` ✗
-      //   ⇒ 试**纯软解**：`hwdec=no` ✓（依据 = 上面那行明写硬解这条路上报错了 ✓）
-      // ⚠️ 查过：**本仓库从没设过 `hwdec`** ✓（`git grep hwdec -- lib/` = 空 ✓）⇒ 之前用的是 mpv/media_kit 默认
-      //   （默认会试硬解 ✗；media_kit 是否自己另设了默认值，我**没查证** ❓）
-      // ⚠️ 代价（诚实写）：**CPU 高一些** ✓；我们只播一路直播 ⇒ 可接受 ✓；真机若发热/掉帧，删这一行即回退 ✓。
-      // ⚠️ 效果**只能真机验** ❓（本机无 mpv/libmpv ✗）。
-      kp.setMpvOptionQuiet('hwdec', 'no');
-      _log('mpv(open 前)：日志级别=**默认**（msg-level 已回退删除 ✗）；tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
-      // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
-      //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；
-      //     必须在 `open()` **之前**设 ✓（这几个是"加载时读"的缓存参数 ✓））：
-      //   · `cache-secs = 2` —— mpv 手册原文：`--cache-secs=<seconds>` "How many seconds of audio/video to
-      //     prefetch if the cache is active… **The default value is set to something very high**, so the
-      //     actually achieved readahead will usually be limited by the value of the --demuxer-max-bytes option.
-      //     Setting this option is usually only useful for limiting readahead." ⇒ 默认**极高** ✓ 起播前会拼命堆 ✓。
-      //     值 = **2 秒**：直播分片本身就 2~6 秒 ✓ ⇒ 只要攒够"约一个分片"就能开 ✓（再多只会拖慢起播 ✓）。
-      //   · `demuxer-max-bytes = 8388608`（8MB）—— 手册接着说**真正卡住 readahead 的是 `--demuxer-max-bytes`** ✓；
-      //     而 `KpPlayer` 传的是 `bufferSize: bufferMb * 1024 * 1024`，默认 **200MB** ✗（实测原文：
-      //     `player_widget.dart:134` `KpPlayer({int bufferMb = 200})` + `:137` `bufferSize: bufferMb * 1024 * 1024`）
-      //     ⇒ 直播用 200MB 当上限 = 允许它堆**极多**才开 ✗。值 = **8MB**：按直播常见 2~6 Mbps 算 ⇒
-      //     ≈ **10~30 秒**的缓冲 ✓（够吸收抖动 ✓ 又不会让人等 ✓）。
-      //   ⚠️ 风险（诚实写在这）：值再往下（比如 2MB/1 秒）在弱网下更容易 underrun/断续 ✗ —— 我**不**再激进 ✓；
-      //     真机若发现画面不稳，先回调 `demuxer-max-bytes` ✓。8 秒起播看门狗照旧兜底 ✓（没删 ✓）。
-      //   ⚠️ **没设** `hls-bitrate`（手册里有它、"decide which track to select" ✓）—— 选哪档会掉画质 ✗，
-      //     而"哪档更稳"我**没有实测** ✗ ⇒ **不猜** ✓；`demuxer-readahead-secs` 也不用设 ✓
-      //     （手册：`cache-secs` 在 cache 开启且值更大时会**覆盖**它 ✓ ⇒ 设了上面那条它就不是瓶颈 ✓）。
-      kp.setMpvOptionQuiet('cache-secs', '2');
-      kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
-      kp.setMpvOptionQuiet('cache-pause-initial', 'no'); // 站点侧再显式钉一次 ✓（与 tuneStartupQuiet 同值 ✓ 无害 ✓）
-      // ⚠️ 2026-10-05：覆盖 	uneStartupQuiet 的 2.0 → **0.5** ✓（lead 本地 A/B 实测最快的一组：2.0=3011ms vs 0.5=**2904ms** ✓；
-      //   1.0=3037ms ✗；**probesize 别动** ✗ 实测变小反而慢 3595/3198ms ✓ 同键名 demuxer-lavf-analyzeduration ✓）。
-      kp.setMpvOptionQuiet('demuxer-lavf-analyzeduration', '0.5');
-      // 起播计时（只为屏幕提示 ✓）：从"开始 open"起每秒 +1 ✓，出画/销毁就停 ✓
-      _secs = 0;
-      _stageT?.cancel();
-      _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
-        if (!mounted || (_kp != null && _kp!.value.started)) {
-          t.cancel(); // 出画即停 ✓ —— ⚠️ **不再因"90 秒到了"停** ✓（计时继续 ✓，那行提示还要显示秒数 ✓）
-          return;
-        }
-        setState(() => _secs++);
-        // 全量日志：**每 5 秒一条**（节流 ✓ 绝不按 tick 写盘 ✗）—— 卡住时能看出卡在哪一步、卡多久 ✓
-        if (_secs % 5 == 0) {
-          final k = _kp;
-          final st = k == null
-              ? '还没建播放器（校验/连接中）'
-              : 'ready=${k.value.ready} started=${k.value.started} '
-                  'position=${k.value.position.inMilliseconds}ms duration=${k.value.duration.inMilliseconds}ms '
-                  'error=${k.value.error}${k.value.errorText.isEmpty ? '' : ' errorText=${k.value.errorText}'}';
-          _log('等待 ${_secs}s：$st');
-        }
-      });
-      // ⚠️ 2026-10-05 **第三次改这条 URL**（这次有本地 mpv 实测撑腰 ✓ 前两次都是推理 ✗）——
-      //   **交给 `kp.open()` 的是 `vu` = 校验时已经抓到的那条"单档变体 URL"** ✓（**复用、不重新抓** ✓）。
-      //   依据 = recon **本地 mpv v0.41（Windows）ffmpeg 时间轴实测**：
-      //     `[ 0.014s] Opening .../master/227556210_auto.m3u8`
-      //     `[ 1.125s] hls: Opening '.../227556210.m3u8' for reading`        ← 第 1 档
-      //     `[ 3.371s] HLS request ..._360_...mp4   (playlist 0)`           ← 第 1 档首段
-      //     `[ 5.165s] HLS request ..._480p_...mp4  (playlist 1)`           ← 第 2 档首段
-      //     `[ 7.361s] HLS request ..._240p_...mp4  (playlist 2)`           ← 第 3 档首段
-      //     `[11.645s] h264: Reinit context …`                              ← 才解码首帧
-      //   ⇒ **ffmpeg 拿到 master 会"逐档探测"（每档都打开 + 各取一条首段）** ⇒ 十几秒就是这么攒的 ✗；
-      //   **A/B：master 13.2s vs 单档变体 2.9s**（各 2~3 次 ✓）；同轮还否掉了"200MB 缓冲拖慢"（`demuxer-max-bytes`
-      //     8MiB vs 200MiB **几乎无影响** ✓）——但 `hwdec=no`（-2.6s ✓）与缓存那套（-1.7s ✓）都留着 ✓。
-      //   ⚠️ **这是本地 mpv 实测结论（v0.41 / Windows），真机待验** ❓ —— 若不灵，一行改回 `url`(master) 即可 ✓。
-      //   ⚠️ 时效性：变体 URL 有时效（recon 实测分片地址只活 ~25~28 秒 ✓）⇒ 从"抓到变体"到"交给 mpv"**别拖** ✓
-      //     （当前：校验完立刻 open ✓ 中间只隔几毫秒 ✓；`vu` 不重新抓 ✓）。
-      //   ⚠️ 校验逻辑**原样保留** ✓：仍然先抓 master（判广告/200 ✓）再抓变体（判 403/200 ✓）✓。
-      final tO0 = _sw.elapsedMilliseconds;
-      _log('kp.open() 开始：URL=$vu headers=User-Agent(${Site.ua.length} 字符)');
-      await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
-      _log('kp.open() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - tO0}ms（无异常 ✓）');
-      // ⚠️ 2026-10-05：**open 之后再钉一次**这三条 ✓ ——
-      //   ⇒ **"参数调晚了"这个假设被排除** ✗（那三行本来就写在 `open` 之前 ✓ 见上面的 `setMpvOptionQuiet` ✓）；
-      //   但 `KpPlayer` 的 `bufferSize`（默认 **200MB** ✗ 见 `player_widget.dart:134/137`）是 media_kit
-      //   **在 open 时**自己设的 ✓ ⇒ 它**可能盖掉**我前面那条 `demuxer-max-bytes` 🔍[推断] ⇒ 这里**再覆盖一次** ✓
-      //   （幂等无害 ✓；真机若还慢，这条至少把"被 media_kit 盖掉"这种可能也排除了 ✓）。
-      kp.setMpvOptionQuiet('cache-secs', '2');
-      kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
-      kp.setMpvOptionQuiet('cache-pause-initial', 'no');
-      _log('mpv(open 后)：再钉 cache-secs=2 / demuxer-max-bytes=8388608 / cache-pause-initial=no');
-      // ⚠️ 2026-10-05：**这里不静音** ✗ —— 探测才静音（那是为了自动化测试不出声 ✓）；
-      //   房间页是**给人看的** ✓ ⇒ 不设 `setVolume` ✓ 音量走系统默认 ✓
-      //   （`KpState` 默认音量 = 100 ✓，见 `player_widget.dart:97` `this.volume = 100` ✓）。
-      //   ⚠️ 只删了这处直播间页的静音 ✓ —— `_guardJs`（WebView 静音守护）与别的播放器**一个都没动** ✓。
-      if (!mounted) {
-        kp.shutdown();
-        return;
-      }
-      final k2 = kp;
-      // ⚠️ 2026-10-05 用户要求：**起播看门狗**（不许无限转圈 ✗）——
-      //   判据 = `k2.value.position > Duration.zero` ✓（= `KpState.started` ✓，见 `player_widget.dart:103`
-      //     `bool get started => position > Duration.zero;` ✓ —— 这是 `KpState` 唯一能读到的"出画"信号 ✓
-      //     它**没有**暴露 width/height ✗ 所以没得选 ✓）。
-      //   阈值有两个（都**只是文案** ✓ 不打断播放 ✓）：[kLiveStillMs]=8 秒换"仍在加载…" ✓；
-      //     [kLiveGiveUpMs]=90 秒 → 那行"一直没出画面"的提示 ✓（**不停播放器** ✓ 见 `_startWatchdog` ✓）。
-      //   ⚠️ 2026-10-05 按真机实测**去掉了"8 秒重开一次 / 16 秒判失败"** ✗（那是打断 + 误报 ✓ 见 `_startWatchdog` 注释 ✓）。
-      _startWatchdog(k2);
-      // 开播后真断了（校验过了但流中途坏）→ **说清楚** ✓（别让用户对着黑屏 ✗）；
-      // ⚠️ 只在"还没出画面"时报 ✗ —— mpv 起播期偶发网络错误不该弹（用户的痛点是慢/黑屏，不是弹错 ✓）
-      k2.addListener(() {
-        if (!identical(_kp, k2)) return;
-        // 全量日志：只记 **ready / started 的跳变**（不按 tick 写 ✗ ✓ 节流 ✓）
-        if (k2.value.ready && !_logReady) {
-          _logReady = true;
-          _log('KpState: ready=true（duration=${k2.value.duration.inMilliseconds}ms）');
-        }
-        if (k2.value.position > Duration.zero) {
-          if (!_logStarted) {
-            _logStarted = true;
-            _log('KpState: started=true（出画面 ✓ 从进入页面算总耗时 ${_sw.elapsedMilliseconds}ms）');
-            // ② 这条 URL **真出过画面** ⇒ 才算"缓存可用" ✓（下次直拼 ✓）
-            final u = _kpVariantUrl;
-            if (u != null && u.isNotEmpty) {
-              _variantCache[widget.id] = u;
-              _log('缓存已确认可用（id=${widget.id} → $u；keys=${_variantCache.length}）');
-            }
-          }
-          // 出画了 → 撤掉看门狗 ✓（这一刻起不再重开/不再报"没画面" ✓）
-          _wd?.cancel();
-          _wd = null;
-          return;
-        }
-        // 出画前每 5 秒也留一条 position（与上面那条"等待 Ns"互补 ✓ 都是节流过的 ✓）
-        final ps = (k2.value.position.inMilliseconds / 1000).floor();
-        if (ps > 0 && ps != _logPosSec && ps % 5 == 0) {
-          _logPosSec = ps;
-          _log('KpState: position=${ps}s duration=${k2.value.duration.inMilliseconds}ms '
-              'ready=${k2.value.ready} started=${k2.value.started} +${_sw.elapsedMilliseconds}ms');
-        }
-        if (k2.value.error) {
-          final t = k2.value.errorText;
-          final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
-          // ⚠️⚠️ 2026-10-05 **洪水源修复**：这个监听是**每次 KpState 变化**都跑（position/volume… 一秒几十次 ✗）
-          //   ⇒ 原来这里**没有去重** ✗ —— 只要 `error=true` 持续，就按 tick 往盘里追加（每条还带 flush ✗）
-          //   ⇒ 配合 `SiteErrorLog` 的 512KB 截断 = 反复清空 ⇒ 用户"什么日志都没有" ✗✗。
-          //   现在：**同一条错误文本只记一次** ✓（文本变了才再记 ✓）—— 与其它分支一样严守"只记跳变" ✓。
-          if (t != _lastErrLog) {
-            _lastErrLog = t;
-            _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
-          }
-          if (msg != _err && mounted) setState(() => _err = msg);
-        }
-      });
-      setState(() => _kp = kp);
+      await _open(vu, id, allowFallback: false);
     } catch (e, st) {
       _log('错误：打开直播抛异常 → $e\n${st.toString().split('\n').take(4).join(' <- ')}');
-      _wd?.cancel();
-      _wd = null;
-      kp?.shutdown();
       if (mounted) setState(() => _err = '打开直播失败：$e');
     }
   }
 
-  /// ⚠️ 2026-10-05 按真机实测**重构**（lead 拍板）：
-  /// ① **去掉"8 秒重开一次"** ✗ —— 真机时序：`+9671ms` 我们重开 → `+9738ms` mpv 报
-  ///    `hls: Error when loading first segment` + `avformat_open_input() failed` ✗ ⇒ **十有八九是我们把它的 open 打断了** 🔍；
-  /// ② **不再"超时即判失败"** ✗ —— 同一份日志里 `+17673ms` 我们判了失败，`+25222ms` 它其实已经
-  ///    `ready=true` 出画面 ✓ ⇒ **误报** ✗；
-  /// ③ 现在只剩**一个很宽的计时器**：到 [kLiveGiveUpMs] 没出画 → **只把屏幕文案换成那行提示** ✓
-  ///    （**不停播放器、不报错、不重开** ✓）；真出错只有一条路：`KpState.error == true`（listener 里处理 ✓）。
-  void _startWatchdog(KpPlayer kp) {
+  /// 真正把 URL 交给 **AVPlayer**（`video_player` ✓ iOS = AVPlayer ✓）
+  /// ⚠️ `httpHeaders` 带我们的 UA（照 [Site.ua] ✓）—— HLS 请求会带上它 ✓。
+  Future<void> _open(String url, int id, {required bool allowFallback}) async {
+    if (!mounted) return;
+    _secs = 0;
+    _stageT?.cancel();
+    _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted || (_c != null && _c!.value.position > Duration.zero)) {
+        t.cancel(); // 出画即停 ✓（90 秒那行提示也还要显示秒数 ✓）
+        return;
+      }
+      setState(() => _secs++);
+      if (_secs % 5 == 0) {
+        // 全量日志：**每 5 秒一条**（节流 ✓ 绝不按 tick 写盘 ✗）
+        final cv = _c?.value;
+        _log('等待 ${_secs}s：isInitialized=${cv?.isInitialized} position=${cv?.position.inMilliseconds}ms '
+            'isBuffering=${cv?.isBuffering} duration=${cv?.duration.inMilliseconds}ms '
+            'errorDescription=${(cv?.errorDescription ?? '').isEmpty ? '(空)' : cv!.errorDescription}');
+      }
+    });
+    final c = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      httpHeaders: <String, String>{'User-Agent': Site.ua},
+    );
+    _c = c;
+    c.addListener(_onTick);
+    _log('AVPlayer: VideoPlayerController.networkUrl 建好，开始 initialize()：URL=$url headers=User-Agent(${Site.ua.length} 字符)');
+    final t0 = _sw.elapsedMilliseconds;
+    try {
+      await c.initialize().timeout(const Duration(milliseconds: _kInitTimeoutMs + 2000));
+      _log('AVPlayer: initialize() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - t0}ms '
+          '（size=${c.value.size.width}x${c.value.size.height} duration=${c.value.duration.inMilliseconds}ms）');
+      await c.setVolume(1.0); // **不静音** ✓（给人看的 ✓ 音量走系统默认/满 ✓）
+      await c.play();
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      _log('错误：AVPlayer initialize 抛错/超时 → $e');
+      if (allowFallback) {
+        _log('直拼兜底：丢掉缓存并回退走"抓 master → 取变体 → open"✓（**只回退一次** ✓）');
+        _variantCache.remove(id);
+        if (identical(_c, c)) _c = null;
+        try {
+          c.removeListener(_onTick);
+          await c.dispose();
+        } catch (_) {}
+        if (!mounted) return;
+        setState(() => _err = '正在打开直播…');
+        _checkAndPlay(); // 再走一遍 ✓（缓存已删 ⇒ 这次抓 master ✓）
+        return;
+      }
+      if (identical(_c, c)) _c = null;
+      try {
+        c.removeListener(_onTick);
+        await c.dispose();
+      } catch (_) {}
+      if (mounted) setState(() => _err = '这条直播打不开：$e ✗');
+      return;
+    }
     _wd?.cancel();
     _wd = Timer(const Duration(milliseconds: kLiveGiveUpMs), () {
-      if (!mounted || !identical(_kp, kp)) return;
-      if (kp.value.position > Duration.zero) return; // 已经出画 ✓（listener 那边也会撤 ✓）
+      if (!mounted) return;
+      final cc = _c;
+      if (cc == null || cc.value.position > Duration.zero) return;
       _log('仍在加载：已等 ${kLiveGiveUpMs ~/ 1000} 秒还没出画面 → **只换文案、继续等** ✓（不停、不报错、不重开 ✓；'
-          'position=${kp.value.position.inMilliseconds}ms ready=${kp.value.ready} '
-          'error=${kp.value.error} errorText=${kp.value.errorText.isEmpty ? '(空)' : kp.value.errorText}）');
-      _gaveUp = true; // 只影响屏幕那行字 ✓（`_stage` 会换成"一直没出画面"的提示 ✓）播放器照跑 ✓
+          'isInitialized=${cc.value.isInitialized} isBuffering=${cc.value.isBuffering} '
+          'errorDescription=${(cc.value.errorDescription ?? '').isEmpty ? '(空)' : cc.value.errorDescription}）');
+      _gaveUp = true;
       if (mounted) setState(() {});
       _wd = null;
     });
   }
 
-  @override
-  void dispose() {
-    _log('离开房间页（页面存活 ${_sw.elapsedMilliseconds}ms）'); // 全量日志的最后一条 ✓
-    _sw.stop();
-    _wd?.cancel(); // 看门狗别在页面销毁后还动 ✓
-    _stageT?.cancel(); // 起播计时的每秒 Timer ✓
-    _kp?.shutdown();
-    super.dispose();
+  /// `VideoPlayerValue` 变化（**每次 tick 都会来** ✗ ⇒ 这里只记"跳变"✓ 绝不按 tick 写盘 ✗）
+  void _onTick() {
+    final c = _c;
+    if (c == null || !mounted) return;
+    final v = c.value;
+    if (v.isInitialized && !_logReady) {
+      _logReady = true;
+      _log('VideoPlayer: isInitialized=true（duration=${v.duration.inMilliseconds}ms）');
+    }
+    if (v.position > Duration.zero) {
+      if (!_logStarted) {
+        _logStarted = true;
+        _log('VideoPlayer: 出画面 ✓（从进入页面算总耗时 ${_sw.elapsedMilliseconds}ms）');
+        final u = _kpVariantUrl;
+        if (u != null && u.isNotEmpty) {
+          _variantCache[widget.id] = u; // ③ 真出过画面 ⇒ 这条 URL 才算"缓存可用" ✓
+          _log('缓存已确认可用（id=${widget.id}）✓（keys=${_variantCache.length}）');
+        }
+      }
+      _wd?.cancel();
+      _wd = null;
+      return;
+    }
+    final ps = v.position.inMilliseconds ~/ 1000;
+    if (ps > 0 && ps != _logPosSec && ps % 5 == 0) {
+      _logPosSec = ps;
+      _log('position=${ps}s duration=${v.duration.inMilliseconds}ms isBuffering=${v.isBuffering} +${_sw.elapsedMilliseconds}ms');
+    }
+    final et = v.errorDescription ?? '';
+    if (et.isNotEmpty) {
+      if (et != _lastErrLog) {
+        _lastErrLog = et;
+        _log('错误：AVPlayer errorDescription=$et @+${_sw.elapsedMilliseconds}ms');
+      }
+      final msg = '直播中断：$et';
+      if (msg != _err && mounted) setState(() => _err = msg);
+    }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
     // 这一页是黑底全屏 → 状态栏图标固定用**白色** ✗ 别跟着背景图明暗翻 ✓
-    // （否则浅色背景下会变成深色图标 = 黑压黑看不见 ✗）
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: Colors.black,
         body: GestureDetector(
-          // ⚠️ 2026-10-05 真机反馈"点屏幕 X 不显示" —— **根因（读代码即实锤）**：这句 onTap **只关不开** ✗
-          //    （原来"显示 X"是 `WebEmbed(toggleX: true)` 那个参数干的 ✓，上一轮"去掉兜底"时它被一起删了 ✗
-          //     ⇒ 就再也没有任何人把它打开 ✓）。现在改成**真 toggle** ✓。
-          //    另：`opaque` ✓ —— 让**整屏任意位置**的点击都归我们 ✓（原来的 `translucent` 会被上层
-          //    `Video`(Texture) 先接走 ✗）。X 层在 Stack 里**排在 Video 之后** = 在最上面 ✓（位置/默认隐藏都没动 ✓）。
+          // ⚠️ 2026-10-05 真机反馈"点屏幕 X 不显示"——这句 onTap 原来**只关不开** ✗（开它的那个 `WebEmbed(toggleX)` 已随兜底删掉 ✗）
+          //   ⇒ 现在**真 toggle** ✓；`opaque` = **整屏任意位置**的点击都归我们 ✓（原来 `translucent` 会被上层画面吃掉 ✗）
           behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _showX = !_showX),
           child: Stack(
             children: [
-                // ⚠️ 2026-10-05 用户拍板：**只用我们自己的播放器** ✓ —— WebEmbed 那条路**已删** ✗
-                //    （校验不过/抓取失败 → 报错提示 ✓ 不静默、不白屏、也**不播广告** ✓）
-                if (_kp != null)
-                  // ⚠️ 2026-10-05 用户要求：**直播界面极简** —— 不要进度条 / 不要全屏按钮 / 不要中间那颗播放键 ✓
-                  //    `controls: NoVideoControls` 就是 media_kit_video 的"关掉它自带那套控件"开关 ✓
-                  //    （名字与用法照仓库现成那处 ✓：`lib/player_widget.dart:466-471` 用的就是它 ✓
-                  //     包源码实证：`media_kit_video-1.2.5` 的 `.../controls/no.dart:14` = `const NoVideoControls = null;` ✓
-                  //     该文件由 `media_kit_video_controls.dart:7` 导出 ✓）
-                  //    `fit/fill` 与详情页那处保持一致（等比不拉伸 ✓ 黑底 ✓）
-                  Positioned.fill(
-                    child: Video(
-                      controller: _kp!.videoController,
-                      fit: BoxFit.contain,
-                      fill: Colors.black,
-                      controls: NoVideoControls,
-                    ),
-                  )
-                else
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        _err,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Color(0xFFB0B4BA), fontSize: 14),
-                      ),
+              // ⭐ 画面：AVPlayer（`video_player` **本身没有任何控件** ✓ 正合"只要画面 + X" ✓）
+              //   等比铺满：`Center + AspectRatio` = contain ✓（不拉伸 ✓ 黑底补边 ✓）
+              if (_c != null && _c!.value.isInitialized)
+                Positioned.fill(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: _c!.value.aspectRatio == 0 ? 16 / 9 : _c!.value.aspectRatio,
+                      child: VideoPlayer(_c!),
                     ),
                   ),
+                )
+              else
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      _err,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xFFB0B4BA), fontSize: 14),
+                    ),
+                  ),
+                ),
               if (_showX)
                 // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
                 // ⚠️ 2026-10-05 真机反馈"X 太小" → **尺寸翻倍** ✓（图标 20→**40**、触摸区 38→**76** ✓，
@@ -2275,16 +2030,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                           child: const SizedBox(
                             width: 76,
                             height: 76,
-                            child: Icon(Icons.close,
-                                color: Colors.white, size: 40),
+                            child: Icon(Icons.close, color: Colors.white, size: 40),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              // ⚠️ 2026-10-05：**起播状态提示**（真机取证用 ✓）—— 只显示在屏幕上 ✓
-              //    **不写文件、不加日志** ✗；出画面（`started`）后自己消失 ✓；出错误时用 `_err` ✓。
+              // 起播状态提示（真机取证用 ✓ 只显示在屏幕上 ✓ 不写文件、不加日志 ✗）
               if (_stage.isNotEmpty)
                 Align(
                   alignment: Alignment.bottomCenter,
