@@ -1759,6 +1759,27 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
+      // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
+      //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；
+      //     必须在 `open()` **之前**设 ✓（这几个是"加载时读"的缓存参数 ✓））：
+      //   · `cache-secs = 2` —— mpv 手册原文：`--cache-secs=<seconds>` "How many seconds of audio/video to
+      //     prefetch if the cache is active… **The default value is set to something very high**, so the
+      //     actually achieved readahead will usually be limited by the value of the --demuxer-max-bytes option.
+      //     Setting this option is usually only useful for limiting readahead." ⇒ 默认**极高** ✓ 起播前会拼命堆 ✓。
+      //     值 = **2 秒**：直播分片本身就 2~6 秒 ✓ ⇒ 只要攒够"约一个分片"就能开 ✓（再多只会拖慢起播 ✓）。
+      //   · `demuxer-max-bytes = 8388608`（8MB）—— 手册接着说**真正卡住 readahead 的是 `--demuxer-max-bytes`** ✓；
+      //     而 `KpPlayer` 传的是 `bufferSize: bufferMb * 1024 * 1024`，默认 **200MB** ✗（实测原文：
+      //     `player_widget.dart:134` `KpPlayer({int bufferMb = 200})` + `:137` `bufferSize: bufferMb * 1024 * 1024`）
+      //     ⇒ 直播用 200MB 当上限 = 允许它堆**极多**才开 ✗。值 = **8MB**：按直播常见 2~6 Mbps 算 ⇒
+      //     ≈ **10~30 秒**的缓冲 ✓（够吸收抖动 ✓ 又不会让人等 ✓）。
+      //   ⚠️ 风险（诚实写在这）：值再往下（比如 2MB/1 秒）在弱网下更容易 underrun/断续 ✗ —— 我**不**再激进 ✓；
+      //     真机若发现画面不稳，先回调 `demuxer-max-bytes` ✓。8 秒起播看门狗照旧兜底 ✓（没删 ✓）。
+      //   ⚠️ **没设** `hls-bitrate`（手册里有它、"decide which track to select" ✓）—— 选哪档会掉画质 ✗，
+      //     而"哪档更稳"我**没有实测** ✗ ⇒ **不猜** ✓；`demuxer-readahead-secs` 也不用设 ✓
+      //     （手册：`cache-secs` 在 cache 开启且值更大时会**覆盖**它 ✓ ⇒ 设了上面那条它就不是瓶颈 ✓）。
+      kp.setMpvOptionQuiet('cache-secs', '2');
+      kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
+      kp.setMpvOptionQuiet('cache-pause-initial', 'no'); // 站点侧再显式钉一次 ✓（与 tuneStartupQuiet 同值 ✓ 无害 ✓）
       // ⚠️ 2026-10-05 用户拍板**改回"交 master"** ✓（上一轮交变体是**偏离站点做法** ✗）——
       //   依据 recon 实测：**站点自己在 iPhone 上给原生 `<video src>` 的就是 master**
       //     `.../master/<id>_auto.m3u8?playlistType=…&pkey=…`（不是变体 ✓）
@@ -1852,11 +1873,13 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       child: Scaffold(
         backgroundColor: Colors.black,
         body: GestureDetector(
-          // 点屏幕 = 只切 X 的显隐 ✓（列表状态在上一层，这里什么都不动 ✓）
-          behavior: HitTestBehavior.translucent,
-          onTap: () {
-            if (_showX) setState(() => _showX = false);
-          },
+          // ⚠️ 2026-10-05 真机反馈"点屏幕 X 不显示" —— **根因（读代码即实锤）**：这句 onTap **只关不开** ✗
+          //    （原来"显示 X"是 `WebEmbed(toggleX: true)` 那个参数干的 ✓，上一轮"去掉兜底"时它被一起删了 ✗
+          //     ⇒ 就再也没有任何人把它打开 ✓）。现在改成**真 toggle** ✓。
+          //    另：`opaque` ✓ —— 让**整屏任意位置**的点击都归我们 ✓（原来的 `translucent` 会被上层
+          //    `Video`(Texture) 先接走 ✗）。X 层在 Stack 里**排在 Video 之后** = 在最上面 ✓（位置/默认隐藏都没动 ✓）。
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _showX = !_showX),
           child: Stack(
             children: [
                 // ⚠️ 2026-10-05 用户拍板：**只用我们自己的播放器** ✓ —— WebEmbed 那条路**已删** ✗
