@@ -281,7 +281,6 @@ class PlayHistory extends ChangeNotifier {
   }
 
   /// 离开详情页时调：把最后的位置补写进去（不再重复判断节流）
-  Future<void> flush() => _save();
 
   Future<void> remove(String key) async {
     _m.remove(key);

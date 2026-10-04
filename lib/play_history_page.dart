@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'base/site_ui.dart';
 import 'app_bg.dart';
 import 'app_background.dart';
 import 'detail_page.dart';
@@ -73,23 +74,10 @@ class PlayHistoryPage extends StatelessWidget {
   }
 
   Future<void> _confirmClear(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('清空播放记录？'),
-        content: const Text('所有记录会删掉，不能恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('清空'),
-          ),
-        ],
-      ),
-    );
+    final ok = await confirmClear(
+                      context: context,
+                      title: '清空播放记录？',
+                      content: '所有记录会删掉，不能恢复。');
     if (ok == true) await PlayHistory.i.clear();
   }
 

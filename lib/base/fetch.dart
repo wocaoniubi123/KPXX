@@ -32,7 +32,6 @@ class SiteFetcher {
   /// 共享客户端（iOS = NSURLSession，见 config.dart 的 Site.httpClient）
   static final http.Client _client = Site.httpClient;
 
-  String get base => 'https://$host';
 
   /// 当前正在用的域名（"上次跑通的那个"）。**可写** —— 有几个站的解析里会配合切换。
 

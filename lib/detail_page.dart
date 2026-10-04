@@ -354,8 +354,15 @@ class DetailPageState extends State<DetailPage> {
     final slug = d.categories.first;
     final re = RegExp(r'第\s*(\d+)\s*集');
     final matched = <(int, Article)>[];
-    for (var p = 1; p <= 2; p++) {
-      final list = await _api.category(slug, page: p);
+    // ⚠️ 2026-10-05 修：两页**并发**取 ✓ —— 原来是 `for` 里 `await`，**串行** ✗（第 2 页白等第 1 页 ✗）。
+    //    `Future.wait` 保证**结果顺序与入参一致** ✓（第 1 页仍在最前 ✓，后面还按集号排序 ✓）；
+    //    错误语义与原来**等价** ✓：任一页抛错 → 整体抛错 ✓（`eagerError: true` = 第一个错**立刻**抛 ✓，
+    //    与"原来第 1 页错就不再往下走"同一手感 ✓；调用方 :231 是静默 `catchError` ✓ 行为不变 ✓）。
+    final pages = await Future.wait(
+      [for (var p = 1; p <= 2; p++) _api.category(slug, page: p)],
+      eagerError: true,
+    );
+    for (final list in pages) {
       for (final a in list) {
         final m = re.firstMatch(a.title);
         if (m == null) continue;
@@ -941,8 +948,10 @@ class _TagListPageState extends State<TagListPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
+          // ⚠️ 2026-10-05 修：**出错不置 `_done`** ✗ —— 原来置了 → 尾部把失败装成"没有更多了" ✗，
+          //    而且 `_done` 会把重试**直接挡掉** ✗（`_more` 第 2 行就 return ✓）。这里只记错 ✓，
+          //    尾部据此改显"加载失败，点击重试" ✓（见 `tail` ✓），点了重跑**同一页** ✓（`_page` 没动 ✓）。
           _error = '$e';
-          _done = true;
         });
       }
     } finally {
@@ -971,7 +980,21 @@ class _TagListPageState extends State<TagListPage> {
       body: _items.isEmpty
           ? Center(
               child: _error != null
-                  ? Text('加载失败：$_error')
+                  // ⚠️ 2026-10-05 修：整页（首页请求）失败也给**可点**重试 ✓ —— 原来只有一行字 ✗ 走不掉 ✗；
+                  //    按钮就照本文件 `:418` 的老写法只写"重试" ✓（上面那行已经写了"加载失败：…" ✓ 不重复 ✗）。
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('加载失败：$_error'),
+                        TextButton(
+                          onPressed: () {
+                            setState(() => _error = null);
+                            _more();
+                          },
+                          child: const Text('重试'),
+                        ),
+                      ],
+                    )
                   : const CircularProgressIndicator())
           : RowsGrid(
               // 竖屏站（黄果）一行 3 个，横屏站一行 2 个
@@ -989,6 +1012,24 @@ class _TagListPageState extends State<TagListPage> {
                         child: Text('没有更多了',
                             style: TextStyle(
                                 color: kTxtSub, fontSize: 12))),
+                  );
+                }
+                if (_error != null) {
+                  // ⚠️ 2026-10-05 修：翻页**失败** → 给个**可点**的重试 ✓
+                  //    （原来失败时 `_done` 被置上 ✗ → 这里显示"没有更多了"、而且点不动 ✗）。
+                  //    点一下先撤 `_error` ✓ → 尾部自己回到"转圈"并重跑**这一页** ✓（`_page` 没动 ✓）。
+                  return Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: TextButton(
+                        onPressed: () {
+                          setState(() => _error = null);
+                          _more();
+                        },
+                        child: Text('加载失败，点击重试',
+                            style: TextStyle(color: kTxtSub, fontSize: 12)),
+                      ),
+                    ),
                   );
                 }
                 _more();

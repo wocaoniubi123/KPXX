@@ -108,12 +108,8 @@ class XhSite extends SiteUi {
       slug.startsWith('/pornstars/top/');
 
   /// "色情明星"tab 是竖版头像卡 → 一行 3 个 ✓
-  @override
-  bool get portraitStarCards => true;
 
   /// "色情明星"tab 挂本站专用筛选行 ✓
-  @override
-  bool get hasStarFilterRow => true;
 
   // ---- 对外入口 ----
   // ⚠️ 原方法全是私有（`_xhList`/`_xhDetail`）✗ —— 跨文件调不到 ✗，所以包一层公开的 ✓

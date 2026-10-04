@@ -2521,6 +2521,50 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **验**：逐行量前导空格（`media_kit*` 与 `video_player` 均为 2）；括号/行尾（`pubspec.yaml` 纯 LF）；`git diff --numstat` 只 2 行变动
 - **未编译**（本机无 Flutter/Dart）⇒ 以 CI 复验；版本仍 **1.0.36**
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.37**）⭐ 直播页收尾 + 全量复检落地（死代码清理 + 体验修复）
+
+### 一、直播页（用户逐条点名）
+| 项 | 结果 |
+|---|---|
+| **去掉状态提示 + 全量日志** | `_stage` 整套（含计时器/`kLiveStillMs`/`kLiveGiveUpMs`/90 秒兜底）与所有 `_log(...)` 调用、`Stopwatch`、import 全删 ✓；**保留 `_err` 错误文案**（失败时得有话说 ✓）；**公共件 `site_log_error`…准确名 `lib/site_error_log.dart` 一字未动** ✓ 别的站点还在用 ✓ |
+| **tab ↔ 分类选择器间距** | 先量 **App 端 Pektino 的真实几何**（共用渲染器 `home_page.dart:389` 自带 `EdgeInsets.fromLTRB(10, 6, 10, 0)`）= **6** ✓；我一度改成 10 ✗ ⇒ 用户纠正后**改回 6** ✓（教训：**间距一律照对应页面的既有值，不许自己拍数值**） |
+| **播放器"越用越卡"** | 真根因：`await initialize()` 期间退出页面时，`catch` 里**没有 `mounted` 检查** ⇒ 回退分支**又新建一个播放器** ⇒ 僵尸实例累积 ✓ 已修（只收自己那份、绝不重建 ✓） |
+| **下拉刷新** | `RefreshIndicator` + **复用现有 `feed.reload()`** ✓；收圈用 `feed.loading` 轮询（80ms 起步 + 12 秒上限兜底 ✓ 不新造加载逻辑 ✓） |
+| **删掉"子分类选择器"整排** | 用户拍 **B 案**（6 个 tab 全删 ✓）—— 第一步：删渲染 + 两套弹窗 + 那批筛选数据（`filters` 传空表 ⇒ **"拉列表"请求链行为不变** ✓）；**保留** 6 个主分类 tab / 卡片 / 下拉刷新 / AVPlayer / X-toggle / 缓存直拼 / master 广告校验 ✓ |
+| **`A1` 第二步（清那层"已选状态"管道）** | 严格三步：① **先改请求拼装**（`sel.groups()`/`selTag()` 恒为空 ⇒ 删这两个实参 ⇒ **URL 与改前逐字节相同**（依据：`Api.list` 两个具名参数默认值就是空 ✓ + 全仓写入通道 0 处 ✓））② 拆桥（`LiveTabDef.filters` + 4 处空表）③ 删 4 个类 ✓ 文件 **1231 → 1050 行** |
+| **错误日志页黑白自适应** | 根因三条：**没挂 `AppBg.i` 监听** ✗、三个图标**没给颜色** ✗、正文 `TextStyle` 是 `const` 且无色 ✗ ⇒ 照 `app_background.dart` 既有模式修（`kTxt`/`kTxtSub` + `ListenableBuilder`）✓ 覆盖**窗口标题 + 正文 + 右上角 3 个按钮** ✓（⚠️ 必须**去掉 `const`** ✓ 上次栽过 `invalid_constant` ✓） |
+
+### 二、全量复检（两路独立：`app-dev` + 一个新开的只读审计员）—— 落地清单
+- **A2 去重**：4 处"标签弹窗外壳" + 3 处"筛选按钮"（`home_page` 原版 + `hanime1`/`pornhub` 两份**逐字副本**）+ 2 处手写 chip ⇒ 收敛成 `base/site_ui.dart` 的 `siteTagDialog` / `siteFilterBtn` / `tagChip` / `confirmClear` ✓
+  - ⚠️ **所有语义差异参数化保留**（D 的"无 420 上限"与"标题无 style" ✓、C 的三态 content ✓、`pop` 返回三种值 ✓、`InkWell` vs `GestureDetector` 手感 ✓、`home_page._filterChips` 的"透明底+细描边"**明确不合并** ✓）
+  - ⚠️ **如实**：A2 是**净增 23 行**（公用件带长注释）⇒ 真实收益是**去重**、不是省行 ✓；注释**不压短** ✓
+- **A3 死代码**：12 项删净 ✓（`variantInfoOf`/`btnText`/`_labelOf`/`replaceWith`/`bvApplied`/`KpPlayer.setVolume`/`KpState.volume`/`SiteFetcher.base`/`portraitStarCards`/`hasStarFilterRow`/`SiteKind.web`/`Api.hosts`/`PlayHistory.flush`/`source_cache` 冗余 import ✓）；`_phBadHosts` 存 `DateTime`（"改"非"删"）**按判断跳过** ✓
+  - ⚠️ 中途一次**半截状态**（基类 getter 删了、两个子类 `@override` 还在 ⇒ 会编译报错 ✗）已**优先补删**修好 ✓
+- **B1 短片永久转圈** → 看得见的错误行 + ↻ 重试（复用本页 `_RoundBtn` ✓）+ 失败时**停掉空转的圈** ✓（邻页封面转圈不受影响 ✓）
+- **B2 两处外部回调没超时** → 照同文件既有写法补 **6 秒 `.timeout`** ✓（超时落"这一集已失效/视频加载失败" ✓）
+- **B3 详情页**：选集**两页并发**（`Future.wait` ✓ 顺序/错误语义等价 ✓）· **出错不再置 `_done`** ✓ · 尾部"没有更多了"→ **可点"加载失败，点击重试"** ✓ · 空列表失败那条分支也补可点重试 ✓
+- **B4 缓存目录反复全扫** → 两处缓存件加"**已在跑就跳过 + 5 秒节流**"薄包装 ✓（**调用点未动** = 覆盖所有入口 ✓）
+- **B5 WebView 重试弹回入口页** → `loadRequest(widget.url)` ⇒ **`_ctl.reload()`** ✓（初次加载那处未动 ✓）
+- **B6 日志页整篇排版** → 超 **200K 字符**只渲染**末尾一段**（落点**紧跟换行、不劈半行** ✓）+ "仅显示最近部分"提示（固定在滚动区之上 ✓）；**「复制全部」仍是全文** ✓
+- **B7**：`bvPrime()` 两个 `await` 之后补 `mounted` 判断 ✓
+- **B8**：三条候选**验或否** —— ①两处 LRU **不建议合并**（video 侧语义交错：目录形态、`.m3u8↔.hls` 配对求和、API 也不同 ⇒ 抽象更贵 ✓）②两处确认框**已合并**（`confirmClear`，净约 −16 行 ✓）③`_filterChips` ↔ `tagChip` **明确不合并**（视觉/绑定/数据三处都不同 ✓）
+
+### 三、⚠️ 全部改动**只过了静态检查**、**一次都没编译过**
+- 本机无 Flutter/Dart ⇒ 每处只有这四道闸：**唯一锚点（锚点一律从文件取、不手抄）** + **括号逐类等式**（`改后 = 改前 − 删行 + 新加行`，含"被删/新增块自身量"）+ **行尾保持（逐文件测原有 CRLF/LF）** + **零残留 grep** ✓
+- ⇒ **第一次编译就是 CI** ✗（可能有 analyze 错，出了按原文修 ✓）
+- 过程中两次**真事故**（都是脚手架脚本问题，**文件零损坏** ✗）：一次性脚本**非幂等**被跑两次 ⇒ 状态类被复制 4 份（已 `git checkout` 恢复 ✓）；另几次"手抄锚点"未匹配 ⇒ **都停在写盘之前** ✓（守卫有效 ✓）
+
+### 四、已知边界（本轮查出、**未做** ✓）
+- 短片页 `_items` 空着进页面这条路仍无提示（**改前就有** ✗ 非本轮引入）
+- "站点成功返回空表"会被 `SourceCache` 缓存住 ⇒ 重试只是再拿到同一空结果（**不动共享缓存** ✓）
+- B5 的 `reload()` 在"错误态期间平台 WebView 不在 widget 树上"时**可能空操作** 🔍[推断，只能真机验 ✓ 已按"先不加兜底"处理 ✓]
+
+### 五、状态
+- 逐文件 numstat（本轮）：`sites/xhamsterlive.dart` **65/1095** · `base/site_ui.dart` **97/2** · `sites/hanime1.dart` 25/45 · `sites/pornhub.dart` 8/25 · `home_page.dart` 14/23 · `base/image_cache.dart` 18/0 · `base/video_cache.dart` 18/0 · `player_widget.dart` 18/15 · `error_log_page.dart` 19/23(+58/28) · `play_history_page.dart` 5/17 · `detail_page.dart` 45/4 · `shorts_feed_page.dart` 64/11 · `web_embed.dart` 5/1 · 另有 6 个文件各 0/1~4
+- `sim/**` 未提交（按惯例只提交 `lib` + `pubspec.yaml` + `DEVLOG.md` ✓）；**待办**：**App 侧筛选删净 + 真机验证通过后 → 清 sim 的 `MOBILE_FILTERS` / `LIVE_TAG_MAP` 及其 `liveTagOf()/liveSlug()`** ✓（现留在 sim 里当路标 ✓）
+- 清理：`%TEMP%` 与工作区临时文件**均为 0** ✓（两路各自实测 ✓）
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -147,7 +147,11 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
       _error = null;
       _progress = 0;
     });
-    _ctl.loadRequest(Uri.parse(widget.url));
+    // ⚠️ 2026-10-05 修：重试改成**原地刷新** ✓ —— 原来重发的是**入口地址** ✗ ⇒ 站内跳转过的位置
+    //    全丢 ✗（用户报的"点重试弹回入口页" ✓）。`reload` 就是 WKWebView 的原地刷新 ✓：
+    //    当前 URL / 站内位置都保留 ✓（换的是"重新加载"，不是"重新打开入口" ✓）。
+    //    ⚠️ `:102` 的**初次加载**仍走 `loadRequest` + 入口地址 ✓（那里本就该用入口地址 ✓）—— 没动 ✗。
+    _ctl.reload();
   }
 
   @override

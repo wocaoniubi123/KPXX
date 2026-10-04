@@ -361,22 +361,22 @@ class HnFilterBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _hnFilterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
+            siteFilterBtn('標籤${f.tags.isEmpty ? '' : '(${f.tags.length})'}',
                 f.tags.isNotEmpty, () => _pickTags(context)),
             const SizedBox(width: 6),
-            _hnFilterBtn(
+            siteFilterBtn(
                 f.sort.isEmpty ? '排序方式' : f.sort,
                 f.sort.isNotEmpty,
                 () => _pickSingle(context, '排序方式', _hnSorts, f.sort,
                     (v) => f.sort = v)),
             const SizedBox(width: 6),
-            _hnFilterBtn(
+            siteFilterBtn(
                 f.date.isEmpty ? '發佈日期' : f.date,
                 f.date.isNotEmpty,
                 () => _pickSingle(context, '發佈日期', _hnDates, f.date,
                     (v) => f.date = v)),
             const SizedBox(width: 6),
-            _hnFilterBtn(
+            siteFilterBtn(
                 f.duration.isEmpty ? '時長' : f.duration,
                 f.duration.isNotEmpty,
                 () => _pickSingle(context, '時長', _hnDurations, f.duration,
@@ -421,8 +421,11 @@ class HnTagDialogState extends State<HnTagDialog> {
   @override
   Widget build(BuildContext context) {
     final all = _all;
-    return AlertDialog(
+    return siteTagDialog(
       title: const Text('內容標籤', style: TextStyle(fontSize: 16)),
+      // A2：C 的 content 自己带着 SizedBox + ConstrainedBox(420) + SingleChildScrollView
+      // 若这里再套一层会双层滚动，所以传 constrained: false，让原 content 原样生效
+      constrained: false,
       content: SizedBox(
         width: double.maxFinite,
         child: ConstrainedBox(
@@ -441,30 +444,22 @@ class HnTagDialogState extends State<HnTagDialog> {
                         runSpacing: 6,
                         children: [
                           for (final t in all)
-                            InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () => setState(() => _sel.contains(t)
-                                  ? _sel.remove(t)
-                                  : _sel.add(t)),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: _sel.contains(t)
-                                      ? const Color(0xFFE8590C)
-                                      : const Color(0xFFF0F0F2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  t,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: _sel.contains(t)
-                                          ? Colors.white
-                                          : const Color(0xFF444444)),
-                                ),
-                              ),
-                            ),
+                          
+  tagChip(
+                          
+    label: t,
+                          
+    on: _sel.contains(t),
+                          
+    ink: true,  // 原手写版就是 InkWell => 保留水波纹
+                          
+    onTap: () => setState(() => _sel.contains(t)
+                          
+        ? _sel.remove(t)
+                          
+        : _sel.add(t)),
+                          
+  ),
                         ],
                       ),
                     ),
@@ -489,22 +484,7 @@ class HnTagDialogState extends State<HnTagDialog> {
 }
 
 /// 筛选按钮（**本站自带副本** ✓；原为 home_page 顶层函数 ✓）
-Widget _hnFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
-      onPressed: tap,
-      style: OutlinedButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
-        side: BorderSide(color: kChipBorder),
-      ),
-      child: Text(
-        on ? '$label ●' : label,
-        style: TextStyle(
-            fontSize: 13,
-            // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
-            color: on ? const Color(0xFFE8590C) : kTxt),
-      ),
-    );
+
 
 
 // ⚠️ 以下 3 个清单原在 home_page.dart 顶层（私有 ✗，跨库不可见）→ 2026-10-03 复制到本站 ✓

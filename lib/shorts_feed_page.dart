@@ -75,6 +75,9 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   bool _done = false;
   /// 最近一次"续拉"是**失败**（网络/被挡/限流 ✓）——**不是**没内容 ✗ → 允许下次滑动重试 ✓
   bool _tailFailed = false;
+  /// 当前条**取不到片源**（站点没给 / 请求出错 / 超时 ✓）—— 屏上给一行错误 + ↻ 重试 ✓
+  /// ⚠️ 只代表**当前条** ✓：`_open` 只在 `i == _cur` 时才动它 ✓ —— 预取那几条的失败不污染屏上状态 ✗
+  bool _srcFailed = false;
   /// 已经**成功**续拉过的页数：**0 起步** ✓ → 首次请求的就是 `page: 1`（页面 JSON = 45 条 ✓）。
   /// ⚠️ 原来从 `1` 起步 ✗ → 首次就请求 page 2 ✗ → 45 条那批**永远拿不到** ✗
   /// （用户实测：只有 1 + 5~6 条 → 「划 5 个左右就到底」✗）
@@ -197,12 +200,22 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
 
   Future<void> _open(int i) async {
     if (i < 0 || i >= _items.length) return;
+    // ⚠️ 2026-10-05：换条 / 重试时**先把上一条留下的错误态撤掉** ✓（否则新条还在取源、屏上却挂着
+    //    "取不到片源" ✗）；只在**当前条**上做 ✓（预取那几条压根不走这里 ✓）。
+    if (i == _cur && _srcFailed) setState(() => _srcFailed = false);
     // ⚠️ 取源加超时 ✓：原来没有超时 → 一旦卡住就无限转圈（用户截图那个转圈 ✓）
     // 超时就当"取不到源" → 走上层分支，不再干转 ✗
     final srcs = await _sourcesOf(i)
         .timeout(const Duration(seconds: 20), onTimeout: () => const <String>[]);
     if (!mounted) return;
-    if (srcs.isEmpty) return;
+    if (srcs.isEmpty) {
+      // ⚠️ 2026-10-05 修：原来这里**直接 return** ✗ → 屏上只有封面 + 转圈、**永远转**，既没提示也没重试 ✗。
+      //    现在只给**当前条**置错误态 ✓ → 屏上出现一行错误 + ↻ 重试 ✓（重试 = 再跑一次本方法 ✓）。
+      // ⚠️ 取不到源**不会永久粘在共享缓存里** ✓（失败时它自己把 key 删掉 ✓，见 base/source_cache.dart:48-52 ✓）
+      //    → 重试是**真的再飞一次** ✓；只有"站点明确返回了空表"那一种会被缓存住 ✓（本页照旧不碰缓存 ✓）。
+      if (i == _cur) setState(() => _srcFailed = true);
+      return;
+    }
     var kp = _kp;
     if (kp == null) {
       final created = KpPlayer(bufferMb: 64); // 短片很短，64MB 足够（省内存）
@@ -485,12 +498,14 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                                   children: [
                                     if ((art?.cover ?? '').isNotEmpty)
                                       FetchedImage(url: art!.cover, fit: BoxFit.contain),
-                                    const Center(
-                                      child: SizedBox(
-                                        width: 22, height: 22,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                    // ⚠️ 取不到片源 → 停下这颗转圈 ✓（错误行 + ↻ 由本页外层那条叠在上面 ✓）；封面照显 ✓
+                                    if (!_srcFailed)
+                                      const Center(
+                                        child: SizedBox(
+                                          width: 22, height: 22,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
                                       ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -514,12 +529,15 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                       // **不带 Referer/UA** ✗ → xHamster 封面是防盗链的 ✓ → 403；且 Image.network 失败时
                       // **什么都不画** ✗ → 屏上只剩背景 + 转圈 ✓（正是用户截图 ✓）。改用带站点头的 FetchedImage ✓
                       FetchedImage(url: it.cover, fit: BoxFit.contain),
-                    const Center(
-                      child: SizedBox(
-                        width: 22, height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    // ⚠️ 当前条取不到片源 → 停下这颗转圈 ✓（错误行 + ↻ 由本页外层那条叠在上面 ✓）；
+                    //    邻页还在加载封面 → 照转 ✓（`i == _cur` 才算"当前条" ✓）
+                    if (i != _cur || !_srcFailed)
+                      const Center(
+                        child: SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       ),
-                    ),
                   ],
                 );
               },
@@ -559,6 +577,41 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
                     setState(() => _tailFailed = false);
                     _loadMore();
                   },
+                ),
+              ),
+
+            // ---- 取不到片源：一行错误文案 + ↻ 重试（**复用本页的 `_RoundBtn`** ✓，不新造按钮 ✗）----
+            // ⚠️ 不加 `!_playing` 守卫 ✓：这条提示**任何时候都要看得见** ✗（失败时可能上一条还在播 ✓）；
+            //    位置摆在 X 与"续拉重试"那一行**下面** ✓（topPad + 58 起 ✓ 与那两颗 40 高的圆钮不重叠 ✗）。
+            // ⚠️ 播放器**还没建起来**（`_kp == null`）时也照显 ✓ —— 那种情况正是"只有封面 + 干转"的现场 ✓。
+            if (_srcFailed)
+              Positioned(
+                left: 12,
+                right: 12,
+                top: topPad + 58,
+                child: Row(
+                  children: [
+                    _RoundBtn(
+                      icon: Icons.refresh,
+                      onTap: () {
+                        setState(() => _srcFailed = false); // 先撤提示 ✓
+                        _open(_cur); // 再跑一次取源 ✓（超时 / 抛错都没被缓存 → 真会再飞一次 ✓）
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    const Flexible(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(color: Colors.black54),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          child: Text(
+                            '取不到片源，点 ↻ 重试',
+                            style: TextStyle(color: Colors.white, fontSize: 13),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
 

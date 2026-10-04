@@ -95,12 +95,8 @@ class PhSite extends SiteUi {
   bool isStarList(String slug) => slug == '/pornstars';
 
   /// "色情明星"tab 是竖版头像卡 → 一行 3 个 ✓
-  @override
-  bool get portraitStarCards => true;
 
   /// "色情明星"tab 挂本站专用筛选行 ✓
-  @override
-  bool get hasStarFilterRow => true;
 
   Future<List<Article>> list(String path, {int page = 1}) =>
       _phList(path, page: page);
@@ -407,19 +403,19 @@ class PhStarBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _phFilterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
+            siteFilterBtn(_label(phStarSorts, f.sort, '最受欢迎'), f.sort.isNotEmpty,
                 () => _pick(context, '排序', phStarSorts, f.sort,
                     (v) => f.sort = v)),
             const SizedBox(width: 6),
-            _phFilterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
+            siteFilterBtn(_label(phStarTypes, f.type, '色情明星和模特'), f.type.isNotEmpty,
                 () => _pick(context, '类型', phStarTypes, f.type,
                     (v) => f.type = v)),
             const SizedBox(width: 6),
-            _phFilterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
+            siteFilterBtn(_label(phStarTimes, f.time, '每月'), f.time.isNotEmpty,
                 () => _pick(context, '时间区段', phStarTimes, f.time,
                     (v) => f.time = v)),
             const SizedBox(width: 6),
-            _phFilterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
+            siteFilterBtn('+ 更多筛选设置', f.moreCount > 0, () => _pickMore(context)),
           ],
         ),
       ),
@@ -441,8 +437,10 @@ class PhMoreDialogState extends State<PhMoreDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return siteTagDialog(
       title: const Text('更多筛选设置'),
+      // A2：本站弹窗没有 420 上限、内部用 shrinkWrap ListView 保留差异
+      constrained: false,
       content: SizedBox(
         width: double.maxFinite,
         child: ListView(
@@ -506,22 +504,7 @@ class PhMoreDialogState extends State<PhMoreDialog> {
 }
 
 /// 筛选按钮（本站自带副本 ✓）
-Widget _phFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
-      onPressed: tap,
-      style: OutlinedButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
-        side: BorderSide(color: kChipBorder),
-      ),
-      child: Text(
-        on ? '$label ●' : label,
-        style: TextStyle(
-            fontSize: 13,
-            // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
-            color: on ? const Color(0xFFE8590C) : kTxt),
-      ),
-    );
+
 
 
 /// 单选弹窗（本站自带副本 ✓）

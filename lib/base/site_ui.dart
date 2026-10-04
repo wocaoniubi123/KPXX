@@ -1,3 +1,55 @@
+import 'package:flutter/material.dart';
+
+/// A2（2026-10-05 重构）：标签弹窗的**公共外壳** —— 只统一尺寸与滚动
+///   标题 / 内容 / 按钮全部由调用方给（各站差异一律保留，不许统一）。
+///   默认 constrained = true：420 上限 + 可滚动（原 home_page 的筛选与明星弹窗、hanime1 的标签弹窗）
+///   pornhub 的 PhMoreDialog 传 false：它自己用 shrinkWrap ListView、没有 420 上限
+Widget siteTagDialog({
+  required Widget title,
+  required Widget content,
+  required List<Widget> actions,
+  bool constrained = true,
+}) =>
+    AlertDialog(
+      title: title,
+      content: SizedBox(
+        width: double.maxFinite,
+        child: constrained
+            ? ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 420),
+                child: SingleChildScrollView(child: content),
+              )
+            : content,
+      ),
+      actions: actions,
+    );
+
+/// A2：站点弹窗里的**标签胶囊**（hanime1 与 pornhub 两份手写版视觉逐项一致，
+///   只差手势组件 => 用 ink 开关保留差异：hanime1 用 InkWell 有水波纹、
+///   pornhub 用 GestureDetector 无水波纹）。
+Widget tagChip({
+  required String label,
+  required bool on,
+  required VoidCallback onTap,
+  bool ink = true,
+}) {
+  final Widget body = Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: on ? const Color(0xFFE8590C) : const Color(0xFFF0F0F2),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+          fontSize: 12, color: on ? Colors.white : const Color(0xFF444444)),
+    ),
+  );
+  return ink
+      ? InkWell(borderRadius: BorderRadius.circular(8), onTap: onTap, child: body)
+      : GestureDetector(onTap: onTap, child: body);
+}
+import '../app_background.dart';
 import '../models.dart';
 
 // 底座：**站点专属 UI 事实**的统一接口 ✓
@@ -20,10 +72,8 @@ abstract class SiteUi {
   bool get masonry => false;
 
   /// "色情明星"tab 的卡片是不是**竖版头像**（→ 一行 3 个）—— Pornhub / xHamster ✓
-  bool get portraitStarCards => false;
 
   /// "色情明星"tab 是否挂**专用筛选行**（排序/类型/时间/更多 ✓）—— Pornhub / xHamster ✓
-  bool get hasStarFilterRow => false;
 
   /// **本站**的「色情明星列表」判定（决定那类 tab 是否按竖版头像卡渲染 ✓）
   ///
@@ -122,4 +172,49 @@ abstract class SiteUi {
 
   /// 「色情明星」tab 的选中项是否走 `extra` 参数（Pornhub 那四个筛选拼查询串 ✓）。
   bool get starUsesExtra => false;
+}
+/// A2：筛选按钮 —— home_page 原版与 hanime1/pornhub 两份副本**逐字相同**（只差函数名）=> 共用这一份。
+///   未选中文字用 kTxt、选中用橙色；描边用 kChipBorder（都跟着明暗翻）。
+///   需要 app_background.dart 提供 kTxt 与 kChipBorder。
+Widget siteFilterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
+      onPressed: tap,
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
+        side: BorderSide(color: kChipBorder),
+      ),
+      child: Text(
+        on ? '$label ●' : label,
+        style: TextStyle(
+            fontSize: 13,
+            // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
+            color: on ? const Color(0xFFE8590C) : kTxt),
+      ),
+    );
+
+/// B8：清空类确认框（错误日志页 / 播放记录页同构 ✓ 只差文案 ⇒ 文案参数化 ✓）
+///   ⚠️ 原来一处写 Navigator.pop(ctx, …)、另一处写 Navigator.of(ctx).pop(…)
+///   —— 两者**功能等价** ✓ 这里统一用前者 ✓（少一层 look-up，行为一样 ✓）
+Future<bool> confirmClear({
+  required BuildContext context,
+  required String title,
+  required String content,
+  String yes = '清空',
+}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title),
+      content: Text(content),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消')),
+        TextButton(
+            onPressed: () => Navigator.pop(ctx, true), child: Text(yes)),
+      ],
+    ),
+  );
+  return ok == true;
 }

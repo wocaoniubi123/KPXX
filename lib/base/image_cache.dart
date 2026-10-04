@@ -87,7 +87,25 @@ class ImageDiskCache {
 
   /// LRU：清过期 `.part` + 按"最后修改时间"新→旧留，超条数/超总量就删尾 ✓
   ///（与 `video_cache._prune` 同一套口径 ✓：谁先撞线听谁的 ✓）
+  /// B4（2026-10-05）：全扫目录很贵（每次 put / 下完一条都会调）⇒ 入口加两道闸 ✓
+  ///   ① 已在跑 ⇒ 直接跳过（不排队、不叠加 ✓）；② 5 秒内跑过 ⇒ 跳过（节流 ✓）。
+  ///   调用点与 _pruneNow 的函数体都**一字未动** ✓。
+  bool _pruning = false;
+  DateTime? _pruneAt;
   Future<void> _prune() async {
+    if (_pruning) return;
+    final now = DateTime.now();
+    if (_pruneAt != null && now.difference(_pruneAt!) < const Duration(seconds: 5)) return;
+    _pruning = true;
+    _pruneAt = now;
+    try {
+      await _pruneNow();
+    } finally {
+      _pruning = false;
+    }
+  }
+
+  Future<void> _pruneNow() async {
     final dir = _dir;
     if (dir == null) return;
     try {

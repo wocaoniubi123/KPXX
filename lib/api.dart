@@ -44,7 +44,6 @@ class Api {
   /// 这里只**委托** ✓ —— 下面 46 个 `_fetchText(...)` 调用点**一个字都不用改** ✓。
   late final SiteFetcher _f = SiteFetcher(site);
 
-  List<String> get hosts => _f.hosts;
   String get _host => _f.host;
 
   String get base => 'https://$_host';

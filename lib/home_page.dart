@@ -64,22 +64,7 @@ Future<void> pickOptionDialog(
   if (v != null && v != current) apply(v);
 }
 
-Widget filterBtn(String label, bool on, VoidCallback tap) => OutlinedButton(
-      onPressed: tap,
-      style: OutlinedButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        // 透明底按钮直接贴在图上：描边也要跟着明暗（深灰边框在深色图上等于没有）
-        side: BorderSide(color: kChipBorder),
-      ),
-      child: Text(
-        on ? '$label ●' : label,
-        style: TextStyle(
-            fontSize: 13,
-            // 未选中：透明底按钮直接贴在背景图上 → 跟着明暗翻（选中态橙色不动）
-            color: on ? const Color(0xFFE8590C) : kTxt),
-      ),
-    );
+
 
 /// 在下拉选项（MapEntry 列表）里按 key 找显示名（找不到就回 key 本身）。
 /// ⚠️ 此前签名误写成 List<SiteTab>（当时只有 MapEntry 调用），首次 CI 构建才暴露。
@@ -292,12 +277,12 @@ class _HomePageState extends State<HomePage>
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(children: [
-              filterBtn(sel ?? '明星分類', _xhCtl.sel != null, _openXhStarDialog),
+              siteFilterBtn(sel ?? '明星分類', _xhCtl.sel != null, _openXhStarDialog),
               // ⚠️ 「重置」要放在**选择器按钮后面**（用户 2026-10-03："重置是让你加到这个选择器
               //   按钮后面，跟分类tab下面的那个一样" ✗）—— 不能只放在弹窗里 ✓
               if (_xhCtl.sel != null) ...[
                 const SizedBox(width: 6),
-                filterBtn('重置', false, () {
+                siteFilterBtn('重置', false, () {
                   setState(_xhCtl.clear);
                   _reloadXhStar();
                 }),
@@ -312,8 +297,11 @@ class _HomePageState extends State<HomePage>
   void _openXhStarDialog() {
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => siteTagDialog(
         title: const Text('明星分類', style: TextStyle(fontSize: 16)),
+        // A2：本处 content 自带 SizedBox + ConstrainedBox(420) + SingleChildScrollView
+        // 再套一层会双层滚动，所以传 constrained: false 让原内容原样生效
+        constrained: false,
         content: SizedBox(
           width: double.maxFinite,
           child: ConstrainedBox(
@@ -392,7 +380,7 @@ class _HomePageState extends State<HomePage>
             child: Row(
               children: [
                 // 单选 → 选中后按钮直接显示那个标签名（Hanime1 是多选，那边保持原样）
-                filterBtn(
+                siteFilterBtn(
                   _theme == null
                       ? f.themeEmptyLabel // PH 上是「分类选择」，其余默认「筛选」
                       : _tabNameOf(f.themes, _theme!),
@@ -410,7 +398,7 @@ class _HomePageState extends State<HomePage>
                 // → 它只剩一个「分类选择」；Pektino 两组都非空 → 行为一字不变。
                 if (f.durations.isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  filterBtn(
+                  siteFilterBtn(
                     _duration == '0,0' ? '时长' : _nameOf(f.durations, _duration),
                     _duration != '0,0',
                     () => pickOptionDialog(
@@ -427,7 +415,7 @@ class _HomePageState extends State<HomePage>
                 ],
                 if (f.sorts.isNotEmpty) ...[
                   const SizedBox(width: 6),
-                  filterBtn(
+                  siteFilterBtn(
                     _sort == 'favorite' ? '排序' : _nameOf(f.sorts, _sort),
                     _sort != 'favorite',
                     () => pickOptionDialog(
@@ -521,8 +509,11 @@ class _HomePageState extends State<HomePage>
   void _openFilterDialog(SiteFilters f) {
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => siteTagDialog(
         title: const Text('按标签筛选', style: TextStyle(fontSize: 16)),
+        // A2：本处 content 自带 SizedBox + ConstrainedBox(420) + SingleChildScrollView
+        // 再套一层会双层滚动，所以传 constrained: false 让原内容原样生效
+        constrained: false,
         content: SizedBox(
           width: double.maxFinite,
           child: ConstrainedBox(

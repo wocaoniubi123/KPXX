@@ -83,8 +83,6 @@ class KpState {
   /// 本段是否已播完
   final bool completed;
 
-  /// 音量 0~100
-  final double volume;
   const KpState({
     this.position = Duration.zero,
     this.duration = Duration.zero,
@@ -94,7 +92,6 @@ class KpState {
     this.errorText = '',
     this.buffer = Duration.zero,
     this.completed = false,
-    this.volume = 100,
   });
 
   bool get ready => duration > Duration.zero;
@@ -111,7 +108,6 @@ class KpState {
     String? errorText,
     Duration? buffer,
     bool? completed,
-    double? volume,
   }) =>
       KpState(
         position: position ?? this.position,
@@ -122,7 +118,6 @@ class KpState {
         errorText: errorText ?? this.errorText,
         buffer: buffer ?? this.buffer,
         completed: completed ?? this.completed,
-        volume: volume ?? this.volume,
       );
 }
 
@@ -154,7 +149,6 @@ class KpPlayer extends ValueNotifier<KpState> {
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
       _p.stream.completed.listen((v) => value = value.copyWith(completed: v)),
-      _p.stream.volume.listen((v) => value = value.copyWith(volume: v)),
       // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
       // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
       // 所以：已经在播就不弹提示（真卡住由看门狗负责判断）；**首帧前也不立刻当失败** ✓
@@ -427,9 +421,6 @@ class KpPlayer extends ValueNotifier<KpState> {
     return _p.pause();
   }
 
-  /// 音量 0~100（竖向滑动调节用）
-  Future<void> setVolume(double v) =>
-      _p.setVolume(v.clamp(0.0, 100.0).toDouble());
 
   /// 播放倍速——长按快进用：按住时 2.0、松手回 1.0
   Future<void> setRate(double r) => _p.setRate(r);
@@ -559,7 +550,6 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
   double _bvDy = 0; // 本次竖向累计位移
   double _bvStart = 0.5; // 本次拖动的起点值（亮度/音量都是 0~1）
   double? _bvShow; // 指示条的值 0~1（null = 不显示）
-  bool _bvApplied = false; // 本次是否真的调整过
   Timer? _bvTimer;
 
   // 系统值缓存（-1 = 还没读到）。拖动开始立刻用缓存当起点，
@@ -571,7 +561,6 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
   StreamSubscription<double>? _bvVolSub;
 
   /// 本次拖动是否实际调整过（供全屏判断"要不要当作下滑退出"）
-  bool get bvApplied => _bvApplied;
 
   /// 进入播放器时预热：读一次当前系统亮度/音量做缓存。
   /// 亮度另有变化回调（系统里改了也能跟上）；音量没有回调，改为每次拖动开始时后台刷新。
@@ -580,11 +569,13 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     _bvPrimed = true;
     try {
       _bvBrightVal = await ScreenBrightness().current;
+      if (!mounted) return; // B7：await 之后 State 可能已销毁，别再往下挂订阅
       _bvBrightSub = ScreenBrightness()
           .onCurrentBrightnessChanged
           .listen((v) => _bvBrightVal = v);
     } catch (_) {}
     await _bvRefreshVolume();
+    if (!mounted) return; // B7：同上（挂音量订阅之前）
     try {
       // 音量由本 app 调，别让系统再弹一个音量 HUD（我们有自己的指示条）
       VolumeController().showSystemUI = false;
@@ -603,7 +594,6 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     _bvBrightness = d.localPosition.dx < w / 2;
     _bvDy = 0;
-    _bvApplied = false;
     // 起点立刻用缓存值（没有缓存才退回默认值），刷新留给下一次拖动
     _bvStart = _bvBrightness
         ? (_bvBrightVal >= 0 ? _bvBrightVal : 0.5)
@@ -623,7 +613,6 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     final h = context.size?.height ?? MediaQuery.of(context).size.height;
     if (h <= 0) return;
     _bvDy += d.delta.dy;
-    if (_bvDy.abs() > 8) _bvApplied = true;
     final delta = -_bvDy / h; // 向上滑为正
     if (_bvBrightness) {
       final v = (_bvStart + delta).clamp(0.02, 1.0).toDouble();
@@ -939,7 +928,15 @@ class PlayerWidgetState extends State<PlayerWidget>
         _error = null;
       });
       try {
-        final got = (await widget.onFetchSources!(widget.lazyUrl!))
+        // ⚠️ 2026-10-05 修（用户报"正在取视频…永不消失"）✓：这个回调**原来没有超时** ✗ ——
+        //    页面那边一旦卡住（网络 / 站点不响应 ✓），`await` 就永不返回 ✗ → `_fetchingLazy` 一直亮 ✗
+        //    （提示永不消失 ✗）→ 自动重试**排不上** ✗（重试那两个入口都判它 ✓）。
+        //    照 `_recover` 里那一处（本文件 :1246-1249 ✓）补 **6 秒**超时 ✓；超时 = 当次**没取到源** ✓
+        //    → `got` 为空 → 走下面**既有**的失败分支 ✓（提示消失 + 错误文案 ✓），不多写一行逻辑 ✓。
+        final got = (await widget.onFetchSources!(widget.lazyUrl!).timeout(
+              const Duration(seconds: 6),
+              onTimeout: () => const <String>[],
+            ))
             .where((s) => s.isNotEmpty)
             .toList();
         if (!mounted) return;
@@ -1010,7 +1007,13 @@ class PlayerWidgetState extends State<PlayerWidget>
         // 本轮全失败：刷新一次时效链接再来一轮
         if (round == 0 && widget.onRefreshSources != null) {
           try {
-            final fresh = (await widget.onRefreshSources!())
+            // ⚠️ 2026-10-05 修：这个回调**原来也没有超时** ✗（同一症状：提示永不消失 / 重试排不上 ✓）
+            //    → 照 `_recover` 那一处补 **6 秒**超时 ✓；超时当"这次没刷到新源" ✓（`fresh` 为空 ✓）
+            //    → 落到下面**既有**的 `break` 与错误收尾 ✓（`_busy = false` + `_error` ✓）。
+            final fresh = (await widget.onRefreshSources!().timeout(
+                  const Duration(seconds: 6),
+                  onTimeout: () => const <String>[],
+                ))
                 .where((s) => s.isNotEmpty)
                 .toList();
             if (fresh.isNotEmpty) {
