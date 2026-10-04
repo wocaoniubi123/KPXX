@@ -190,7 +190,10 @@ class KpPlayer extends ValueNotifier<KpState> {
           (s.position - _lastPos).abs().inMilliseconds >= 500) {
         value = value.copyWith(error: false, errorText: '');
       }
-      if (!s.playing || s.error) {
+      // ⚠️ 2026-10-05：卡顿期间 mpv 常把 playing 报成 false（缓冲中），原来这里 `!s.playing`
+      //      直接清零 → **看门狗永远判不出"卡住"** ✗（表现：画面静止、不报错、不重试 ✓）。
+      //      现在只把**用户主动暂停**排除（_userPaused ✓），缓冲中照常计时 ✓。
+      if (_userPaused || s.error) {
         _stuckMs = 0;
         _lastPos = s.position;
         return;
@@ -219,6 +222,11 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   String _lastFatal = ''; // 最后一条 error/fatal 文本（仅作卡住时的附注）
   bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
+  /// 用户是不是**主动**暂停了（看门狗据此排除"暂停"、让它只管"卡住" ✓）——
+  /// 由 UI 调用的 pause()/play() 自己维护（`_attach` 里包了一层 ✓），不依赖引擎的瞬时值 ✓
+  bool _userPaused = false;
+  /// 上次"中途卡住 → 刷新源"的时刻（挡连续的卡住信号，10 秒内只恢复一次 ✓）
+  int _lastRecoverMs = 0;
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
@@ -295,8 +303,19 @@ class KpPlayer extends ValueNotifier<KpState> {
     } catch (_) {}
   }
 
-  Future<void> play() => _p.play();
-  Future<void> pause() => _p.pause();
+  /// 用户主动暂停/播放的回调（**只由 UI 调的 [pause]/[play] 触发** ✓；
+  /// 内部一律走 `_kp?.pause()` / `open()` ✓ → 不会误标 ✓）。看门狗用它区分"暂停"与"卡住"。
+  void Function(bool paused)? onUserPause;
+
+  Future<void> play() {
+    onUserPause?.call(false);
+    return _p.play();
+  }
+
+  Future<void> pause() {
+    onUserPause?.call(true);
+    return _p.pause();
+  }
 
   /// 音量 0~100（竖向滑动调节用）
   Future<void> setVolume(double v) =>
@@ -931,12 +950,19 @@ class PlayerWidgetState extends State<PlayerWidget>
       }
     }
 
+    final ref = _playReferer(url);
     kp.addListener(listener);
     try {
       await kp.open(url, httpHeaders: {
         'User-Agent': _ua,
-        'Referer': _playReferer(url),
+        'Referer': ref,
       });
+      // ⚠️ 2026-10-05：实测（curl 走代理，Pornhub）**分片**必须要"站点域名"的 Referer ——
+      //    站点域 200 / 不带 404 / CDN 自身域 404；而 master、variant 不带也能 200 ✓。
+      //    media_kit 虽然把 httpHeaders 设成 mpv 的 `http-header-fields`（native/player/real.dart
+      //    的 on_load 钩子 ✓，本机无构建产物、无法在真机验证它是否覆盖分片请求 ✗），
+      //    这里再显式设一个 mpv 的 `referrer` 属性兜底（HLS 分片会带上它 ✓）→ 只影响这条源的 header ✓
+      kp.setMpvOptionQuiet('referrer', ref);
       return await done.future
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
     } catch (_) {
@@ -950,6 +976,9 @@ class PlayerWidgetState extends State<PlayerWidget>
     final old = _kp;
     if (old != null) old.shutdown();
     _kp = kp;
+    // 用户暂停标记：**只有 UI 那一路**调 `pause()`/`play()`（内部是 `_kp?.pause()` ✓
+    // → 不会误标成"用户暂停"✗）→ 看门狗据此把"用户暂停"和"卡住"分开 ✓
+    kp.onUserPause = (v) => _userPaused = v;
     kp.addListener(_onTick);
     // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
     //（暂停/卡住时报上去没意义；离开详情页由详情页 flush 补最后一次）
@@ -1058,11 +1087,59 @@ class PlayerWidgetState extends State<PlayerWidget>
     // 同一次失败会从两条通道各报一次（引擎 error + 源尝试失败 ✓）→ 排一次就够 ✓
     if (_autoRetryTimer != null) return;
     _autoRetries++;
+    // ⚠️ 2026-10-05：**中途**卡住（已经播起来过）不能拿同一批没刷新的源从 0 重开 ✗ ——
+    //    用户实测"播几秒 → 从头再来"就是这么来的 ✓；改走"刷新源 + 原地续播" ✓
+    final midStall = _kp?.value.started ?? false;
     setState(() => _autoRetrying = true);
     _autoRetryTimer = Timer(const Duration(milliseconds: 1200), () {
       _autoRetryTimer = null;
-      if (mounted) _initPlayer();
+      if (!mounted) return;
+      if (midStall) {
+        _recover();
+      } else {
+        _initPlayer();
+      }
     });
+  }
+
+  /// 中途卡住的恢复：**先向页面要一批新源**（新签名 ✓），拿到就原地续播 ✓；
+  /// 拿不到才退回既有的"按旧源重开"（_initPlayer ✓ 里面还有刷新一轮的兜底 ✓）。
+  Future<void> _recover() async {
+    // 用户已经切走（换集/换视频）→ 这次恢复作废，别去掐新视频 ✓
+    if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastRecoverMs < 10000) return; // 连续卡住信号只恢复一次 ✓
+    _lastRecoverMs = nowMs;
+    final fresh = await (_refreshFromPage()).timeout(
+      const Duration(seconds: 6),
+      onTimeout: () => const <String>[],
+    );
+    if (!mounted) return;
+    if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
+    if (fresh.any((s) => s.isNotEmpty)) {
+      _sources = fresh.where((s) => s.isNotEmpty).toList();
+    }
+    _restartFromLastPos();
+  }
+
+  /// 重开当前源，并**跳回最后真实播到的位置**（用现成的 `_restoreTo` 机制 ✓ ——
+  /// `_initPlayer` 起播后会 seek 到它；取不到位置（<1 秒）就当从头 ✓）
+  void _restartFromLastPos() {
+    final last = _kp?.lastKnownPosition ?? Duration.zero;
+    _restoreTo = last > const Duration(seconds: 1) ? last : null;
+    _initPlayer();
+  }
+
+  /// 向页面要新源（详情页传的是 `_refreshSources` ✓ 会重新抓页面拿新签名 ✓）；
+  /// 没传/失败/拿空 → 返回空表（调用方退回旧源重开 ✓）
+  Future<List<String>> _refreshFromPage() async {
+    final f = widget.onRefreshSources;
+    if (f == null) return const <String>[];
+    try {
+      return await f();
+    } catch (_) {
+      return const <String>[];
+    }
   }
 
   /// 控制条显示数秒后自动隐藏

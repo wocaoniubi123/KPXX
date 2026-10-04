@@ -8,6 +8,7 @@ import 'home_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 import 'sites.dart';
+import 'sites/xhamsterlive.dart';
 import 'web_page.dart';
 
 void main() {
@@ -93,7 +94,8 @@ class KpxxLogo extends StatelessWidget {
   }
 }
 
-/// 根页：底部两个 tab —— 模块（站点宫格）/ 推荐（第一个原生站点的内容）。
+/// 根页：底部三个 tab —— 模块（站点宫格）/ **直播**（直播站点宫格）/ 设置。
+/// ⚠️ 顺序是用户 2026-10-03 拍板的：**模块 → 直播 → 设置**（与模拟器同序 ✓）—— 别改顺序 ✗。
 class RootPage extends StatefulWidget {
   const RootPage({super.key});
 
@@ -121,6 +123,7 @@ class _RootPageState extends State<RootPage> {
         index: _index,
         children: const [
           ModuleGridPage(),
+          LiveGridPage(),
           SettingsPage(),
         ],
       ),
@@ -138,6 +141,12 @@ class _RootPageState extends State<RootPage> {
             icon: Icon(Icons.grid_view_rounded),
             label: '模块',
           ),
+          // 直播语义图标（模拟器里画的是"电视框 + 天线" ✓ → Material 的 live_tv 同义 ✓；
+          // 描边风格与「设置」那项一致 ✓）
+          BottomNavigationBarItem(
+            icon: Icon(Icons.live_tv_outlined),
+            label: '直播',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             label: '设置',
@@ -149,6 +158,7 @@ class _RootPageState extends State<RootPage> {
 }
 
 /// 宫格首页：5 列图标 + 名字，点击打开对应站点（清单见 lib/sites.dart）。
+/// ⚠️ 只显示 `SiteGroup.module` 的站 ✓ —— 直播站（`SiteGroup.live`）归底栏「直播」那页 ✓。
 class ModuleGridPage extends StatelessWidget {
   const ModuleGridPage({super.key});
 
@@ -172,6 +182,7 @@ class ModuleGridPage extends StatelessWidget {
   }
 
   Widget _grid(BuildContext context) {
+    final sites = kSites.where((e) => e.group == SiteGroup.module).toList();
     return Scaffold(
       // 透明：让根层的背景图从这里透出来（顶栏也是透明的，见 theme）
       backgroundColor: Colors.transparent,
@@ -191,10 +202,63 @@ class ModuleGridPage extends StatelessWidget {
             crossAxisSpacing: 8,
             childAspectRatio: 0.86,
           ),
-          itemCount: kSites.length,
+          itemCount: sites.length,
           itemBuilder: (_, i) => _SiteTile(
-            entry: kSites[i],
-            onTap: () => _open(context, kSites[i]),
+            entry: sites[i],
+            onTap: () => _open(context, sites[i]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// **直播**宫格页（底栏第二项）：直播站点的按钮宫格 —— 与「模块」页**同一套样式** ✓
+/// （同一个 `_SiteTile` ✓、同样 4 列 ✓），只是清单换成 `group == SiteGroup.live` 的站点 ✓。
+/// ⚠️ 共用 UI 里**不判站名/模板名** ✗ —— 只看 `SiteEntry.group` ✓（见 sites.dart 的 SiteGroup ✓）。
+/// 点一个 → push 那个直播站的**全屏页** ✓（App 里 push 天然不带底栏 ✓）。
+class LiveGridPage extends StatelessWidget {
+  const LiveGridPage({super.key});
+
+  void _open(BuildContext context, SiteEntry e) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PageBg(child: LiveSitePage(site: e))),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 同「模块」页：宫格图标名读 kTxt，整页跟着背景明暗重建 ✓
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => _grid(context),
+    );
+  }
+
+  Widget _grid(BuildContext context) {
+    final sites = kSites.where((e) => e.group == SiteGroup.live).toList();
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        systemOverlayStyle: kStatusOverlay,
+        title: const Text('直播'), // 占位、不返回 ✓（与「模块 / 设置」一致 ✓）
+        centerTitle: true,
+        elevation: 0,
+        foregroundColor: kTxt,
+      ),
+      body: SafeArea(
+        child: GridView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 4,
+            mainAxisSpacing: 18,
+            crossAxisSpacing: 8,
+            childAspectRatio: 0.86,
+          ),
+          itemCount: sites.length,
+          itemBuilder: (_, i) => _SiteTile(
+            entry: sites[i],
+            onTap: () => _open(context, sites[i]),
           ),
         ),
       ),

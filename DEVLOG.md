@@ -963,6 +963,853 @@ CI 清单取自 `G:\ZCode\unused-audit-1.0.17.decoded.txt`（75 条 ✓，error 
 **短片页另加**：_seekStart 里 1 行 _seekSettle?.cancel()（按下杀旧 timer，消除快速连划时旧 timer 误清新预览的边界）。
 **未动**：seek 算法（竖向否决/18pt 死区/30 秒屏/seekExact）一字未改；500ms 阈值未动。
 
+---
+## 追加（2026-10-03 · **sim 侧第 8 轮**）底栏加「直播」入口（**空壳页** ✓，只改 `sim/index.html` ✓ 未提交 ✗）---
+**用户拍板** ✓：底栏顺序 = **模块 → 直播 → 设置** ✓；这步**只加入口页** ✗（站点入口等以后再放 ✓）；
+先模拟器跑通、再复刻到 App ✓。**对齐 App 的导航结构** ✓（App = `IndexedStack` + `BottomNavigationBar`，`lib/main.dart:127-146` ✓）。
+
+**改了 4 处（全在 `sim/index.html` ✓）**
+1. **底栏 markup**（原 2 项之间插一项 ✓）：`<div class="item" data-nav="live">` + 直播语义图标（**电视框 + 天线** 的内联 SVG ✓，
+   与原有 `grid_view`（实心）/`settings`（描边 1.8）同一套画法 ✓）+ `<span>直播</span>` ✓
+2. **点击接线**（`$('nav')…forEach` 里 ✓）：原来是 **两路** `if (grid) viewGrid(); else viewSettings();` ✗ →
+   改成 **三路** ✓（`grid`/`live`/`settings` ✓，仍带 `stack = []` ✓）
+3. **新增 `viewLive()`** ✓（照 `viewSettings()` 的壳写法 ✓）：`showNav(true)` ✓ · `tabs` 隐藏 ✓ ·
+   appbar 标题「直播」✓（占位不返回 ✓，与「模块/设置」一致 ✓）· `applyBg()` ✓ ·
+   内容 = 一张 `.scard`：`▶ 直播` + **「直播站点入口即将上线」** + 说明句 ✓（无任何站点 ✗）
+4. **`?nav=live` 直达** ✓（照 `?nav=settings` 那套 ✓，截图/调试方便 ✓）
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓；本轮**没有任何播放** ✗）**
+```
+1_底栏   ：项数 3 ✓ 文案「模块/直播/设置」✓ 选中=模块 ✓ 图标 3 个 ✓
+2_点直播 ：选中=直播 ✓ 标题=直播 ✓ 占位文案在 ✓ tabs 隐藏 ✓ 底栏仍可见 ✓
+           body 开头「▶直播 直播站点入口即将上线 这里先占位：底栏结构已与 App 对齐 ✓（模块 → 直播 → …」
+3_点模块 ：选中=模块 ✓ 站点 14 个 ✓（正常回宫格 ✓）
+4_点设置 ：选中=设置 ✓ 标题=设置 ✓ 「播放记录」卡在 ✓
+5_再回直播：选中=直播 ✓ 标题=直播 ✓ 占位文案在 ✓（来回切都正常 ✓）
+6_无未捕获异常 ✓；页面上正在播放的 <video> 数 = 0 ✓（本轮不涉及播放）
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓（`server.mjs` 本轮**没动** ✓）；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 10700 ✓）；**用户那个 8787 全程没碰**（现 PID 18744，用户自己起的 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 9 轮**）直播页做成**正式结构**（4 主分类 + 分组子分类宫格 ✓，只改 `sim/index.html` ✓ 未提交 ✗）---
+**用户要求** ✓：① 直播页 = **按钮宫格入口** ② 顶部 **4 个主分类 tab**（女主播/情侣/男主播/跨性別 ✓）
+③ 每个 tab 下是**它自己的**子分类，按**分组**排（组名小标题 + 组内按钮 ✓）④ 点子分类 → 先**模拟跳转**到
+`zh.xhamsterlive.com/<path>` ✓（**先不做播放** ✗）—— 对齐 App（App 侧先不动 ✗）
+
+**改了 3 处（全在 `sim/index.html` ✓）**
+1. **样式**：加 `.lv-page/.lv-tabs/.lv-tab/.lv-group/.lv-gname/.lv-btns/.lv-btn/.lv-back/.lv-url` ✓
+   （子分类 = **3 列按钮宫格** ✓；主分类 = 顶部一排胶囊 tab ✓；沿用原配色的 `#e8590c` 选中态 ✓）
+2. **数据 `LIVE_MAIN`** ✓（用户 recon 清单 **原样转录** ✗ 不补条目 ✗，共 **211 条唯一路径** ✓）：
+   | 主分类 | 组数 | 子分类数 | 组的构成 |
+   |---|---|---|---|
+   | 女主播 | 7 | **58** | 特别8 / 年龄5 / 种族7 / 体型5 / 头发5 / 私秀表演7 / 最受欢迎21 |
+   | 情侣 | 4 | **36** | 特别7 / 种族1 / 私秀表演7 / 最受欢迎21 |
+   | 男主播 | 8 | **60** | 特别7 / **性取向3** / 年龄5 / 种族7 / 体型5 / 头发5 / 私秀表演7 / 最受欢迎21 |
+   | 跨性別 | 7 | **57** | 特别7 / 年龄5 / 种族7 / 体型5 / 头发5 / 私秀表演7 / 最受欢迎21 |
+   ⚠️ 两个坑都避开了 ✓：「全部分类」= **`/tags/<main>`** ✓（4 个 tab 各自都对 ✓）；**没有**任何 `/<main>/best` ✗（脚本扫过全部 211 条 ✓）
+3. **页面** ✓：`viewLive()`（壳 ✓）+ `renderLive()`（tab 行 + 分组宫格 ✓，tab 切换保留当前主分类 ✓）
+   + `openLiveCat()`/`renderLiveCat()`（子分类页：把目标 URL 摆出来 ✓ + 「不加载/不播放」说明 ✓ + 返回 ✓）
+   ⚠️ 按钮**不用内联 onclick** ✗（名字含中文/括号，内联引号易踩雷 ✓）→ 渲染后按 `data-*` 绑 `onclick` ✓
+
+**数据复验（脚本跑过 ✓，不是眼看 ✓）**：4 个主分类的总数 = 58/36/60/57 ✓（与我按清单逐组重数一致 ✓，**我先前手算的 59/56 是错的** ✗）；
+211 条路径**无重复** ✓；前缀全部正确 ✓；`best` 0 条 ✓；`/tags/<main>` 4/4 ✓
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓；本轮**无任何播放** ✗）**
+```
+1_进去    ：tab「女主播/情侣/男主播/跨性別」✓ 选中=女主播 ✓ 组 7 ✓ 组名 特别/年龄/种族/体型/头发/私秀表演/最受欢迎 ✓ 按钮 58 ✓
+2_4个tab  ：女主播 7组/58 ✓ · 情侣 4组/36（特别/种族/私秀表演/最受欢迎）✓ · 男主播 8组/60（含「性取向」）✓ · 跨性別 7组/57 ✓
+3_各tab不同：4 个 tab 的(组名+按钮数)组合 **唯一数 = 4** ✓（各自独立 ✓）
+4_全部分类 ：点它 → 子页 ✓ 目标 URL = **https://zh.xhamsterlive.com/tags/trans** ✓
+5_返回    ：回到宫格 ✓（当前 tab 仍是「跨性別」✓）
+6_点子分类 ：Oktoberfest Party → **https://zh.xhamsterlive.com/trans/oktoberfest-party** ✓ · 标题在 ✓ · 明写「不播放」✓
+7_换tab验证：女主播首按钮 → **https://zh.xhamsterlive.com/girls/oktoberfest-party** ✓（前缀跟着 tab ✓）
+8_其他    ：底栏仍「模块/直播/设置」✓ · 页面上正在播的 <video> = 0 ✓ · **无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓（`server.mjs` 本轮没动 ✓）；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 224 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 10 轮**）直播页**重做成三级结构**（站点宫格 → 站点页 → 筛选弹窗 ✓，只改 `sim/index.html` ✓ 未提交 ✗）---
+**用户拍板的新方案** ✓（**推翻**第 9 轮的"全页铺开" ✗）：
+```
+底栏「直播」= 直播区 → 站点按钮宫格（照模块页 ✓，目前 1 个「xHamster直播」✓）
+   └─ 点进去 = 站点页（照 **Pektino 布局** ✓）→ 顶部 4 主分类 tab + 一条「筛选」→ 弹窗按组列出当前 tab 的子分类
+```
+**改了 3 处（全在 `sim/index.html` ✓）**
+1. **直播区 `viewLive()`** ✓：改成**站点宫格** —— 直接复用模块页那套 `.grid/.tile`（图标走现成的 `/icon?name=xHamster` ✓ + `iconFallback` 兜底 ✓），
+   点 tile → `viewLiveSite()` ✓；清单 `LIVE_SITES`（1 个 ✓，以后加站点就加一行 ✓）
+2. **站点页**（新 ✓ `viewLiveSite()` + `renderLiveSite()`）：appbar「xHamster直播」+ 返回 ‹ ✓ ·
+   **顶部 4 主分类 tab**（`.lv-tabs/.lv-tab` ✓ 沿用第 9 轮那套）· 下面**照 Pektino 的筛选行**（复用 `.pkbar` + `<button>` ✓）
+   一个「筛选」按钮 ✓（选中后显示「筛选：<名字>」+「重置」✓）· 正文只留说明与"将打开：<URL>"✓ —— 子分类**不铺开** ✗
+3. **筛选弹窗 `openLiveFilter()`** ✓：复用**通用** `phChipDlg` ✓（它本来就支持 sections 多组 ✓）——
+   `sections` = 当前主分类的 groups（`label` = 组名做分组标题 ✓，`items` = `[path, 名字]` ✓，`current` = 已选项 ✓）
+   → 点一个 = **模拟跳转** ✓（把 `https://zh.xhamsterlive.com<path>` 摆到页面上 + 写日志 ✓，**不加载、不播放** ✗）
+   旧的 `openLiveCat()` 保留但只做同一件事 ✓（不再有整页铺开 ✗）；`renderLiveCat()` 与其铺开样式**已删干净** ✓（扫过无残留 ✓）
+   **数据一个字没动** ✓：`LIVE_MAIN` 211 条照用（女主播58 / 情侣36 / 男主播60 / 跨性別57 ✓）
+   ⚠️ 两个坑照旧避开 ✓：「全部分类」= `/tags/<main>` ✓；无 `/<main>/best` ✓
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓；本轮**无任何播放** ✗）**
+```
+1_直播区 ：站点按钮 **1 个** ✓ 名称「xHamster直播」✓ 底栏「模块/直播/设置」✓
+2_站点页 ：标题「xHamster直播」✓ 主分类 tab「女主播/情侣/男主播/跨性別」✓ 选中=女主播 ✓ 有「筛选」按钮 ✓
+           **页面里铺开的子分类按钮数 = 0** ✓（确实不铺开 ✓）
+3_筛选弹窗：打开 ✓ 标题「xHamster直播 · 女主播」✓ **组标题命中 7 个** ✓（特别/年龄/种族/体型/头发/私秀表演/最受欢迎）
+           **芯片数 58** ✓（= 女主播转录总数 ✓）
+4_选全部分类：弹窗关闭 ✓ 页面出现「将打开：**https://zh.xhamsterlive.com/tags/girls**」✓ 按钮变「筛选：全部分类」✓
+5_男主播筛选：切 tab 后 **芯片数 60** ✓ 且弹窗里有**「性取向」组** ✓（该主分类独有 ✓）
+6_选直男 ：**https://zh.xhamsterlive.com/men/straight** ✓ 按钮变「筛选：直男」✓
+7_返回   ：左上 ‹ 回直播区 ✓（1 个站点按钮 ✓ 标题「直播」✓）
+8_其他   ：正在播的 <video> = 0 ✓（本轮无播放 ✓）· **无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓；`.lv-btn/.lv-group/.lv-back` 等旧铺开样式**零残留** ✓（grep 复核过 ✓）
+**约束 ✓**：只改 `sim/index.html` ✓（`server.mjs` 本轮没动 ✓）；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 19040 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 11 轮**）直播页**接房间列表**（接口 B ✓，只改 `sim/index.html` ✓ 未提交 ✗，**没动 `server.mjs`** ✓）---
+**用户拍板** ✓：直播站点页下面接**房间列表**（**先不做播放** ✗）。
+
+**代理怎么走的（关键 ✓，按你的要求没擅自动服务端 ✓）**
+- 现成的 **`/proxy?url=<绝对URL>`** 就是**通用转发**（`server.mjs` 里 `fetchUrl(target)` 原样回 body ✓）→
+  **直接用** ✓，**不需要改 `server.mjs`** ✓（该文件本轮 **0 改动** ✓ —— 它那 `+11` 是很早以前加的 `/shorts` 路由 ✓）
+- UA ✓：`/proxy` 用的正是模块级 `UA` = **iPhone UA** ✓（= 用户 recon 说"iPhone UA 可以 ✓"的那套 ✓）；无 cookie ✓
+- 浏览器直连会被 CORS 拦 ✗ → 走本机 `/proxy` 就没有跨域问题 ✓（同源 ✓）
+
+**改了 1 个文件 4 处（全在 `sim/index.html` ✓）**
+1. **接口调用** ✓：`liveFetch(tag, offset)` → `GET /proxy?url=` + `https://zh.xhamsterlive.com/api/front/models?limit=60&offset=N&primaryTag=<tag>` ✓
+   （`LIVE_PAGE=60`、`LIVE_MAX=1000` ✓ 照 recon ✓）；4 主分类 → tag 用**名字映射** `LIVE_TAG_OF` ✓（`女主播→girls / 情侣→couples / 男主播→men / 跨性別→trans` ✓，
+   不按下标 ✗ 免得以后加 tab 错位 ✗）
+2. **列表状态 + 翻页** ✓：`liveRooms{tag,offset,items,loading,done}` ✓；`#body` 滚到距底 240px → `offset += 60` ✓；
+   到底三条判据（这页空 / 已到 `filteredCount` / 撞 1000 ✓）✓；换主分类才重拉 ✓（同一 tag 有数据就复用 ✓ 不白拉 ✗）
+3. **2 列竖版房间卡** ✓（新样式 `.lv-rooms/.lv-room` ✓）：封面 3:4 + 主播名 + 观看数 + 在线标 ✓ ——
+   `username` / `viewersCount` / `isLive` / `isOnline` ✓；封面 = `img.doppiocdn.net/<snapshot|snapshot_blurred>/<id>/<snapshotTimestamp>` ✓，
+   **我定的规则**（可改 ✓）：**直播中 → 清晰图 ✓；非直播 → 模糊图 ✓**，`onerror` 再退回另一张 ✓；图**也走 `/proxy`** ✓
+4. **点卡片 → 房间页占位** ✓：摆出 `https://zh.xhamsterlive.com/<username>` ✓ + 明写"不加载/不播放" ✓ + 返回列表 ✓
+   ⚠️ **子分类筛选仍未接列表** ✗（按你说的"暂不接"✓ —— 筛选按钮/弹窗**保留原样** ✓，只在页面上写明"还没接" ✓ 免得误判 ✓）
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓；本轮**无任何播放** ✗）**
+```
+1_女主播列表：**60 张卡** ✓ 首卡 名=winter11 ✓ 有封面 ✓ 封面走 /proxy ✓
+              封面地址 = https://img.doppiocdn.net/snapshot/197467228/1791088650 ✓（与 recon 形态一致 ✓）
+              观看数「3651 人」✓ 在线标「LIVE」✓ LIVE 标 60 个 ✓
+              日志：`直播列表：primaryTag=girls offset=0 → 60 条（累计 60 / 1000）` ✓
+2_切情侣   ：**换了** ✓（首条 Citymup，与女主播首条不同 ✓）日志 `primaryTag=couples offset=0 → 60 条（累计 60 / 479）` ✓
+3_切男主播 ：换了 ✓（Mrwangjjkk ✓）日志 `primaryTag=men …（累计 60 / 1000）` ✓
+4_切跨性別 ：换了 ✓（KeenMazikeen69 ✓）日志 `primaryTag=trans …（累计 60 / 648）` ✓
+5_房间占位 ：名字在页上 ✓ 含 `https://zh.xhamsterlive.com/<username>` ✓ 明写不播放 ✓ 有返回 ✓
+6_回列表   ：卡片仍在（60 ✓）
+7_翻页     ：滚到底 → **60 → 120 张** ✓ 提示「上滑加载更多」✓ 日志 `offset=60 → 60 条（累计 120 / 648）` ✓
+8_其他     ：正在播 <video> = 0 ✓ · 底栏「模块/直播/设置」✓ · **无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓；**`server.mjs` 本轮 0 改动** ✓；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 19080 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 12 轮**）点主播卡片 → **竖版全屏真实流**（只改 `sim/index.html` ✓ 未提交 ✗，**`server.mjs` 0 改动** ✓）---
+**用户原话** ✓：① 点卡片**直接进竖版全屏**（不是占位 ✗）② **只有左上角一个 X**（不要多按钮 ✗）
+③ **点屏幕显示/隐藏 X**（toggle ✓）④ **直接放真实流** ✓；**静音** ✗ 没得商量 ✓
+
+**⚠️ HLS 直连 vs proxy 的结论（实测 ✓）**：**直连就行，不用过 `/proxy`** ✓✓
+- 实测 `edge-hls.doppiocdn.media` 的 master 清单：HTTP 200 + `application/vnd.apple.mpegurl` + **`ACAO: *`** ✓；
+  变体 URL 回 **302**（跳到 `media-hls.doppiocdn.media` ✓）且**响应也带 `ACAO: *`** ✓ → **hls.js 能跨域直连** ✓
+- 所以**没有**用 `/proxy` 包 HLS ✓ → **也就不存在"分段路径要重写"** 的问题 ✓（那条路 sim 里本来有 `hlsProxy`/`/vproxy` 备着 ✓，这次**没用上** ✗）
+- （冒烟里那 14 条经 `/proxy` 的 doppiocdn 资源是**房间封面图** `img.doppiocdn.net` ✓ —— 封面本来就是设计成走 proxy 的 ✓，不是 HLS ✓）
+
+**改了 1 个文件 2 处（全在 `sim/index.html` ✓）**
+1. **`viewLiveRoom(username)` 重写** ✓（原来是"房间页占位"✗）：从 `liveRooms.items` 按 `username` 找 model ✓ →
+   在 `.screen` 上盖一层 `.lv-player`（`position:absolute; inset:0; z-index:70` ✓ = **铺满整个手机屏，含 appbar 与底栏** ✓）；
+   播放用列表里的 **`hlsPlaylist`** ✓（**直连** ✓）；`ensureHls()` 懒加载 hls.js ✓（放不了 HLS 的环境退回原生 `canPlayType` ✓）；
+   **静音** ✓（`muted` 属性 + `muted=true; volume=0` ✓）
+2. **UI 极简** ✓：层里**只有**一个 X（`#lvx` ✗ 默认 `display:none` ✓）+ 一行状态字（加载中/缓冲中/出错 ✓，播放中为空 ✓）——
+   点层 = `toggle('on')` ✓（显示→隐藏→显示 ✓，实测三下 = `true → false → true` ✓）；点 X = 关闭 ✓（`stopPropagation` ✓）
+   **关闭 = 只 remove 浮层** ✓（列表 DOM 与 `liveRooms` 一个字没动 ✓）→ **回列表不重拉** ✓✓
+   ⚠️ 顺带删了第 11 轮那个"房间页占位"实现与 `liveRoomUser` 变量 ✓（不铺旧路 ✗）
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓，播放**全程静音** ✓）**
+```
+1_全屏层 ：有层 ✓ **铺满手机屏**（370x804 = 屏的 370x804 ✓）z-index=70 ✓ **X 初始隐藏** ✓ **X 只有 1 个** ✓（另 1 个 div 是空状态文字 ✓）
+2_起播   ：**起播 ✓（3885ms）** readyState=4 ✓ currentTime 在走 ✓ `muted=true volume=0` ✓
+           hls 资源直连 CDN 18 条 ✓（hlsPlaylist 原样直连 ✓ 没走 /proxy ✓）
+3_X显隐  ：点一下 显示 ✓ → 再点 隐藏 ✓ → 第三下 显示 ✓（true → false → true ✓ 完全符合要求 ✓）
+4_关闭   ：X 关掉 → **层没了 ✓ 卡片还在 60 张 ✓ 与关前一致 ✓ 且**关后**没有再拉列表 ✓✓（状态保留 ✓）
+           列表首卡仍是 winter11 ✓（就是关掉的那条 ✓）
+5_其他   ：关掉后在播的 <video> = 0 ✓（流停了 ✓）· 底栏「模块/直播/设置」✓
+           日志：`直播房间：winter11 · 1080×1440 · hls=https://edge-hls.doppiocdn.media/hls/197467228/m…` ✓（1080×1440 = 竖版 ✓）
+**无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓；**`server.mjs` 本轮 0 改动** ✓（它那 `+11` 是很早以前加的 `/shorts` 路由 ✓）；
+`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；临时脚本/Edge profile 全删 ✓；
+**我自己的 8788 已停**（PID 9336 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 13 轮**）直播**筛选真正接上**（用户："筛选点了没反应" ✗ → 修好 ✓；只改 `sim/index.html` ✓ 未提交 ✗，**`server.mjs` 0 改动** ✓）---
+**用户给的 recon 映射** ✓ **原样照抄** ✗（不自己猜 ✗）；**未映射**的标出来不下手 ✗。
+
+**改了 1 个文件 5 处（全在 `sim/index.html` ✓）**
+1. **`LIVE_TAG_MAP`**（新 ✓ 硬编码表，**71 条** ✓）：slug → 站点筛选 tag，**逐条照抄 recon** ✓（特别/年龄/种族/体型/头发/私秀/最受欢迎 4 分类共用/男主播专属/情侣专属 ✓）
+   ⚠️ **我没把 tag 塞进 `LIVE_MAIN` 的 211 条里** ✗→✓ —— 改成**同一张硬编码表 + 路径末段取值** ✓（`liveSlug()`/`liveTagOf()` ✓）：
+   效果一样、**少改 211 处**（不易抄错 ✓）；要按你原话塞进 item 里也可以 ✓ 说一句我就挪 ✓（1 行的事 ✓）
+2. **`liveFetch(tag, offset, filterTag)`** ✓：不带筛选 = **和上一轮跑通的那条一模一样的 URL** ✓ 别乱加参数 ✗；
+   带筛选才追加 `&filterGroupTags=[["<TAG>"]]&parentTag=<TAG>` + **recon 原样尾巴** ✓（`sortBy=stripRanking` ✓ + 那串开关 ✓ + `specialEventTagIds=["oktoberfest"]` ✓）
+3. **`liveRooms` 加 `filter` 字段** ✓；选中 = `filter=tag` + **offset 归 0** + 清空 + 立刻重拉 ✓；**翻页照旧带 filter** ✓（见下实测 ✓）
+4. **弹窗 `openLiveFilter()`** ✓：**未映射的芯片标「（未映射）」** ✓（女主播 2 个：Oktoberfest Party / 全部分类 ✓；男主播 8 个、跨性別 6 个 ✓）；
+   点**已映射** → 真筛选 ✓；点**未映射** → **不筛选、不硬猜** ✗（只写一条日志 ✓ 并把站点页地址摆出来 ✓）；"已选"高亮改成按 **filter tag** 回标 ✓
+5. **重置** ✓：清 `filter` + offset 归 0 + 回默认热门 ✓（按钮文案回「筛选」✓）；页面说明改成"已筛选/未筛选" ✓（不再写"还没接"✗）
+
+**映射复验（脚本跑的 ✓ 不是眼看 ✓）**：表 **71 条** ✓；211 条子分类里 **193 已映射 / 18 未映射** ✓；
+未映射清单 = `oktoberfest-party`、`/tags/<main>`（4 个"全部分类"✓）、男主播的 `big-nipples/hairy-armpits/fingering/creampie/big-cocks/shower` ✗、跨性別的 `big-clit/big-nipples/hairy-armpits/fingering` ✗
+（**正是你标了 ⚠️ 的那批 ✓** —— 全部按"标记不猜"处理 ✓）；抽查 `milfs=ageMilf · straight=orientationStraight · doggy-style=doDoggyStyle · 69-position=do69Position · cam2cam=autoTagP2P` ✓
+
+**CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓；本轮**无任何播放** ✗）**
+```
+1_默认    ：60 张卡 ✓ 前 3 = winter11 / Citymup / saozi666 ✓ 按钮「筛选」✓ 说明「未筛选」✓
+            日志 `primaryTag=girls offset=0 → 60 条（累计 60 / 1000）` ✓（**不带** filterGroupTags ✓）
+2_弹窗    ：芯片 **58** 个 ✓（= 女主播子分类数 ✓）**未映射标记 2 个** ✓
+3_选熟女  ：**切到了 ✓**（日志出现 `filterGroupTags=[[ageMilf]]` ✓）60 张 ✓ **首条变了** ✓（winter11 → saozi666 ✓）
+            按钮「筛选：熟女」✓ 说明「已筛选 ✓ ageMilf」✓ 日志 `filterGroupTags=[[ageMilf]] offset=0 → 60 条（累计 60 / 1000）` ✓
+4_筛选下翻页：滚到底 **60 → 120 张** ✓；**实锤那行**（含前缀 ✓）：
+            `直播列表：primaryTag=girls **filterGroupTags=[[ageMilf]]** offset=60 → 60 条（累计 120 / 1000）` ✓✓
+5_重置    ：生效 ✓ 60 张 ✓ 按钮回「筛选」✓ 说明回「未筛选」✓ 日志 `primaryTag=girls offset=0 …` ✓（**不带**筛选 ✓）
+6_未映射  ：点「大屌（未映射）」→ **没有再拉列表 ✓**（请求计数前后一致 ✓）卡片数不变 ✓
+            日志 `直播筛选：这条还没映射 tag ✗（大屌）→ 站点页：https://zh.xhamsterlive.com/men/big-cocks` ✓
+7_其他    ：正在播 <video> = 0 ✓ · **无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓；**`server.mjs` 本轮 0 改动** ✓；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 11808 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 14 轮**）① 查"真·直播流到底在哪"（**用户是对的** ✓）② X 降到状态栏以下（只改 `sim/index.html` ✓ 未提交 ✗，**`server.mjs` 0 改动** ✓）---
+### ① 直播流结论：**`hlsPlaylist` 那套全是"固定预览片"，不是直播** ✗✗（实测 ✓ 用户没错 ✓）
+**A. `hlsPlaylist` 及其各档 = `#EXT-X-PLAYLIST-TYPE:VOD` + `#EXT-X-ENDLIST`** ✗
+- `.media` / `.net` 两个主机 × `playlistType=standard/lowLatency` × `960p/480p/240p/160p_blurred` ——
+  **全部 200 但全是同一份 6 段 VOD 预览** ✗：`ENDLIST=有` ✓、`MEDIA-SEQUENCE:0` ✓、首段都是 `…/cpa/v2/chunk_000.m4s` ✓
+- **等 18~20 秒复测：`seq` 与分段列表一动不动** ✗ → **不是活流** ✗（分辨率 720x960/360x480/180x240 只是**同一段预览的不同编码** ✗）
+**B. 真站自己的播放器打的确实是"活"的 LL-HLS** ✓ —— 网络实证（headless 打开房间页 ✓ **静音** ✓ 抓 Network ✓）：
+- `https://media-hls.doppiocdn.net/b-hls-20/197467228/…_160p_blurred.m3u8?playlistType=lowLatency&preferredVideoCodec=…` ✓
+- 分片名带**会话**信息：`…_h264_<seq>_<TOKEN>_<ts>_part0..3.m4s` ✓，序列 `2075 → 2080` **一路在走** ✓ → **活直播** ✓
+- 但**同一形状我裸取**（两种主机/两种 playlistType/各档 ✓ 都试了 ✓）拿到的**还是那份 VOD 预览** ✗
+  → ⇒ **需要会话/令牌**（guest 会话那条也**只是打码档** 160p_blurred ✓，站点页面上 `<video>` 实测 `120x160` ✓）
+**C. 所以结论** ✓：**sim 里用 HLS 裸 URL 拿不到真实直播画面** ✗ —— 要真画面得
+① 复刻站点的**会话/令牌**流程（更大的 recon ✗，且 guest 本身只有打码档 ✗）② 或上 **WebRTC**
+（⚠️ 我这次**只确认了页面里搜不到 `whep`/`whip` 字样** ✓；WebSocket/信令那段我的输出**被截断了 ✗ 未确认** ✓ 不瞎说 ✓）。
+**本轮我**没改**取流逻辑** ✗（lead 说"先别急着改"✓）—— 上一轮那个"960p→480p→240p"选档仍保留 ✓，
+但它现在只是**给预览片挑更清晰的编码** ✓（例：Room Citymup 实测取到 `480p`、解码 640x480 ✓）。**等你定方向再动** ✓。
+
+### ② X 位置（已改 ✓ + 实测 ✓）
+- 状态栏 `.status` 高 **62px**（含 21px 上内边距 ✓）→ X 从 `top:10px` 改到 **`top:70px`** ✓（留 8px 缝 ✓）
+- 实测（手机壳有缩放 ✓ 所以看**相对关系** ✓）：X `top=77 / bottom=105` · 状态栏 `bottom=70` ✓ → **不压状态栏 = true** ✓✓
+- toggle 未受影响：点一下显示 → 再点隐藏 → 第三下显示 ✓
+
+### CDP 冒烟（端口 = **我自己的 8788** ✓，Edge headless + 手机 UA ✓，`--mute-audio` ✓，**播放静音** ✓）
+```
+0_房间   ：Citymup（列表每次不同 ✓）
+1_起播   ：起播 ✓ 4157ms · readyState=4 ✓ muted=true volume=0 ✓ 解码 640x480 ✓
+           取流日志 `直播取流：480p` ✓（选档器工作正常 ✓）
+2_X位置  ：显示 ✓ X top=77/bottom=105 · 状态栏 bottom=70/height=52 → **不压状态栏 ✓**
+3_toggle ：true → false → true ✓
+4_其他   ：正在播 video = 1 ✓（关掉会停 ✓ 见上一轮）· **无未捕获异常** ✓
+```
+`node --check` 内联脚本 = **0** ✓
+**约束 ✓**：只改 `sim/index.html` ✓；**`server.mjs` 本轮 0 改动** ✓；`lib/**` 一格没碰 ✗；**没 commit 没 push** ✗；
+临时脚本（6 个）/Edge profile 全删 ✓；**我自己的 8788 已停**（PID 19104 ✓）；**用户那个 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 15 轮**）复刻站点"会话/令牌流程" → **结论：复刻不了** ✗（实测两道墙 ✓），只把 sim 的话**说明白** ✓（未提交 ✗，**`server.mjs` 0 改动** ✓）---
+**用户要求** ✓：复刻站点会话/令牌流程，让 sim 放**真·直播画面** ✓（我按访客那条公开路径走 ✓ 没去绕账号权限 ✗）。
+
+### 先摸清"真画面"在哪 ✓（实测 ✓）
+| 结论 | 证据 |
+|---|---|
+| `hlsPlaylist` 那套 = **固定预览片** ✗ | `.media`/`.net` × `standard/lowLatency` × 各档 **全是 6 段 VOD** ✓（`#EXT-X-ENDLIST` ✓、`MEDIA-SEQUENCE:0` ✓、18~20 秒复测**纹丝不动** ✗） |
+| **真·活流确实存在** ✓ | headless 打开房间页抓包 ✓：`mmp.doppiocdn.com/player/mmp/v2.13.0/*.js`（站点**自研播放器** ✓）→ `edge-hls…net/hls/<streamName>/master/<streamName>_**auto**.m3u8?playlistType=lowLatency` ✓ → `media-hls…net/b-hls-**30**/<sn>/<sn>.m3u8?playlistType=lowLatency&preferredVideoCodec=h264&**psch=v2&pkey=<16位>**` ✓ → LL-HLS 分片 `<sn>_<seq>_<TOKEN>_<ts>_part0..7.mp4` ✓；<br>页面 `<video>` 实测 `readyState=4 / currentTime=364s / **1280×720** / 访客身份` ✓ = **访客也能看清晰活流** ✓（不需要登录 ✓） |
+| 裸取也能拿到**活清单** ✓（关键 ✓） | 带上真站那个 `pkey` 直取 → **200 + 真·直播** ✓（`#EXT-X-SERVER-CONTROL` ✓、20 个 `#EXT-X-PART` ✓、`MEDIA-SEQUENCE 144→150` 15 秒内**在走** ✓）；**漏 pkey 或改一个字符 → 302** ✗ |
+
+### 但两道墙，实测过不去 ✗✗
+1. **`pkey` 不可得** ✗：把本次会话里**所有**同源 API 正文（22 个 ✓）、`localStorage`/`sessionStorage`/`document.cookie`/页面 HTML ✓、
+   **WebSocket 帧**（Centrifugo `connect`/`subscribe` ✓）全搜了一遍 → **一处都没有** ✗ → 它只存在于**站点自研播放器 mmp 内部** ✓
+   （也试过：拿抓到的 pkey 去开**别的**模型 → 200 但**只有 689B** ✗ 不是活清单 → 说明**按模型/会话绑定** ✗ 不能一把钥匙通吃 ✓）
+2. **清单是 mmp 私有混淆格式** ✗：20 个 `#EXT-X-PART` 的 `URI` 全是占位 `…/b-hls-30/media.mp4` ✗，
+   真分段藏在 `#EXT-X-MOUFLON:URI:` 扩展里 ✓、还配 `#EXT-X-MOUFLON:EXT-REF:<b64 令牌>` ✓；
+   我按 4 种 query 带法直取那些分段 → **全 404** ✗ → 只有 mmp 能按扩展语义**现算**出可用的分段 URL ✓
+
+### ⇒ 结论 + 建议（等你拍板 ✓）
+- **sim 里用 HLS 放真画面：做不到** ✗（要做得先逆向 mmp 播放器 bundle + MOUFLON/PSCH 语义 + pkey 生成 ✗ = 独立 RE 项目 ✗，不是"补个 token" ✓）
+- ✅ **最省事且已验证可行**：**App 侧 WebView 直接加载房间页** ✓ —— 站点自己的播放器会以**访客**身份放出 **1280×720 的清晰活流** ✓✓（我实测到的就是这个 ✓）
+- 本轮 sim 只做一件事 ✓：全屏播放层上加一行**明说** ✓「站点预览片 · 不是真直播 ✗（真画面只有站点自己的播放器放得出 ✓）」——
+  不再让人以为在看直播 ✗（样式 `.lv-player .tag` ✓；取流逻辑**一个字没改** ✗）
+- `node --check` 内联脚本 = **0** ✓；**约束** ✓：只改 `sim/index.html` ✓、`server.mjs` 0 改动 ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+  临时脚本（6 个）/Edge profile 全删 ✓、**8788 我起过又停了** ✓（现无监听 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 16 轮**）用户问的"**A 方案**"（真流能不能脱离站点播放器播）→ **实测结论：✗ 不通**（只探测 ✗，`sim/**` 一个字没改 ✓，未提交 ✗）---
+**A 方案的问法** ✓：「自绘 UI + 直连站点真流」能不能成立 —— 即 App 用**自己的播放器**放那条活流 ✗，不用 WebView 顶着网页壳 ✓。
+**实测三面（全做完 ✓）**：
+
+**① 抓新鲜样本** ✓：`winter11`（streamName `197467228`）→ 活清单
+`…/b-hls-30/197467228/197467228_960p60.m3u8?playlistType=lowLatency&preferredVideoCodec=h264&psch=v2&pkey=NTK9aqcLmNFMWrpQ` ✓（HTTP 200 / 4958B / `MEDIA-SEQUENCE:328` ✓ 活的 ✓）；房间 cookie 717B（只有 AB 测试键 ✓）
+
+**② 分段取法矩阵（Node 侧，8 种会话上下文全试）** ✗✗
+| 组合 | 结果 |
+|---|---|
+| ① 裸取 · ② 只带 Referer · ③ Referer+Origin · ④ ③+cookie · ⑤ 只 cookie · ⑥ cookie+Origin · ⑦ ④+Range · ⑧ ④+自定义 psch 头 | **8/8 全 HTTP 404（10B, `video/mp4`）** ✗ |
+（⚠️ 清单里的 `#EXT-X-MOUFLON:URI:` 行**看着就是真分段名** ✓（`…328_QKdIaC8lLO7yLchdT69u0b_1791091692_part0.mp4` ✓）但**就是 404** ✗；
+**具体为什么 404 没定死** ❓（可能：分段按会话/令牌绑定 ✗、短时效 ✗（LL-HLS 窗口只几秒 ✗）、或播放器另有一套算法 ✓）—— 但"**我们构造不出来**"这点是实锤 ✓）
+
+**③ 浏览器端到端（sim 页面里 ✓ 静音 ✓）** ✗
+- 经 `/proxy` 拿活清单 → 200 ✓（5170B ✓）；把 MOUFLON 行改写成标准 HLS ✓ → **喂 hls.js** ✓（hls.js 加载成功 ✓、`isSupported=true` ✓、确实向 `b-hls-30` 发了 6 个请求 ✓）
+- **结果：`readyState=0 / currentTime=0 / videoWidth=0`** ✗ = **放不出来** ✗（分段拿不到，播放器只能空转 ✓）
+
+**⇒ A 的答案：✗ 不成立** ✓ —— 「自绘 UI + 直连真流」在**不改站点播放器**的前提下做不到 ✓。
+剩下三条（都已如实告知用户 ✓，等他拍板 ✗）：
+① **WebView 加载房间页** ✓（已验证能出 1280×720 访客活流 ✓，代价=顶着站点网页壳 ✗；能不能用注入 CSS 藏干净 ❓**未验证**）
+② **逆向 mmp 播放器** ✗（MOUFLON/PSCH 语义 + pkey + `EXT-REF` 那串 base64 令牌的算法 ✓，独立 RE 工程 ❓ 可行性未验证）
+③ 不做 ✗（sim 里那行"站点预览片 · 不是真直播"的说明保留 ✓ 不再误导 ✓）
+
+**约束 ✓**：**`sim/**` 本轮 0 改动** ✓（没碰 `index.html`/`server.mjs` ✓）、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本/2 个 Edge profile 全删 ✓、**8788 我起过又停了**（PID 19732 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 17 轮**）用户拍板"逆向" → mmp 播放器协议**逆到最后一层，卡住** ✗（只探测 ✗，`sim/**` **0 改动** ✓，未提交 ✗）---
+### ✅ 打通的部分（可复刻 ✓，全实测）
+1. **"发钥匙"的那一步找到了** ✓（我上一轮漏看的）：`GET edge-hls.doppiocdn.net/hls/<streamName>/master/<streamName>_**auto**.m3u8?playlistType=lowLatency`
+   → 200，正文里 **11 行 `#EXT-X-MOUFLON:PSCH:v2:<钥匙>`** ✓ + **变体表**：
+   `source(1080x1440, 6850k) / 960p60(720x960, 4188k) / 960p(720x960, 2620k) / 480p(360x480, 1375k) / 240p(180x240, 658k)` ✓
+2. **带钥匙取变体 → 真·活清单** ✓：`…/b-hls-30/<sn>/<sn>_960p.m3u8?playlistType=lowLatency&preferredVideoCodec=h264&**psch=v2&pkey=<钥匙>**`
+   → **200 + 活的** ✓（`MEDIA-SEQUENCE 502 → 515` 在走 ✓、`#EXT-X-SERVER-CONTROL` ✓、无 ENDLIST ✓）
+3. **不带钥匙 = 兜底预览** ✓（302 → `cpa/v2/stream.m3u8`，689B ✓ = 我前面一直撞到的那个"预览" ✓，谜题闭环 ✓）
+### ✗ 卡住的最后一层：**分片地址取不到**（穷尽过 ✓）
+- 清单里 `#EXT-X-MOUFLON:URI:` 给的分片 URI **全 404** ✗：不是编码（`/`→`%2F`、`+`→`%2B` 等 5 种 ✗）、
+  不是窗口过期（**639 毫秒内并发取前 6 个**全 404 ✗）、不是会话上下文（cookie/Origin/Referer/Range/自定义头 8 种组合全 404 ✗）、
+  也不是"去预设名/拼接 token"的简单修复（5 种猜法全 404 ✗）
+- **对照**：同一时刻取 `#EXT-X-MAP`（init 段 `…_h264_init_<token>.mp4`）→ **200 / 1234B** ✓ → 主机可达 ✓，**只有分片 URI 是坏的** ✗
+### 🔍 机制定位（读码得的 ✓，不是猜）
+- `chunk-3d7c79f25e6a8cbb8748.js`（**他们 fork 的 hls.js** ✓）里有：`#EXT-X-MOUFLON:FILE/PSCH/EXT-REF` 三个 tag 解析 ✓、
+  `_manifest.custom.**mmpCorruptionScheme**` ✓、以及关键字段 **`_awaitingFragmentURL`** ✗ ——
+  ⇒ **分片地址是"等播放器给"的** ✓（不是客户端拼出来的 ✓），所以"corruption scheme"不是字符串改写 ✓
+- `main.js`（352KB，**字符串表混淆** ✗）：有**硬编码 pkey 常量** `B0p93vi8Uj6AYyZb` ✓（与运行时那把不同 ✓）、
+  `psch`/`pkey` 字面量被拼成 `ii(526)+ii(516)+"ER_NAME"` 这种 ✗ → 真算法在混淆里 ✓
+### 下一步（要继续就在这两条里选 ✓）
+① 抓 **WebSocket 二进制帧**（上一轮我只留了**文本帧** ✓ → 可能漏 ✗；页面有 `wss://websocket-v6.xhamsterlive.com/connection/websocket` + JWT ✓）
+② 解 `main.js` 的字符串表 + 跟 `_awaitingFragmentURL` 是谁 resolve 的 ✓
+⚠️ 代价照实说 ✓：这是**真 RE 工作量** ✓，且播放器**带版本号**（v2.13.0 ✓）→ 站点一升级就要重跟 ✗
+### 结论（建议，附前提 ✓）
+若目标只是"App 里看真画面" → **WebView 路线仍是性价比最高** ✓（今天就能用 ✓，实测访客 1280×720 ✓）；
+**自绘 UI + 直连真流** ⇒ 必须先吃下上面那摊 RE 风险 ✗（本轮**没吃下** ✓）
+**约束 ✓**：`sim/**` **本轮 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、6 个临时脚本 + Edge profile 全删 ✓、
+**8788 我起过又停了**（PID 20988 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 18 轮**）用户"开始吧，先模拟器打通" → **又穷尽 4 条路，仍差最后一把钥匙** ✗（只探测 ✗，`sim/**` **0 改动** ✓，未提交 ✗）---
+**本轮试过并排除的（全实测 ✓）**
+1. **配对实证** ✓：播放器实际取的分片形态 = `…/b-hls-30/<id>/<id>_<preset>_h264_<seq>_<TOKEN>_<ts>_partN.mp4`（**与清单里 `MOUFLON:URI` 形态一样** ✓，只差 token）
+2. **token 规律** ✓：**每个 seq 一个 token、同 seq 的 4 个 part 共用** ✓；**16 字符**（≈12 字节 ✓）；清单里的那份是 **22 字符**（≈16 字节 ✓）⇒ **清单那行是另一种/诱饵** ✗
+3. **WS 帧**：只有 2 上 2 下**文本帧**（Centrifugo connect/subscribe ✓），**二进制帧 0 条** ✗ → 不是 WS 给的 ✗
+4. **有界爆破** ✗：以 `pkey` 为密钥，对 `seq/ts/part/preset/id` 各种拼接（114 组：HMAC-SHA256 / SHA256(k+m) / SHA256(m+k) × base64/base64url/hex × 12/16 字节截断）→ **全不中** ✗
+5. **"播放器专属清单"假说** ✗：在**浏览器里直连**取活清单 vs 经 `/proxy` 取 → **字节级相同**（5391B、同一批 URI、token 都是 22 字符 ✓）⇒ **CDN 不按指纹发不同清单** ✗
+6. 分片里那份 22 字符 token（含 `/` ✗）→ 各种 URL 编码/修复 ✗（上轮已试 5 种）
+⇒ **最后那一把钥匙（每 seq 的 16 字符 token）只存在于混淆的 `main.js` 里** ✗ —— 要拿只能**解混淆**（字符串表 + 跟 `_awaitingFragmentURL` 由谁 resolve）✗
+
+**结论（建议，附前提 ✓）**
+- 「sim/App 自绘播放器 + 直连真流」= **必须先解混淆 mmp 播放器** ✓；这是**真 RE 工程** ✓，且播放器带版本（`v2.13.0` ✓）→ **站点每次升级都要重跟** ✗
+- 而且那是站点**刻意**做的"corruption scheme" ✗（= 不希望第三方直接播 ✓；流本身访客可看 ✓ 不涉及绕权限 ✓）→ **性价比更低** ✗
+- ✅ **干净且今天可用的路仍是**：**会话内让站点的播放器自己放**（App 侧 = WebView 加载房间页 ✓；实测访客 `1280×720` ✓、以及 `720×960` ✓）
+- sim 侧现状保持不变 ✓：房间页放的是**站点预览片** ✓ + 已明写「不是真直播」✓（不再误导 ✓）
+
+**约束 ✓**：`sim/**` 本轮 **0 改动** ✓（`index.html`/`server.mjs` 都没动 ✓）、`lib/**` 没碰 ✗、没 commit/push ✗、
+4 个临时脚本 + 4 个 Edge profile 全删 ✓、**8788 我起过又停了**（PID 7580 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 19 轮**）用户"先把模拟器跑通，不管用什么办法" → **能跑通的那条已落进 sim** ✓（真画面那条卡在站点私有加载器 ✗，留了入口 ✓）---
+### ✅ 落进 sim 的（已改 `index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+**直播全屏层新增「看真直播 ▶」按钮** ✓ —— 点它 = 新开 **430×932 手机尺寸窗口**打开 `https://zh.xhamsterlive.com/<主播名>` ✓，
+用**站点自己的播放器**放真画面 ✓（这是唯一可行路径 ✓ 实测访客就能看清晰活流 ✓）。
+- 位置：`top:118px` 居中（X 在 77~105 ✓ 不打架 ✓）；点屏幕仍只切 X ✓（按钮 `stopPropagation` ✓ 实测不误触 ✓）
+- 说明文字同步改成「上面放的是站点预览片 ✗ · 真直播要用站点自己的播放器 ✓（点「看真直播」）」✓
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ 播放静音 ✓，无未捕获异常 ✓）
+```
+点底栏「直播」→ 点站点宫格 → 房间列表 60 张 → 点第 1 张 → 进全屏层
+ 按钮：有 ✓ 文字「看真直播 ▶」✓ 位置 top=117 / 宽 111 ✓
+ 点它：window.open → https://zh.xhamsterlive.com/winter11 ✓ 窗口名 kpxx_live_winter11 ✓ 尺寸 430×932 ✓
+ 点屏幕：只切 X（true ✓），**没有**连带触发按钮 ✓
+ 播放：预览片 rs=4 / t=11.4s / muted=true ✓
+ X 位置：**显示后**量 = top 77 / bottom 105 vs 状态栏 bottom 70 → **不压状态栏 ✓**
+（⚠️ 上一版冒烟报 false ✗ 是我量了**隐藏状态**的 X ✗（rect 全 0 ✗）→ 已修正量法 ✓）
+```
+### ✗ 没跑通的那条（真画面进 sim 自己的播放器）—— 本轮推进到什么程度
+1. **站点页面怎么起播放器，已挖出契约** ✓（`29242….js`）：
+   `const o = new PlayerClass(); o.setVideoElement(v); o.setConfig({playbackStateController:{syncToLiveDelta:0,syncToLiveEdge:false,autoPlay:true,...}}); o.setUrl(url); o.start();`
+   —— `url` 由外部传入 ✓、令牌那套在播放器内部 ✓
+2. **加载器链已挖到** ✓：`MMPExternalUnitedSourceOrigin = https://mmp.doppiocdn.com/player/mmp` + `externalVersion=v2.13.0` ✓；
+   站点本地模块 = `Promise.all([r.e("38584"),r.e("40017"),r.e("11223")]).then(r.bind(r,74599))` → `module.DoppioPlayer` ✓
+3. **在自己页面里挂 CDN 那份** ✗ 卡住：`main.js` 只带 webpack runtime（88 模块 ✓）；
+   用 runtime 的 chunk 表（11 个 ✓）**全部加载成功** ✓（103 模块 ✓），但**没有任何模块含 `DoppioPlayer` 字样** ✗
+   → CDN 包的导出名是**混淆的** ✗，必须由**站点自己那份加载器**包装（`localModuleLoaderWasUsed` ✓）才能拿到 ✗
+   ⇒ 想继续 = 再挖一层站点 loader 的包装逻辑 ✗（又一层 RE ✓ 不保证成 ❓）
+### 其它已排除的路（本轮新增，全实测 ✓）
+- **iframe 嵌房间页**：响应头 **`X-Frame-Options: deny`** ✗（根页也一样 ✗）→ 物理上死 ✗（比 shorts 那页还狠 ✗）
+- 我们自己的 hls.js 播 CDN 直链：分片 token 在混淆 JS 里 ✗（上轮已穷尽 ✗）
+**约束 ✓**：`sim/index.html` 只加按钮/文案/CSS ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本（6 个）+ 全部 Edge profile 清完 ✓、**8788 我起过又停了**（PID 3408 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 🎯 追加（2026-10-03 · **sim 侧第 20 轮**）**模拟器打通了 ✓✓✓** —— 直播房间层现在放的是**真·直播画面**（站点自己的播放器 ✓）
+### 一句话原理
+**不逆向令牌** ✗ —— 直接把**站点自己的播放器**（`MouflonPlayer` ✓，CDN 上的 `main.js` ✓）拉进 sim 的页面里跑 ✓：
+它内部自己处理 `psch/pkey` 与每分片令牌 ✓，所以**分片令牌那条死路被彻底绕过** ✓✓。
+### 可复现配方（实测 ✓，第三方照做即可）
+```js
+// ① 全局 modulesrc = CDN 目录（它自己按这个基址拉 chunk ✓）
+window.modulesrc = 'https://mmp.doppiocdn.com/player/mmp/v2.13.0/';
+// ② 拉 main.js 文本，按它期望的 CommonJS 形态执行 ✓（它末尾是 `module.exports = i` ✓）
+const txt = await (await fetch(window.modulesrc + 'main.js')).text();
+const jsx = (t, cfg, k) => { const p = Object.assign({}, cfg||{}); if (k!==undefined) p.key = k; return React.createElement(t, p); };
+const shim = (n) => n==='react' ? React
+  : n==='react-dom' ? ReactDOM
+  : n==='react-dom/client' ? { createRoot: ReactDOM.createRoot, hydrateRoot: ReactDOM.hydrateRoot }
+  : (n==='react/jsx-runtime'||n==='react/jsx-dev-runtime') ? { jsx, jsxs: jsx, jsxDEV: jsx, Fragment: React.Fragment } : {};
+shim.resolve = () => '';
+const mod = { exports: {} };
+new Function('module','exports','require','modulesrc', txt)(mod, mod.exports, shim, window.modulesrc);
+// ③ 渲染它的 React 组件（**必须给 videoElement** ✗ 漏了就不出播放器 ✓ 实测）
+const ve = document.createElement('video'); ve.muted = true; ve.volume = 0; ve.playsInline = true;
+const ref = React.createRef();
+ReactDOM.createRoot(box).render(React.createElement(mod.exports.MouflonPlayer, {
+  videoElement: ve, playerType: 'hls', HLSStreamUrl: <真流地址>, playerRef: ref,
+  volume: 0, isABREnabled: true, muted: true, autoplay: true,
+}));
+// ④ 把 ref.current._videoElement 挂进 DOM 就是画面 ✓
+```
+- 依赖：React/ReactDOM 18 UMD（`unpkg.com/react@18` + `react-dom@18` ✓；⚠️ 本地拿到的是 `18.3.1-next-…` ✗ **没有 `createRoot`** → 代码里已做**降级到 `ReactDOM.render`** ✓ 实测可行 ✓）
+- 真流地址：用**选档器挑出的档**（`m.hlsPlaylist` 换成 480p/960p ✓）比接口默认档（240p ✗）清晰 ✓；挑不到就退回接口默认档 ✓
+- 导出名：CDN 包导出 `MouflonPlayer / useMouflonPlayer / useMouflonPlayerV2 / getVideoElement / MMP_VERSION(v2.13.0) / E*` 枚举 ✓（站点自己代码里叫它 `DoppioPlayer` ✓ —— **名字不同** ✓ 这就是我前面按名字搜找不到的原因 ✗）
+### 验收（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓，**播放静音** ✓）
+```
+底栏「直播」→ 站点宫格 → 房间列表 60 张 → 点第 1 张 → 全屏层
+ [0s] 真画面已起 ✓ rs=4 · t=944s 在走 · **854×480** · muted=true volume=0 · paused=false · 在DOM ✓
+ 标签：「真·直播 ✓（站点自己的播放器 · 静音播放）」✓
+ 日志：真·直播取档：480p ✓ / React 18.3.1 / ReactDOM 18.3.1-next ✓ / 真·直播已起 ✓ enya- ✓
+ 真·活分片：70032198_480p_h264_init_….mp4 + _465/_466/_467_….mp4 **序列在推进** ✓✓
+ X：显示后 top=77 ≥ 状态栏 bottom=70 → 不压状态栏 ✓ ；无未捕获异常 ✓
+```
+### sim 里的实现位置（`sim/index.html` ✓ 未提交 ✗）
+- 新增 `ensureMmp()`（懒加载 React + mmp 模块 ✓ 一份缓存 ✓）、`mountMmpLive()` / `renderMmp()` ✓
+- `viewLiveRoom()` 里**并行**调 `mountMmpLive` ✓：真画面起来就**盖掉预览片** ✓；起不来就保持预览 + 提示 ✓（**不会炸** ✓）
+- 预览片（上轮的 hls.js 路径 ✓）**保留**当兜底 ✓；「看真直播 ▶」按钮也保留 ✓（双保险 ✓）
+- 静音三件套全程 ✓：`--mute-audio` + `ve.muted=true; ve.volume=0` + `volume:0` prop ✓
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本（6 个）+ 全部 Edge profile 清完 ✓、**8788 我起过又停了**（PID 19992 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 21 轮**）用户定："真直播"按钮**缩到不可见** ✓（只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）---
+### 改成什么样
+- **平时完全不显示** ✓：`#lvli` 默认 `display: none` ✓（rect 实测 `0/0` ✓ 不占位 ✓）—— 真画面起来后画面是干净的 ✓
+- **点一下屏幕才出来** ✓：和 X 一起显示 ✓（层加 `.on` ✓ → `.lv-player.on .live { display:block }` ✓）
+- 从"大黄药丸"缩成**小链接**：「真直播 ↗」✓ top=117 / 宽 77 / 高 22 ✓（半透明黑底 ✓ 不抢眼 ✓）
+- 保留它的理由（写进注释了 ✓）：① 它是用**你自己的浏览器**打开站点页 ✓ 登录态能看到内嵌访客播放器看不到的档/私密看 ✓
+  ② 内嵌路径依赖 `unpkg.com` + `mmp.doppiocdn.com` 两个外部源 ✗ 全挂时它是唯一兜底 ✓
+- 三处降级提示文案同步改成「点屏幕有「真直播 ↗」」✓（不再写「看真直播」✗）
+### 验收冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ 播放静音 ✓）
+```
+平时：     按钮 display=none ✓ · X display=none ✓ · 层无 on ✓ · 按钮 rect 0/0（不占位 ✓）
+点屏幕后： 按钮 display=block ✓ · X display=grid ✓ · 层 on ✓ · rect 117/77/22 ✓ · 文字「真直播 ↗」✓
+点按钮：   window.open → https://zh.xhamsterlive.com/winter11 ✓ 窗口 kpxx_live_winter11 ✓ 430×932 ✓
+真画面：   rs=4 ✓ t=303s 在走 ✓ **720×960** ✓ muted=true volume=0 ✓ paused=false ✓ 在DOM ✓
+           X 显示后 top ≥ 状态栏 bottom → 不压状态栏 ✓ · 标签「真·直播 ✓（站点自己的播放器 · 静音播放）」✓
+无未捕获异常 ✓ · `node --check` 内联脚本 = 0 ✓
+```
+（⚠️ 我自己的探针脚本先报了一次空值 ✗ —— 是**注入代码里对象键以数字开头** ✗ 的语法错误 ✓ 加引号就好了 ✓，跟 sim 无关 ✓）
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 21860 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 22 轮**）用户定："女主播 × 7 组 / 58 个子分类在「筛选」里 —— 未筛选（默认热门）"这句说明**删掉** ✓（只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）---
+### 删了什么（都是纯展示，不带功能 ✓）
+1. `renderLiveSite` 里那行 `.lv-note` 说明 ✓（那句「… 个子分类在「筛选」里 … 未筛选（默认热门 ✓）」✓）
+2. `.lv-note` 的 CSS ✓（删完就没人用了 ✓ 顺手清掉 ✓）
+3. 只被它用到的 `const nItems = …` ✓（连带死代码 ✓ 一起删 ✓）
+- 当前筛选状态**不丢** ✓：它本来也写在「筛选」按钮上（`筛选：熟女` ✓）+ 出现「重置」按钮 ✓ → 信息仍在 ✓
+### 回归冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ 播放静音 ✓）
+```
+① 说明行：`.lv-note` 元素没了 ✓（含「个子分类在」字样的节点 = 0 ✓）
+② 站点页：tabs=4 ✓（女主播/情侣/男主播/跨性別）· 筛选按钮「筛选」✓ · 房间卡 60 ✓ · 加载更多在 ✓ · 无重置（未筛选 ✓）
+③④ 弹窗：打开 ✓ 可见 ✓ · 小标签 65 个 ✓ · 「未映射」标注 1 个 ✓（与设计一致 ✓）
+⑤⑥ 选了「熟女」→ 按钮变「筛选：熟女」✓ · 重置按钮出现 ✓ · 房间卡 60 ✓ · 说明行仍为"没了" ✓
+⑦ 重置 → 按钮回「筛选」✓（⚠️ 重置瞬间列表会**短暂清空**再重拉 ✓ 属正常 ✓ 下一轮已看到 60 张 ✓）
+⑧ 真直播回归：**rs=4 · 720×960 · muted ✓** · 日志「站点播放器已就绪 ✓ v2.13.0」「真·直播取档：960p」「真·直播已起 ✓ winter11 · 静音 ✓」
+   真·活分片：…_960p_h264_529/530/531_….mp4 **序列在推进 ✓** · 无未捕获异常 ✓ · `node --check` = 0 ✓
+```
+（⚠️ 第一次跑 ⑧ 报"没起来" ✗ —— 重验后 **[0s] 就起来了** ✓，是**偶发**（站点侧/CDN）✗ 不是我的改动 ✓；我改的三处都不碰播放器 ✓）
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 21288 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 23 轮**）直播页加**第 5 个主分类 tab「移动端直播」** ✓（lead 派单 + 用户拍板 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么（5 处，全在 `sim/index.html` ✓）
+1. **`LIVE_MAIN`** 末尾加第 5 项 ✓：`{ name: '移动端直播', mobile: true, groups: [] }` —— 加在**跨性別右边** ✓（顺序：女主播/情侣/男主播/跨性別/**移动端直播** ✓）；`groups: []` 空 ✓（它是叶子 ✓）
+2. **`LIVE_TAG_OF`** 加 `'移动端直播': 'girls'` ✓（默认看**女主播**的移动流 ✓）
+3. **`LIVE_FILTER_TAIL` 拆两段** ✓：`LIVE_FILTER_TAIL_BASE`（不含 `specialEventTagIds` ✓）+ `LIVE_FILTER_TAIL = BASE + specialEventTagIds` ✓ —— 移动端 tab 用 BASE ✓（recon 明确它不带 ✓）
+4. **`liveFetch(tag, offset, filterTag, mobileMode)`** 加第 4 参 ✓；`loadLiveRooms` 传 `!!liveRooms.mobile` ✓
+5. **`renderLiveSite`**：① 该 tab **不渲染**「筛选」那行 ✓（`${m.mobile ? '' : …}` ✓ 整行都不渲染 ✓ 不浪费空间 ✓ 也不会点了没反应 ✓）
+   ② 重拉判据加"移动端标记" ✓：`liveRooms.tag !== tag || !!liveRooms.mobile !== wantMobile` ✓
+   （⚠️ 坑：移动端 tab 的 `primaryTag` **也是 girls** ✗ —— 只看 tag 会跟「女主播」**串列表** ✗，所以必须比 `mobile` ✓）
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓，**无未捕获异常** ✓，`node --check` = 0 ✓）
+```
+① tabs：个数 5 ✓ 顺序 [女主播, 情侣, 男主播, 跨性別, 移动端直播] ✓ 当前=女主播 ✓
+   横向滚：需要 ✓（.lv-tabs 本来就有 overflow-x:auto ✓ 第 5 个滑得到 ✓）· 筛选按钮：在 ✓ · 房间卡 60 ✓
+② 点「移动端直播」→ ③ 当前 tab=移动端直播 ✓ · **筛选按钮/筛选行都没了 ✓** · 房间卡 60 ✓
+   首条 = 「LIVE 4293 人 winter11」✓（与 lead 给的预期一致 ✓）
+④ 滚到底 → 房间卡 **120** ✓（offset=60 那一页来了 ✓）· 加载更多=「上滑加载更多」✓（没到底 ✓）
+⑤ 换回「女主播」→ 筛选按钮回来了 ✓（文字「筛选」= 无筛选 ✓）· 房间卡 60 ✓（已按无筛选重拉 ✓）
+### 接口 URL 原样核对（stub fetch 抓全文 ✓，最能说明问题的证据 ✓）
+| 场景 | filterGroupTags | parentTag | specialEventTagIds |
+|---|---|---|---|
+| **移动端 tab** ✓ | `[["mobile"]]` ✓ | `mobile` ✓ | **没有 ✓**（符合 recon ✓） |
+| 对照组：同参数但不带 mobileMode ✗ | 有 ✓ | mobile ✓ | 有 ✗（证明去留确实由这个标记控制 ✓） |
+| 对照组：普通子分类筛选 `ageMilf` ✓ | 有 ✓ | ageMilf ✓ | 有 ✗（**其余 4 个 tab 行为没变 ✓**） |
+### 其余 4 个 tab ✓
+行为**照旧** ✗：tab 顺序/筛选行/子分类弹窗/重置/翻页 全未改 ✓（只有新增分支 ✓）
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 9728 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 24 轮**）查「ReactDOM 不可用」+ **把内嵌播放器的 React 加载做稳** ✓（只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### ① 根因结论（实测 ✓）
+- **那句的充要条件** ✓：`window.React` / `window.ReactDOM` **都是真值** ✓、但**既没有 `createRoot` 也没有 `render`** ✗
+  ⇒ 意思是**拿到了一份坏/不完整的 ReactDOM** ✗（不是"没加载上"✗ —— 那走的是**另一句**「React 拉不到 ✗」✓）
+- **不是移动端 tab 的代码路径问题** ✓✓：实测「**把移动端 tab 放第一个点**」→ **2 秒就起真画面** ✓（与其它 4 个 tab 完全一致 ✓）→ 它们**同一条代码路径** ✓
+- **平时能起、某次报错的真原因（代码缺陷 ✓ 实锤）**：
+  ① 老代码是**点卡片才拉** React ✗（冷启动 = 2 个脚本 + 352KB 模块 ✓）→ 网慢/被拦就赶不上 ✗
+  ② **失败会被缓存住** ✗ —— `mmpP` 一旦失败就记住 ✗，后面所有房间全废 ✗（读代码 + 断源实验都印证 ✓）
+- ⚠️ 用户设备上那份 CDN 具体返回了什么 ✗（stub / 错文件 / 残留副本 ✗）**我无法复现** ✗ —— 只能确定"要出那句，必须是拿到坏副本" ✓，**这个条件现在被拦住了** ✓
+### ② 改了什么（8 点 ✓ 都在 `sim/index.html`）
+1. **双源链式兜底** ✓：`cdn.jsdelivr.net` 优先（sim 的 hls.js 本来就走它 ✓）+ `unpkg.com` 兜底 ✓
+2. **顺序加载** React → ReactDOM ✓（UDM 的 react-dom 执行时需要 `window.React` ✓ 老代码 `Promise.all` 并发会撞 ✗）
+3. **加载后验 API** ✓（`createElement` + `createRoot|render` ✓）→ 不合格 = 该源作废 ✗ ✓（用户那种"坏副本"从此会被识别 ✓）
+4. **换源前清坏副本** ✓（`delete window.React/ReactDOM` ✓，不清就永远救不回来 ✗）
+5. **失败不再缓存** ✓（`mmpP` 失败置空 ✓ → 可重试 ✓）
+6. **预热** ✓：一进**站点页**就拉 ✓（实测：**还没点任何卡片**就已「播放器组件：React 18.3.1 … 就绪 ✓（源 jsdelivr）」+「站点播放器已就绪 ✓ v2.13.0」✓）
+7. **失败提示 + 重试入口** ✓：改成「播放器组件加载失败 ✗（外部源不通）· 现在放的是预览片 … · **点这里重试 ↻**」✓（点它重跑 ✓ 成功即清掉 ✓；`lvFail/lvOk` 两个小工具 ✓）
+8. 日志更清楚 ✓（哪个源 / React 版本 / 缺哪个 API ✓）
+❓ **unpkg 裸依赖没完全去掉** ✓ —— 留作兜底 ✓；**"本地打包一份 React 进 sim"做不到** ✗：sim 的静态文件是 `server.mjs` 里的白名单 ✗（只有 `index.html`+几张 jpg ✓），要加本地 js 就得改 `server.mjs` ✗ → 越界 ✓ 不硬来 ✓
+### ③ 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ 播放静音 ✓ `node --check` = 0 ✓）
+```
+① 5 个 tab 各开一间房（**移动端 tab 第一个点** ✓）
+   tab[4] 移动端直播 2s ✓ 720×960   tab[0] 女主播 2s ✓ 720×960   tab[1] 情侣 2s ✓ 360×480
+   tab[2] 男主播 2s ✓ 640×480        tab[3] 跨性別 4s ✓ 426×240    —— 全 muted=true ✓ 标签「真·直播 ✓」
+② 断掉两个 CDN → 提示：「播放器组件加载失败 ✗（外部源不通）…· 点这里重试 ↻」✓（有重试入口 ✓）
+   恢复网络 → 点提示重试 → **720×960 真画面起来了 ✓**
+③ 干净路径**无未捕获异常** ✓（我第一轮看到的那个 SyntaxError 是"屏蔽 CDN"这个测试花招自身产生的 ✗ 不是 sim 的 ✗）
+④ React 源命中：cdn.jsdelivr.net（react@18 + react-dom@18 ✓）· unpkg 只在被断时被试过 ✓
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 14760 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 25 轮**）移动端直播 tab 加 **4 个页内过滤器** ✓（lead 派单 + 用户要 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么
+1. **`MOBILE_FILTERS`** 数据表 ✓（lead 给的 recon **原文照抄** ✓）：外貌(5 组) / 国家(7 组) / 价格 & 表演类型(1 组) / 可请求提供的表演(1 组) ✓
+   - **tagId 只认原文明确给的** ✓；原文没给的（多数国家 ✗）→ `null` = **未映射** ✓（原文说按 `tagLanguage+国家英文名` 拼，
+     但样例后缀不统一 ✗（GermanSpeaking / USModels / Nordic ✓）→ 按"拿不准别硬猜"留空 ✓）
+2. **已选状态** ✓：`mfSel` 按**子分组**分桶 ✓（`<过滤器>#<子分组>` → tagId 数组 ✓）
+   ⚠️ 粒度依据 = lead 实测例子 `mobile+ageTeen+ethnicityAsian+bodyTypePetite+doAnal → 5` ✓
+   ⇒ **子分组各自成组** ✓（年龄/种族/体型… 之间 AND ✓、同子分组多值 OR ✓）—— 我一开始按"整个外貌一组"写错了 ✗ 已改 ✓
+3. **全屏「筛选器」modal** ✓（`openMobileFilter()` ✓）：标题「筛选器」✓ + 顶部 4 个过滤器切换（带已选数 ✓）+ 子分组 + 多选 chip（选中高亮 ✓）
+   + 未映射 chip 灰显 + 点了只提示不过滤 ✓ + 底部「重置」「进行筛选」✓
+4. **筛选行** ✓：移动端 tab 渲染 **4 个按钮**（`外貌` / `外貌: 熟女` / `外貌: 熟女 +1` ✓）+ 有选择时多一个红色「重置」✓（`mfAny()` ✓）
+   其余 4 个 tab **照旧** ✗（原筛选行分支没动 ✓）
+5. **请求** ✓：`filterGroupTags=[["mobile"]]` + **每个有选择的子分组一个内层数组** ✓ + `parentTag=mobile` ✓ + `LIVE_FILTER_TAIL_BASE`（移动端不带 `specialEventTagIds` ✓ 同第 23 轮 ✓）；`.ft`「进行筛选」→ offset 归 0 重拉 ✓
+6. 顺手修的**自己的两个 bug** ✗：① 组重复 `[["mobile"],["mobile"]]` ✓（既 push mobile 又把 `filterTag='mobile'` 当筛选 push 了一遍 ✗）
+   ② `mfCount(f.key)` 传成字符串 ✗（改成收对象后漏改调用点 ✓）
+### 数据计数（页面内实测 ✓）
+```
+外貌：5 组 / 32 项（有 tagId 32 · 未映射 0）
+国家：7 组 / 82 项（有 tagId 18 · 未映射 64）      ← 未映射是按"别硬猜"故意留的 ✓
+价格 & 表演类型：1 组 / 7 项（有 tagId 7 · 未映射 0）
+可请求提供的表演：1 组 / **61** 项（有 tagId 61 · 未映射 0）   ← ⚠️ lead 邮件写的是 60 ✗ 我落的是 61 ✓（差 1，等你核对 ✓）
+合计 182 项（有 tagId 118 · 未映射 64）
+```
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓，`node --check` = 0 ✓，**无未捕获异常** ✓）
+```
+① 女主播 tab：`#lvFilterBtn` 在 ✓ · `.mf-btn` = 0 ✓（4 主 tab 行为没变 ✓）
+② 移动端 tab：`#lvFilterBtn` **没了** ✓ · 4 个按钮 = 外貌/国家/价格 & 表演类型/可请求提供的表演 ✓
+③ 点「外貌」→ modal：标题「筛选器」✓ · 选项 32 ✓ · 未映射 0 ✓ · 子分组 5 个 ✓ · 顶部切换 4 个 ✓ · 底按钮 重置/进行筛选 ✓
+④ 选「熟女」→ 进行筛选：`filteredCount 1000 → **419**` ✓ · 按钮文字变「外貌: 熟女」✓ · 子分组头显示「年龄（已选 1）」✓
+⑤ 再叠**跨子分组**的（价格 → 8-12代币）：`**218**` ✓（AND ✓）· 按钮行 = 外貌: 熟女 | 国家 | 价格 & 表演类型: 8-12代币 | 可请求提供的表演 ✓
+⑥ 未映射项（国家 → 加拿大人）：灰显 ✓ 点了**不高亮** ✓ → 请求 URL **与上一次一字不差** ✓（计数 218→217 是直播房自然增减 ✓ 不是筛选生效 ✓）
+⑦ 重置 → 回基准 **1000** ✓
+请求原样（尾巴全看 ✓）：#2 [["mobile"]] → #3 [["mobile"],["ageMilf"]] → #4 [["mobile"],["ageMilf"],["privatePriceEight"]] → #6 回 [["mobile"]] ✓
+（⚠️ lead 预期 148 是 `ageTeen` 的值 ✓；我点的是**熟女 ageMilf** → **419** ✓ 不矛盾 ✓）
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 23048 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 26 轮**）移动端筛选弹窗**改成和 `phChipDlg` 同尺寸/同外观** ✓（用户反馈"太大"✗ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么
+1. **弹窗体对齐 `phChipDlg`** ✓（原来是全屏白底 ✗）：暗底 `rgba(0,0,0,.35)` ✓ + 居中 ✓ + 白底圆角 14 ✓ + `max-width:92% / max-height:76%` ✓ + 同款阴影 ✓
+   - 面板 = 新增 `.mf-box`（`display:flex; flex-direction:column` ✓），中间 `.bd` 区滚动 ✓（高度超了内部滚 ✓，不再撑满屏 ✓）
+   - 顺手补上 `phChipDlg` 有、我原来没做的**点暗底关闭** ✓
+2. **4 个过滤器怎么塞进去** ✓：**顶部切换**（4 个名字 + 已选数 ✓，一次只显示一个过滤器的 chip ✓）+ 底部「重置 / 进行筛选」✓ —— 功能一个没丢 ✓
+3. 顺手修：把**内部注解漏进 UI** 的那处删掉 ✗（表演那组的名字原来写着「表演（原文 60 项…）」✗ → 现在就是「表演」✓）
+### 实测对比（同一屏、同一时刻量 ✓）
+| | 面板宽 | 占屏宽 | 面板高 | 占屏高 | 居中 | 圆角 | max-width | max-height | 内边距 | 底/遮罩 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **移动端（外貌）** | 340 | **92%** | 491 | 61% | ✓ | 14px | **92%** | **76%** | 14px 14px 12px | #fff / rgba(0,0,0,.35) |
+| 其它 tab（`phChipDlg`） | 340 | **92%** | 611 | 76% | ✓ | 14px | **92%** | **76%** | 14px 14px 12px | #fff / rgba(0,0,0,.35) |
+⇒ **同一套弹窗体** ✓（宽都是 92% ✓、约束/圆角/内边距/阴影/遮罩逐项一致 ✓；高度差 = 内容多少不同 ✓ 不是尺寸不同 ✓）
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+① 弹窗尺寸/样式：见上表 ✓
+② 4 个过滤器都能开、数量对得上：
+   外貌 32 项 / 未映射 0 ✓ · 国家 82 / 64 ✓ · 价格 & 表演类型 7 / 0 ✓ · 可请求提供的表演 61 / 0 ✓
+   每个弹窗内顶部切换 4 个 ✓、底部「重置 / 进行筛选」✓
+③ 筛选生效 + 重置：基准 1000 → +熟女 420 ✓ → 按钮「外貌: 熟女」✓ + 红色「重置」在 ✓ → 重置回 1000 ✓
+④ 表演那组名字修完复验：只剩「表演」✓、61 项 ✓、无异常 ✓
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 7836 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 27 轮**）直播**站点页不带底栏** ✓（用户要，对齐 App 的 push 全屏页 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么（**一处** ✓）
+- `viewLiveSite()`（点「xHamster直播」进的那页 ✓）里 `showNav(true)` → **`showNav(false)`** ✓（+ 注释说明 ✓）
+- **底栏恢复不用额外写** ✓：站点页 appbar 的返回箭头是 `onclick="viewLive()"` ✓，而 `viewLive()` 里本来就是 `showNav(true)` ✓ → 返回即恢复 ✓
+- 只改这一处 ✓：直播区（站点宫格那页 ✓）仍是 tab → **保留底栏** ✓（`viewLive()` 没动 ✗）；房间全屏层是 `position:absolute; z-index:70` 盖满 ✓ **没动** ✓
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+① 首页/模块页        底栏 display=flex · 可见 · 高 77px ✓
+② 直播区（站点宫格）  底栏 flex · 可见 · 77px ✓          ← 它还是 tab ✓ 保留 ✓
+③ 直播站点页         底栏 **display=none · 可见=false · 高 0** ✓✓  ← 本次要求 ✓
+                     内容没受影响 ✓（tabs=5 · 房间卡 60 · 筛选行在 ✓ · appbar「‹xHamster直播」✓）
+④ 点 appbar ‹ 返回    底栏 **flex · 可见 · 77px** ✓✓（自动恢复 ✓）
+⑤ 再进站点页         底栏 none ✓
+⑥ 开房间→关房间（仍在站点页） 底栏 **仍 none** ✓（房间层不干扰 ✓）
+⑦ 回模块页           底栏 flex · 77px ✓
+⑧ 设置页（其它 tab）  底栏 flex · 77px ✓（没受影响 ✓）
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 17056 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 28 轮**）移动端 4 个过滤器的入口改成**横排 tab 栏** ✓（用户不喜欢并排按钮 ✗ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么
+1. **入口：4 个并排按钮 → 横排 tab 栏** ✓ —— **直接复用主分类那套 `.lv-tabs/.lv-tab`** ✓（**零新 CSS** ✓）
+   ⇒ 实测样式与主分类 tab **逐项相同**：`border-radius 18px / padding 8px 14px / 未选白底 / 选中态 `rgb(232,89,12)` 橙底` ✓✓
+   ⇒ 已选的显示成「外貌: 熟女」✓ **并且带选中高亮** ✓（已选数也在文字里 ✓）
+2. **点某个过滤器 tab → 仍开那个「筛选器」小弹窗** ✓（内容/交互/尺寸全不动 ✓：子分组 + 多选 chip + 未映射灰显 + 重置/进行筛选 ✓）
+   —— 判定依据：这样最省 ✓（弹窗已经和 `phChipDlg` 同款 ✓ 也满足"尺寸别全屏"的上一条反馈 ✓）；tab 只当**入口** ✓
+3. 「重置」从按钮改成同款小 tab ✓（`重置` ✓ 红色字 ✓ 只有有选择时才出现 ✓）
+4. ⚠️ **抓到并修掉一个会打架的坑** ✗：主分类 tab 的绑定原来是 `querySelectorAll('.lv-tab')` ✗ ——
+   过滤器 tab 也用 `.lv-tab` 就会被它接走 ✗（那边读 `data-mi` 为空 → 会**跳回女主播** ✗）⇒ 已限定成 **`.lv-tab[data-mi]`** ✓
+5. 其余 4 个 tab **一行没动** ✓（它们仍走原来的 `.pkbar` + 「筛选」单按钮 ✓）
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+① 女主播 tab：主分类 tab 5 个 ✓（选中=女主播，橙底 ✓）· 过滤器 tab **0** ✓ · 「筛选」单按钮**在 ✓**（原样 ✓）
+   点主分类 tab[1]（情侣）→ `primaryTag=couples` 60 条 ✓ 选中态=情侣 ✓（**绑定没被抢走** ✓）
+② 移动端 tab：过滤器 tab **4 个** ✓（外貌/国家/价格 & 表演类型/可请求提供的表演）· 样式与主分类 tab 一致 ✓
+③ 逐个点开（选项数对得上 ✓）：外貌 32/未映射 0 ✓ · 国家 82/64 ✓ · 价格 7/0 ✓ · 表演 61/0 ✓
+   （弹窗尺寸仍是 92% 宽 ✓，高按内容 28%~76% ✓ —— 上一条"别全屏"仍然成立 ✓）
+④ 选熟女 → 进行筛选：`filteredCount 1000 → 385` ✓；过滤器 tab 变「**外貌: 熟女**」**且高亮** ✓；「重置」tab 出现 ✓
+⑤ 重置 → 回 **1000** ✓，4 个 tab 文字回到裸名 ✓
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 9640 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 29 轮**）lead 纠正：**A 还原过滤器入口** + **B 主分类那排保留下划线 tab** ✓（只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+⚠️ 背景：第 28 轮我把**过滤器入口**改成了"复用 `.lv-tab` 的横排 tab"✗；第 29 轮又按"主分类改下划线"把 `.lv-tab` 整组改了 ✗ → **过滤器被带着一起变** ✗（lead 指出这正是"混在一起"✗）。本轮**拆开** ✓。
+### 【A】还原：移动端 4 个过滤器入口 ✓
+- 标记改回 **并排按钮** ✓：`<div class="pkbar"><button class="mf-btn" data-mf=…>` ×4 ✓ + 「重置」回到 `.pkbar` 按钮 ✓
+- **独立样式类 `.mf-btn`** ✓（**不再复用 `.lv-tab`** ✗ —— 以后改主分类那排**不会**带到它 ✓）
+- 恢复 `.pkbar button.mf-btn.on { border-color:#e8590c; color:#e8590c; font-weight:600 }` ✓（= 改动前的选中观感 ✓）
+- 绑定选择器从 `.mf-tab[data-mf]` 改回 `.mf-btn[data-mf]` ✓
+### 【B】主分类那排（女主播/情侣/男主播/跨性別/移动端直播）✓
+- `.lv-tabs/.lv-tab` 改成**经典 tab 栏** ✓：`gap:20px` + 行底部 1px 分隔线 + 文字标签 ✓ + 选中 2px 下划线 ✓ + 选中加粗/橙字 ✓ + 未选灰字 ✓ + **去掉圆角胶囊背景** ✓ + 横向可滚 ✓
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+【B】主分类那排（同一个 `.lv-tab[data-mi]` 量出来的 ✓）
+  选中：圆角 **0px** ✓ · 底 **透明** ✓ · 字色橙 rgb(232,89,12) ✓ · 字重 **600** ✓ · 下边框 **1.19px 橙** ✓ · padding 9px 2px ✓
+  未选：圆角 0px ✓ · 底透明 ✓ · 字色灰 **rgb(138,144,153)** ✓ · 字重 400 ✓ · 下边框透明 ✓
+  行：底部 1.19px rgb(236,238,241) 分隔线 ✓ · overflow-x auto（横向可滚 ✓）
+【A】过滤器入口（移动端 tab 里量 ✓）
+  4 个 ✓ 且是 **BUTTON 标签** ✓ 容器 `.pkbar` ✓
+  未选风格：圆角 **8px** ✓ 透明底 ✓ 边框 1.19px rgba(60,60,60,.35) ✓ 黑字 ✓ padding 5px 10px ✓（= 并排按钮观感 ✓）
+  选中风格：「外貌: 熟女」橙字 rgb(232,89,12) ✓（`.mf-btn.on` ✓）
+功能回归（都正常 ✓）：切 tab（点第 5 个 → 移动端直播 ✓）· 点过滤器开弹窗（32 项 ✓）
+  · 选熟女 → 进行筛选 `→ 60 条（累计 60 / 383）` ✓ · 「重置」→ 回基准（`[[mobile]]` 无筛选 ✓ 按钮文字回裸名 ✓）
+  · 回女主播 tab 仍是下划线样式 ✓（没被 A 带跑 ✓）
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 20092 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 30 轮**）主分类 tab **未选字色：灰 → 黑** ✓（用户要 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了什么（**一行色值** ✓）
+- `.lv-tab` 的 `color: #8a9099`（灰 ✗）→ **`color: #111`** ✓（用户说别太突兀 → 用 #111 而不是纯黑 ✓）
+- **选中态一个字没动** ✓（`.lv-tab.on { color:#e8590c; font-weight:600; border-bottom-color:#e8590c }` ✓）
+- **只动主分类那排** ✓：`.lv-tab` 现在**只被 `data-mi` 那一排使用** ✓（grep 确认 ✓ 共 2 处：CSS + 主分类模板 ✓）；
+  移动端 4 个过滤器入口是**独立类 `.mf-btn`** ✓ 不在 `.lv-tab` 里 → **没被带跑** ✓
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+主分类未选（4 个逐个量 ✓）：字色 **rgb(17,17,17)** ✓ 字重 400 ✓ 下边框透明 ✓
+主分类选中：字色 **rgb(232,89,12)** ✓ 字重 **600** ✓ 下边框 1.19px 橙 ✓（原样 ✓）
+切 tab：女主播→移动端直播→情侣 都正常 ✓（情侣 → `primaryTag=couples` 60 条 ✓），每次重画后未选仍 #111 ✓
+过滤器入口（同页对比 ✓）：未选字色 **rgb(0,0,0)** ✓ · 下边框 **rgba(60,60,60,.35)** ✓（= 它自己的按钮边 ✓ **没有**被换成橙色下划线 ✓）
+过滤器弹窗照常：点「外貌」→ 32 项 ✓
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 21300 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 31 轮**）① 第 5 个 tab 改名 `移动流` ✓ ② 新增第 6 个 tab `手机版最新` ✓（只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### ① 实测确认的请求参数（**不是猜的** ✓）
+站点页 `/girls/new-mobile` 是 **SSR** ✗（抓不到它自己的客户端请求 ✗）→ 换**最硬的对照**：直接取那份 HTML，看里面出现的是哪个组合的主播名 ✓
+```
+候选（同一时刻调接口 ✓）：
+  A [["mobile"]]                      → filtered=1000  前3 = winter11 / MissY_9 / xiaowan_xx
+  B [["autoTagNew"]]                  → filtered=1000  前3 = sultry520 / nooneknowspoppy / Malis_ss
+  C [["autoTagNew"],["mobile"]]（AND） → filtered=**292**  前3 = **sultry520 / LINA-LILI / Malis_ss**
+  D [["autoTagNew","mobile"]]（同组 OR）→ filtered=1000  前3 = winter11 …（≈ A ✓ 证明 D 就是 OR ✗）
+HTML 里逐个数出现次数：sultry520 **5** ✓ · LINA-LILI **5** ✓ · Malis_ss **5** ✓ · winter11 **0** ✗ · MissY_9 0 ✗ · xiaowan_xx 0 ✗ · nooneknowspoppy 0 ✗
+⇒ **确认 = C** ✓✓：`primaryTag=girls` + `filterGroupTags=[["autoTagNew"],["mobile"]]`（两组 **AND** ✓）+ `parentTag=mobile`
+   （页面 `<title>` 也印证叫法：「手机版最新 和女主播们免费现场性爱视频」✓；侧栏那条叶子叫「移动流」`/girls/mobile` ✓ 与 ①改名一致 ✓）
+```
+### ② 改了哪些位置（`sim/index.html` 6 处）
+1. `LIVE_MAIN` 第 5 项 **改名** `移动端直播` → `移动流` ✓（只改显示名 ✓ 逻辑/`mobile: true` 不动 ✓）
+2. `LIVE_MAIN` 新增第 6 项 `{ name: '手机版最新', newMobile: true, groups: [] }` ✓（排在移动流右边 ✓ 叶子 ✓）
+3. `LIVE_TAG_OF`：`'移动流': 'girls'` ✓ + `'手机版最新': 'girls'` ✓
+4. `liveFetch()` 加第 6 参 `newMobileMode` ✓ → 拼两组的 AND ✓；`parentTag` 对这两个 tab 都用 `mobile` ✓
+5. `loadLiveRooms()` 传该标记 ✓ + 日志里标明「手机版最新」✓
+6. `renderLiveSite()`：该 tab **不渲染**那行（无「筛选」单按钮 ✓、4 个页内过滤器**不给** ✗ —— 站点页到底有没有**没测出结论**❓ 按 lead 说的"不确定就不给"✓）；
+   重拉判据加 `newMobile` ✓（⚠️ 三个 tab 的 tag 都是 `girls` ✗ 只看 tag 会串 ✗）
+### ③ 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+① 6 个 tab ✓ 顺序 = 女主播 / 情侣 / 男主播 / 跨性別 / **移动流** / **手机版最新** ✓
+② 点「手机版最新」：日志 `filterGroupTags=[[autoTagNew],[mobile]]（手机版最新 ✓）` ✓ · 60 卡 ✓
+   前 3 张 = **sultry520 / princess520 / LINA-LILI** ✓✓（与站点页 HTML 里出现的名字对得上 ✓）
+   那一行：pkbar **没有** ✓ · mf 按钮 **0** ✓ · lvFilterBtn **没有** ✓（叶子处理 ✓）
+③ 点「移动流」：`[[mobile]]` ✓ · filtered **1000** ✓ · 4 个过滤器按钮**都在**（外貌/国家/价格 & 表演类型/可请求提供的表演 ✓）· 无筛选单按钮 ✓（原样 ✓）
+④ 女主播 → 1000 ✓；情侣 → `primaryTag=couples` 417 ✓ + 选中态=情侣 ✓（切 tab 正常 ✓）
+⑤ 请求原样：`#2 [["autoTagNew"],["mobile"]]&parentTag=mobile` ✓ · `#3 [["mobile"]]` ✓ · `#1/#4/#5` 干净无杂参 ✓
+```
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 19196 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 32 轮**）给「手机版最新」tab 补上那 **4 个过滤器** ✓（lead 说 recon 实测它有 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了哪些位置（4 处 + 1 个关键改造）
+1. **⚠️ `mfSel` 改成按 tab 分桶** ✓（`mfSelBy = { mobile: {}, newMobile: {} }` + `mfTab()`/`mfSel()` ✓）
+   —— 用户要"两个 tab **互不影响**" ✓，全局一份会串 ✗（在移动流选了熟女 → 切过去也带着 ✗）
+2. `renderLiveSite()`：过滤器那行对 **`m.mobile || m.newMobile`** 都渲染 ✓（原来只给 mobile ✗；「筛选」单按钮行仍只给那 4 个主 tab ✓）
+3. `loadLiveRooms()`：`mfGroups()` 对这两个 tab 都拼 ✓
+4. 日志标明「手机版最新」并把叠加的组也打出来 ✓
+5. 「重置」只清**当前 tab** 那份（`mfSelBy[mfTab()] = {}` ✓）；弹窗里的「重置」同理 ✓
+### 冒烟（8788 ✓ headless Edge + 手机 UA ✓ `--mute-audio` ✓ `node --check` = 0 ✓ 无未捕获异常 ✓）
+```
+① 手机版最新 基准：4 个过滤器按钮都在 ✓ · [[autoTagNew],[mobile]] · filtered **286** ✓ · 无「筛选」单按钮 ✓
+② 在里面选「熟女」→ 进行筛选：请求变 `[[autoTagNew],[mobile],[ageMilf]]` ✓✓（叠加符合规格 ✓）· 按钮「外貌: 熟女」✓ · 重置出现 ✓
+③ 切到「移动流」：**没被带跑** ✓（按钮裸名 ✓ · 请求回 `[[mobile]]` · 1000 ✓）
+④ 在移动流选「亚洲人」：`[[mobile],[ethnicityAsian]]` ✓ · 390 ✓
+⑤ 切回手机版最新：它的「熟女」**还在** ✓（请求 `[[autoTagNew],[mobile],[ageMilf]]` ✓）→ **互不影响（双向 ✓）**
+⑥ 在手机版最新「重置」→ 只回它自己的基准 ✓（`[[autoTagNew],[mobile]]` · 294 ✓）
+⑦ 再回移动流：它的「亚洲人」**还在** ✓（`[[mobile],[ethnicityAsian]]` · 393 ✓）
+⑧ 女主播 tab：过滤器入口 **0 个** ✓（其余 tab 没动 ✓）
+⑨ 请求原样：#3/#6 = 手机版最新+熟女 ✓ · #5/#8 = 移动流+亚洲人 ✓ · #9 = 女主播干净 ✓
+（计数 286/294、390/393 的小幅漂移 = 直播房自然增减 ✓ 不影响结论 ✓）
+```
+### 只说没做（等 lead 问用户 ✓）
+- recon 提到的 **22 个 `/girls/new-*` 标签徽章** + 「展开更多」开关 ✗ **没做** ✓（按 lead 指示"先别做" ✓）
+**约束 ✓**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 17428 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-03 · **sim 侧第 33 轮**）**直播列表跳过付费房**（6 个 tab 全覆盖 ✓ 用户强调 ✓ 只改 `sim/index.html` ✓ 未提交 ✗，`server.mjs` 0 改动 ✓）
+### 改了哪些位置
+1. 新增判据函数 **`liveShowable(m)`** ✓（照 lead recon 960 条实测的判据 ✓）：
+   `groupShowType` 有值 → 付费房 ✗ 筛掉 ✓；`status` 非 public ✗；`isOnline` 假 ✗；其余显示 ✓
+   - ⚠️ **容错**：`groupShowType` 字段**缺失**时按**免费**算 ✓（`!m.groupShowType` ✓）—— 免得字段一没整页被清空 ✗
+   - ⚠️ **没用** `doPrivate/doSpy/privateRate/spyRate/publicRecordingsRate` ✗（那是能力标志，85~90% 免费房都带 ✗）
+2. **`loadLiveRooms()`** 里逐条筛 ✓（**所有 tab 同一处** ✓ 不存在漏 tab ✗）：`keep = raw.filter(liveShowable)` ✓
+   - ⚠️ **计数改用原始条数** ✓（`rawCount` ✓）—— 否则"到底"判据 `items.length >= filteredCount` 永远不成立 ✗
+   - 日志变成「原始 60 条 / 显示 51 条（筛掉 9 个付费房 ✓）」✓
+3. **`paintLiveMore()`**：这页被筛空时不再留白 ✗ → 「这页没有免费直播间 · 上滑加载更多 ✓」/「没有可显示的免费直播间 ✗」✓
+4. 4 处「清零」点加上 `rawCount/skipped` 归零 ✓（子分类筛选重置 ✓、页内过滤器"进行筛选" ✓、弹窗选完 ✓、切 tab 重建 ✓）
+### 逐个 tab 验证（用户要"别笼统说已加" ✓ —— 下面是 6 个 tab **每个各自量**的 ✓）
+| # | tab | 显示条数 | 其中付费房 | 筛掉 | 原始条数 |
+|---|---|---|---|---|---|
+| 1 | 女主播 | 51 | **0** ✓ | 9 | 60 |
+| 2 | 情侣 | 55 | **0** ✓ | 5 | 60 |
+| 3 | 男主播 | 57 | **0** ✓ | 3 | 60 |
+| 4 | 跨性別 | 60 | **0** ✓ | 0 | 60 |
+| 5 | 移动流 | 52 | **0** ✓ | 8 | 60 |
+| 6 | 手机版最新 | 49 | **0** ✓ | 11 | 60 |
+```
+翻页（女主播连翻 3 页）：显示 221 · 其中付费 **0** ✓ · 原始 240 · 累计筛掉 19 ✓ · offset=240 ✓
+判据单测（stub 6 条）：免费公开在线→显示✓ · 门票制→筛掉✓ · 按分钟计费→筛掉✓ · 已预告门票秀(关键)→筛掉✓ · 离线→筛掉✓ · 非公开→筛掉✓
+对账（另拉 3 页原始数据数）：原始 180 条里 **15** 个付费房，类型全是 ticket ✓（≥ 同页应筛数 ✓；19 那条是 4 页累计 ✓ 不冲突 ✓）
+```
+---
+## 追加（2026-10-03 · **sim 侧第 33b 轮**）**彻底删掉「真直播 ↗」按钮** ✓（用户拍板 ✓ 只改 `sim/index.html` ✓）
+- **删干净**：DOM（`#lvli`）✓、点击绑定（`window.open` 那段 ✓）、CSS（`.lv-player .live` + `.lv-player.on .live` ✓）✓
+- 层点击**只切 X** ✓（原来连按钮一起切 ✗ → 那句 `el.classList.toggle('on')` 和 `.lv-player.on` 规则一起删 ✓）
+- **降级文案全改** ✓：失败提示现在 = 「播放器组件加载失败 ✗（外部源不通）· 现在放的是预览片 · 点这里重试 ↻」✓（不再提旧按钮 ✓）
+- 注释里的字眼也清了 ✓ → **grep `真直播` = 0** ✓ · **grep `lvli` = 0** ✓ · **grep `.lv-player .live` = 0** ✓
+- 保留 ✓：内嵌站点播放器 + 重试/失败提示 ✓、预览片兜底 ✓、X（点屏幕 toggle ✓ 不压状态栏 ✓）
+- 验收：层内子元素 = `["", "mmp", "x", "tag", "st"]` ✓（没有那个按钮了 ✓）；**真画面照常** rs=4 · 720×960 · muted ✓；
+  断 CDN → 提示正确且**有重试** ✓ → 恢复网络点重试 → 720×960 起来了 ✓；界面 `innerText` 里 `真直播`/`看真直播` = **0** ✓
+---
+## 追加（2026-10-03 · **sim 侧第 34 轮**）**去掉「私秀价格 / 类型」那组过滤器** ✓（用户拍板：付费房都不显示了，它没用了 ✓ 只改 `sim/index.html` ✓）
+- `MOBILE_FILTERS` 里那整项（`privateShows`）**删掉** ✓ → 选项数据（`privatePrice*` / `autoTagRecordablePrivate` / `autoTagP2P` / `autoTagSpy`）**一处不剩** ✓
+  （页面内实测：`MOBILE_FILTERS` 的 key = `["appearance","countries","activitiesOnRequest"]` ✓、字符串 `privatePrice` 出现 **0** 次 ✓）
+- **死状态清掉** ✓：加了一段启动时清理 ✓ —— `mfSelBy` 里键首段已不在 `MOBILE_FILTERS` 的**死键**直接删 ✓
+- 计数/重置/请求拼装**自动跟上** ✓（它们都遍历 `MOBILE_FILTERS` ✓）→ 请求里不会再出现 `privatePrice*` 组 ✓
+- ⚠️ `LIVE_TAG_MAP` 里那几条 `*-privates` → `privatePrice*` 是**另一套**（4 个主 tab 的子分类筛选 ✓）→ **没动** ✓
+```
+冒烟：移动流 & 手机版最新 都只剩 3 个（外貌 / 国家 / 可请求提供的表演 ✓ · 弹窗内顶部切换同样 3 个 ✓）
+      界面含「价格」= 没有 ✓ · grep `价格 & 表演类型` = 0 ✓
+      选「熟女」仍生效 ✓（请求 `[[mobile],[ageMilf]]` ✓，还带着付费房过滤 ✓「筛掉 3 个付费房 ✓」）
+      重置 ✓（回 `[[mobile]]`）· 国家弹窗仍 82 项 ✓ · 请求原样里**没有** privatePrice 组 ✓ · 无未捕获异常 ✓
+```
+**约束 ✓（三轮一致）**：只改 `sim/index.html` ✓、**`server.mjs` 0 改动** ✓、`lib/**` 没碰 ✗、没 commit/push ✗、
+临时脚本 + Edge profile 清完 ✓、**8788 我起过又停了**（PID 5548 ✓）、**用户 8787 全程没碰**（现 PID 18744 ✓）
+
+---
+## 追加（2026-10-04 · **App 侧 $newVer**）直播功能移植到 App + Pornhub 7 条修复 + 坏子域探测优化
+
+### 一、直播功能移植（模拟器 → App，已跑通后复刻）
+- **新独立站点** `lib/sites/xhamsterlive.dart`（1291 行）：6 个 tab —— 女主播/情侣/男主播/跨性別（4 个 primaryTag）+ 移动流（`girls`+`[["mobile"]]`）+ 手机版最新（`girls`+`[["autoTagNew"],["mobile"]]`）
+- 列表接口 `/api/front/models`：limit 60 · offset 翻页 · 服务端封顶 `filteredCount`（最大 1000）；UA 要浏览器样（`curl` UA 403）、不需要 cookie
+- **跳过付费房**（用户要求，6 个 tab 一视同仁）：`groupShowType == '' && status == 'public' && isOnline`。依据：960 条样本实测 —— `groupShowType` 空=免费 939 / `ticket`=21 / `perMinute`；只判 `status` 会漏"已预告门票秀"（status=public + groupShowType=ticket）；`doPrivate`/`doSpy`/`privateRate` 是**能力标志**（85~90% 免费房都带）不能用
+- **底栏加「直播」**（模块和设置之间）；`SiteEntry` 加 `SiteGroup { module, live }` **数据驱动分组**（共用 UI 不认站名）→ 模块宫格仍 14 格
+- 站点页：**下划线 tab**（非胶囊按钮）+ 2 列竖版房间卡（封面 3:4 + 主播名 + 观看数 + LIVE 标）+ offset 续拉
+- 全屏房间页：**WebView 顶层加载** `zh.xhamsterlive.com/<username>` —— 模拟器那套"内嵌站点播放器（new Function + unpkg React）"是**桌面 hack**（站点在 iPhone 上自己就不走 JS 播放器）→ App 用 WebView；左上角 X + 点屏幕 toggle + 静音 + SafeArea
+- **过滤器**（只有移动流 / 手机版最新两个 tab 有）：外貌 5 子分组 / 国家 7 组 82 项（**64 项 tagId 未映射 → 灰显不猜**）/ 可请求提供的表演 61 项 —— 共 13 子组 175 选项。入口下划线 tab、弹窗照 `pornhub.dart` 那套；拼装 `filterGroupTags = [tab 自带..., 每个有选择的子分组一个数组]`（**子分组间 AND、同子分组多值 OR**）；已选**按 tab 分开存**；数据用脚本从 `sim/index.html` 的 `MOBILE_FILTERS` 抽取（**非手抄**）
+- ⚠️ `lib/api.dart` **必须**给 `SiteTemplate.xhamsterlive` 加 case（`Api.ui` 是穷尽 switch，不给会**编译报错**）
+- ⚠️ 站点常量名用 `kSiteLive` 而非 `kSite15`：`sim/server.mjs` 用 `\b(kSite\d+)\b` 认站，叫 `kSite15` 会让**模拟器**模块宫格白多一格
+
+### 二、Pornhub 7 条修复（用户报"有时取到的只有几秒预览"）
+**调查结论**：代码**不会**抓预览 —— 正则 `"height":(\d+)[^}]*?"videoUrl":"...master\.m3u8..."` 拿**真页面原文**跑过，只命中自身正片 4 档；站点侧唯一的"短"视频是 `_fb.mp4`（实测 8.93~9.20 秒，挂在**别的视频**的卡片上做 hover 预览），站点也没给正片下发短源。**真正的随机性是 CDN 子域**。
+1. **410 坏子域**：`hm-h.phncdn.com` 命中率 **7/25 = 28%**（recon 实测），对任何 header 组合都 410，且**一次抓取内 4 档同一子域**（无备用档）→ 判定从"认 `hm-h` 字面"改成**按响应码实测**（410/404/403 才算坏；超时/异常**不判坏**），重抓上限 2 → **5**
+2. **分片 Referer**：recon n=108 实测 —— 分片**必须带站点域名 Referer**（`www`/`cn` 都行，100% 成功）；不带/外来/CDN 自身 → **100% 404**；而 master/variant **不需要** → 这正是"清单能解析、播几秒就断"的形态特征。做法：保留原 `httpHeaders`，**额外加 mpv `referrer` 属性兜底**
+3. **中途恢复**：原本"同一批未刷新 URL 从 0 重开" → 改成**先重抓页面拿新签名、再原地 seek 回原位置**（`_recover()` + 10 秒去重 + 切集作废）
+4. **看门狗盲区**：卡顿时 mpv 常报 `playing=false`，原早退条件遇到它就每轮清零、**永远判不出卡住** → 改成看 `_userPaused`（给 `KpPlayer` 加 `onUserPause` 回调，**只有 UI 直接点的暂停才置位**）
+5. **`/shorties` 形态**：正则改为 `(?:master|index)\.m3u8`（**保留 `"height":` 护栏**）；实测 `index.m3u8` 那条是**完整 VOD**（32 段 / 138.3 秒 / 有 ENDLIST），不是预览
+6. **`#EXTINF` 硬编码**：`video_cache.dart` 原本每段写死 10.0 秒（实际 2.25~4.267 秒，329 段 → 报 3290 秒 vs 真实 1431.7 秒）→ 改成解析源清单的**真实段时长**；**条数对不上就整条放弃**（宁可回落在线播）
+7. **画质默认**：优先站点标了 `"defaultQuality":true` 的那档（案例视频 1080 → **720**），取不到退回原顺序
+8. **坏子域探测优化**（用户要求）：**只探将要用到的那一档**（依据：同一页 4 档同子域，第一档坏=整页坏）+ 坏域**进程内缓存 10 分钟**（键=子域，上限 8 条）+ 探测用 **HEAD**（实测好坏 host 上 HEAD 与 GET 同结果）。
+   请求数：好页 1 GET → **1 HEAD**；坏页最坏 **20 GET → 1 HEAD**；再遇已知坏域 **0 请求**
+
+### 三、状态与边界
+- **未编译过**：本机无 Flutter SDK（`dart`/`flutter` 都不存在）→ **编译/analyze 只能等 CI**，本次构建即验证；括号余额与 HEAD 基线逐项一致、行尾形态未翻转（`pornhub.dart` CRLF 729 → 790，孤立 LF = 0）
+- ⚠️ `lib/sites/pornhub.dart` 的 `git diff` 会显示**整文件重写**（737/728 量级），**实际改动远小于此**：该文件 HEAD blob 本身是 CRLF，而仓库 `core.autocrlf=true` 且无 `.gitattributes` → 任何编辑都显示整文件；用 `--ignore-cr-at-eol` 才是真实改动量
+- **未提交**：`sim/**` 全部改动（模拟器侧，按用户「对齐，不提交」）
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -336,8 +336,12 @@ class VideoCache {
         media = t;
       }
       if (media.contains('#EXT-X-KEY') || media.contains('#EXT-X-BYTERANGE')) return; // 放弃 ✗
+      // ⚠️ 真实每段时长要一起解析（照抄源清单 ✓；原来写死 10.0 → 清单时长虚高 ✗）：
+      //    实测 Pornhub 每段 2.25~4.267s、329 段实长 1431.7s，写死 10 就报成 3290s ✗
       final segs = _hlsSegmentUris(media);
+      final segDurs = _hlsSegmentDurs(media);
       if (segs.isEmpty) return; // 嵌套 master / 解析不出 → 放弃 ✗
+      if (segDurs.length != segs.length) return; // 只认"每段都有真实时长"的清单 ✓
       if (await partDir.exists()) await partDir.delete(recursive: true);
       await partDir.create(recursive: true);
       var total = 0;
@@ -361,7 +365,10 @@ class VideoCache {
       }
       await partPl.writeAsString(
           '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXT-X-MEDIA-SEQUENCE:0\n'
-          '${names.map((n) => '#EXTINF:10.0,\n$key.hls/$n\n').join()}'
+          '${[
+            for (var i = 0; i < names.length; i++)
+              '#EXTINF:${segDurs[i]},\n$key.hls/${names[i]}\n'
+          ].join()}'
           '#EXT-X-ENDLIST\n',
           flush: true);
       if (await doneDir.exists()) await doneDir.delete(recursive: true);
@@ -418,6 +425,20 @@ class VideoCache {
         out.add(t);
         break;
       }
+    }
+    return out;
+  }
+
+  /// 媒体清单里的**每段真实时长**（`#EXTINF:<秒>,` 一条一个 ✓）——
+  /// 本地清单照抄它（`:371` 那处原来写死 10.0 ✗）；条数与 [_hlsSegmentUris] 对不上就整条放弃 ✓
+  static List<String> _hlsSegmentDurs(String text) {
+    final out = <String>[];
+    for (final l in text.split('\n')) {
+      final t = l.trim();
+      if (!t.startsWith('#EXTINF')) continue;
+      final v = t.substring(8).split(',').first.trim();
+      if (v.isEmpty) return const [];
+      out.add(v);
     }
     return out;
   }

@@ -9,6 +9,7 @@ import 'sites/pektino.dart';
 import 'sites/madou.dart';
 import 'sites/pornhub.dart';
 import 'sites/xhamster.dart';
+import 'sites/xhamsterlive.dart';
 
 import 'package:flutter/material.dart';
 
@@ -20,6 +21,19 @@ enum SiteKind {
 
   /// 应用内 WebView 直接打开 url
   web,
+}
+
+/// 站点**属于哪个宫格**（2026-10-04 加 ✓）：模块页 / 直播页各是一个清单 ✓。
+///
+/// ⚠️ 为什么用**字段**而不是"在共用 UI 里判模板" ✗：共用 UI 里不该出现任何站名/站点模板名 ✗
+/// （`ModuleGridPage` 只看 `group` ✓、直播宫格也只看 `group` ✓）→ 以后加第二个直播站
+/// **一行 UI 都不用改** ✓（站点文件里写 `group: SiteGroup.live` 就行 ✓）。
+enum SiteGroup {
+  /// 底栏「模块」宫格里的内容站（默认 ✓）
+  module,
+
+  /// 底栏「直播」宫格里的站点
+  live,
 }
 
 /// native 站点的网页模板 —— 决定用哪套解析规则（见 lib/api.dart）
@@ -97,6 +111,15 @@ enum SiteTemplate {
   /// ⚠️ 详情页的**相关推荐在移动版是懒加载空壳**（只有「正在載入...」），静态 HTML 里
   /// 只有 JSON 形态的 `data-role="related-item"`（不是 DOM 元素）→ v1 先 `showRelated: false`。
   xhamster,
+
+  /// xHamsterLive（zh.xhamsterlive.com）—— ⚠️ 与上面的 xHamster **是两个不同的站** ✗
+  /// （不同的接口、不同的字段、不同的域名 ✓）。
+  ///
+  /// 这是**直播站**：**不走** `lib/api.dart` 那套列表/详情解析 ✗，而是走
+  /// `lib/sites/xhamsterlive.dart` 里那套（JSON 接口 `/api/front/models` ✓ + 全屏 WebView 房间页 ✓）
+  /// → 它**没有**列表页/详情页/搜索页 ✓（`Api.ui` 对它是 `null` ✓，也不会有人调 ✓）。
+  /// 只在底栏「直播」宫格里出现 ✓（`group: SiteGroup.live` ✓）。
+  xhamsterlive,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -148,6 +171,10 @@ class SiteEntry {
   /// 首字色块底色（有 iconUrl 时不用）
   final Color color;
 
+  /// 这个站进**哪个宫格**（默认「模块」✓；直播站写 `SiteGroup.live` ✓）。
+  /// 共用 UI 只按它过滤 ✓，不认站名/模板名 ✗（见 [SiteGroup] 的注释 ✓）
+  final SiteGroup group;
+
   const SiteEntry({
     required this.name,
     this.kind = SiteKind.native,
@@ -160,6 +187,7 @@ class SiteEntry {
     this.filters,
     this.iconUrl = '',
     this.color = const Color(0xFFFF7043),
+    this.group = SiteGroup.module,
   });
 }
 
@@ -273,4 +301,7 @@ const List<SiteEntry> kSites = [
   kSite12,
   kSite13,
   kSite14,
+  // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「模块」✗。
+  // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
+  kSiteLive,
 ];

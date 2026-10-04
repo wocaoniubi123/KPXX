@@ -187,22 +187,97 @@ class PhSite extends SiteUi {
     return out;
   }
 
-  /// 抓到的源是否落在**被 Cloudflare 挡的子域**上。
-  /// 实测：`hm-h.phncdn.com` 对新浪云外的所有非浏览器请求一律 410（`Server: cloudflare`
-  /// + `__cf_bm`），而 `em-h`/`im-h` 畅通；子域是**每次抓页面随机分配**的 → 命中就重抓。
-  bool _phBadHost(String html) {
-    final m = RegExp(r'"videoUrl":"(https:[^"]*?master\.m3u8[^"]*)"').firstMatch(html);
-    return m != null && m.group(1)!.contains('hm-h.phncdn.com');
+  /// **已知坏子域**缓存（进程内 ✓、不持久化 ✗、不跨进程 ✗）。
+  /// 键 = 子域（`em-h.phncdn.com` ✓）、值 = (上次探测用的 URL ✓, 判定时刻 ✓)；
+  /// 寿命 [_phBadTtl] = 10 分钟（recon 实测坏域稳定：`hm-h` 7 次加载全 410 ✓，
+  /// `em-h`/`km-h`/`im-h` 全 200 ✓ → 短期不会变 ✓）；上限 [_phBadMax] = 8 条
+  /// （实测只见过 4 个子域 ✓；满了淘汰最早插入的一条 ✓，只是个防增长的小闸 ✓）。
+  final Map<String, (String, DateTime)> _phBadHosts = {};
+  static const Duration _phBadTtl = Duration(minutes: 10);
+  static const int _phBadMax = 8;
+
+  /// 这条源还能不能用 —— 判据只看**响应码**（410 = 坏子域；403/404 = 签名/资源不可用），
+  /// **不写死子域名**（坏子域名会变 ✓）。探测形态：**HEAD 优先**（最轻 ✓；实测这个 CDN 上
+  /// HEAD 与 GET 同结果：坏域 410 / 好域 200 ✓），HEAD 给别的码（405/501 之类不认 HEAD 的
+  /// 情况 ✓）才退一次 GET（最坏多 1 个请求 ✓，不把"不认 HEAD"误判成"坏"✗）。
+  /// 超时/异常 → 返回 true（= **不据此判坏** ✓，交给播放器按顺序降级 ✓，避免误杀慢源 ✓）。
+  Future<bool> _phProbeOk(String u) async {
+    final uri = Uri.tryParse(u);
+    if (uri == null) return true;
+    final host = uri.host;
+    final cached = _phBadHosts[host];
+    if (cached != null &&
+        DateTime.now().difference(cached.$2) < _phBadTtl) {
+      return false; // 已知坏 + 没过期 → 跳过探测，直接让上层重抓换子域 ✓
+    }
+    final headers = {
+      'User-Agent': Site.ua,
+      'Referer': 'https://${_f.host}/',
+    };
+    try {
+      final h = await _f.client
+          .head(uri, headers: headers)
+          .timeout(const Duration(seconds: 8));
+      if (h.statusCode == 410 || h.statusCode == 404 || h.statusCode == 403) {
+        _phMarkBad(host, u);
+        return false;
+      }
+      if (h.statusCode >= 200 && h.statusCode < 300) return true;
+      // 其它码（HEAD 不被支持等）→ 用 GET 复核一次，别误判 ✓
+      final g = await _f.client
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 8));
+      if (g.statusCode == 410 || g.statusCode == 404 || g.statusCode == 403) {
+        _phMarkBad(host, u);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return true; // 超时/异常不判坏 ✓
+    }
   }
 
-  /// 详情。`videos[0].sources` = 各档 master.m3u8，**720P 排最前** = 默认播 720P
+  void _phMarkBad(String host, String u) {
+    _phBadHosts[host] = (u, DateTime.now());
+    while (_phBadHosts.length > _phBadMax) {
+      _phBadHosts.remove(_phBadHosts.keys.first); // 插满淘汰最早的 ✓
+    }
+  }
+
+  /// 详情。`videos[0].sources` = 各档 HLS（master.m3u8 / 短片页的 index.m3u8），
+  /// **站点标了 `"defaultQuality":true` 的档排最前**（实测：站点给 720P 标了 true），
+  /// 取不到标记才退回站点原始顺序 ×（见下方）。
   /// （播放器按 sources 顺序逐个试，所以"顺序"就是"默认档 + 降级顺序"；见 player_widget
-  /// 的 `_openAndWait` 循环）。页面里 `mediaDefinitions` 的原始顺序是乱的
-  /// （实测 1080/240/480/720），先按 height 排高→低再挑。
+  /// 的 `_openAndWait` 循环）。页面里 `mediaDefinitions` 的原始顺序是乱的（实测 1080/240/480/720）。
   Future<ArticleDetail> _phDetail(String url) async {
-    var html = await _f.text(url);
-    for (var i = 0; i < 2 && _phBadHost(html); i++) {
+    final pairs = <MapEntry<int, String>>[];
+    var defIdx = -1; // `"defaultQuality":true` 那条的下标（站点自己的默认档）
+    var html = '';
+    // 抓 + 判：**只探"将要用到的那一档"**（默认档已排最前；recon 复核：同一页面 4 档
+    // 永远同一个子域 = 第一档坏则整页坏 ✓ → 坏页 4 个 GET 变 1 个 HEAD ✓）；
+    // 坏子域就重抓换子域，上限 5 次（recon：坏子域命中率 7/25）
+    for (var i = 0; i < 5; i++) {
       html = await _f.text(url);
+      pairs.clear();
+      defIdx = -1;
+      for (final m in RegExp(
+              r'"height":(\d+)[^}]*?"videoUrl":"(https:[^"]*?(?:master|index)\.m3u8[^"]*)"')
+          .allMatches(html)) {
+        final u = m.group(2)!.replaceAll(r'\/', '/');
+        if (!pairs.any((p) => p.value == u)) {
+          pairs.add(MapEntry(int.parse(m.group(1)!), u));
+          if (m.group(0)!.contains('"defaultQuality":true')) {
+            defIdx = pairs.length - 1;
+          }
+        }
+      }
+      if (pairs.isEmpty) break; // 空源 → 上层报"暂无视频"，别空转 ✓
+      // 先排默认档（探的、播的都是它 = "将要用到的那一档" ✓）
+      if (defIdx > 0 && defIdx < pairs.length) {
+        final d = pairs.removeAt(defIdx);
+        pairs.insert(0, d);
+      }
+      if (await _phProbeOk(pairs.first.value)) break; // 第一档能用 → 整页能用 ✓
     }
     final doc = hp.parse(html);
     var title =
@@ -214,21 +289,8 @@ class PhSite extends SiteUi {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
     }
-    final pairs = <MapEntry<int, String>>[];
-    for (final m in RegExp(
-            r'"height":(\d+)[^}]*?"videoUrl":"(https:[^"]*?master\.m3u8[^"]*)"')
-        .allMatches(html)) {
-      final u = m.group(2)!.replaceAll(r'\/', '/');
-      if (!pairs.any((p) => p.value == u)) {
-        pairs.add(MapEntry(int.parse(m.group(1)!), u));
-      }
-    }
-    // ⚠️ 2026-10-03 用户要求：**站点默认给哪个就播哪个** ✓ ——
-    // 原来这里把源**重排**了 ✗（① 按 height 高→低 ✗ ② 再把 720P 挪到最前 ✗），
-    // 等于"我们替站点决定默认档" ✗。现在**保持站点给的原始顺序** ✓：
-    //   Pornhub 页面上 `"height":N` 的排列顺序 = 站点自己的默认 ✓，直接照用 ✓。
-    //   分辨率只当**可选项**（详情页的选择器 ✓），用户显式选了才调整顺序 ✓（见 _orderByQuality ✓）。
     final srcs = pairs.map((p) => p.value).toList();
+    // （默认档已在上面循环里排到最前 ✓ —— 探的就是它、播的也是它 ✓）
     // 标签：播放器下方那排 `a.isTag`（实测一页约 25 个），href 是
     // /video/search?search=<编码词>，显示名在 <span>（站点已翻译成中文）
     final tags = <MapEntry<String, String>>[];
@@ -257,7 +319,7 @@ class PhSite extends SiteUi {
       seriesPrefix: '',
     );
   }
-  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
 }
 
 /// Pornhub「色情明星」tab 的筛选状态（照站点右上角那四个控件）：

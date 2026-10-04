@@ -90,6 +90,10 @@ class Api {
         SiteTemplate.madou => _mdSite,
         SiteTemplate.pornhub => _phSite,
         SiteTemplate.xhamster => _xhSite,
+        // 直播站 xHamsterLive：**没有** SiteUi 事实 ✓ —— 它的列表/房间页全在
+        // `lib/sites/xhamsterlive.dart` 里自己实现 ✓（界面上也不会有人把它交给 HomePage：
+        // 它 `group: SiteGroup.live` ✓，只从底栏「直播」进 ✓）
+        SiteTemplate.xhamsterlive => null,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
