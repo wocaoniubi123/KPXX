@@ -2378,6 +2378,56 @@ kp.setMpvOptionQuiet('hwdec', 'no');   // 放在 open() 之前；一行、可回
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；①② 的正确性有 **Node 实跑输出**支撑，③ 只能真机验
 - **未提交** `sim/**`；清理：app-dev 删两个临时脚本（`_log_fix_check*.cjs`）与两个样本目录（`%TEMP%\logchk_*`、`trimchk_*`，含上一轮后台 job 残留、job 已 kill）；`%TEMP%` 与工作区残留复核均为 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.34**）⭐ 起播慢的**真正主因**：喂 master 导致 ffmpeg"逐档探测"（本地 mpv 实测）
+
+### 一、怎么测出来的（本地 mpv，用户提议"装个最小的 mpv"）
+- **装**：winget 包 `mpv-player.mpv-CI.MSVC` → `mpv v0.41.0-dev-g41f6a6450`（`FFmpeg f853d12`）；**便携解压到 `G:\ZCode\_mpv_tmp\`，跑完全部删除（274.2 MB，`Test-Path=False`）**
+- ‼️ 所有调用**静音**（`--ao=null --mute=yes`）‼️
+- ⚠️ winget 安装时**往用户 PATH 追加了一项**，recon **立即移除并复核**（`User PATH 含 _mpv_tmp? False`）—— 如实记录
+
+### 二、ffmpeg 时间轴（原文，决定性）
+```
+[ 0.014s] Opening .../hls/227556210/master/227556210_auto.m3u8
+[ 1.125s] hls: Opening '.../227556210/227556210.m3u8' for reading      ← 第 1 档（source）
+[ 3.371s] HLS request ..._360_ueUxrYejYiR8miFC_...mp4   (playlist 0)   ← 第 1 档首段
+[ 5.165s] HLS request ..._480p_h264_360_...mp4          (playlist 1)   ← 第 2 档首段
+[ 7.361s] HLS request ..._240p_h264_362_...mp4          (playlist 2)   ← 第 3 档首段
+[ 8.654s] AVIOContext: Statistics: 527710 bytes read
+[ 9.246s] mov,mp4,m4a,3gp,3g2,mj2: Found duplicated MOOV Atom. Skipped it
+[11.645s] h264: Reinit context to 256x240, pix_fmt: yuv420p            ← 才解码首帧
+[11.875s] finished playback, success (reason 0)
+```
+⇒ **喂 master 时，ffmpeg 会把每一档都打开、各取一条首段**（每档 ≈0.5~2s 的 TLS 往返 + 解析）⇒ 十几秒就是这么攒的 ✗
+⇒ **不是网络、不是解码器、不是我们设的缓存参数**
+
+### 三、A/B（同一房间同一 URL，各 2~3 次，墙钟）
+| 变量 | 耗时 | 结论 |
+|---|---|---|
+| **master** | 13,229 ms | 现状 ✗ |
+| **★ 单档变体 URL** | **2,929 ms** | **快 10.3 秒** ✓ |
+| `hwdec=no` | −2,600 ms | 有收益（保留） |
+| 我们那套（analyzeduration/probesize/cache-pause-initial/cache-secs/max-bytes=8MiB） | −1,700 ms | 方向对（保留） |
+| `demuxer-max-bytes` 8MiB vs **200MiB** | 几乎无影响 | **"200MB 缓冲拖慢"被否掉** ✗ |
+| `--cache=no` | 抖动大、无稳定收益 | 不采用 |
+
+**未复现** `Error when loading first segment`（本地 0 次）✓；另实测：**拿 mpv 直接开"裸分片 URL"必失败**（`exit 2`，缺 init/`ftyp` 上下文）⇒ 真机日志里那条 `avformat_open_input() failed` **更可能是"URL 已过期/裸分片打不开"，与网络断无关** ✓
+
+### 四、改法（只改一处，`lib/sites/xhamsterlive.dart:1969`）
+```dart
+await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
+```
+- `vu` = **校验时已抓到的那条单档变体 URL**（`:1869`），**复用、不重新抓** ✓（中间只隔毫秒级；`vu` 有时效 ⇒ 抓到即用 ✓）
+- **校验链四步原样保留** ✓（master → 判广告/200 → 取第一条变体 → 判 403/200）
+- **保留**：`hwdec=no`（`:1908` ✓）· 缓存三选项（open 前 `:1928-1930` + open 后 `:1976-1978`）· 看门狗（不重开不误报，`kLiveGiveUpMs = 90000`）· 不静音 · X/toggle
+- **退路**：若不灵，把 `vu` 改回 `url`（一行回退）
+- ⚠️ 注释明确标注：**这是本地 mpv（v0.41 / Windows）实测结论，真机待验** ❓
+
+### 五、状态
+- numstat：`lib/sites/xhamsterlive.dart` **19/9**（只此一个文件）；括号三对平衡；行尾纯 LF
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）
+- **未提交** `sim/**`；清理：`G:\ZCode\_mpv_tmp\`（274.2 MB）与 `_recon_tmp\` **均已删、`Test-Path=False`**；用户 PATH 已还原；mpv/node/curl 残留进程 0；`%TEMP%` 与工作区残留复核 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -1948,18 +1948,28 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
           _log('等待 ${_secs}s：$st');
         }
       });
-      // ⚠️ 2026-10-05 用户拍板**改回"交 master"** ✓（上一轮交变体是**偏离站点做法** ✗）——
-      //   依据 recon 实测：**站点自己在 iPhone 上给原生 `<video src>` 的就是 master**
-      //     `.../master/<id>_auto.m3u8?playlistType=…&pkey=…`（不是变体 ✓）
-      //   ⇒ 站点自己的原生播放**就是吃 master** ✓ 我们照它来 ✓（mpv 拿到 master 会自己选档/跟随 ✓）。
-      //   `vu`（上面那条校验过的变体）**只用于校验** ✓ 不再交给播放器 ✓（校验逻辑原样保留 ✓ 挡 403/广告 ✓）。
+      // ⚠️ 2026-10-05 **第三次改这条 URL**（这次有本地 mpv 实测撑腰 ✓ 前两次都是推理 ✗）——
+      //   **交给 `kp.open()` 的是 `vu` = 校验时已经抓到的那条"单档变体 URL"** ✓（**复用、不重新抓** ✓）。
+      //   依据 = recon **本地 mpv v0.41（Windows）ffmpeg 时间轴实测**：
+      //     `[ 0.014s] Opening .../master/227556210_auto.m3u8`
+      //     `[ 1.125s] hls: Opening '.../227556210.m3u8' for reading`        ← 第 1 档
+      //     `[ 3.371s] HLS request ..._360_...mp4   (playlist 0)`           ← 第 1 档首段
+      //     `[ 5.165s] HLS request ..._480p_...mp4  (playlist 1)`           ← 第 2 档首段
+      //     `[ 7.361s] HLS request ..._240p_...mp4  (playlist 2)`           ← 第 3 档首段
+      //     `[11.645s] h264: Reinit context …`                              ← 才解码首帧
+      //   ⇒ **ffmpeg 拿到 master 会"逐档探测"（每档都打开 + 各取一条首段）** ⇒ 十几秒就是这么攒的 ✗；
+      //   **A/B：master 13.2s vs 单档变体 2.9s**（各 2~3 次 ✓）；同轮还否掉了"200MB 缓冲拖慢"（`demuxer-max-bytes`
+      //     8MiB vs 200MiB **几乎无影响** ✓）——但 `hwdec=no`（-2.6s ✓）与缓存那套（-1.7s ✓）都留着 ✓。
+      //   ⚠️ **这是本地 mpv 实测结论（v0.41 / Windows），真机待验** ❓ —— 若不灵，一行改回 `url`(master) 即可 ✓。
+      //   ⚠️ 时效性：变体 URL 有时效（recon 实测分片地址只活 ~25~28 秒 ✓）⇒ 从"抓到变体"到"交给 mpv"**别拖** ✓
+      //     （当前：校验完立刻 open ✓ 中间只隔几毫秒 ✓；`vu` 不重新抓 ✓）。
+      //   ⚠️ 校验逻辑**原样保留** ✓：仍然先抓 master（判广告/200 ✓）再抓变体（判 403/200 ✓）✓。
       final tO0 = _sw.elapsedMilliseconds;
-      _log('kp.open() 开始：URL=$url headers=User-Agent(${Site.ua.length} 字符)');
-      await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
+      _log('kp.open() 开始：URL=$vu headers=User-Agent(${Site.ua.length} 字符)');
+      await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
       _log('kp.open() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - tO0}ms（无异常 ✓）');
       // ⚠️ 2026-10-05：**open 之后再钉一次**这三条 ✓ ——
-      //   实测顺序（行号）：`setMpvOptionQuiet` 在 `:1780-1782`、`open` 在它们**之后** ✓
-      //   ⇒ **"参数调晚了"这个假设被排除** ✗（那三行本来就在 open 前 ✓）；
+      //   ⇒ **"参数调晚了"这个假设被排除** ✗（那三行本来就写在 `open` 之前 ✓ 见上面的 `setMpvOptionQuiet` ✓）；
       //   但 `KpPlayer` 的 `bufferSize`（默认 **200MB** ✗ 见 `player_widget.dart:134/137`）是 media_kit
       //   **在 open 时**自己设的 ✓ ⇒ 它**可能盖掉**我前面那条 `demuxer-max-bytes` 🔍[推断] ⇒ 这里**再覆盖一次** ✓
       //   （幂等无害 ✓；真机若还慢，这条至少把"被 media_kit 盖掉"这种可能也排除了 ✓）。
