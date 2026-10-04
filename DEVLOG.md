@@ -1925,6 +1925,22 @@ _注：注入链（三注入点/解耦）是**共享能力**，但那两条老�
 - **未编译**：本机无 Flutter SDK → 本次构建即验证；括号余额与 HEAD 基线逐项一致、行尾未翻转
 - **未提交**：`sim/**` 全部改动（模拟器侧，按用户「不提交」）
 
+---
+## 追加（2026-10-05 · **1.0.25 构建修复 #1**）`web_embed.dart` 漏 import `dart:async`
+
+- **失败原文**（CI run `37207258576`，analyze 2 条 error，构建步骤全 skipped、无产物）：
+  ```
+  error • Undefined class 'Timer'                                        • lib/web_embed.dart:90:3  • undefined_class
+  error • The method 'Timer' isn't defined for the type 'WebEmbedState'  • lib/web_embed.dart:199:18 • undefined_method
+  ```
+  对应源码：`:90 Timer? _readyFuse;` · `:199 _readyFuse = Timer(const Duration(seconds: 10), () {`
+- **根因**：`web_embed.dart` 的 import **没有 `dart:async`**（`Timer` 属于它）。同仓库对照：`player_widget.dart` / `shorts_feed_page.dart` 用 `Timer` 时**都 import 了**，只有这个文件漏
+- **修法**：补 `import 'dart:async';` 到文件最顶、SDK 组单独一行（原有 4 条 import 一条没动、分组顺序未打乱）
+- **顺带做的全量自查**（连续两轮踩"符号来源"类坑后的补课）：
+  - 把这两轮在 `web_embed.dart` / `xhamsterlive.dart` **新增行**里用到的**所有符号**逐个 `grep` 出定义处，确认该 import 的都 import 了 → **除 `Timer` 外无其它漏**
+  - 全 `lib/` 扫四类易漏库（`dart:async` / `dart:math` / `dart:convert` / `dart:io`）→ **无其它真隐患**；两条初始告警经核实**都是误报**（`_isXvProfile(` 被大小写不敏感命中 `file(`；`WebViewPlatform.instance` 子串命中 `Platform.`）；真正 import `dart:io` 的 6 个文件写法各异（`config.dart` 用 `show Platform`），均正常
+- 版本仍 **1.0.25**；**仍未编译过**（本机无 flutter/dart）→ 等 CI 复验
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

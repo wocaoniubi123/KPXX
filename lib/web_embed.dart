@@ -1,3 +1,5 @@
+import 'dart:async'; // `Timer`（页面就绪前的深色占位保险丝 ✓）—— 2026-10-25 构建失败就栽在漏了它 ✗
+
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 // ⚠️ iOS 的 WebView 创建参数在这个包里 ✓（webview_flutter 的 iOS 实现 ✓、随它一起装 ✓；
