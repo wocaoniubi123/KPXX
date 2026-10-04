@@ -1004,8 +1004,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ),
                   ),
                 ),
-              // X 层：ValueListenableBuilder **只重建这一小块** ✓（仍是 children 里的一个元素 ✓ 层级数不变 ✓）
-              ValueListenableBuilder<bool>(
+              // X 层：**positioned 化** ✓ —— Stack 的尺寸由【非定位子层】决定 ✗：
+              //   1.0.38 事故：ValueListenableBuilder 是**非定位**子层，!show 时它返回 0×0 的 SizedBox.shrink()
+              //   ⇒ 整个 Stack 被压成 0×0 ⇒ Positioned.fill 的画面"填"了 0×0 ⇒ **有声无画** ✓（真机实测 ✓）
+              //   ⇒ 包一层 Positioned.fill（仍是 children 的**一个元素** ✓ 1 换 1 ✓）= 与 1.0.37 的"无非定位子层⇒撑满"一致 ✓
+              Positioned.fill(
+                child: ValueListenableBuilder<bool>(
                 valueListenable: _showX,
                 builder: (_, show, __) => !show
                     ? const SizedBox.shrink()
@@ -1035,6 +1039,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ),
                   ),
                 ),
+              ),
               ),
             ],
         ),
