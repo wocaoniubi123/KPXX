@@ -2507,6 +2507,20 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）
 - **未提交** `sim/**`；清理：`_swap.cjs` / `_new_state.txt` / `%TEMP%\vp2`（pub.dev 响应 + `video_player-2.9.5.tar.gz` + 解压目录）**均已删净，`Test-Path=False`**；`%TEMP%` 与工作区残留复核 0
 
+---
+## 追加（2026-10-05 · **1.0.36 构建修复 #1**）`pubspec.yaml` 缩进错误（依赖被写到顶层）
+
+- **失败原文**（CI run `37227044667`，挂在 `生成 iOS 工程`，analyze/build 全 skipped、无产物）：
+  ```
+  Error detected in pubspec.yaml:
+  Error on line 35, column 3: Expected a key while parsing a block mapping.
+    35 │   webview_flutter: '>=4.7.0 <5.0.0'
+  ```
+- **真因**：新加的 `video_player: 2.9.5` **顶格写在顶层**（缩进 0），而 `dependencies:` 下的兄弟项都是缩进 2 ⇒ YAML 认为 `dependencies` 映射已结束、`video_player` 成了新的顶层 key；下一行开始出现缩进 2 的真实 token 时，父级已是标量 `2.9.5`，不允许子块 ⇒ 报错指向**第一个越界 token（35:3）**，真凶是**第 32 行少 2 个空格**
+- **修**：把 `video_player: 2.9.5` 及其上面两行注释一并缩进 2 空格（与 `media_kit*` 兄弟项一致）；**只动空白，版本号与内容不变**
+- **验**：逐行量前导空格（`media_kit*` 与 `video_player` 均为 2）；括号/行尾（`pubspec.yaml` 纯 LF）；`git diff --numstat` 只 2 行变动
+- **未编译**（本机无 Flutter/Dart）⇒ 以 CI 复验；版本仍 **1.0.36**
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
