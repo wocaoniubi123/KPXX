@@ -1744,6 +1744,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   static const List<String> kMpvLogKeywords = <String>[
     'http', 'tls', 'dns', 'hls', 'demux', 'cache', 'buffer', 'stream',
     'error', 'fail', 'timeout', 'retry', 'conn', 'proxy', 'refused', 'reset',
+    // ⚠️ 2026-10-05 追加（真机病灶 = 第一条分片加载失败、但**看不到底层 HTTP 状态码** ✗）：
+    //    要的就是状态码 / 重连 / 超时 那几类行 ✓
+    'status', '403', '404', '500', '502', '503', '504', 'forbidden',
+    'reconnect', 'network', 'eof', 'unavailable',
   ];
   static const int kMpvLogMax = 200;
   int _mpvN = 0;
@@ -1871,6 +1875,19 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
+      // ⚠️ 2026-10-05（lead 要求）：**把 mpv 的日志级别调高一层** —— 真机病灶是"第一条分片加载失败
+      //   （`ffmpeg/demuxer error hls: Error when loading first segment …` → `avformat_open_input() failed`）
+      //   然后 mpv 自己重试、20 多秒后才好"，但**看不到底层 HTTP 状态码** ✗ ⇒ 要 debug 档 ✓。
+      // **手册原文**（`--msg-level=<module1=level1,module2=level2,...>`）："Control verbosity directly for each
+      //   module. The all module changes the verbosity of all the modules. … **You can use the module names
+      //   printed in the output (prefixed to each line in `[...]`) to limit the output to interesting modules.**" ✓
+      //   ⇒ 模块名不是猜的：**真机日志里那一行的前缀就是 `ffmpeg/demuxer`** ✓ 直接照抄 ✓
+      //     （`ffmpeg=debug` 一并设上，覆盖它下面其它子模块 ✓；不设 `all=`（= 全量 debug ✗ 你明确不要 ✓），
+      //      而且**下面那层过滤 + 每秒 4 条 + 200 条上限**照样兜着 ✓。）
+      // ⚠️ 诚实提醒：这版 libmpv 若不认 `msg-level`（或它不是运行时可设的属性），`setMpvOptionQuiet` 会**静默吞掉** ✗
+      //   ⇒ **下一份日志里 mpv 行明显变多 = 生效了 ✓**；没变多就是没生效（那就要改到 Player 创建参数里 ✗ 得动共用件 ⇒ 到时先报你 ✓）。
+      kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
+      _log('mpv(open 前)：msg-level=ffmpeg/demuxer=debug,ffmpeg=debug（要 HTTP 状态码/重连细节 ✓；若未见效，下一轮改为建 Player 时设 ✓）');
       _tapMpvLog(kp); // ① 从这一刻起把 mpv 自己的日志接进来 ✓（过滤+限速 ✓ 见上面说明 ✓）
       _log('mpv(open 前)：tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
       // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——

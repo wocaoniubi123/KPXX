@@ -2238,6 +2238,47 @@ X 层本就在 `Video` 之后（Stack 最上）；位置 / 默认隐藏 / 静音
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标 2 个未编译风险点（`.listen(onError:)` 写法、`PlayerLog` 字段名来自包源码）
 - **未提交** `sim/**`；清理：删 `%TEMP%\mk2`（本轮下载的两个包 tar + 解压目录）；`%TEMP%` 与工作区临时残留复核均为 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.31**）把 mpv 日志级别提上去（要看清"第一条分片失败"的底层原因）
+
+### 真机日志（1.0.30）—— 病灶已定位到 mpv/ffmpeg
+```
++9738ms mpv[9s] ffmpeg/demuxer error hls: Error when loading first segment
+        'https://media-hls.doppiocdn.net/b-hls-04/259766185/259766185_480p_h264_2282_BZ6eld5VPStLlBiG_1791134469.mp4'
++9742ms mpv[9s] lavf error avformat_open_input() failed
++25222ms KpState: ready=true        ← 20 多秒后 mpv 自己重试成功
+```
+⇒ **不是 DNS、不是 TLS、不是我们的代码**：mpv/ffmpeg **加载"清单里第一条分片"失败 → 内部重试 → 20 多秒后才成**。分片时间戳 `1791134469` = 当时（不旧）
+⚠️ **一处可疑时序（推断，未实测）**：该错误出现在**看门狗重开之后 67 毫秒**（`+9671ms` 重开 → `+9738ms` 报 `hls: Error when loading first segment` → `avformat_open_input() failed` 是"open 被中止"的典型形态）⇒ **8 秒重开可能打断了它正在做的加载**。**本轮未动阈值**，等更详细日志 + 本地复现再一起改
+
+### 一、提高 mpv 日志级别（只在站点文件）
+`lib/sites/xhamsterlive.dart:1889`：
+```dart
+kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
+```
+- **手册原文**：`--msg-level=<module1=level1,…>`「You can use the module names printed in the output (prefixed to each line in `[...]`) to limit the output to interesting modules」
+- **模块名不是猜的**：真机日志里那行的前缀就是 `ffmpeg/demuxer` ⇒ 照抄；另加 `ffmpeg=debug` 覆盖其子模块
+- **没用 `all=`**（不要全量 debug）；过滤白名单 + 每秒 4 条 + 200 条上限 + 单行 400 字符**照旧兜着**
+- 白名单新增：`status / 403 / 404 / 500 / 502 / 503 / 504 / forbidden / reconnect / network / timeout / eof / unavailable`
+- ⚠️ **判据**：下一份日志里 mpv 行**明显变多 = 生效**；没变多 = 这版 libmpv 不认该属性（`setMpvOptionQuiet` 会**静默吞掉**）⇒ 那要改建 `Player` 的参数（**动共用件，会先报**）
+
+### 二、"重试/超时"候选选项（**只列未改**，全部手册/文档查实）
+| 选项 | 语义（原文摘要） | 备注 |
+|---|---|---|
+| `--network-timeout=<s>` | mpv 手册：网络超时，**默认 60 秒**；"affects at least HTTP" | 手册警告会破坏 RTSP（我们只播 HLS ⇒ 不受影响） |
+| `--hls-bitrate=<no\|min\|max\|rate>` | mpv 手册：**默认 max**（挑最高码率档） | 失败的那条是 `_480p_h264_…`；"最高档恰好坏了"是候选（代价：降画质） |
+| `--demuxer-lavf-o=<k>=<v>` | mpv 手册：把 AVOptions 传给 libavformat demuxer | **mpv 侧唯一有文档的入口** |
+| `reconnect_on_http_error` | FFmpeg 协议文档：按状态码重连（可写 `4xx`/`5xx`） | 经上一条传入 |
+| `reconnect_streamed` | FFmpeg：直播流（非 seekable）也允许重连 | 同上 |
+| `reconnect_delay_max` / `reconnect_delay_total_max` / `reconnect_max_retries` / `respect_retry_after` | FFmpeg：重连上限/延迟/尊重 `Retry-After` | 同上 |
+| ~~`--stream-lavf-o`~~ / ~~`http_retry`~~ | **查无此项**（手册/FFmpeg 文档均无） | 别写进代码 |
+**决定**：**先只上日志级别**，看清失败到底是 403/404/5xx 还是连接超时，**再决定改哪个重试参数**（否则是碰运气）
+
+### 三、状态
+- 只改 `lib/sites/xhamsterlive.dart`（numstat **17/0**）；`player_widget.dart` 未动
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；`msg-level` 是否生效、能否带出 HTTP 状态码 **只有下一份真机日志能证**
+- **未提交** `sim/**`；清理：删 `%TEMP%\mpvd2`（本轮抓的 mpv 手册 + FFmpeg 协议文档）；`%TEMP%` 与工作区临时残留复核均为 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
