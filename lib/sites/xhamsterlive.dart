@@ -807,9 +807,7 @@ class LiveRoomPage extends StatefulWidget {
 
 class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 默认**隐藏** ✓（点屏幕才出现 ✓）
-  /// (b) 2026-10-05：X 显隐用 notifier ✓ —— 点一下**只刷 X 那一小块**，
-  ///   不再 setState 重建整页（原来连播放器层一起重建 ✗）
-  final ValueNotifier<bool> _showX = ValueNotifier<bool>(false);
+  bool _showX = false;
 
   /// 错误提示 —— ⚠️ 2026-10-05 用户拍板：**"状态提示"（打开中/连接中/仍在加载…/90 秒兜底）全删** ✗，
   ///   但**这条错误提示保留** ✓ —— 打不开/初始化失败时屏幕上必须有一行明确文案，
@@ -837,7 +835,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   @override
   void dispose() {
-    _showX.dispose(); // (b) notifier 也要释放 ✓
     final c = _c;
     _c = null;
     if (c != null) {
@@ -979,7 +976,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
               left: 24, // 让出左边缘 24px 给原生侧滑 ✓（代价：最左 24px 内点屏幕不再 toggle ✓ 已知 ✓）
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => _showX.value = !_showX.value, // (b) 只改 notifier ⇒ 不再 setState 重建整页 ✓
+                onTap: () => setState(() => _showX = !_showX),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -1005,12 +1002,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ),
                   ),
                 ),
-              // (b) 只重建 X 这一小块 ✓（点一下不再重建播放器层 ✓）
-              ValueListenableBuilder<bool>(
-                valueListenable: _showX,
-                builder: (_, show, __) => !show
-                    ? const SizedBox.shrink()
-                    : SafeArea(
+              if (_showX)
+                // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
+                SafeArea(
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: Padding(
@@ -1037,7 +1031,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   ),
                 ),
             ],
-          ),
         ),
       ),
     );
