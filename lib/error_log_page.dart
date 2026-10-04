@@ -95,27 +95,43 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
         ],
       ),
       body: PageBg(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _text.trim().isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        '暂无错误记录 ✓\n\n（有站点出错时，这里会记下「时间 + 站点名 + 错误信息」）',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 14, color: kTxtSub),
-                      ),
-                    ),
-                  )
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.all(12),
-                    child: SelectableText(
-                      _text,
-                      style: const TextStyle(fontSize: 12, height: 1.45),
-                    ),
-                  ),
+        child: Column(
+          children: [
+            // ⚠️ 2026-10-05（用户拍板把上限改成 5MB）：**把上限写清楚** ✓ ——
+            //   免得再有人问"为什么显示 512KB / 到底多大" ✓
+            //   （数值的**单一出处** = `SiteErrorLog.maxBytes` / `.keepBytes` ✓ 界面这行是给人看的说明 ✓）
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 10, 12, 2),
+              child: Text(
+                '上限 5MB，超限保留末尾约 2.5MB（只留最新的一段，不会整篇清空）',
+                style: TextStyle(fontSize: 12, color: kTxtSub),
+              ),
+            ),
+            Expanded(child: _body()),
+          ],
+        ),
       ),
     );
   }
+
+  Widget _body() => _loading
+      ? const Center(child: CircularProgressIndicator())
+      : _text.trim().isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  '暂无错误记录 ✓\n\n（有站点出错时，这里会记下「时间 + 站点名 + 错误信息」）',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: kTxtSub),
+                ),
+              ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: SelectableText(
+                _text,
+                style: const TextStyle(fontSize: 12, height: 1.45),
+              ),
+            );
 }

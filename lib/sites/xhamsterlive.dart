@@ -1699,16 +1699,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// 状态/错误提示 —— **不静默、不白屏** ✓：校验不过就把原因写在屏幕上 ✓
   String _err = '正在打开直播…';
 
-  /// 起播看门狗（**不许无限转圈** ✓）：超时没出画面 → 重开一次 → 再超时 → 报错停 ✓
+  /// 起播看门狗（**不许无限转圈** ✓）：超时没出画面 → **只换屏幕文案** ✓（见 [kLiveGiveUpMs] ✓）
   Timer? _wd;
 
-  /// 只重开**一次** ✓（不连环 ✗）
-  bool _wdRetried = false;
-
-  /// 起播看门狗阈值（毫秒）—— **8 秒**：
-  /// 本机实测（curl 走代理）"master 0.52~0.80s + 变体 0.48~0.76s + 首个分片 0.32~0.90s" ≈ **2.5 秒** 是网络那段 ✓
-  /// ⇒ 8 秒给了 ~3 倍余量 ✓；两次合计 ≈16 秒 ⇒ 落在用户要的"最多等十几秒" ✓（不是几分钟 ✗）。
-  static const int _kLiveStartMs = 8000;
+  // ⚠️ 2026-10-05：原 `_kLiveStartMs = 8000`（8 秒重开 / 16 秒判失败）**已删** ✗ ——
+  //   按真机实测改成"只换屏幕文案"的两个门槛：[kLiveStillMs] / [kLiveGiveUpMs] ✓（见下面 ✓）。
+  //   （旧的"两次合计 ~16 秒"那段说明随之作废 ✗ 已删 ✓）
 
   /// 起播计时（秒）—— 只用来在**屏幕上**显示卡在哪一步 ✓（真机取证 ✓ 不写文件 ✗ 不加日志 ✗）
   int _secs = 0;
@@ -1719,6 +1715,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   bool _logReady = false;
   bool _logStarted = false;
   int _logPosSec = -1;
+
+  /// 上一条已记过的**播放器错误文本** ✓（同一条只记一次 ✗ 防止按 tick 刷盘 —— 见 listener 里那段说明 ✓）
+  String _lastErrLog = '';
 
   /// 记一条直播日志 ✓（**复用 [SiteErrorLog]** ✓：同一个文件/格式/导出方式 ✓ 不新建一套 ✗）。
   /// ⚠️ 节流（用户要求"不许影响性能" ✓）：只在**里程碑**记 ✓ ——
@@ -1792,19 +1791,34 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   }
 
   /// 屏幕上的阶段文案（判据只用 `KpState` 那几个：`ready` / `started` / `position` ✓）：
-  /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）→ 出画后**空**（不显示 ✓）
-  /// ⚠️ 2026-10-05 修（真机日志里发现的）：**放弃之后这个轮询还在打** ✗（日志里 +17.7s 已"报错停止"，
-  ///   +21.7s/+26.7s 却还有"等待 20s/25s" ✗）⇒ 放弃时把 [`_stageT`] 停掉 ✓，[`_gaveUp`] 之后不再显示/不再记 ✓。
+  /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）
+  /// → 超过 [kLiveStillMs] 还没出画 → `仍在加载… Ns`（**只改文案，别停别报错** ✓）
+  /// → 超过 [kLiveGiveUpMs] → 那行"一直没出画面"的提示 ✓（**也只是文案** ✓ 播放器继续跑 ✓）；
+  ///   出画后**空**（不显示 ✓）。
+  /// ⚠️ 2026-10-05（lead 按实测重构）：不再是"8 秒重开 / 16 秒判失败" ✗ ——
+  ///   真机日志证明：`+9671ms` 我们重开 → `+9738ms` mpv 立刻报 `hls: Error when loading first segment` +
+  ///   `avformat_open_input() failed` ✗（= **"open 被我们中止"的形态** 🔍），而 `+25222ms` 它其实
+  ///   `ready=true` 出画面了 ✓ ⇒ **重开既在打断、判失败又是误报** ✗ ⇒ 两个都拆掉 ✓。
   bool _gaveUp = false;
 
+  /// 只是"换个文案"的门槛（**不停不报错** ✓）：8 秒
+  /// —— 与我们原先的重开门槛同值 ✓（真机上它 25.2 秒才成，8 秒远早于成功点 ⇒ 拿它当"还在加载"的提示点 ✓）。
+  static const int kLiveStillMs = 8000;
+
+  /// 真正"看上去没戏"的门槛：**90 秒**（**到点也只是提示一句** ✓ 不停播放 ✓）
+  /// 理由：① recon 实测"分片地址只活 ~25~28 秒、清单窗口 3 段（≈6s）"⇒ 播放器本来就要十几~二十几秒才拿稳 ✓；
+  ///       ② 真机实测成功点 = **25.2 秒** ✓ ⇒ 90 秒 ≈ **3.5 倍**余量 ✓（既不会误报、也不会让人无限干等没提示 ✓）。
+  static const int kLiveGiveUpMs = 90000;
+
   String get _stage {
-    if (_gaveUp) return ''; // 已经放弃（看门狗两次都超时 ✓）→ 别再刷"等待 Ns" ✗
     final k = _kp;
-    if (k != null && k.value.started) return ''; // 出画面 ✓ 不显示 ✓
+    if (k != null && k.value.started) return ''; // 出画面 ✓ 不显示 ✓（这条**优先**：90s 后若真出来了也要消失 ✓）
+    if (_gaveUp) return '这条直播一直没出画面，可能主播没有在推流 ✗（已等 ${_secs}s）';
     if (k == null && _err != '正在打开直播…') return ''; // 中间已经在报错 ✗ 别再叠一行 ✓
     final s = '${_secs}s';
     if (k == null) return '打开中… $s';
     if (!k.value.ready) return '连接中… $s';
+    if (_secs * 1000 >= kLiveStillMs) return '仍在加载… $s'; // 超过 8 秒还没出画 → 换个文案 ✓ **继续等** ✓
     return '缓冲中… $s'; // `ready` = duration>0（清单已解析 ✓）但 position 还是 0 ⇒ 还没出画 ✓
   }
 
@@ -1875,21 +1889,16 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
-      // ⚠️ 2026-10-05（lead 要求）：**把 mpv 的日志级别调高一层** —— 真机病灶是"第一条分片加载失败
-      //   （`ffmpeg/demuxer error hls: Error when loading first segment …` → `avformat_open_input() failed`）
-      //   然后 mpv 自己重试、20 多秒后才好"，但**看不到底层 HTTP 状态码** ✗ ⇒ 要 debug 档 ✓。
-      // **手册原文**（`--msg-level=<module1=level1,module2=level2,...>`）："Control verbosity directly for each
-      //   module. The all module changes the verbosity of all the modules. … **You can use the module names
-      //   printed in the output (prefixed to each line in `[...]`) to limit the output to interesting modules.**" ✓
-      //   ⇒ 模块名不是猜的：**真机日志里那一行的前缀就是 `ffmpeg/demuxer`** ✓ 直接照抄 ✓
-      //     （`ffmpeg=debug` 一并设上，覆盖它下面其它子模块 ✓；不设 `all=`（= 全量 debug ✗ 你明确不要 ✓），
-      //      而且**下面那层过滤 + 每秒 4 条 + 200 条上限**照样兜着 ✓。）
-      // ⚠️ 诚实提醒：这版 libmpv 若不认 `msg-level`（或它不是运行时可设的属性），`setMpvOptionQuiet` 会**静默吞掉** ✗
-      //   ⇒ **下一份日志里 mpv 行明显变多 = 生效了 ✓**；没变多就是没生效（那就要改到 Player 创建参数里 ✗ 得动共用件 ⇒ 到时先报你 ✓）。
-      kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
-      _log('mpv(open 前)：msg-level=ffmpeg/demuxer=debug,ffmpeg=debug（要 HTTP 状态码/重连细节 ✓；若未见效，下一轮改为建 Player 时设 ✓）');
-      _tapMpvLog(kp); // ① 从这一刻起把 mpv 自己的日志接进来 ✓（过滤+限速 ✓ 见上面说明 ✓）
-      _log('mpv(open 前)：tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
+      // ⚠️⚠️ 2026-10-05 **紧急回退**：这里原来设了 `msg-level=ffmpeg/demuxer=debug,ffmpeg=debug` ✗
+      //   —— 用户反馈"什么日志都没输出！" ⇒ lead 判断：**debug 级会让 `stream.log` 每秒几千条** ✗，
+      //   事件流把 Dart 侧压死（UI/写日志被饿死 ✗），更致命的是 `SiteErrorLog` 有 **512KB 截断**逻辑
+      //   （写之前超限就 `writeAsString('', flush: true)` 清空 ✓ 见 `lib/site_error_log.dart:21/37-39` ✓）
+      //   ⇒ 被灌大后就是**反复清空** ⇒ 用户看到"什么都没有" ✗✗。
+      //   ⇒ **已删掉那行** ✓ **回到 mpv 默认日志级别** ✓（我们自己的 `_log()` 行 + 默认级别的 mpv 行照旧 ✓）。
+      //   ⚠️ 以后要再看 HTTP 细节，**别走"提高 mpv 日志级别"这条路**（会把事件流量级抬高 ✗）——
+      //     改成在 Player 创建参数里设（那要动共用件 ⇒ 先报 lead ✓）或换其它抓法 ✓。
+      _tapMpvLog(kp); // mpv 日志通道保留 ✓（默认级别下量很小 ✓ 过滤 + 每秒 4 条 + 200 条上限照旧 ✓）
+      _log('mpv(open 前)：日志级别=**默认**（msg-level 已回退删除 ✗）；tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
       // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
       //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；
       //     必须在 `open()` **之前**设 ✓（这几个是"加载时读"的缓存参数 ✓））：
@@ -1915,8 +1924,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       _secs = 0;
       _stageT?.cancel();
       _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
-        if (!mounted || _gaveUp || (_kp != null && _kp!.value.started)) {
-          t.cancel(); // 出画 ✓ 或已放弃 ✓ → 停掉 ✓（别一直跑 ✗）
+        if (!mounted || (_kp != null && _kp!.value.started)) {
+          t.cancel(); // 出画即停 ✓ —— ⚠️ **不再因"90 秒到了"停** ✓（计时继续 ✓，那行提示还要显示秒数 ✓）
           return;
         }
         setState(() => _secs++);
@@ -1963,10 +1972,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       //   判据 = `k2.value.position > Duration.zero` ✓（= `KpState.started` ✓，见 `player_widget.dart:103`
       //     `bool get started => position > Duration.zero;` ✓ —— 这是 `KpState` 唯一能读到的"出画"信号 ✓
       //     它**没有**暴露 width/height ✗ 所以没得选 ✓）。
-      //   阈值 [_kLiveStartMs] = **8 秒**（理由：本机实测"master 0.52~0.80s + 变体 0.48~0.76s + 首个分片 0.32~0.90s"
-      //     ≈ **2.5 秒**是网络那一段 ✓ → 8 秒给它 ~3 倍余量 ✓；两次共 ~16 秒 ⇒ 落在你要的"最多等十几秒" ✓）。
-      //   超时 → **重开一次**（只一次 ✓ 不连环）；再超时 → 明确报错并停 ✓。
-      _startWatchdog(k2, url);
+      //   阈值有两个（都**只是文案** ✓ 不打断播放 ✓）：[kLiveStillMs]=8 秒换"仍在加载…" ✓；
+      //     [kLiveGiveUpMs]=90 秒 → 那行"一直没出画面"的提示 ✓（**不停播放器** ✓ 见 `_startWatchdog` ✓）。
+      //   ⚠️ 2026-10-05 按真机实测**去掉了"8 秒重开一次 / 16 秒判失败"** ✗（那是打断 + 误报 ✓ 见 `_startWatchdog` 注释 ✓）。
+      _startWatchdog(k2);
       // 开播后真断了（校验过了但流中途坏）→ **说清楚** ✓（别让用户对着黑屏 ✗）；
       // ⚠️ 只在"还没出画面"时报 ✗ —— mpv 起播期偶发网络错误不该弹（用户的痛点是慢/黑屏，不是弹错 ✓）
       k2.addListener(() {
@@ -1996,7 +2005,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (k2.value.error) {
           final t = k2.value.errorText;
           final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
-          _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
+          // ⚠️⚠️ 2026-10-05 **洪水源修复**：这个监听是**每次 KpState 变化**都跑（position/volume… 一秒几十次 ✗）
+          //   ⇒ 原来这里**没有去重** ✗ —— 只要 `error=true` 持续，就按 tick 往盘里追加（每条还带 flush ✗）
+          //   ⇒ 配合 `SiteErrorLog` 的 512KB 截断 = 反复清空 ⇒ 用户"什么日志都没有" ✗✗。
+          //   现在：**同一条错误文本只记一次** ✓（文本变了才再记 ✓）—— 与其它分支一样严守"只记跳变" ✓。
+          if (t != _lastErrLog) {
+            _lastErrLog = t;
+            _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
+          }
           if (msg != _err && mounted) setState(() => _err = msg);
         }
       });
@@ -2010,42 +2026,23 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
   }
 
-  /// 起播看门狗：`_kLiveStartMs` 内没出画面（`position > 0` ✓）→ **重开一次** ✓；再超时 → 报错停 ✓
-  /// `url` = **master**（与站点自己的原生播放一致 ✓ 见 `_checkAndPlay` 里的说明 ✓）
-  void _startWatchdog(KpPlayer kp, String url) {
+  /// ⚠️ 2026-10-05 按真机实测**重构**（lead 拍板）：
+  /// ① **去掉"8 秒重开一次"** ✗ —— 真机时序：`+9671ms` 我们重开 → `+9738ms` mpv 报
+  ///    `hls: Error when loading first segment` + `avformat_open_input() failed` ✗ ⇒ **十有八九是我们把它的 open 打断了** 🔍；
+  /// ② **不再"超时即判失败"** ✗ —— 同一份日志里 `+17673ms` 我们判了失败，`+25222ms` 它其实已经
+  ///    `ready=true` 出画面 ✓ ⇒ **误报** ✗；
+  /// ③ 现在只剩**一个很宽的计时器**：到 [kLiveGiveUpMs] 没出画 → **只把屏幕文案换成那行提示** ✓
+  ///    （**不停播放器、不报错、不重开** ✓）；真出错只有一条路：`KpState.error == true`（listener 里处理 ✓）。
+  void _startWatchdog(KpPlayer kp) {
     _wd?.cancel();
-    _wd = Timer(const Duration(milliseconds: _kLiveStartMs), () async {
+    _wd = Timer(const Duration(milliseconds: kLiveGiveUpMs), () {
       if (!mounted || !identical(_kp, kp)) return;
       if (kp.value.position > Duration.zero) return; // 已经出画 ✓（listener 那边也会撤 ✓）
-      if (!_wdRetried) {
-        _wdRetried = true;
-        _log('看门狗：8 秒到，仍未出画面 → **重开一次** ✓（position=${kp.value.position.inMilliseconds}ms '
-            'ready=${kp.value.ready} error=${kp.value.error}）');
-        if (mounted) setState(() => _err = '直播还没出画面，正在重试一次…');
-        try {
-          // **重开一次**：也交 **master** ✓（与站点自己的做法一致 ✓；重开 = 真重开 ✗ 不是只重置计时器 ✗）
-          final t1 = _sw.elapsedMilliseconds;
-          await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
-          _log('看门狗：重开 kp.open() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - t1}ms');
-          // 这里同样**不静音** ✓（给人看的 ✓ 音量系统默认 ✓ 见上面那段说明 ✓）
-        } catch (e) {
-          _log('看门狗：重开抛异常 → $e');
-          // 重开失败也不用管 ✓：下面那次超时会直接报错 ✓
-        }
-        _startWatchdog(kp, url);
-        return;
-      }
-      _log('看门狗：第二次 8 秒也过了 → 报错停止 ✓（总耗时 ${_sw.elapsedMilliseconds}ms，'
+      _log('仍在加载：已等 ${kLiveGiveUpMs ~/ 1000} 秒还没出画面 → **只换文案、继续等** ✓（不停、不报错、不重开 ✓；'
           'position=${kp.value.position.inMilliseconds}ms ready=${kp.value.ready} '
           'error=${kp.value.error} errorText=${kp.value.errorText.isEmpty ? '(空)' : kp.value.errorText}）');
-      // ⚠️ 2026-10-05 修：**放弃了就要真停** ✓ —— 那个每秒轮询（_stageT）也 cancel 掉 ✓
-      //    （真机日志里出现过"+17.7s 已报错停止，+21.7s/+26.7s 还在打'等待 20s/25s'"✗）
-      _gaveUp = true;
-      _stageT?.cancel();
-      _stageT = null;
-      if (mounted) {
-        setState(() => _err = '这条直播一直没出画面，可能主播没有在推流 ✗');
-      }
+      _gaveUp = true; // 只影响屏幕那行字 ✓（`_stage` 会换成"一直没出画面"的提示 ✓）播放器照跑 ✓
+      if (mounted) setState(() {});
       _wd = null;
     });
   }

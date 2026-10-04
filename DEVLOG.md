@@ -2279,6 +2279,41 @@ kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；`msg-level` 是否生效、能否带出 HTTP 状态码 **只有下一份真机日志能证**
 - **未提交** `sim/**`；清理：删 `%TEMP%\mpvd2`（本轮抓的 mpv 手册 + FFmpeg 协议文档）；`%TEMP%` 与工作区临时残留复核均为 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.32**）日志被冲垮的根因修复 + 看门狗重写 + 日志上限 5MB 保留末尾
+
+### 用户反馈（1.0.31）
+> **"啥玩意，什么日志都没输出！！！"** → 追问确认：**整页空白**（不是只缺 mpv 行）
+
+### 一、日志被冲垮 —— 两条根因（一条是我加的，一条是先前埋的）
+**① `msg-level`（1.0.31 我加的）** ✗
+`setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug')` ⇒ debug 级下 `stream.log` 每秒几千条 ⇒ **事件流压死 Dart 侧**（连我们自己的写盘任务都排不上）⇒ **已删**（`git grep` 证明无该调用，仅剩注释说明；**并写明"以后别走提高 mpv 日志级别这条路"**）
+**② `KpState` 监听里 error 分支没去重（先前埋的）** ✗
+该监听**每次状态变化都跑**（position/volume 一秒几十次）⇒ 只要 `error` 持久为真，就**按 tick 刷盘**（每条还带 `flush`）+ `SiteErrorLog` **超限整体清空** ⇒ **反复清空 = 整页空白** ✓
+**修**：新增 `String _lastErrLog`，**同一条错误文本只记一次**（文本变才再记）
+**逐条核过其余 24 个 `_log` 调用点**：`等待 Ns` / `position` 各**每 5 秒 1 条**；`ready`/`started` 各 1 次；其余为一次性路径 ⇒ **稳态最多 ~1.2 条/秒**
+
+### 二、看门狗重写（按实测推翻旧设计）
+**依据**：真机日志 `+17673ms` 判"失败"、但 `+25222ms` **它其实出画面了** ⇒ **我们的"失败"是误报**；且那条 `hls: Error when loading first segment` 出现在**我们重开之后 67ms**（`avformat_open_input() failed` = "open 被中止"的典型形态）⇒ **8 秒重开极可能就是报错的制造者**
+**改**：
+- **删掉"8 秒重开"**（`kp.open()` 全仓只剩首次一处）
+- **超时不再判失败**：8 秒起文案变 `仍在加载… Ns`（`kLiveStillMs = 8000`），**播放器照跑**
+- **只有真出错**（`KpState.error`）才显示错误；**90 秒**（`kLiveGiveUpMs`）到点只提示一句（**不停播放器**）—— 依据：recon 实测分片地址只活 **~25~28 秒**、清单窗口 3 段（≈6s）+ 真机成功点 **25.2 秒** ⇒ 90 秒 ≈ 3.5 倍余量
+- 死代码清理：`_kLiveStartMs` / `_wdRetried` / "正在重试一次…" 全删
+
+### 三、日志上限 5MB + 超限**保留末尾**（用户拍板改共用件）
+`lib/site_error_log.dart`：
+- `maxBytes = 5 * 1024 * 1024`（**5MB**，原 512KB；用户原话"改成 5mb 吧，也影响不了什么"）
+- `keepBytes = maxBytes ~/ 2`（≈2.5MB，与上限联动）
+- 超限行为：**裁成末尾 keepBytes**（不再整篇清空）—— 实现 `_trimTail`：按字节读末尾 → **从第一个换行（0x0A）之后取** → `utf8.decode(allowMalformed: true)` → 覆写 ⇒ **从换行边界裁、不切中文** ✓
+- ⚠️ 诚实提醒：2.5MB 尾部是**一次性读进内存**（约 2.5MB 字节 + 解码字符串 ≈ **~10MB 级瞬时占用**）；真机若卡顿可把 `keepBytes` 改成 `maxBytes ~/ 4`
+`lib/error_log_page.dart`：**新加一行说明**（"上限 5MB，超限保留末尾约 2.5MB（只留最新的一段，不会整篇清空）"）—— 纠正：页面**原来并没有显示上限**；正文三态逻辑抽出 `_body()`（**逻辑一行没变**）
+
+### 四、状态
+- 三文件 numstat：`site_error_log.dart` **44/4** · `error_log_page.dart` **36/20** · `sites/xhamsterlive.dart` **63/66**（`--ignore-cr-at-eol` 同值 ⇒ 无行尾污染）；括号三对全平衡；行尾纯 LF
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标出未编译点：新加的那行 UI（`Column`+`Expanded`）、`keepBytes ~/ 2` 常量表达式
+- **未提交** `sim/**`；清理：`%TEMP%` 与工作区临时残留复核均为 0；本轮无临时产物
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
