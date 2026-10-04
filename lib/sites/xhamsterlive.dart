@@ -807,7 +807,9 @@ class LiveRoomPage extends StatefulWidget {
 
 class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 默认**隐藏** ✓（点屏幕才出现 ✓）
-  bool _showX = false;
+  /// (b) 2026-10-05：X 显隐用 notifier ✓ —— 点一下**只刷 X 那一小块**，
+  ///   不再 setState 重建整页（原来连播放器层一起重建 ✗）
+  final ValueNotifier<bool> _showX = ValueNotifier<bool>(false);
 
   /// 错误提示 —— ⚠️ 2026-10-05 用户拍板：**"状态提示"（打开中/连接中/仍在加载…/90 秒兜底）全删** ✗，
   ///   但**这条错误提示保留** ✓ —— 打不开/初始化失败时屏幕上必须有一行明确文案，
@@ -835,6 +837,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   @override
   void dispose() {
+    _showX.dispose(); // (b) notifier 也要释放 ✓
     final c = _c;
     _c = null;
     if (c != null) {
@@ -967,12 +970,19 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: GestureDetector(
-          // 点屏幕 = **真 toggle** X 显隐 ✓；`opaque` = **整屏任意位置**的点击都归我们 ✓
-          behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() => _showX = !_showX),
-          child: Stack(
-            children: [
+        body: Stack(
+          children: [
+            // (a) 2026-10-05 用户报「左滑返回迟钝」✗ ⇒ 根因就是原来这层：GestureDetector 包住整个 Stack，
+            //   加上 HitTestBehavior.opaque ⇒ 屏幕**最左边缘**也被我们揽进 Flutter 手势竞技场 ✗，
+            //   iOS 原生侧滑返回得先等它判负 ⇒ 手感变钝 ✓ ⇒ 现在**只留左侧 24px 以外**的点击热区 ✓
+            Positioned.fill(
+              left: 24, // 让出左边缘 24px 给原生侧滑 ✓（代价：最左 24px 内点屏幕不再 toggle ✓ 已知 ✓）
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _showX.value = !_showX.value, // (b) 只改 notifier ⇒ 不再 setState 重建整页 ✓
+                child: const SizedBox.expand(),
+              ),
+            ),
               // 画面：AVPlayer（`video_player` **本身没有任何控件** ✓ 正合"只要画面 + X" ✓）
               //   等比铺满：`Center + AspectRatio` = contain ✓（不拉伸 ✓ 黑底补边 ✓）
               if (_c != null && _c!.value.isInitialized)
@@ -995,13 +1005,16 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ),
                   ),
                 ),
-              if (_showX)
-                // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
-                SafeArea(
+              // (b) 只重建 X 这一小块 ✓（点一下不再重建播放器层 ✓）
+              ValueListenableBuilder<bool>(
+                valueListenable: _showX,
+                builder: (_, show, __) => !show
+                    ? const SizedBox.shrink()
+                    : SafeArea(
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(5, 12, 12, 12), // ① 2026-10-05 用户拍板：左边距 12→8→**5** ✓（只动左边 ✓ 上右下仍 12 ✓ 垂直与 SafeArea 未动 ✓）
                       child: Material(
                         color: Colors.black.withOpacity(0.45),
                         shape: const CircleBorder(),
@@ -1011,7 +1024,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                           child: const SizedBox(
                             width: 76,
                             height: 76,
-                            child: Icon(Icons.close, color: Colors.white, size: 40),
+                            // ③ 图标**左对齐 + 垂直居中** ✓ —— 原来居中会把 76 方块左右一多半的内边距
+                            //   算进"视觉距离"✗（看着离屏幕很远 ✓）；命中区仍是 76×76 不动 ✗
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Icon(Icons.close, color: Colors.white, size: 32),
+                            ),
                           ),
                         ),
                       ),

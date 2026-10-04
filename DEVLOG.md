@@ -2577,6 +2577,29 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **教训（已入规矩）**：① **删代码块 = 顺手查 import 是否悬空**（A2 留下的尾巴就是证据 ✓）② **跨文件引用公用件 = import 必须在同一个原子步** ③ 锚点一律**从文件取**（不手抄）④ 注释里**不写裸括号**（会污染计数口径）
 - **状态**：修复只经静态复核（锚点 + 括号逐类等式 + 行尾保持 + 零残留 grep）；**能否过 analyze 由 CI 二次确认**
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.38**）直播房间页：**左滑返回/单击迟钝的真因 + X 位置与图标**
+
+### 一、真因（用户报"单击显隐 + 左滑返回反应迟钝"，先查因后改 ✓）
+| 怀疑 | 结论 | 依据（`lib/sites/xhamsterlive.dart` 原文） |
+|---|---|---|
+| 点击层铺满全屏、盖住左边缘 | ✅ **是元凶** | 原 `:970 body: GestureDetector(` + `behavior: HitTestBehavior.opaque` **包住整棵 Stack**（含屏幕最左 0~24px）⇒ iOS **原生侧滑返回**必须先等 Flutter 手势竞技场判负 ⇒ **左滑迟钝** |
+| 同时挂了 doubleTap / longPress | ❌ 否 | 全文件 `onDoubleTap`/`onLongPress` **各 0 处**；只有 `:973` 一个 `onTap` ⇒ 单击**不会**等双击超时 |
+| toggle 用 `setState` 重建整页 | ✅ **是次要嫌疑** | `:973 setState(() => _showX = !_showX)` ⇒ 每次点击重建**整棵子树**（含播放器外那层）；`_c` 未变不会重初始化，但整层 widget 重建 ⇒ 体感"发卡" |
+| 播放器层是平台视图吞触摸 | ❓ 未验（不必查 ✓ 上面已能解释） | 仓库侧只见 `:983 child: VideoPlayer(_c!)` |
+| 还有别的全屏手势层 | ❌ 否 | `GestureDetector/RawGestureDetector/IgnorePointer/AbsorbPointer` 全文件只有那一处 |
+
+### 二、改法（三项 ✓）
+1. **让出左边缘 24px**：点击层从"包住 Stack"⇒ 改为 **Stack 里单独一层** `Positioned.fill(left: 24, child: GestureDetector(behavior: opaque, child: SizedBox.expand()))`（放第一个子层，X 层在其上 ⇒ X 自己的 `InkWell` 仍先命中 ✓）
+   - ⚠️ **已知取舍**：屏幕**最左 24px 内点屏幕不再显隐 X** ✓（让给原生侧滑 ✓）
+2. **只重建 X 那一小块**：`bool _showX` ⇒ **`ValueNotifier<bool> _showX`**（+ `dispose()` 里补 `_showX.dispose()` ✓）+ X 层用 `ValueListenableBuilder<bool>` ⇒ 实测 `git grep "setState(() => _showX"` = **空** ✓（播放器层不再被它包住 ✓）
+3. **X 位置与大小**（用户逐次点名 ✓）：左边距 **12 → 8 → 5px**（`EdgeInsets.fromLTRB(5, 12, 12, 12)` ✓ 只动左边 ✓ 上/右/下 12 保持 ✓ 垂直位置与 `SafeArea` 一字未动 ✓）· 图标 **40 → 32** ✓ · 图标在 76 方块里改为**左对齐 + 垂直居中** ✓（否则 76 的内边距会把"5px"吃掉 ✗）· **命中区 76×76 未动** ✓
+   - ⚠️ 如实标注 🔍：`Icons.close` 字形**自带几 px 内边距** ⇒ 视觉左距 ≈ 5px + 该内边距 ✓（真机嫌远给个数再调 ✓ **垂直不动** ✓）
+
+### 三、状态
+- 改动只在 `lib/sites/xhamsterlive.dart`（`30/12` ✓）；行数 1048 → 1065 ✓；`{}`/`()`/`[]` 逐类等式通过 ✓；**CRLF 保持** ✓
+- **只过静态检查、未编译** ❓（本机无 Flutter SDK）；真机验：① 从**最左边缘**往里滑 ⇒ 侧滑应恢复原生手感 ② 点屏幕显隐 X ⇒ 应立即响应 ③ X 位置/大小是否合眼
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
