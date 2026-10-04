@@ -1941,6 +1941,126 @@ _注：注入链（三注入点/解耦）是**共享能力**，但那两条老�
   - 全 `lib/` 扫四类易漏库（`dart:async` / `dart:math` / `dart:convert` / `dart:io`）→ **无其它真隐患**；两条初始告警经核实**都是误报**（`_isXvProfile(` 被大小写不敏感命中 `file(`；`WebViewPlatform.instance` 子串命中 `Platform.`）；真正 import `dart:io` 的 6 个文件写法各异（`config.dart` 用 `show Platform`），均正常
 - 版本仍 **1.0.25**；**仍未编译过**（本机无 flutter/dart）→ 等 CI 复验
 
+## 附 · re-js 逆向报告：xHamsterLive 直播"真分片 URL"（2026-10-04）
+
+**结论一句话**：真分片 URL = 播放器**当场解密**出来的。清单里 `#EXT-X-MOUFLON:URI:` 的 **22 字符 base64 token 是密文**（= 16 字节），
+播放器用**硬编码在播放器 JS 里的密钥表**（`ui[keyId]`，keyId 就是 `PSCH` 那个 16 字符 pkey）把它换成 **16 字符真 token** 再去取分片。
+—— 所以"补 pkey 拿清单 → 照抄清单里的 URL"这条路**永远 404**：清单里的 token 本来就不是给播放器直接用的。
+**已实测拿到当下可播的真分片**（无 Referer / 无 cookie 的 curl → HTTP 206 + fMP4 `sidx` 头）✓
+
+### ① Evidence（全部可复现）
+
+| ID | 实测内容 | 原文 / 命令摘录 |
+|---|---|---|
+| E-001 | 播放器 bundle 可直取 | `curl https://mmp.doppiocdn.com/player/mmp/v2.13.0/main.js` → **200 / 352240 B**；`.../chunk-3d7c79f25e6a8cbb8748.js` → **200 / 357182 B**（webpack；`\x00` 计 0 个 ⇒ 非 JSVMP） |
+| E-002 | 解密器类定位 | chunk 内 `class ci`（= 播放器里的 `PlaylistDecryptHandler`）：构造里 `this._knownKeys=ui`、`this._knownSchemes=ai`；`get corruptionQueryParams()` 只发 **`psch` + `pkey`** 两个 query 参数。字符串表混淆已还原（自定义字母表 base64 + **数组旋转 28 次**） |
+| E-003 | **密钥表抠出来了** | 把 `const oi=…,ai=…,ui=…` 那段在 Node 里**执行**（自写 `fi/hi/ii/li` 解码器 + scheme 桩类）→ `ai={v1:[Xr,Hr],v2:[ni,Jr]}`、`ui={"Zeechoej4aleeshi":"ubahjae7goPoodi6","Ook7quaiNgiyuhai":"8iPRUU0AnxoOSif9"}` |
+| E-004 | master 清单（不需签名） | `GET https://edge-hls.doppiocdn.net/hls/209778341/master/209778341_auto.m3u8?playlistType=lowLatency` → **200 / 1752 B**；正文 **11 行** `#EXT-X-MOUFLON:PSCH:v2:<16 字符>` + 5 档变体 |
+| E-005 | 变体清单形态 | 补 `psch=v2&pkey=<token>` → **200 / 5601 B**；**19 行** `#EXT-X-MOUFLON:URI:`，形态 `…/<id>_<preset>_h264_<msn>_<22字符base64>_<ts>_partN.mp4`；**标准位置全是占位** `https://media-hls.doppiocdn.net/b-hls-10/media.mp4` |
+| E-006 | 11 个 pkey 逐个试 | **11/11 HTTP 200**；**没有任何一份带 `#EXT-X-MOUFLON:FILE:`** ⇒ 播放器不走"占位 `media.mp4` → `xxx_<FILE>`"那条路 |
+| E-007 | 照抄清单 URL 必 404（复现） | 拿**刚刚**抓到的清单里的 MOUFLON:URI 立刻 GET → `404 / 10 B`；再 `?psch=v2&pkey=<同一 token>` → 同样 `404 / 10 B` |
+| E-008 | **播放器实取 ≠ 清单** | headless（`--mute-audio` + 注入 `muted=true;volume=0`）开直播间抓包：清单 msn=2202 的 token = `QPHQMJSFoadC7R6Fxxi63X`，播放器实取 = `…_2202_**GFeHELAVC5ICC7ig**_1791126118_part0.mp4` ⇒ **同段号同时间戳，只有 token 不同** ⇒ 真 token 是算出来的 |
+| E-009 | **验收实测：真分片可播** | `curl -x 127.0.0.1:7890 -r 0-1023 'https://media-hls.doppiocdn.net/b-hls-10/209778341/209778341_960p60_h264_2248_1ZRQupiyJiCu4Hba_1791126209_part0.mp4'` → **`206` + 1024 B**；响应体头 `00 00 00 34 73 69 64 78` = `sidx` box ⇒ **fMP4** ✓（**无 Referer、无 cookie、非浏览器**） |
+| E-010 | CDN 不绑会话 | init 段 `…_480p_h264_init_PS7BskMR2wLDmyNW.mp4` 隔约 10 分钟再用 curl 取 → **200 / 1234 B**，体头 `00 00 00 1c 66 74 79 70 69 73 6f 35` = `ftyp iso5` ✓ |
+| E-011 | 真 URL **短时有效** | E-009 那条 URL 当时 **206**；**几分钟后同 URL 再取 → 404 / 10 B** ⇒ 分片 URL 分钟级 TTL（init 段不受影响） |
+| E-012 | 变换**不是**静态 XOR / AES-ECB | 3 组明密文对（`QPHQMJSFoadC7R6Fxxi63X`→`GFeHELAVC5ICC7ig` 等）算出的 keystream **互不相同**（`07b7b578…` / `d5d6cc12…` / `f0ec9574…`）；用已知密钥试 **AES-128-ECB / CBC-zeroIV** 全部未命中 ⇒ 逐段密钥（分组密码或 HMAC 流） |
+
+### ② Finding
+
+- **F-1（validated，E-002/E-003/E-008）**：清单 `#EXT-X-MOUFLON:URI:` 的 token 是**密文**；播放器用 `ui[pkey]` 当密钥、逐段解出 16 字符真 token。"照抄清单 URL"**结构性不可行**。
+- **F-2（validated，E-009/E-010/E-011）**：真分片 URL **无鉴权**（无 Referer/cookie 也 206），但 **TTL 分钟级** ⇒ App 必须"抓到即用"，不能进缓存池；init 段可长期复用。
+- **F-3（candidate，E-003 的反例）**：离线算法**尚未完全还原**。反证：播放器今天选的是 `pkey=NTK9aqcLmNFMWrpQ`，而我抠出的 `ui` 只有 2 项且**不含**它 ⇒ **我抠到的那份 `ui` 不完整/不是运行时真正用的那份**（`oi` 是运行时用字符串拼的多分支表，我只跑通了一支）。**卡点**：要让 webpack 模块 5419 在 Node 里**完整执行**才能拿全；但它在某处"正常结束"就再不到后面的注入点（用参数回调注入、按偏移 bisect 都拿不到，见 E-003 备注）。**下一步**：改用真实 webpack runtime（先跑 main.js 拿到 `__webpack_require__`，再 push chunk）把模块 274 整个跑起来，直接调 `ai.v2` 的 pipeline。
+- **F-4（validated，E-006）**：`#EXT-X-MOUFLON:FILE:` 在实测 11 份清单里**一次都没出现** ⇒ 静态路径里"解析器把 `media.mp4` 换成 `xxx_<FILE data>`、再由 `Jr._uriRestore` 还原"这条链**在当前站点形态下不会被触发**——前人把它当主线是走偏了。
+
+### ③ Path（复现步骤，约 30 秒）
+
+```bash
+# 0) 找一个在线房间的 streamId
+curl -x http://127.0.0.1:7890 -A "<browser UA>" -H "Referer: https://zh.xhamsterlive.com/" \
+  "https://zh.xhamsterlive.com/api/front/models?limit=5&offset=0&primaryTag=girls"   # → id / streamName / isLive
+# 1) 起 headless（必须静音）→ 收 .mp4 请求 → 拿到真 URL
+#    msedge --headless=new --mute-audio --proxy-server=http://127.0.0.1:7890 --user-data-dir=<自己的私有目录>
+#    页面里再注入 volume=0 / muted=true，静音双保险
+# 2) 立刻 curl（不带宽限期）
+curl -x http://127.0.0.1:7890 -r 0-1023 "$REAL_FRAGMENT_URL"   # 期望 206，body 以 00 00 00 xx 73 69 64 78 开头
+```
+
+### ④ 给 app-dev 的验证脚本逻辑（可直接实现）
+
+```js
+// 目标：拿到"当下可播"的真分片 URL。
+// 为什么不能自己算：token 是逐段密钥解出来的（F-3），所以走"隐形跑播放器再抓"。
+//
+// 1. 起 Edge：--headless=new --mute-audio --proxy-server=<proxy> --user-data-dir=<App 私有目录>
+// 2. CDP: Network.enable；Page.addScriptToEvaluateOnNewDocument 注入
+//      Object.defineProperty(HTMLMediaElement.prototype,'muted',{get:()=>true,set(){}});
+//      Object.defineProperty(HTMLMediaElement.prototype,'volume',{get:()=>0,set(){}});
+// 3. Page.navigate 到 https://zh.xhamsterlive.com/<room>
+// 4. 监听 Network.requestWillBeSent：取 url 匹配 /\.mp4(\?|$)/ 且不含 _init_ 的**最新一条**
+//    —— 这就是真分片 URL；直接喂给播放器（无 Referer / 无 cookie 都能 206）
+// 5. 约束：URL 分钟级 TTL（E-011）⇒ 必须"抓到即用"，不要缓存；init 段可长期复用
+// 6. 静音：--mute-audio + 上面的 muted/volume 注入（本次实测两者都做了）
+// 7. 收尾：按 --user-data-dir 匹配命令行杀自己的 Edge，别误杀用户 Edge
+//
+// 成功判定：curl -r 0-1023 得 206，且 body 前 8 字节能解析成 size + 'sidx' / 'ftyp'
+```
+
+### ⑤ 验了什么 / 没验什么
+
+**验了**：bundle 可直取；解密器类与 `psch`/`pkey` 语义；密钥表存在且**硬编码**（抠出 2 项）；master 11 token / 变体 19 URI 形态；
+11 个 pkey 全 200；照抄清单 URL 必 404（复现前人结论）；**播放器实取 token ≠ 清单 token**；**真分片 curl 206 + fMP4**；init 不绑会话；
+真 URL 分钟级失效；变换非静态 XOR / AES-ECB。
+
+**没验（诚实交代）**：
+- **逐段解密的精确算法没还原完** —— 卡在 `ui` 表抠不完整（F-3 已给反证与下一步）。所以**纯离线算法版本现在给不出**，只能给"半自动（跑播放器抓）"。
+- `#EXT-X-MOUFLON:EXT-REF:`（`encodeTimestampMap`：base64 + 魔数前缀 → 时延估算）**只读了代码，没实测**。
+- 没验证"换 IP / 换出口后真 URL 是否还认"（只在本机 + 系统代理下测过）。
+- 没验证长时间（>30 分钟）连续播放的 TTL 边界，只测到"几分钟后失效"。
+
+**静音声明**：headless 全程 `--mute-audio`，并在页面注入 `muted=true; volume=0`；capture 脚本收尾 kill 自己的 Edge 进程（已确认无残留）。本次共起 2 次 headless，单实例、用完即杀。
+
+**清理情况**：已删 `G:\ZCode\_re_js\`（**1109 个文件**：下载的 `main.js`/chunk、反混淆产物 `dec.json`/`chunk.deob.js`/`modbody.txt`/`block*.txt`、抓到的清单 `master.m3u8`/`p_*.m3u8`/`w*.m3u8`/`captured_playlists.json`、响应体 `*.bin`、headless profile `edgeprof\`、全部临时 `*.cjs`）。
+复核：`Test-Path G:\ZCode\_re_js` = **False**；`msedge.exe` 匹配 `_re_js`/`edgeprof` 的进程 = **0**；端口 9337/9338 监听 = **0**；工作区根目录我创建的残留（`_*.cjs` / `*.m3u8` / `*.bin`）= **0**；未碰用户 8787；`G:\ZCode\_recon_tmp`（别的队友的）**未动**。
+
+---
+## 追加（2026-10-05 · **App 侧 $newVer**）直播改用**我们自己的播放器**（含重大发现）+ 去壳整条路撤除
+
+### 一、⭐ 重大发现：iPhone 分支把直播地址**明文**给出，而且 pkey 是硬编码常量
+recon 实测（全部有原文/状态码/字节数）：
+- **让页面走 iPhone（无 MSE）分支**（杀掉 `MediaSource`/`ManagedMediaSource`/`WebKitMediaSource`/`SourceBuffer` + iPhone UA + 390×844）后，站点自己的 `<video src>` 是：
+  `https://edge-hls.doppiocdn.net/hls/<id>/master/<id>_auto.m3u8?playlistType=standard&pkey=B0p93vi8Uj6AYyZb`
+  → **明文 HTTPS 直链**，不是 `blob:`、不是 WebRTC（同机对照：有 MSE 时是 `blob:`）
+- **那个 pkey 是页面 JS 里的硬编码常量**：`main.js` 里有它；recon 5 次采样一致、跨 20+ 分钟不变；**9 个不同房间/分桶都接受它**（站点级，不是房间级）
+- **这条链是干净的**：master 200 / 1287~1852 字节、**无 `#EXT-X-MOUFLON:URI:` 诱饵**、变体 URL 自带 pkey；变体清单 200 / 730~778 字节、**段地址全是明文**（`EXT-X-PART 0`、`media.mp4 0`、`ADVERT=no`）；分片 **206 + `video/mp4`**（`sidx` 头）、**无 Referer 要求**、支持 Range
+- ⚠️ **必须 `playlistType=standard` + 带 pkey**：不带 pkey → 返回**广告清单**（`#EXT-X-MOUFLON-ADVERT`）
+- **覆盖面实测**：12 个房间 **9 个全链路可用**；3 个失败中 **2 个是付费场（`groupShow+ticket`）**—— 同一时刻站点自己也被同一堵墙挡着、只发 `_160p_blurred`（284×160 模糊预览），**7 种签名组合全 403，绕不过**；另 1 个是房间当时没在播（同一 URL 稍后即 200）。**而付费房我们列表本来就筛掉**（`groupShowType!=''`/`status!='public'`/`离线`），所以实际点得进去的房间走这条路是通的
+
+### 二、房间页改用我们自己的播放器（用户拍板，**去掉兜底**）
+- `lib/sites/xhamsterlive.dart`：加 `const String kLivePkey`（`:1645`）+ `liveMasterUrl(int id)`（`:1652`）—— **都只在站点文件里**（`git grep` 证明零外泄）
+- `LiveRoomPage` 收 `username + id`；用**现成的** `KpPlayer` + `media_kit` 的 `Video`（与短片页/详情页同一套，**没新造封装**）；**竖版全屏、点屏幕 toggle X、静音**（UI 一个字没动）
+- **直播源直接把 master URL 交给 mpv**（mpv 自己刷清单/选档）
+- **校验保留、兜底撤除**（用户拍板）：开播前抓一次 master（8 秒超时），**200 且不含 `MOUFLON-ADVERT` 才播**；否则**报错**（四种情况各有明确文案：没 id / HTTP 非 200 / **拿到广告清单（绝不播）** / 抛错）→ **不白屏、不静默、不放广告**
+- 实测（curl 走代理）：2 个真实房间 id 拼出来的 URL → master **200/1852 与 200/1292**、零诱饵；变体 **200/738 与 200/730**；分片 **200 + video/mp4** ✓
+
+### 三、为直播改过的共用件**整数还原**（用户硬规矩：改直播不许动别的站点）
+- `lib/web_embed.dart` **整文件还原到直播开始之前**（`0332503`），**blob 哈希逐字一致**（`f9327f5a…`）
+- 删掉：`extraJs`/`extraJsList`、`toggleX`、`darkShell`（黑底/黑盖/`_ready`/`_readyFuse`）、注入流水线（`_inject`/`_runQuiet`/三注入点/两段解耦）、那个补的 `import 'dart:async'`
+- 保留（本来就有的）：静音守护 `_guardJs`、内联播放、进度条、错误重试
+- 零残留：`git grep` 那几个符号 **全空** ✓；实际调用点只剩 `web_page.dart:57`（只传 `url`+`onCreated`，**与直播前逐字一致**）⇒ 详情页「打开原页」与"网页"型站点**回到原样**
+
+### 四、附：JS 逆向结论（re-js，授权 granted，已入档）
+- **`#EXT-X-MOUFLON:URI:` 里的 token 是密文**：播放器拿密钥表逐段解密才得到真 token ⇒ **"照抄清单"结构性不可行**（前人 25/25 全 404 是必然）。实测反证：同段号同时间戳，**播放器实取 token ≠ 清单 token**
+- 真分片**无鉴权**（无 Referer/cookie 也 206）但 **TTL 只有几分钟**；init 段不受影响
+- **纯离线算法未还原完**（密钥表抠出来只有 2 项、不含播放器当时用的 pkey）→ 备选方案 = 隐形跑播放器 + 网络层抓地址（**本轮不实现**，因为裸拼地址这条路已经通了）
+
+### 五、清理（用户新规矩：测试产生的文件必须清除）
+- 全队执行并报「清理情况」：re-js 删 `_re_js`（1109 文件）+ `_tmp_size.mjs`（0 字节空文件，留证后删）；recon 复核自身痕迹为 0；app-dev 删漏留的 `%TEMP%\lv2`；sim-dev 删 `sim/_shot_shorts_tab.png`（**即本文件 533 行提到的那张图，已于 10-04 清理删除**）与 `sim/tmp_xv1.html`；re-js 另清 `G:\ZCode\imgsearch_tmp\`（217 文件/9.37MB）、`%TEMP%\kpxx_sites.json`、`G:\ZCode\ci-*.log` ×8
+- 工作区 / `%TEMP%` / `G:\ZCode` 顶层均已复核；**临时缓冲（浏览器 profile）按用户指示不清**
+
+### 六、状态
+- **未编译**：本机无 Flutter SDK → 本次构建即验证；括号余额与 HEAD 基线逐项一致、行尾未翻转
+- **未提交**：`sim/**` 全部改动（模拟器侧，按用户「不提交」）
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

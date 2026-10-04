@@ -25,8 +25,8 @@
 //
 // ⚠️ **播放这条路和模拟器不一样** ✗✗：模拟器走的是"内嵌站点自己的播放器"（CDN 上的 React 组件 +
 // `new Function` 加载 ✓）—— 那是**桌面 hack** ✗，App 上用不了 ✗（站点在 iPhone 上故意跳过 JS 播放器、
-// 改用原生 `<video>` ✓）→ **App 端 = WebView 直接加载房间页** ✓（`lib/web_embed.dart` 的 `WebEmbed`
-// ✓，自带静音注入 ✓、已开内联播放 ✓）。
+// 改用原生 `<video>` ✓）→ **App 端自己拼 HLS 直链、用自己的播放器放** ✓
+// （pkey + master URL 见下面的 [kLivePkey] / [liveMasterUrl] ✓；2026-10-05 起**不再用 WebView 加载房间页** ✓）。
 
 import 'dart:convert';
 
@@ -35,14 +35,17 @@ import 'dart:convert';
 //  `Element`/`Text`/`Key` 撞名 ✗，因为本站不 import html/dom ✓ 也不 import encrypt ✓）
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
+// ⚠️ 播放器画面面（`Video(controller:)`）来自 media_kit_video ✓ —— 与 `player_widget.dart` 用的是同一个 ✓
+import 'package:media_kit_video/media_kit_video.dart' show Video;
 
 import '../app_background.dart';
 import '../app_bg.dart';
 import '../base/fetch.dart';
+import '../config.dart' show Site;
+import '../player_widget.dart';
 import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
-import '../web_embed.dart';
 
 // ===== 一、数据层 =====
 
@@ -826,9 +829,14 @@ class LiveRoom {
   /// 封面（直播中 = 清晰档 ✓ / 没在播 = 模糊档 ✓）
   final String cover;
 
+  /// 站点返回的 **model id**（列表接口的 `id` ✓）—— 直播流 URL 靠它拼 ✓
+  ///（见 [liveMasterUrl] ✓；2026-10-05 用户拍板：房间页改用**我们自己的播放器** ✓）
+  final int id;
+
   const LiveRoom({
     required this.username,
     required this.viewers,
+    required this.id,
     required this.isLive,
     required this.cover,
   });
@@ -891,6 +899,7 @@ class XhLiveApi {
       final live = m['isLive'] == true;
       rooms.add(LiveRoom(
         username: un,
+        id: id, // 直播流 URL 要用它 ✓（见 liveMasterUrl ✓）
         viewers: _intOf(m['viewersCount']),
         isLive: live,
         // 封面：直播中 → 清晰档 ✓；在线但没播 → **模糊档** ✓（两个地址都是站点给的 ✓，CDN 不挑 UA/Referer ✓）
@@ -1180,13 +1189,20 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     //   · **4 个主 tab** = 1 个「筛选」入口 ✓（文字就写「筛选」✓，已选状态在弹窗里看 ✓）
     return Column(
       children: [
-        LiveFilterBar(
-          sel: widget.sel,
-          label: widget.feed.tab.hasMobileFilters ? null : '筛选',
-          onApplied: () {
-            setState(() {}); // 入口文字（已选 / 重置）跟着刷 ✓
-            widget.feed.reload(); // 清空重拉：offset 归 0 ✓ + 带上新的 filterGroupTags ✓
-          },
+        // ⚠️ 2026-10-05 用户真机反馈（**改了数值**）：主分类 tab 那排的**选中下划线**跟这排按钮
+        //    "离得太近、有一点重叠" ✗ —— 根因是这排**紧贴**在 AppBar.bottom 的 TabBar 底下（间距 **0** ✓）。
+        //    修法：**在这排自己头上留 padding**（给谁留都行 ✓ 留给下排最省事 ✓，不动 TabBar ✗）：
+        //    间距 **0 → 12** ✓（下划线在 TabBar 盒子的最底 ✓ 现在它有 12px 净空 ✓ 不会被压住 ✓）
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: LiveFilterBar(
+            sel: widget.sel,
+            label: widget.feed.tab.hasMobileFilters ? null : '筛选',
+            onApplied: () {
+              setState(() {}); // 入口文字（已选 / 重置）跟着刷 ✓
+              widget.feed.reload(); // 清空重拉：offset 归 0 ✓ + 带上新的 filterGroupTags ✓
+            },
+          ),
         ),
         Expanded(child: body),
       ],
@@ -1257,7 +1273,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   /// （`LiveFeed` 也在 State 里 ✓）→ **返回列表不重拉** ✓。
   void _openRoom(LiveRoom r) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username)),
+      MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username, id: r.id)),
     );
   }
 
@@ -1617,14 +1633,33 @@ class LiveRoomCard extends StatelessWidget {
 /// 用户指定 ✓：① 左上角一个 X ② **点屏幕 toggle X 显隐**（默认隐藏 ✓）③ **静音**（没得商量 ✓）
 /// ④ X **不压状态栏**（留安全区 ✓）⑤ 返回列表**不重拉** ✓。
 ///
-/// ⚠️ 为什么是 WebView 而不是模拟器那套内嵌播放器 ✗：模拟器用 `new Function` 在桌面上加载站点
-/// CDN 的 React 组件 ✓，那是桌面 hack ✗、App 上没有 ✗；站点在 iPhone 上本来就会**跳过 JS 播放器、
-/// 直接给原生 `<video>`** ✓ → 用 `WebEmbed` 加载房间页就是"站点自己那条正常路径" ✓
-/// （顶层加载 ✓、静音由 `WebEmbed` 的注入全程压着 ✓、`allowsInlineMediaPlayback` 已开 ✓）。
+/// ⚠️ 播放实现（2026-10-05 用户拍板换过 ✗，**别照着旧注释走** ✓）：**不再用 WebView 加载房间页** ✗ ——
+/// 站点在 iPhone 上本来就会**跳过 JS 播放器、直接给原生 `<video>`** ✓，那条流的地址（master + pkey ✓）
+/// 我们能直接拼出来 ✓ → 现在是**我们自己的播放器**放 [liveMasterUrl] 拼出来的 HLS ✓
+/// （开播前先抓一次校验 200 且不含 `MOUFLON-ADVERT` ✓；不过就报错、**不播广告** ✗；见 `_checkAndPlay` ✓）。
+/// **直播流 pkey**：站点页面 JS 里的**硬编码常量** ✓ ——
+/// recon 实测（2026-10-05）：5 次采样全是这一个值、1 分钟内不变 ✓；`main.js` 里也有它 ✓。
+/// ⚠️ **必须带**：不带 pkey 拿到的是**广告清单**（`#EXT-X-MOUFLON-ADVERT` ✓）；
+///   `playlistType=standard` 同理（`lowLatency` 会变回带诱饵的那版 ✗）。
+const String kLivePkey = 'B0p93vi8Uj6AYyZb';
+
+/// 由 **model id** 拼直播流 master URL（**站点特有逻辑** ✓ 只管构造 ✓ 不掺 UI ✗）。
+/// 本机 curl 实测（走代理、iPhone UA，2026-10-05）：
+///   · id=209778341 → master **200 / 1852 字节**、`MOUFLON-ADVERT=0`、变体 **5** 个、分片 **200 + video/mp4**
+///   · id=182984051 → master **200 / 1292 字节**、`MOUFLON-ADVERT=0`、变体 **3** 个、分片 **200 + video/mp4**
+///   · 变体清单：200 / 738B 与 730B，`EXT-X-MEDIA-SEQUENCE=1`、`EXT-X-ENDLIST=0`、`EXT-X-PART=0`、无 ADVERT ✓
+String liveMasterUrl(int id) =>
+    'https://edge-hls.doppiocdn.net/hls/$id/master/${id}_auto.m3u8'
+    '?playlistType=standard&pkey=$kLivePkey';
+
 class LiveRoomPage extends StatefulWidget {
-  /// 房间名（= 站内路径末段 ✓）→ 房间页 = `https://zh.xhamsterlive.com/<username>` ✓
+  /// 房间名（= 站内路径末段 ✓）→ 房间页 = `https://zh.xhamsterlive.com/<username>` ✓（**兜底用** ✓）
   final String username;
-  const LiveRoomPage({super.key, required this.username});
+
+  /// model id（列表接口给的 ✓）→ 直播流 master URL 靠它拼 ✓（[liveMasterUrl] ✓）
+  final int id;
+
+  const LiveRoomPage({super.key, required this.username, required this.id});
 
   @override
   State<LiveRoomPage> createState() => _LiveRoomPageState();
@@ -1634,106 +1669,66 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 默认**隐藏** ✓（点屏幕才出现 ✓）
   bool _showX = false;
 
-  /// **房间页专属注入**（交给 [WebEmbed.extraJs] ✓ 每次页面加载完跑一次 ✓）。
-  /// 目的（用户 2026-10-05 反馈：点卡片看到的是"网页页面"✗，要**整屏画面 + 只有我们的 X** ✓）：
-  ///   ① 关掉 18+ 与 Cookie 那两个弹窗/条（不关的话整页被 `.modal-wrapper` 盖住 ✓）
-  ///   ② 藏掉站点外框（顶栏/侧栏/页脚/聊天/相关主播/站点自己的播放器控制条 ✓）
-  ///   ③ 把播放器铺满整屏 ✓
-  /// 全部**非致命** ✓：任何一步失败都只是"站点页面照常显示" ✓，绝不白屏/报错 ✓。
-  /// ⚠️ 选择器全部来自 recon 实测 ✓（只用 `data-testid` / `[class*=语义前缀]` / 稳定 id ✗
-  ///    —— **不带 `#哈希` 的类名** ✓，那是 React 生成、随版本变 ✓）。
-  /// ⚠️ 只改 `.video-element-wrapper` ✗ 别去动 `video.video-element` 本身 ✓ ——
-  ///    recon 实测：改 video 的 width/height 会被站点 JS **每帧打回**（按 1024×1024 基座重算 transform ✓）；
-  ///    改 wrapper 才有效 ✓，改完还要 `resize` 事件触发它重算 ✓。
-  static const String _roomInjectJs = r'''
-(function () {
-  try {
-    // ---------- ① 关掉那两个挡页面的东西（异步出现 → 轮询；找不到就跳过，绝不报错） ----------
-    var tries = 0;
-    function autoOpen() {
-      try {
-        var b = document.querySelector('#agreement-root button[class*=btn-visitors]');
-        if (b && b.click) b.click();
-      } catch (e) {}
-      try {
-        var c = document.querySelector('[data-testid=CookiesAcceptAll]');
-        if (c && c.click) c.click();
-      } catch (e) {}
-      tries++;
-      if (tries < 20) setTimeout(autoOpen, 300);   // 每 300ms 一次、最多 20 次（≈6 秒）
-    }
-    autoOpen();
+  /// 校验通过后的**我们自己的播放器** ✓（null = 还没开播 / 打不开 ✓）
+  KpPlayer? _kp;
 
-    // ---------- ② 藏外框 + ③ 画面铺满（样式只插一次 ✓） ----------
-    var ID = 'kpxx-room-style';
-    function ensureStyle() {
-      if (document.getElementById(ID)) return;
-      var css = [
-        /* 顶栏 / 通知 / 侧栏 / 页脚 / 两个弹窗 */
-        '.header-top-wrapper, .HeaderNotifications, .SidebarOverlay,',
-        'footer#MAIN_FOOTER_ID, [data-testid=CookiesReminder], #agreement-root,',
-        '#legacy-browser-notification-root { display: none !important; }',
-        /* 聊天栏 */
-        '[class*=ViewCamWrapper__chat], .model-chat-wrapper-mobile,',
-        '.model-chat-messages-wrapper { display: none !important; }',
-        /* 相关主播 / 标签区 */
-        '[data-testid=viewcam-model-sections],',
-        '[class*=ViewCamModelListSection], [class*=ViewCamContent__tagsContainer],',
-        '.view-cam-model-tags { display: none !important; }',
-        /* 站点自己的播放器控制条（用户要"只留一个 X" ✓） */
-        '[class*=player-controls-user__], [class*=player-controls-layers__],',
-        '[class*=player-top-button], .record-show-button { display: none !important; }',
-        /* 画面铺满：**只能改 wrapper** ✓（改 video 本身会被站点 JS 每帧打回 ✓） */
-        '[data-testid=webrtc-playing], .video-element-wrapper {',
-        '  width: 100% !important; height: 100% !important; }',
-        '.video-element-wrapper { position: absolute !important; inset: 0 !important; }'
-      ].join('\n');
-      var st = document.createElement('style');
-      st.id = ID;
-      st.textContent = css;
-      (document.head || document.documentElement).appendChild(st);
-    }
-    // 铺满后**让站点重算一次**（它按 1024×1024 基座算 transform ✓，不重算画面不铺满 ✓）
-    function nudge() {
-      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
-    }
-    ensureStyle();
-    nudge();
+  /// 状态/错误提示 —— **不静默、不白屏** ✓：校验不过就把原因写在屏幕上 ✓
+  String _err = '正在打开直播…';
 
-    // ---------- 复查：**自愈**（不依赖 App 侧的定时 ✗，2026-10-05 加固 ✓）----------
-    // ⚠️ 排查"注入没生效"时发现的洞：原来只有 0.5 / 1.5 / 3 秒三次定时复查 ✗ ——
-    //    站点要是 3 秒之后才重渲染、或把 style 摘掉 ✗ 就没人补了 ✓。
-    // 现在：**MutationObserver 盯着整个文档**（整棵换 head/body、或谁把 style 摘掉 ✓ 都会被叫醒
-    // → 幂等补一次 ✓）+ **每秒心跳兜底**（观察者漏掉的场景 ✓，跑 60 次后停 ✓）。
-    // 幂等保证：`ensureStyle` 有 ID 去重 ✓、`nudge` 幂等 ✓、`window.__kpxxRoomObs` 防重复挂 ✓、
-    // 观察者回调 50ms 去抖 ✓（SPA 频繁改 DOM 也不会把 CPU 烧起来 ✓）。全程 try/catch ✓。
-    function recheck() {
-      try { ensureStyle(); } catch (e) {}
-      nudge();
+  @override
+  void initState() {
+    super.initState();
+    _checkAndPlay();
+  }
+
+  /// 打开前**先抓一次 master**（很小 ✓ 实测 1.3~1.9KB）校验：**200 且正文里没有 `MOUFLON-ADVERT`** ✓。
+  /// ⚠️ 2026-10-05 用户拍板：**兜底（WebEmbed）已删** ✗ ⇒ 校验不过 / 抓取失败 / 打开失败时
+  ///   **不播**（播了就是广告 ✗）→ 屏幕上给**明确提示** ✓（不静默、不白屏 ✓）。
+  /// 全部走 [Site.httpClient]（与全 App 同一套网络配置/代理 ✓）+ 站点 UA ✓。
+  Future<void> _checkAndPlay() async {
+    final id = widget.id;
+    if (id <= 0) {
+      setState(() => _err = '这个房间没拿到 id，打不开直播 ✗');
+      return;
     }
+    KpPlayer? kp;
     try {
-      if (!window.__kpxxRoomObs) {
-        window.__kpxxRoomObs = true;
-        var pend = false;
-        var obs = new MutationObserver(function () {
-          if (pend) return;
-          pend = true;
-          setTimeout(function () { pend = false; recheck(); }, 50);
-        });
-        obs.observe(document.documentElement, { childList: true, subtree: true });
-        var beats = 0;
-        var hb = setInterval(function () {
-          recheck();
-          if (++beats >= 60) clearInterval(hb); // ≈1 分钟后停 ✓（那时该渲染的早渲染完了 ✓）
-        }, 1000);
+      final url = liveMasterUrl(id);
+      final r = await Site.httpClient
+          .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode != 200) {
+        if (mounted) setState(() => _err = '直播流打不开（HTTP ${r.statusCode}）✗');
+        return;
       }
-    } catch (e) {}
-    setTimeout(recheck, 500);
-    setTimeout(recheck, 1500);
-    setTimeout(recheck, 3000);
-  } catch (e) {}
-})();
-''';
+      if (r.body.contains('MOUFLON-ADVERT')) {
+        if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
+        return; // ⚠️ 广告清单 → 千万别播 ✗
+      }
+      if (!mounted) return;
+      kp = KpPlayer();
+      KpPlayer.tuneStartupQuiet(kp);
+      // master 直接交给播放器 ✓（mpv 自己刷清单/选档 ✓ —— 变体清单有 MEDIA-SEQUENCE、无 ENDLIST ✓）
+      await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
+      kp.setVolume(0); // 静音（用户红线 ✓）
+      if (!mounted) {
+        kp.shutdown();
+        return;
+      }
+      setState(() => _kp = kp);
+    } catch (e) {
+      kp?.shutdown();
+      if (mounted) setState(() => _err = '打开直播失败：$e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _kp?.shutdown();
+    super.dispose();
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -1751,16 +1746,21 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
           },
           child: Stack(
             children: [
-              // 房间页：站点自己的页面（自带静音注入 ✓ / 内联播放 ✓ / **站点专属注入** = 藏外框 + 铺满 ✓）
-              WebEmbed(
-                url: 'https://zh.xhamsterlive.com/${widget.username}',
-                toggleX: true, // 房间页没有控制栏 → **单击**必须先显示 X ✓（与模拟器一致 ✓）
-                extraJs: _roomInjectJs, // 藏外框 + 画面铺满 + 关那两个弹窗 ✓（见下 ✓）
-                // ⚠️ 2026-10-05（用户拍板）：**只有房间页**要"黑底 + 就绪前黑盖" ✓
-                //    —— WKWebView 默认白底，点进来会先整屏白 ✗；其它 WebEmbed 用法保持原样 ✓
-                //    （开关本身定义在 `lib/web_embed.dart` 的 `WebEmbed.darkShell` ✓ 默认 false ✓）
-                darkShell: true,
-              ),
+                // ⚠️ 2026-10-05 用户拍板：**只用我们自己的播放器** ✓ —— WebEmbed 那条路**已删** ✗
+                //    （校验不过/抓取失败 → 报错提示 ✓ 不静默、不白屏、也**不播广告** ✓）
+                if (_kp != null)
+                  Positioned.fill(child: Video(controller: _kp!.videoController))
+                else
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _err,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFFB0B4BA), fontSize: 14),
+                      ),
+                    ),
+                  ),
               if (_showX)
                 // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
                 SafeArea(
