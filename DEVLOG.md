@@ -1822,6 +1822,18 @@ HTML 里逐个数出现次数：sultry520 **5** ✓ · LINA-LILI **5** ✓ · Ma
 - **自检**：字段声明唯一且在正确类内（`KpPlayer` = 133-342、`PlayerWidgetState` = 635 起，`Select-String` 全量逐条对照）；括号余额三项与 HEAD 基线一致；行尾未翻转（`player_widget.dart` 纯 LF 2016 / `pornhub.dart` CRLF 791、孤立 LF 0）；`git diff --numstat` = player_widget **5/5**、pornhub **1/0**（`--ignore-cr-at-eol` 同样 1/0）
 - **版本保持 1.0.23**（本次失败未产生任何产物，不浪费版本号）；**仍未编译过**，本机无 `flutter`/`dart` → 只能等 CI 复验
 
+---
+## 追加（2026-10-04 · **1.0.23 构建修复 #2**）`_userPaused` 归位（CI run 37201230173 失败，只剩 1 条 error）
+
+- **失败原文**：`error • Undefined name '_userPaused' • lib/player_widget.dart:196:11`（上轮的 2 条 info 和 pornhub.dart 的 `Site` 都已消失）
+- **根因（修复 #1 给错了方向）**：修复 #1 把 `_userPaused` 搬到了 `PlayerWidgetState`，但**读它的看门狗在 `KpPlayer` 里** —— 该字段**两个类都要碰**，只搬声明必然"按下一个葫芦浮起一个瓢"。
+  真实类边界（本轮现查，不引用记忆）：`KpPlayer` = **133-343**、`PlayerWidgetState` = **636-1412**；`:196` 在 `KpPlayer` 构造函数体的 `_stallTimer` 看门狗里，`:981` 在 `PlayerWidgetState._attach` 里
+- **修法（选 B）**：字段归 `KpPlayer`（`:304`），由它**自己的** `play()`（`:306`）/`pause()`（`:311`）维护；删掉 `PlayerWidgetState` 里上一轮搬过去的声明 + `_attach` 里那条跨类赋值；`onUserPause` 回调字段**已无消费者 → 一并删除**（不留死代码）
+  ⚠️ 知识点记档：**Dart 的 `_xxx` 是库级私有、不是类级私有** —— 同文件内 `kp._userPaused = v;` 合法；所以跨类访问不是问题，**问题只在"声明该放哪个类"**
+- **自检（这轮做透）**：对本次碰过的每个字段列"声明/使用/所属类"对照表逐条对齐（`_userPaused` / `_lastRecoverMs` / `_stallTimer` / `_lastPos` / `_stuckMs` / `_sources` / `_curIndex` / `_restoreTo` / `_autoRetryTimer` / `_opening` 全部同类）；括号 `{}`=233/233、`[]`=25/25 不变，`()`=893→882 的净减**逐行核对**为"删除行含 11 左 + 11 右括号、新增行 0 括号"；行尾仍纯 LF
+- `git diff --numstat`：`lib/player_widget.dart` **6/11**；`pornhub.dart` 本轮未动
+- 版本仍 **1.0.23**；**仍未编译过**（本机无 flutter/dart，只有 node）→ 等 CI 复验
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

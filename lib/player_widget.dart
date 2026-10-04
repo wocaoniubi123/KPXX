@@ -298,17 +298,18 @@ class KpPlayer extends ValueNotifier<KpState> {
     } catch (_) {}
   }
 
-  /// 用户主动暂停/播放的回调（**只由 UI 调的 [pause]/[play] 触发** ✓；
-  /// 内部一律走 `_kp?.pause()` / `open()` ✓ → 不会误标 ✓）。看门狗用它区分"暂停"与"卡住"。
-  void Function(bool paused)? onUserPause;
+  /// 用户是不是**主动**暂停了（看门狗据此排除"暂停"、只判"卡住" ✓）。
+  /// ⚠️ 由**本类自己的** [play]/[pause] 维护 ✓ —— 看门狗（本类构造函数里那个 `_stallTimer`）
+  /// 读的就是它 ✓（同一个类，别搬到别处 ✗）。
+  bool _userPaused = false;
 
   Future<void> play() {
-    onUserPause?.call(false);
+    _userPaused = false;
     return _p.play();
   }
 
   Future<void> pause() {
-    onUserPause?.call(true);
+    _userPaused = true;
     return _p.pause();
   }
 
@@ -663,9 +664,6 @@ class PlayerWidgetState extends State<PlayerWidget>
   Timer? _reportTimer;
   Duration _repPos = Duration.zero;
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
-  /// 用户是不是**主动**暂停了（看门狗据此排除"暂停"、让它只管"卡住" ✓）——
-  /// 由 UI 直接调用的 `KpPlayer.pause()/play()` 经 `onUserPause` 回调维护 ✓（见 `_attach` ✓）
-  bool _userPaused = false;
   /// 上次"中途卡住 → 刷新源"的时刻（挡连续的卡住信号，10 秒内只恢复一次 ✓）
   int _lastRecoverMs = 0;
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
@@ -976,9 +974,6 @@ class PlayerWidgetState extends State<PlayerWidget>
     final old = _kp;
     if (old != null) old.shutdown();
     _kp = kp;
-    // 用户暂停标记：**只有 UI 那一路**调 `pause()`/`play()`（内部是 `_kp?.pause()` ✓
-    // → 不会误标成"用户暂停"✗）→ 看门狗据此把"用户暂停"和"卡住"分开 ✓
-    kp.onUserPause = (v) => _userPaused = v;
     kp.addListener(_onTick);
     // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
     //（暂停/卡住时报上去没意义；离开详情页由详情页 flush 补最后一次）
