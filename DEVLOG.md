@@ -1810,6 +1810,18 @@ HTML 里逐个数出现次数：sultry520 **5** ✓ · LINA-LILI **5** ✓ · Ma
 - ⚠️ `lib/sites/pornhub.dart` 的 `git diff` 会显示**整文件重写**（737/728 量级），**实际改动远小于此**：该文件 HEAD blob 本身是 CRLF，而仓库 `core.autocrlf=true` 且无 `.gitattributes` → 任何编辑都显示整文件；用 `--ignore-cr-at-eol` 才是真实改动量
 - **未提交**：`sim/**` 全部改动（模拟器侧，按用户「对齐，不提交」）
 
+---
+## 追加（2026-10-04 · **1.0.23 构建修复 #1**）analyze 4 个 error 修掉（CI run 37200822586 失败）
+
+- **失败详情**：`flutter analyze` 报 6 issues（4 error + 2 info），**后续构建步骤全 skipped、无产物**；错误原文已抄回（GitHub 服务端日志脱敏把行号里的数字打成 `***`，按**列号**还原后与本地源码逐行吻合）
+- **根因 1（跨类）**：`_userPaused` / `_lastRecoverMs` 的**声明**写在 `class KpPlayer`（原 `:227` / `:229`），而**使用点**在另一个类 `class PlayerWidgetState`（`:981` / `:1111` / `:1112`）→ 3 个 `undefined_identifier` + 2 个 `prefer_final_fields` info（原位置无赋值，故分析器认为可 final）
+  → **修**：字段搬家到 `PlayerWidgetState`（`:666-670`）；`KpPlayer` 里的**回调字段** `onUserPause`（`:303`）保留不动。挪完 2 条 info 自然消失
+- **根因 2（缺 import）**：`lib/sites/pornhub.dart:214` 用了 `Site.ua`，但该文件没有 config.dart 的 import → `Undefined name 'Site'`
+  → **修**：`:21` 补 `import '../config.dart';`（照 `lib/sites/kmsvip.dart:20` 的既有写法；`Site` 定义在 `lib/config.dart:8`）
+- **附带修**：`player_widget.dart:981` 上一轮留下的"两行挤一行"笔误（`kp.onUserPause = ...;` 后面紧跟 `kp.addListener(_onTick);` 在同一行）→ 拆成两行
+- **自检**：字段声明唯一且在正确类内（`KpPlayer` = 133-342、`PlayerWidgetState` = 635 起，`Select-String` 全量逐条对照）；括号余额三项与 HEAD 基线一致；行尾未翻转（`player_widget.dart` 纯 LF 2016 / `pornhub.dart` CRLF 791、孤立 LF 0）；`git diff --numstat` = player_widget **5/5**、pornhub **1/0**（`--ignore-cr-at-eol` 同样 1/0）
+- **版本保持 1.0.23**（本次失败未产生任何产物，不浪费版本号）；**仍未编译过**，本机无 `flutter`/`dart` → 只能等 CI 复验
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

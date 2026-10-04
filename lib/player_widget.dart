@@ -222,11 +222,6 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   String _lastFatal = ''; // 最后一条 error/fatal 文本（仅作卡住时的附注）
   bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
-  /// 用户是不是**主动**暂停了（看门狗据此排除"暂停"、让它只管"卡住" ✓）——
-  /// 由 UI 调用的 pause()/play() 自己维护（`_attach` 里包了一层 ✓），不依赖引擎的瞬时值 ✓
-  bool _userPaused = false;
-  /// 上次"中途卡住 → 刷新源"的时刻（挡连续的卡住信号，10 秒内只恢复一次 ✓）
-  int _lastRecoverMs = 0;
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
@@ -668,6 +663,11 @@ class PlayerWidgetState extends State<PlayerWidget>
   Timer? _reportTimer;
   Duration _repPos = Duration.zero;
   bool _errShown = false; // 播放中途出错（用于只在该状态翻转时重建）
+  /// 用户是不是**主动**暂停了（看门狗据此排除"暂停"、让它只管"卡住" ✓）——
+  /// 由 UI 直接调用的 `KpPlayer.pause()/play()` 经 `onUserPause` 回调维护 ✓（见 `_attach` ✓）
+  bool _userPaused = false;
+  /// 上次"中途卡住 → 刷新源"的时刻（挡连续的卡住信号，10 秒内只恢复一次 ✓）
+  int _lastRecoverMs = 0;
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
   bool _controlsVisible = true;
   Timer? _hideTimer;
