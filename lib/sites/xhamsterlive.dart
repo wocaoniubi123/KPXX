@@ -28,6 +28,7 @@
 // 改用原生 `<video>` ✓）→ **App 端自己拼 HLS 直链、用自己的播放器放** ✓
 // （pkey + master URL 见下面的 [kLivePkey] / [liveMasterUrl] ✓；2026-10-05 起**不再用 WebView 加载房间页** ✓）。
 
+import 'dart:async'; // Timer（**直播起播看门狗** ✓ 站点文件自己的 ✓ —— 共用件 `web_embed.dart` 已还原、不含它 ✓）
 import 'dart:convert';
 
 // ⚠️ 本站是**唯一**要自己画界面的站点（下划线 tab / 房间卡 / 全屏房间页 ✓）→ 必须 import material ✓。
@@ -36,7 +37,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 // ⚠️ 播放器画面面（`Video(controller:)`）来自 media_kit_video ✓ —— 与 `player_widget.dart` 用的是同一个 ✓
-import 'package:media_kit_video/media_kit_video.dart' show Video;
+import 'package:media_kit_video/media_kit_video.dart' show Video, NoVideoControls;
 
 import '../app_background.dart';
 import '../app_bg.dart';
@@ -1639,8 +1640,8 @@ class LiveRoomCard extends StatelessWidget {
 /// （开播前先抓一次校验 200 且不含 `MOUFLON-ADVERT` ✓；不过就报错、**不播广告** ✗；见 `_checkAndPlay` ✓）。
 /// **直播流 pkey**：站点页面 JS 里的**硬编码常量** ✓ ——
 /// recon 实测（2026-10-05）：5 次采样全是这一个值、1 分钟内不变 ✓；`main.js` 里也有它 ✓。
-/// ⚠️ **必须带**：不带 pkey 拿到的是**广告清单**（`#EXT-X-MOUFLON-ADVERT` ✓）；
-///   `playlistType=standard` 同理（`lowLatency` 会变回带诱饵的那版 ✗）。
+/// ⚠️ **必须带**：不带 pkey 拿到的是**广告清单**（`#EXT-X-MOUFLON-ADVERT` ✓）—— `standard` / `lowLatency` **都一样** ✓
+///   （`playlistType` 选哪个见 [liveMasterUrl] 的实测依据 ✓）。
 const String kLivePkey = 'B0p93vi8Uj6AYyZb';
 
 /// 由 **model id** 拼直播流 master URL（**站点特有逻辑** ✓ 只管构造 ✓ 不掺 UI ✗）。
@@ -1648,9 +1649,29 @@ const String kLivePkey = 'B0p93vi8Uj6AYyZb';
 ///   · id=209778341 → master **200 / 1852 字节**、`MOUFLON-ADVERT=0`、变体 **5** 个、分片 **200 + video/mp4**
 ///   · id=182984051 → master **200 / 1292 字节**、`MOUFLON-ADVERT=0`、变体 **3** 个、分片 **200 + video/mp4**
 ///   · 变体清单：200 / 738B 与 730B，`EXT-X-MEDIA-SEQUENCE=1`、`EXT-X-ENDLIST=0`、`EXT-X-PART=0`、无 ADVERT ✓
+/// ⚠️ **`playlistType` 用 `standard`** —— 依据 **recon 的真起播实测（8 次）**：
+///   · `standard`：首帧 **1,606~2,034ms**（4/4）✓ **零错误** ✓
+///   · `lowLatency`：首帧 **2,296~5,626ms**（4/4）✗ 且**偶发 stall**（`bufferStalledError`，非致命）✗
+///   · 两者都**能播、都有声**（音频解码字节 8/8 > 0 ✓）⇒ **默认 `standard`** ✓
+///     （2026-10-05 我先按"清单更厚 ⇒ 起播更快"换过 LL ✗ —— **被真机实测推翻** ✓ 换回来了 ✓；
+///      本机 curl 那点数据只能证明"清单干净/分片更细" ✓ **推不出起播快慢** ✗，记着这个教训 ✓）
+/// ⚠️ 无论哪个参数，**必须带 pkey** ✗：不带 pkey 拿到的是**广告清单**（`#EXT-X-MOUFLON-ADVERT` ✓）
+///   ⇒ 校验与播放**必须同一套参数** ✓（`_checkAndPlay` 调的就是本函数 ✓ 天然一致 ✓）。
 String liveMasterUrl(int id) =>
     'https://edge-hls.doppiocdn.net/hls/$id/master/${id}_auto.m3u8'
     '?playlistType=standard&pkey=$kLivePkey';
+
+/// 从 master 清单里挑**第一条变体**的地址（用于"变体可达性"校验 ✓）。
+/// ⚠️ 为什么加这条：实测 **id=209778341 的 master 200 / 无诱饵，但它的变体是 `403`（10 字节）** ✗
+///   —— 只校验 master 会**放过这种流** → 播放器拿到 403 干等/黑屏 ✗。
+///   解析不到就返回空串 ✓（调用方按"校验不过"处理 ✓）。
+String firstVariantUrl(String master) {
+  for (final l in master.split('\n')) {
+    final t = l.trim();
+    if (t.startsWith('http') && t.contains('.m3u8')) return t;
+  }
+  return '';
+}
 
 class LiveRoomPage extends StatefulWidget {
   /// 房间名（= 站内路径末段 ✓）→ 房间页 = `https://zh.xhamsterlive.com/<username>` ✓（**兜底用** ✓）
@@ -1674,6 +1695,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   /// 状态/错误提示 —— **不静默、不白屏** ✓：校验不过就把原因写在屏幕上 ✓
   String _err = '正在打开直播…';
+
+  /// 起播看门狗（**不许无限转圈** ✓）：超时没出画面 → 重开一次 → 再超时 → 报错停 ✓
+  Timer? _wd;
+
+  /// 只重开**一次** ✓（不连环 ✗）
+  bool _wdRetried = false;
+
+  /// 起播看门狗阈值（毫秒）—— **8 秒**：
+  /// 本机实测（curl 走代理）"master 0.52~0.80s + 变体 0.48~0.76s + 首个分片 0.32~0.90s" ≈ **2.5 秒** 是网络那段 ✓
+  /// ⇒ 8 秒给了 ~3 倍余量 ✓；两次合计 ≈16 秒 ⇒ 落在用户要的"最多等十几秒" ✓（不是几分钟 ✗）。
+  static const int _kLiveStartMs = 8000;
 
   @override
   void initState() {
@@ -1705,25 +1737,106 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return; // ⚠️ 广告清单 → 千万别播 ✗
       }
+      // ⚠️ 2026-10-05 新增（实测逼出来的）：**master 干净不等于能播** ✗ ——
+      //   实测 id=209778341：master **200 / 无诱饵**，但它的变体是 **403（10 字节）** ✗
+      //   ⇒ 只校验 master 会放过这种流 → 播放器拿到 403 黑屏/干等 ✗。
+      //   这里再抓一次**第一条变体**（很小 ✓ 实测 0.48~0.76 秒 ✓ 3 秒超时 ✓）：
+      //   非 200 就**不播**、直接报错 ✓（本机实测耗时：master 0.52~0.80s + 变体 0.48~0.76s ≈ 1.3 秒 ✓ 不是"转圈几分钟"的来源 ✓）
+      final vu = firstVariantUrl(r.body);
+      if (vu.isEmpty) {
+        if (mounted) setState(() => _err = '这条流的清单里没有可用的清晰度 ✗');
+        return;
+      }
+      final rv = await Site.httpClient
+          .get(Uri.parse(vu), headers: <String, String>{'User-Agent': Site.ua})
+          .timeout(const Duration(seconds: 3));
+      if (rv.statusCode != 200) {
+        if (mounted) {
+          setState(() => _err = '这条流现在不可用（清晰度 HTTP ${rv.statusCode}）✗');
+        }
+        return;
+      }
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
-      // master 直接交给播放器 ✓（mpv 自己刷清单/选档 ✓ —— 变体清单有 MEDIA-SEQUENCE、无 ENDLIST ✓）
+      // ⚠️ 2026-10-05 用户拍板**改回"交 master"** ✓（上一轮交变体是**偏离站点做法** ✗）——
+      //   依据 recon 实测：**站点自己在 iPhone 上给原生 `<video src>` 的就是 master**
+      //     `.../master/<id>_auto.m3u8?playlistType=…&pkey=…`（不是变体 ✓）
+      //   ⇒ 站点自己的原生播放**就是吃 master** ✓ 我们照它来 ✓（mpv 拿到 master 会自己选档/跟随 ✓）。
+      //   `vu`（上面那条校验过的变体）**只用于校验** ✓ 不再交给播放器 ✓（校验逻辑原样保留 ✓ 挡 403/广告 ✓）。
       await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
-      kp.setVolume(0); // 静音（用户红线 ✓）
+      // ⚠️ 2026-10-05：**这里不静音** ✗ —— 探测才静音（那是为了自动化测试不出声 ✓）；
+      //   房间页是**给人看的** ✓ ⇒ 不设 `setVolume` ✓ 音量走系统默认 ✓
+      //   （`KpState` 默认音量 = 100 ✓，见 `player_widget.dart:97` `this.volume = 100` ✓）。
+      //   ⚠️ 只删了这处直播间页的静音 ✓ —— `_guardJs`（WebView 静音守护）与别的播放器**一个都没动** ✓。
       if (!mounted) {
         kp.shutdown();
         return;
       }
+      final k2 = kp;
+      // ⚠️ 2026-10-05 用户要求：**起播看门狗**（不许无限转圈 ✗）——
+      //   判据 = `k2.value.position > Duration.zero` ✓（= `KpState.started` ✓，见 `player_widget.dart:103`
+      //     `bool get started => position > Duration.zero;` ✓ —— 这是 `KpState` 唯一能读到的"出画"信号 ✓
+      //     它**没有**暴露 width/height ✗ 所以没得选 ✓）。
+      //   阈值 [_kLiveStartMs] = **8 秒**（理由：本机实测"master 0.52~0.80s + 变体 0.48~0.76s + 首个分片 0.32~0.90s"
+      //     ≈ **2.5 秒**是网络那一段 ✓ → 8 秒给它 ~3 倍余量 ✓；两次共 ~16 秒 ⇒ 落在你要的"最多等十几秒" ✓）。
+      //   超时 → **重开一次**（只一次 ✓ 不连环）；再超时 → 明确报错并停 ✓。
+      _startWatchdog(k2, url);
+      // 开播后真断了（校验过了但流中途坏）→ **说清楚** ✓（别让用户对着黑屏 ✗）；
+      // ⚠️ 只在"还没出画面"时报 ✗ —— mpv 起播期偶发网络错误不该弹（用户的痛点是慢/黑屏，不是弹错 ✓）
+      k2.addListener(() {
+        if (!identical(_kp, k2)) return;
+        if (k2.value.position > Duration.zero) {
+          // 出画了 → 撤掉看门狗 ✓（这一刻起不再重开/不再报"没画面" ✓）
+          _wd?.cancel();
+          _wd = null;
+          return;
+        }
+        if (k2.value.error) {
+          final t = k2.value.errorText;
+          final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
+          if (msg != _err && mounted) setState(() => _err = msg);
+        }
+      });
       setState(() => _kp = kp);
     } catch (e) {
+      _wd?.cancel();
+      _wd = null;
       kp?.shutdown();
       if (mounted) setState(() => _err = '打开直播失败：$e');
     }
   }
 
+  /// 起播看门狗：`_kLiveStartMs` 内没出画面（`position > 0` ✓）→ **重开一次** ✓；再超时 → 报错停 ✓
+  /// `url` = **master**（与站点自己的原生播放一致 ✓ 见 `_checkAndPlay` 里的说明 ✓）
+  void _startWatchdog(KpPlayer kp, String url) {
+    _wd?.cancel();
+    _wd = Timer(const Duration(milliseconds: _kLiveStartMs), () async {
+      if (!mounted || !identical(_kp, kp)) return;
+      if (kp.value.position > Duration.zero) return; // 已经出画 ✓（listener 那边也会撤 ✓）
+      if (!_wdRetried) {
+        _wdRetried = true;
+        if (mounted) setState(() => _err = '直播还没出画面，正在重试一次…');
+        try {
+          // **重开一次**：也交 **master** ✓（与站点自己的做法一致 ✓；重开 = 真重开 ✗ 不是只重置计时器 ✗）
+          await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
+          // 这里同样**不静音** ✓（给人看的 ✓ 音量系统默认 ✓ 见上面那段说明 ✓）
+        } catch (_) {
+          // 重开失败也不用管 ✓：下面那次超时会直接报错 ✓
+        }
+        _startWatchdog(kp, url);
+        return;
+      }
+      if (mounted) {
+        setState(() => _err = '这条直播一直没出画面，可能主播没有在推流 ✗');
+      }
+      _wd = null;
+    });
+  }
+
   @override
   void dispose() {
+    _wd?.cancel(); // 看门狗别在页面销毁后还动 ✓
     _kp?.shutdown();
     super.dispose();
   }
@@ -1749,7 +1862,20 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                 // ⚠️ 2026-10-05 用户拍板：**只用我们自己的播放器** ✓ —— WebEmbed 那条路**已删** ✗
                 //    （校验不过/抓取失败 → 报错提示 ✓ 不静默、不白屏、也**不播广告** ✓）
                 if (_kp != null)
-                  Positioned.fill(child: Video(controller: _kp!.videoController))
+                  // ⚠️ 2026-10-05 用户要求：**直播界面极简** —— 不要进度条 / 不要全屏按钮 / 不要中间那颗播放键 ✓
+                  //    `controls: NoVideoControls` 就是 media_kit_video 的"关掉它自带那套控件"开关 ✓
+                  //    （名字与用法照仓库现成那处 ✓：`lib/player_widget.dart:466-471` 用的就是它 ✓
+                  //     包源码实证：`media_kit_video-1.2.5` 的 `.../controls/no.dart:14` = `const NoVideoControls = null;` ✓
+                  //     该文件由 `media_kit_video_controls.dart:7` 导出 ✓）
+                  //    `fit/fill` 与详情页那处保持一致（等比不拉伸 ✓ 黑底 ✓）
+                  Positioned.fill(
+                    child: Video(
+                      controller: _kp!.videoController,
+                      fit: BoxFit.contain,
+                      fill: Colors.black,
+                      controls: NoVideoControls,
+                    ),
+                  )
                 else
                   Center(
                     child: Padding(
