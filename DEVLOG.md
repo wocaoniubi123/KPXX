@@ -2151,6 +2151,46 @@ X 层本就在 `Video` 之后（Stack 最上）；位置 / 默认隐藏 / 静音
 - **未提交** `sim/**`（按用户「不提交」）
 - 清理：app-dev 删 `%TEMP%\mpvdoc`（本轮抓的 mpv 手册）；`%TEMP%` 与工作区临时残留复核均为 0
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.29**）X 放大一倍 + 起播状态字 + 直播全量日志
+
+### 用户 1.0.28 真机反馈
+1. **X 出来了**，但**太小** ⇒ 放大一倍
+2. **画面还是很久才出来**（上一轮的 mpv 缓存参数**被真机否掉**）
+
+### 一、X 尺寸翻倍（`lib/sites/xhamsterlive.dart`）
+| 项 | 改前 | 改后 |
+|---|---|---|
+| `padding` | 8 | **12** |
+| 触摸区 | 38×38 | **76×76** |
+| 图标 `size` | 20 | **40** |
+位置（SafeArea + topLeft）、默认隐藏、点击 toggle **都没动**（`git diff` 只有这 4 个数值）
+
+### 二、线索 A（"参数调晚了"）**被排除**
+原文行号：参数在 `:1796-1798`（`cache-secs` / `demuxer-max-bytes` / `cache-pause-initial`），`await kp.open(...)` 在 `:1814` ⇒ **参数确实在 open 之前** ⇒ "调晚了所以没生效"不成立
+**顺手加的一层防御**：`open()` **之后再钉一次**同样三条（`:1821-1823`，幂等）—— 因为 `KpPlayer` 的 `bufferSize`（默认 **200MB**，`player_widget.dart:134/137`）是 media_kit **在 open 时自己设的**，可能盖掉先设的值
+**诚实记录**：mpv 手册原文其实**削弱了**"缓存参数导致等 1 分钟"这个解释（配合 `cache-pause-initial=no`，缓存本该拖不住首帧）⇒ **真机慢的根因仍未定死**（本机无 mpv/libmpv，无法复现）
+
+### 三、起播状态字（屏幕上的一行，**不写文件**）
+`_stage` getter `:1716-1724`，判据只用 `KpState` 暴露的三个（`ready`/`started`/`position`）：
+- `打开中… Ns` = 校验/连接阶段（`k == null`）
+- `连接中… Ns` = 还没 `duration>0`
+- `缓冲中… Ns` = `ready` 但 `position == 0`
+- 出画面 → 不显示
+显示在 `Stack` 底部居中（`bottom: 28`，13px，灰 `0xFFB0B4BA`）；计时 `Timer.periodic(1s)`，出画或销毁即 cancel
+⇒ **三种卡点对应三条完全不同的修法** —— 下一轮用户念出这行字即可一击命中，不再试参数
+
+### 四、直播**全量日志**（用户要求；**复用现有设施，未新造**）
+**复用的**（这几个文件**一行没动**）：`lib/site_error_log.dart`（写 App 沙盒 `kpxx_error.log`，追加一行 `[时间] [站点名] 内容`，512KB 截断，自带 try/catch）+ `lib/error_log_page.dart`（查看/复制/清空）+ 设置页入口（`settings_page.dart:280`）
+**新增（只在站点文件）**：`import '../site_error_log.dart';`；`Stopwatch _sw` + `_log(String)`（站点名 `直播/<username>#<id>`，每条带 **`+NNNms`（从进入页面起算）**，`unawaited` 不等待）；**节流** = 只记里程碑 + `ready`/`started` 跳变 + `position` 每 5 秒一条（**不按 KpState tick 写盘**）
+**22 个接点**覆盖：进入页面 → master URL 原文 → 校验 master（HTTP/字节/耗时/是否广告）→ 第一条变体 URL → 校验变体同样三项 → mpv 选项（open 前）→ `kp.open()`（URL+headers+返回耗时+抛错含栈前 4 行）→ mpv 选项（open 后补钉）→ `KpState` 跳变（ready/started/position/duration/error/errorText）→ 看门狗三条 → 每条错误 → 离开页面（存活 ms）
+**用户导出步骤**：设置 → 错误日志 → 「复制全部」→ 粘到聊天发我
+
+### 五、状态
+- 只改 `lib/sites/xhamsterlive.dart`（numstat **135/7**）；`site_error_log.dart` / `error_log_page.dart` / `settings_page.dart` / `player_widget.dart` **均未动**
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标了 3 个未编译风险点（`unawaited` 的来源、字符串插值、`errorText` 类型）
+- **未提交** `sim/**`（按用户「不提交」）；清理：`%TEMP%` 与工作区临时残留复核均为 0；**日志只写 App 沙盒，未往工作区写任何文件**
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -44,6 +44,9 @@ import '../app_bg.dart';
 import '../base/fetch.dart';
 import '../config.dart' show Site;
 import '../player_widget.dart';
+// 直播**全量日志**（用户 2026-10-05 要求）✓ —— **复用现成设施** ✓（`site_error_log.dart` 那套：
+// 写 App 沙盒 `kpxx_error.log` ✓ 设置页 → 错误日志页可看/可「复制全部」✓）⇒ **不新建日志系统** ✓
+import '../site_error_log.dart';
 import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
@@ -1707,9 +1710,43 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// ⇒ 8 秒给了 ~3 倍余量 ✓；两次合计 ≈16 秒 ⇒ 落在用户要的"最多等十几秒" ✓（不是几分钟 ✗）。
   static const int _kLiveStartMs = 8000;
 
+  /// 起播计时（秒）—— 只用来在**屏幕上**显示卡在哪一步 ✓（真机取证 ✓ 不写文件 ✗ 不加日志 ✗）
+  int _secs = 0;
+  Timer? _stageT;
+
+  /// 直播**全量日志**用：从"进入房间页"起算的毫秒表 ✓（配 [SiteErrorLog] 里自带的时间戳 ✓）
+  final Stopwatch _sw = Stopwatch();
+  bool _logReady = false;
+  bool _logStarted = false;
+  int _logPosSec = -1;
+
+  /// 记一条直播日志 ✓（**复用 [SiteErrorLog]** ✓：同一个文件/格式/导出方式 ✓ 不新建一套 ✗）。
+  /// ⚠️ 节流（用户要求"不许影响性能" ✓）：只在**里程碑**记 ✓ ——
+  ///   进入页面 / URL / 校验（状态码+字节+耗时）/ mpv 选项 / open 前后 / `ready`/`started` 的**跳变** /
+  ///   position **每 5 秒**一条 / 看门狗 / 每一条错误 / 出画面总耗时 / 离开页面 ✓
+  ///   —— 绝不每次 tick 都写盘 ✗（`KpState` tick 一秒可能有几十次 ✗）。
+  void _log(String msg) {
+    // `unawaited` = 明确"不等它" ✓（`SiteErrorLog.log` 自己吞错 ✓ 绝不把主流程带崩 ✓）
+    unawaited(SiteErrorLog.log('直播/${widget.username}#${widget.id}', '+${_sw.elapsedMilliseconds}ms $msg'));
+  }
+
+  /// 屏幕上的阶段文案（判据只用 `KpState` 那几个：`ready` / `started` / `position` ✓）：
+  /// `打开中…` → `连接中…`（还没 `ready`）→ `缓冲中…`（`ready` 但没 `started`）→ 出画后**空**（不显示 ✓）
+  String get _stage {
+    final k = _kp;
+    if (k != null && k.value.started) return ''; // 出画面 ✓ 不显示 ✓
+    if (k == null && _err != '正在打开直播…') return ''; // 中间已经在报错 ✗ 别再叠一行 ✓
+    final s = '${_secs}s';
+    if (k == null) return '打开中… $s';
+    if (!k.value.ready) return '连接中… $s';
+    return '缓冲中… $s'; // `ready` = duration>0（清单已解析 ✓）但 position 还是 0 ⇒ 还没出画 ✓
+  }
+
   @override
   void initState() {
     super.initState();
+    _sw.start(); // 全量日志的起算点 = **点卡片进入房间页这一瞬间** ✓
+    _log('进入房间页 username=${widget.username} id=${widget.id}');
     _checkAndPlay();
   }
 
@@ -1720,20 +1757,27 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   Future<void> _checkAndPlay() async {
     final id = widget.id;
     if (id <= 0) {
+      _log('错误：没拿到 id（id=$id）→ 打不开 ✗');
       setState(() => _err = '这个房间没拿到 id，打不开直播 ✗');
       return;
     }
     KpPlayer? kp;
     try {
       final url = liveMasterUrl(id);
+      _log('master URL 原文 = $url');
+      final tM0 = _sw.elapsedMilliseconds;
       final r = await Site.httpClient
           .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 8));
+      final ad = r.body.contains('MOUFLON-ADVERT');
+      _log('校验 master → HTTP ${r.statusCode} / ${r.body.length} 字节 / 耗时 ${_sw.elapsedMilliseconds - tM0}ms / 是广告清单=$ad');
       if (r.statusCode != 200) {
+        _log('错误：master 非 200（HTTP ${r.statusCode}）→ 不播 ✗');
         if (mounted) setState(() => _err = '直播流打不开（HTTP ${r.statusCode}）✗');
         return;
       }
-      if (r.body.contains('MOUFLON-ADVERT')) {
+      if (ad) {
+        _log('错误：拿到广告清单（MOUFLON-ADVERT）→ 不播 ✗');
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return; // ⚠️ 广告清单 → 千万别播 ✗
       }
@@ -1743,22 +1787,29 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       //   这里再抓一次**第一条变体**（很小 ✓ 实测 0.48~0.76 秒 ✓ 3 秒超时 ✓）：
       //   非 200 就**不播**、直接报错 ✓（本机实测耗时：master 0.52~0.80s + 变体 0.48~0.76s ≈ 1.3 秒 ✓ 不是"转圈几分钟"的来源 ✓）
       final vu = firstVariantUrl(r.body);
+      _log('master 里第一条变体 = ${vu.isEmpty ? '(没有 ✗)' : vu}');
       if (vu.isEmpty) {
+        _log('错误：清单里没有可用清晰度 → 不播 ✗');
         if (mounted) setState(() => _err = '这条流的清单里没有可用的清晰度 ✗');
         return;
       }
+      final tV0 = _sw.elapsedMilliseconds;
       final rv = await Site.httpClient
           .get(Uri.parse(vu), headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 3));
+      _log('校验变体 → HTTP ${rv.statusCode} / ${rv.body.length} 字节 / 耗时 ${_sw.elapsedMilliseconds - tV0}ms');
       if (rv.statusCode != 200) {
+        _log('错误：变体非 200（HTTP ${rv.statusCode}）→ 不播 ✗');
         if (mounted) {
           setState(() => _err = '这条流现在不可用（清晰度 HTTP ${rv.statusCode}）✗');
         }
         return;
       }
+      _log('校验通过 ✓ 准备起播（变体只用于校验 ✓ 播放交 master ✓）');
       if (!mounted) return;
       kp = KpPlayer();
       KpPlayer.tuneStartupQuiet(kp);
+      _log('mpv(open 前)：tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
       // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
       //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；
       //     必须在 `open()` **之前**设 ✓（这几个是"加载时读"的缓存参数 ✓））：
@@ -1780,12 +1831,45 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       kp.setMpvOptionQuiet('cache-secs', '2');
       kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
       kp.setMpvOptionQuiet('cache-pause-initial', 'no'); // 站点侧再显式钉一次 ✓（与 tuneStartupQuiet 同值 ✓ 无害 ✓）
+      // 起播计时（只为屏幕提示 ✓）：从"开始 open"起每秒 +1 ✓，出画/销毁就停 ✓
+      _secs = 0;
+      _stageT?.cancel();
+      _stageT = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!mounted || (_kp != null && _kp!.value.started)) {
+          t.cancel();
+          return;
+        }
+        setState(() => _secs++);
+        // 全量日志：**每 5 秒一条**（节流 ✓ 绝不按 tick 写盘 ✗）—— 卡住时能看出卡在哪一步、卡多久 ✓
+        if (_secs % 5 == 0) {
+          final k = _kp;
+          final st = k == null
+              ? '还没建播放器（校验/连接中）'
+              : 'ready=${k.value.ready} started=${k.value.started} '
+                  'position=${k.value.position.inMilliseconds}ms duration=${k.value.duration.inMilliseconds}ms '
+                  'error=${k.value.error}${k.value.errorText.isEmpty ? '' : ' errorText=${k.value.errorText}'}';
+          _log('等待 ${_secs}s：$st');
+        }
+      });
       // ⚠️ 2026-10-05 用户拍板**改回"交 master"** ✓（上一轮交变体是**偏离站点做法** ✗）——
       //   依据 recon 实测：**站点自己在 iPhone 上给原生 `<video src>` 的就是 master**
       //     `.../master/<id>_auto.m3u8?playlistType=…&pkey=…`（不是变体 ✓）
       //   ⇒ 站点自己的原生播放**就是吃 master** ✓ 我们照它来 ✓（mpv 拿到 master 会自己选档/跟随 ✓）。
       //   `vu`（上面那条校验过的变体）**只用于校验** ✓ 不再交给播放器 ✓（校验逻辑原样保留 ✓ 挡 403/广告 ✓）。
+      final tO0 = _sw.elapsedMilliseconds;
+      _log('kp.open() 开始：URL=$url headers=User-Agent(${Site.ua.length} 字符)');
       await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
+      _log('kp.open() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - tO0}ms（无异常 ✓）');
+      // ⚠️ 2026-10-05：**open 之后再钉一次**这三条 ✓ ——
+      //   实测顺序（行号）：`setMpvOptionQuiet` 在 `:1780-1782`、`open` 在它们**之后** ✓
+      //   ⇒ **"参数调晚了"这个假设被排除** ✗（那三行本来就在 open 前 ✓）；
+      //   但 `KpPlayer` 的 `bufferSize`（默认 **200MB** ✗ 见 `player_widget.dart:134/137`）是 media_kit
+      //   **在 open 时**自己设的 ✓ ⇒ 它**可能盖掉**我前面那条 `demuxer-max-bytes` 🔍[推断] ⇒ 这里**再覆盖一次** ✓
+      //   （幂等无害 ✓；真机若还慢，这条至少把"被 media_kit 盖掉"这种可能也排除了 ✓）。
+      kp.setMpvOptionQuiet('cache-secs', '2');
+      kp.setMpvOptionQuiet('demuxer-max-bytes', '8388608');
+      kp.setMpvOptionQuiet('cache-pause-initial', 'no');
+      _log('mpv(open 后)：再钉 cache-secs=2 / demuxer-max-bytes=8388608 / cache-pause-initial=no');
       // ⚠️ 2026-10-05：**这里不静音** ✗ —— 探测才静音（那是为了自动化测试不出声 ✓）；
       //   房间页是**给人看的** ✓ ⇒ 不设 `setVolume` ✓ 音量走系统默认 ✓
       //   （`KpState` 默认音量 = 100 ✓，见 `player_widget.dart:97` `this.volume = 100` ✓）。
@@ -1807,20 +1891,38 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       // ⚠️ 只在"还没出画面"时报 ✗ —— mpv 起播期偶发网络错误不该弹（用户的痛点是慢/黑屏，不是弹错 ✓）
       k2.addListener(() {
         if (!identical(_kp, k2)) return;
+        // 全量日志：只记 **ready / started 的跳变**（不按 tick 写 ✗ ✓ 节流 ✓）
+        if (k2.value.ready && !_logReady) {
+          _logReady = true;
+          _log('KpState: ready=true（duration=${k2.value.duration.inMilliseconds}ms）');
+        }
         if (k2.value.position > Duration.zero) {
+          if (!_logStarted) {
+            _logStarted = true;
+            _log('KpState: started=true（出画面 ✓ 从进入页面算总耗时 ${_sw.elapsedMilliseconds}ms）');
+          }
           // 出画了 → 撤掉看门狗 ✓（这一刻起不再重开/不再报"没画面" ✓）
           _wd?.cancel();
           _wd = null;
           return;
         }
+        // 出画前每 5 秒也留一条 position（与上面那条"等待 Ns"互补 ✓ 都是节流过的 ✓）
+        final ps = (k2.value.position.inMilliseconds / 1000).floor();
+        if (ps > 0 && ps != _logPosSec && ps % 5 == 0) {
+          _logPosSec = ps;
+          _log('KpState: position=${ps}s duration=${k2.value.duration.inMilliseconds}ms '
+              'ready=${k2.value.ready} started=${k2.value.started} +${_sw.elapsedMilliseconds}ms');
+        }
         if (k2.value.error) {
           final t = k2.value.errorText;
           final msg = t.isEmpty ? '直播中断 ✗' : '直播中断：$t';
+          _log('错误：播放器报 error=true errorText=${t.isEmpty ? '(空)' : t} @+${_sw.elapsedMilliseconds}ms');
           if (msg != _err && mounted) setState(() => _err = msg);
         }
       });
       setState(() => _kp = kp);
-    } catch (e) {
+    } catch (e, st) {
+      _log('错误：打开直播抛异常 → $e\n${st.toString().split('\n').take(4).join(' <- ')}');
       _wd?.cancel();
       _wd = null;
       kp?.shutdown();
@@ -1837,17 +1939,25 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       if (kp.value.position > Duration.zero) return; // 已经出画 ✓（listener 那边也会撤 ✓）
       if (!_wdRetried) {
         _wdRetried = true;
+        _log('看门狗：8 秒到，仍未出画面 → **重开一次** ✓（position=${kp.value.position.inMilliseconds}ms '
+            'ready=${kp.value.ready} error=${kp.value.error}）');
         if (mounted) setState(() => _err = '直播还没出画面，正在重试一次…');
         try {
           // **重开一次**：也交 **master** ✓（与站点自己的做法一致 ✓；重开 = 真重开 ✗ 不是只重置计时器 ✗）
+          final t1 = _sw.elapsedMilliseconds;
           await kp.open(url, httpHeaders: <String, String>{'User-Agent': Site.ua});
+          _log('看门狗：重开 kp.open() 返回 ✓ 耗时 ${_sw.elapsedMilliseconds - t1}ms');
           // 这里同样**不静音** ✓（给人看的 ✓ 音量系统默认 ✓ 见上面那段说明 ✓）
-        } catch (_) {
+        } catch (e) {
+          _log('看门狗：重开抛异常 → $e');
           // 重开失败也不用管 ✓：下面那次超时会直接报错 ✓
         }
         _startWatchdog(kp, url);
         return;
       }
+      _log('看门狗：第二次 8 秒也过了 → 报错停止 ✓（总耗时 ${_sw.elapsedMilliseconds}ms，'
+          'position=${kp.value.position.inMilliseconds}ms ready=${kp.value.ready} '
+          'error=${kp.value.error} errorText=${kp.value.errorText.isEmpty ? '(空)' : kp.value.errorText}）');
       if (mounted) {
         setState(() => _err = '这条直播一直没出画面，可能主播没有在推流 ✗');
       }
@@ -1857,7 +1967,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   @override
   void dispose() {
+    _log('离开房间页（页面存活 ${_sw.elapsedMilliseconds}ms）'); // 全量日志的最后一条 ✓
+    _sw.stop();
     _wd?.cancel(); // 看门狗别在页面销毁后还动 ✓
+    _stageT?.cancel(); // 起播计时的每秒 Timer ✓
     _kp?.shutdown();
     super.dispose();
   }
@@ -1912,11 +2025,13 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   ),
               if (_showX)
                 // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
+                // ⚠️ 2026-10-05 真机反馈"X 太小" → **尺寸翻倍** ✓（图标 20→**40**、触摸区 38→**76** ✓，
+                //    圆底 padding 8→**12** ✓ 一并放大；位置/默认隐藏/点击 toggle **都没动** ✓）
                 SafeArea(
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: Padding(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(12),
                       child: Material(
                         color: Colors.black.withOpacity(0.45),
                         shape: const CircleBorder(),
@@ -1924,13 +2039,26 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                         child: InkWell(
                           onTap: () => Navigator.of(context).pop(), // X = 关闭回列表 ✓
                           child: const SizedBox(
-                            width: 38,
-                            height: 38,
+                            width: 76,
+                            height: 76,
                             child: Icon(Icons.close,
-                                color: Colors.white, size: 20),
+                                color: Colors.white, size: 40),
                           ),
                         ),
                       ),
+                    ),
+                  ),
+                ),
+              // ⚠️ 2026-10-05：**起播状态提示**（真机取证用 ✓）—— 只显示在屏幕上 ✓
+              //    **不写文件、不加日志** ✗；出画面（`started`）后自己消失 ✓；出错误时用 `_err` ✓。
+              if (_stage.isNotEmpty)
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 28),
+                    child: Text(
+                      _stage,
+                      style: const TextStyle(color: Color(0xFFB0B4BA), fontSize: 13),
                     ),
                   ),
                 ),
