@@ -45,7 +45,6 @@ import '../app_background.dart';
 import '../app_bg.dart';
 import '../base/fetch.dart';
 import '../config.dart' show Site;
-import '../player_widget.dart';
 // ⚠️ 2026-10-05 用户拍板：直播页的**全量日志已全删** ✗ ⇒ 这里**不再 import `site_error_log.dart`** ✓
 //   （公共件 `lib/site_error_log.dart` **本身一字未动** ✓ 别的站点还在用 ✓）
 import '../fetched_image.dart';

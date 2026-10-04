@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'base/site_ui.dart';
+import 'app_bg.dart';
 import 'app_background.dart';
 import 'site_error_log.dart';
 
@@ -111,9 +112,10 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             // ⚠️ 2026-10-05 构建修复 #1：**这里不能加 `const`** ✗ —— `kTxtSub` 是**运行期 getter**
             //   （`lib/app_background.dart:56`，非 const ✓）⇒ `const Padding(...)` 会报
             //   `Invalid constant value / invalid_constant`（CI 原文指的就是这一行 ✓）
-            //   ⇒ **外层去掉 const** ✓（里面的 `EdgeInsets` / `TextStyle` 也都不标 const ✓ 整段保持非 const 上下文 ✓）
+            //   ⇒ **外层 Padding 不能加 const** ✗ —— 它的 Text 里含**运行期 getter** kTxtSub ✓；
+            //   而内层 EdgeInsets.fromLTRB 可以 const ✓（analyzer 的 prefer_const_constructors 指的就是它 ✓）。
             Padding(
-              padding: EdgeInsets.fromLTRB(12, 10, 12, 2),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
               child: Text(
                 '上限 5MB，超限保留末尾约 2.5MB（只留最新的一段，不会整篇清空）',
                 style: TextStyle(fontSize: 12, color: kTxtSub),
@@ -145,7 +147,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
                 //    提示固定挂在**滚动区之上** ✓（不会滚走 ✓）；右上角「复制全部」拿到的仍是**全文** ✓。
                 if (_cut > 0)
                   Padding(
-                    padding: EdgeInsets.fromLTRB(12, 0, 12, 4),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(

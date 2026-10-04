@@ -2565,6 +2565,18 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - `sim/**` 未提交（按惯例只提交 `lib` + `pubspec.yaml` + `DEVLOG.md` ✓）；**待办**：**App 侧筛选删净 + 真机验证通过后 → 清 sim 的 `MOBILE_FILTERS` / `LIVE_TAG_MAP` 及其 `liveTagOf()/liveSlug()`** ✓（现留在 sim 里当路标 ✓）
 - 清理：`%TEMP%` 与工作区临时文件**均为 0** ✓（两路各自实测 ✓）
 
+---
+## 追加（2026-10-05 · **1.0.37 构建修复 #1**）`flutter analyze` 10 error —— 全是"跨文件引用的收尾没做全"
+
+- **失败原文**（run `37233563081`，挂在 `代码检查 (flutter analyze)`，耗时 1 分 45 秒，其后 5 步 skipped、无产物）
+- **10 error 逐类**：
+  1. `lib/base/site_ui.dart:52:1` 与 `:53:1` ⇒ `directive_after_declaration`（**import 写在顶层函数声明之后** ✗）
+  2. `lib/error_log_page.dart:73:19` ⇒ `undefined_identifier`（`AppBg` 未定义：**缺 `app_bg.dart` 导入** ✗ —— 注意 `AppBg` 类是 `app_bg.dart` 里的，`app_background.dart` 只是它的使用者之一 ✓ 别搞混）
+  3. `lib/home_page.dart` **7 处** `undefined_method`（调用 `siteFilterBtn` 但**缺 `import 'base/site_ui.dart';`** ✗）：`280:15 / 285:17 / 300:25 / 383:17 / 401:19 / 418:19 / 512:25`
+- **顺带清掉（不拦构建）**：3 条 `unused_import`（`hanime1.dart:17` / `pornhub.dart:18` 的 `app_background`——**A2 删掉两份筛选按钮副本后 `kChipBorder` 就没人用了**、`xhamsterlive.dart:48` 的 `player_widget`——直播页改用 AVPlayer 后 `KpPlayer` 只剩注释里）；2 条 `prefer_const_constructors`（`error_log_page.dart` 两处 `EdgeInsets` 加 `const` ✓；**外层 `Padding` 不加** —— 内含运行期 getter `kTxtSub`，避开上轮的 `invalid_constant`）
+- **教训（已入规矩）**：① **删代码块 = 顺手查 import 是否悬空**（A2 留下的尾巴就是证据 ✓）② **跨文件引用公用件 = import 必须在同一个原子步** ③ 锚点一律**从文件取**（不手抄）④ 注释里**不写裸括号**（会污染计数口径）
+- **状态**：修复只经静态复核（锚点 + 括号逐类等式 + 行尾保持 + 零残留 grep）；**能否过 analyze 由 CI 二次确认**
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
