@@ -76,6 +76,16 @@ abstract class SiteUi {
   /// 文章详情
   Future<ArticleDetail> detail(String url) => throw UnimplementedError();
 
+  /// **详情入口**（按 URL 分流到本站的多个详情解析器 ✓）——[Api.detail] 调的**就是它** ✓。
+  /// 默认 = 直接走 [detail] ✓（**未覆写的站行为逐字不变** ✓）。
+  /// 覆写者（只有两家 ✓，各有好几套详情页）：
+  ///   · 黄果：`/archives/N/` 吃瓜帖子 → 帖子解析器（`huangguo.dart` ✓）
+  ///   · 91porna：`/melonshort/video/`（短视频）/`/heiliao-chigua/`（黑料图文）/`/novels/`（小说）✓
+  /// ⚠️ 2026-10-05 修：这两位**早就写了 `detailOf` 却没接线** ✗ —— `Api.detail` 直接调 [detail] ✗
+  ///   → 吃瓜帖子落进视频解析器 → **视频永远是空的** ✗（sim 那边 `parseDetail` 是按 URL 分派的 ✓
+  ///   —— 见 `sim/index.html:1287-1298` ✓，App 这边是漏接线 ✓）。
+  Future<ArticleDetail> detailOf(String url) => detail(url);
+
   /// 本站的标签清单（只有 Hanime1 有 ✓；默认空 ✓）
   /// ⚠️ 原先 `Api` 里为它留了一个转发 ✗（公共类塞单站入口），现收进接口 ✓。
   Future<List<String>> hanimeTags() async => const [];

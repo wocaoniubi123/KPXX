@@ -46,6 +46,9 @@ class HuangguoSite extends SiteUi {
 
   /// 详情入口：**按路径分流**到不同的解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
   /// 吃瓜社区的帖子是图文帖（/archives/N/ ✓），跟视频详情不是一套 ✓
+  /// ⚠️ 2026-10-05：原来是**死代码** ✗（`Api.detail` 直接调 `detail` ✗）→ 吃瓜帖子取不到视频 ✗；
+  ///    现在 `Api.detail` 改调 `detailOf` ✓，这条分流才真正生效 ✓（见 `site_ui.dart` 的 `detailOf` ✓）
+@override
   Future<ArticleDetail> detailOf(String url) {
     if (url.startsWith('/archives/')) return postDetail(url);
     return detail(url);

@@ -29,6 +29,8 @@ class WebEmbed extends StatefulWidget {
     this.mute = true,
     this.onCreated,
     this.ua = _ua,
+    this.extraJs = '',
+    this.toggleX = false,
   });
 
   final String url;
@@ -41,6 +43,16 @@ class WebEmbed extends StatefulWidget {
 
   /// 伪装手机 Safari：部分站点会按 UA 拦 WebView ✓（原 `web_page.dart` 同款 ✓）
   final String ua;
+
+  /// **站点专属注入** ✓（留空 = 不注入 ✓）：每次页面加载完（`onPageFinished` ✓）在**静音守护之后**
+  /// 跑一次 ✓，全程 try/catch ✓、失败绝不影响浏览 ✗。
+  /// ⚠️ 站点相关的东西**写在站点自己文件里** ✓ 不写进这个共用件 ✗（这里只提供通用能力 ✓）；
+  ///   JS 里请自己防重入（同一个页面可能被跑不止一次 ✓）。
+  final String extraJs;
+
+  /// 点屏幕 = 切 X 显隐（默认关 ✗；直播房间页开 ✓ —— 它没有控制栏，只能用单击 ✓）；
+  /// 关着的时候由宿主自己**吞掉点击** ✗，别让点击漏到网页里 ✓。
+  final bool toggleX;
 
   static const String _ua =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
@@ -103,13 +115,23 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
     widget.onCreated?.call(_ctl);
   }
 
-  /// 每次页面加载后注入 `_guardJs` ✓（静音 ✓ + 内联播放兜底 ✓ + 系统全屏兜底 ✓）
+  /// 每次页面加载后注入：先 `_guardJs`（静音/内联播放/系统全屏兜底 ✓），
+  /// 再 `widget.extraJs`（站点专属 ✓，没有就不跑 ✓）。两边都**独立 try/catch** ✓：
+  /// 一个失败不影响另一个 ✓、也不影响浏览 ✓。
   Future<void> _applyGuard() async {
-    if (!widget.mute) return;
-    try {
-      await _ctl.runJavaScript(_guardJs);
-    } catch (_) {
-      // 页面里没有 video / JS 被拦 → 静默 ✓（绝不弹错、绝不影响浏览 ✗）
+    if (widget.mute) {
+      try {
+        await _ctl.runJavaScript(_guardJs);
+      } catch (_) {
+        // 页面里没有 video / JS 被拦 → 静默 ✓（绝不弹错、绝不影响浏览 ✗）
+      }
+    }
+    if (widget.extraJs.isNotEmpty) {
+      try {
+        await _ctl.runJavaScript(widget.extraJs);
+      } catch (_) {
+        // 站点注入失败 → 保持原样 ✓（站点页面照常显示 ✓，绝不弹错 ✗）
+      }
     }
   }
 

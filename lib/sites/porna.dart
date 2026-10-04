@@ -33,6 +33,9 @@ class PornaSite extends SiteUi {
 
   /// 详情入口：**按路径分流**到四种详情解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
   /// 四种详情页：短视频 / 黑料图文 / 小说 / 普通视频 ✓
+  /// ⚠️ 2026-10-05：原来是**死代码** ✗（`Api.detail` 直接调 `detail` ✗）→ 小说/黑料图文/短视频
+  ///    全被当普通视频解析 ✗；现在 `Api.detail` 改调 `detailOf` ✓（见 `site_ui.dart` ✓）
+@override
   Future<ArticleDetail> detailOf(String url) {
     if (url.startsWith('/melonshort/video/')) return melonDetail(url);
     if (url.startsWith('/heiliao-chigua/')) return heiliaoDetail(url);
@@ -616,7 +619,7 @@ class PornaSite extends SiteUi {
     final mm = mi.toString().padLeft(h > 0 ? 2 : 1, '0');
     final ss = s.toString().padLeft(2, '0');
     return h > 0 ? '$h:$mm:$ss' : '$mm:$ss';
-  }
+  }
 }
 
 // ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====

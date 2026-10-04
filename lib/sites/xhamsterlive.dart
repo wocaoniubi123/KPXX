@@ -71,26 +71,43 @@ class LiveTabDef {
   /// 自带的 `filterGroupTags`（**移动流 / 手机版最新**才有 ✓；4 个主 tab 是空的 ✗）
   final List<List<String>> groups;
 
+  /// 这个 tab 有没有那排**页内过滤器入口** ✓：
+  ///   · 「移动流」/「手机版最新」= 3 个入口 ✓（`kLiveFilters` ✓）
+  ///   · 4 个主 tab = **1 个「筛选」入口** ✓（`kLiveMainFilters` ✓ —— 用户 2026-10-05 指出：
+  ///     模拟器里 4 个主 tab 本来就有筛选 ✗ 之前 App 漏做了 ✓）
+  bool get hasFilterRow => groups.isNotEmpty || filters.isNotEmpty;
+
+  /// 「移动流」/「手机版最新」的 3 个页内过滤器 ✓（4 个主 tab 那是 [filters] ✗ 别混 ✓）
+  bool get hasMobileFilters => groups.isNotEmpty;
+
+  /// 这个 tab 的**筛选入口数据** ✓：4 个主 tab = [kLiveMainFilters] 里自己那一份 ✓；
+  /// 其它 tab = 空 ✗（它们走 `kLiveFilters` ✓，见 `_LiveFeedView` ✓）
+  final List<LiveFilter> filters;
+
   /// 接口的 `parentTag`（只有带了 `groups` 才拼 ✓）
   final String? parentTag;
 
   /// 要不要带 `specialEventTagIds`（= 4 个主 tab ✓）
   final bool specialEvent;
 
-  /// 这个 tab 有没有那 3 个**页内过滤器** ✓（= 「移动流」/「手机版最新」两个叶子 ✓；
-  /// 4 个主 tab **没有** ✗ —— 它们的子分类筛选不在本批范围 ✓）
-  bool get hasFilterRow => groups.isNotEmpty;
-
   const LiveTabDef(this.name, this.primaryTag,
-      {this.groups = const [], this.parentTag, this.specialEvent = false});
+      {this.groups = const [],
+      this.filters = const [],
+      this.parentTag,
+      this.specialEvent = false});
 }
 
 /// 6 个 tab（顺序 = 界面上的顺序 ✓；前 4 个是**主分类** ✓，后 2 个是**快捷叶子** ✓）
 const List<LiveTabDef> kLiveTabs = [
-  LiveTabDef('女主播', 'girls', specialEvent: true),
-  LiveTabDef('情侣', 'couples', specialEvent: true),
-  LiveTabDef('男主播', 'men', specialEvent: true),
-  LiveTabDef('跨性別', 'trans', specialEvent: true),
+  // 4 个主 tab：各带**自己那一份**子分类筛选 ✓（数据是脚本产物 ✓ 见下面生成块 ✓）
+  LiveTabDef('女主播', 'girls', specialEvent: true,
+      filters: kLiveMainFiltersGirls),
+  LiveTabDef('情侣', 'couples', specialEvent: true,
+      filters: kLiveMainFiltersCouples),
+  LiveTabDef('男主播', 'men', specialEvent: true,
+      filters: kLiveMainFiltersMen),
+  LiveTabDef('跨性別', 'trans', specialEvent: true,
+      filters: kLiveMainFiltersTrans),
   // 「移动流」= 4 个主分类共有的**叶子**（女主播的移动流在线最多 ✓）；`mobile` 是它的 tag ✓
   LiveTabDef('移动流', 'girls', groups: [
     ['mobile'],
@@ -135,7 +152,12 @@ class LiveFilter {
   final String name;
   final List<LiveFilterGroup> groups;
 
-  const LiveFilter(this.key, this.name, this.groups);
+  /// **单选** ✓：点一个换一个 ✓、再点已选 = 取消 ✓。
+  /// 4 个主 tab = true ✓（与站点侧栏一致：点一个子分类 = 跳到 `/girls/<slug>`，一次只有一个 ✓）；
+  /// 移动流 / 手机版最新那 3 个入口 = false ✓（子分组间 AND、组内 OR ✓ 与站点那套弹窗本来就不同 ✓）。
+  final bool single;
+
+  const LiveFilter(this.key, this.name, this.groups, {this.single = false});
 }
 
 const List<LiveFilter> kLiveFilters = [
@@ -347,6 +369,304 @@ const List<LiveFilter> kLiveFilters = [
     ]),
   ]),
 ];
+
+// -- 4 个主 tab 各自的子分类筛选（与上面 kLiveFilters 同一套 chip 弹窗 ✓）--
+// ⚠️ 下面这段是**一次性脚本抽取的产物** ✗ 别手改 ✓ —— 数据源 = `sim/index.html` 的 `LIVE_MAIN` + `LIVE_TAG_MAP` ✓
+//    （抽取规则：顺序 / 显示名 / tagId / 「未映射」全部原样照抄 ✓、逐层括号匹配不手抄 ✓；脚本已用完删除 ✓
+//     —— 以后要改就**按同一规则重跑一次抽取** ✗ 别手改这段 ✗）。
+//    ⚠️ 里面每个 `LiveFilter` 都是 **单选**（`single: true` ✓，与 sim 一致 ✓）：点一个换一个 ✓、再点已选 = 取消 ✓；
+//    请求里 `parentTag` 取**当前选中的那个 tag** ✓（见 `LiveFilterSel.selTag` ✓），没选就整个不带 ✓。
+//    依据（实测 ✓）：`[["tagLanguageChinese"]]` + `parentTag=tagLanguageChinese` → 200 / filteredCount 296 ✓；
+//    清掉选择（不带这两件）→ 回到无筛选的 1000 ✓；leaf 那两套多选（移动流/手机版最新）不受影响 ✓。
+/// ⚠️ 拆成 4 个具名常量 ✓ —— `const kLiveTabs` 里要按 tab 引用 const 值 ✗ 不能引用列表元素 ✓
+/// `女主播` tab 的子分类筛选（7 组 / 58 项 ✓）
+/// ⚠️ **单选** ✓（`single: true` —— 与 sim 一致 ✓）：点一个换一个 ✓、再点已选 = 取消 ✓；
+///    `parentTag` 取当前选中的那个 tag ✓（见 `LiveFilterSel.selTag` ✓），没选就不带 ✓。
+/// ⚠️ 拆成 4 个具名常量 ✓ —— `const kLiveTabs` 里要按 tab 引用 const 值 ✗ 不能引用列表元素 ✓
+/// `女主播` tab 的子分类筛选（7 组 / 58 项 ✓）
+const List<LiveFilter> kLiveMainFiltersGirls = [
+  LiveFilter('女主播', '女主播', [
+    LiveFilterGroup('特别', [
+      LiveTag('Oktoberfest Party', null),
+      LiveTag('中文', null),
+      LiveTag('美国人', 'tagLanguageUSModels'),
+      LiveTag('乌克兰女主播', 'tagLanguageUkrainian'),
+      LiveTag('新主播', null),
+      LiveTag('VR摄像头', 'autoTagVr'),
+      LiveTag('虐恋', 'subcultureBdsm'),
+      LiveTag('购票表演', 'groupShow'),
+    ]),
+    LiveFilterGroup('年龄', [
+      LiveTag('少女18+', null),
+      LiveTag('鲜嫩青年22+', 'ageYoung'),
+      LiveTag('熟女', 'ageMilf'),
+      LiveTag('成熟', 'ageMature'),
+      LiveTag('老奶奶', 'ageOld'),
+    ]),
+    LiveFilterGroup('种族', [
+      LiveTag('阿拉伯人', null),
+      LiveTag('亚洲人', 'ethnicityAsian'),
+      LiveTag('黑珍珠', 'ethnicityEbony'),
+      LiveTag('印度人', 'ethnicityIndian'),
+      LiveTag('拉丁人', null),
+      LiveTag('混血主播', 'ethnicityMultiracial'),
+      LiveTag('白人', 'ethnicityWhite'),
+    ]),
+    LiveFilterGroup('体型', [
+      LiveTag('瘦', null),
+      LiveTag('运动型', 'bodyTypeAthletic'),
+      LiveTag('中', 'bodyTypeMedium'),
+      LiveTag('丰满', null),
+      LiveTag('大号美女', 'bodyTypeBBW'),
+    ]),
+    LiveFilterGroup('头发', [
+      LiveTag('金发', null),
+      LiveTag('黑', 'hairColorBlack'),
+      LiveTag('棕发小妞', 'hairColorBrown'),
+      LiveTag('红发', null),
+      LiveTag('彩色', 'hairColorColorful'),
+    ]),
+    LiveFilterGroup('私秀表演', [
+      LiveTag('8-12代币', null),
+      LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
+      LiveTag('32-60代币', null),
+      LiveTag('90+代币', 'privatePriceNinetyPlus'),
+      LiveTag('可录制私秀', null),
+      LiveTag('偷窥表演', 'autoTagSpy'),
+      LiveTag('视频通话(直播)', 'autoTagP2P'),
+    ]),
+    LiveFilterGroup('最受欢迎', [
+      LiveTag('互动玩具', null),
+      LiveTag('移动流', 'mobile'),
+      LiveTag('群交', 'tagGroupSex'),
+      LiveTag('巨乳', null),
+      LiveTag('阴部多毛', 'specificsHairy'),
+      LiveTag('户外', 'doPublicPlace'),
+      LiveTag('大屁股', null),
+      LiveTag('肛交', 'doAnal'),
+      LiveTag('潮吹', 'doSquirt'),
+      LiveTag('炮机', 'fuckMachine'),
+      LiveTag('粗暴', null),
+      LiveTag('口交', 'doBlowjob'),
+      LiveTag('小胸部', 'specificSmallTits'),
+      LiveTag('孕妇', 'specificPregnant'),
+      LiveTag('拳交', null),
+      LiveTag('自慰', 'doMasturbation'),
+      LiveTag('剃光', 'specificShaven'),
+      LiveTag('深喉', 'doDeepThroat'),
+      LiveTag('恋足', null),
+      LiveTag('办公室', 'doOffice'),
+      LiveTag('全部分类', null),
+    ]),
+  ], single: true),
+];
+/// `情侣` tab 的子分类筛选（4 组 / 36 项 ✓）
+const List<LiveFilter> kLiveMainFiltersCouples = [
+  LiveFilter('情侣', '情侣', [
+    LiveFilterGroup('特别', [
+      LiveTag('Oktoberfest Party', null),
+      LiveTag('中文', null),
+      LiveTag('美国人', 'tagLanguageUSModels'),
+      LiveTag('乌克兰情侣主播', 'tagLanguageUkrainian'),
+      LiveTag('新主播们', null),
+      LiveTag('VR摄像头', 'autoTagVr'),
+      LiveTag('购票表演', 'groupShow'),
+    ]),
+    LiveFilterGroup('种族', [
+      LiveTag('印度人', 'ethnicityIndian'),
+    ]),
+    LiveFilterGroup('私秀表演', [
+      LiveTag('8-12代币', null),
+      LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
+      LiveTag('32-60代币', null),
+      LiveTag('90+代币', 'privatePriceNinetyPlus'),
+      LiveTag('可录制私秀', null),
+      LiveTag('偷窥表演', 'autoTagSpy'),
+      LiveTag('视频通话(直播)', 'autoTagP2P'),
+    ]),
+    LiveFilterGroup('最受欢迎', [
+      LiveTag('互动玩具', null),
+      LiveTag('移动流', 'mobile'),
+      LiveTag('群交', 'tagGroupSex'),
+      LiveTag('户外', 'doPublicPlace'),
+      LiveTag('肛交', 'doAnal'),
+      LiveTag('潮吹', 'doSquirt'),
+      LiveTag('炮机', 'fuckMachine'),
+      LiveTag('粗暴', null),
+      LiveTag('口交', 'doBlowjob'),
+      LiveTag('孕妇', 'specificPregnant'),
+      LiveTag('拳交', null),
+      LiveTag('狗式', null),
+      LiveTag('自慰', 'doMasturbation'),
+      LiveTag('深喉', 'doDeepThroat'),
+      LiveTag('恋足', null),
+      LiveTag('办公室', 'doOffice'),
+      LiveTag('假阳具或震动器', 'doDildoOrVibrator'),
+      LiveTag('老少配22+', 'autoTagOldYoung'),
+      LiveTag('69姿势', 'do69Position'),
+      LiveTag('哥特', null),
+      LiveTag('全部分类', null),
+    ]),
+  ], single: true),
+];
+/// `男主播` tab 的子分类筛选（8 组 / 60 项 ✓）
+const List<LiveFilter> kLiveMainFiltersMen = [
+  LiveFilter('男主播', '男主播', [
+    LiveFilterGroup('特别', [
+      LiveTag('Oktoberfest Party', null),
+      LiveTag('中文', null),
+      LiveTag('美国人', 'tagLanguageUSModels'),
+      LiveTag('乌克兰男主播', 'tagLanguageUkrainian'),
+      LiveTag('新主播们', null),
+      LiveTag('VR摄像头', 'autoTagVr'),
+      LiveTag('购票表演', 'groupShow'),
+    ]),
+    LiveFilterGroup('性取向', [
+      LiveTag('双性恋', null),
+      LiveTag('同性恋', 'orientationGay'),
+      LiveTag('直男', 'orientationStraight'),
+    ]),
+    LiveFilterGroup('年龄', [
+      LiveTag('小鲜肉', null),
+      LiveTag('鲜嫩青年22+', 'ageYoung'),
+      LiveTag('老爹', 'ageDaddies'),
+      LiveTag('成熟', 'ageMature'),
+      LiveTag('老爷爷', 'ageGrandpas'),
+    ]),
+    LiveFilterGroup('种族', [
+      LiveTag('阿拉伯人', null),
+      LiveTag('亚洲人', 'ethnicityAsian'),
+      LiveTag('黑珍珠', 'ethnicityEbony'),
+      LiveTag('印度人', 'ethnicityIndian'),
+      LiveTag('拉丁', null),
+      LiveTag('混血主播', 'ethnicityMultiracial'),
+      LiveTag('白人', 'ethnicityWhite'),
+    ]),
+    LiveFilterGroup('体型', [
+      LiveTag('瘦', null),
+      LiveTag('肌肉发达', 'bodyTypeMuscular'),
+      LiveTag('中', 'bodyTypeMedium'),
+      LiveTag('矮胖', 'bodyTypeChunky'),
+      LiveTag('大', 'bodyTypeBig'),
+    ]),
+    LiveFilterGroup('头发', [
+      LiveTag('金发', null),
+      LiveTag('黑', 'hairColorBlack'),
+      LiveTag('褐色头发', 'hairColorBrown'),
+      LiveTag('红发', null),
+      LiveTag('彩色', 'hairColorColorful'),
+    ]),
+    LiveFilterGroup('私秀表演', [
+      LiveTag('8-12代币', null),
+      LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
+      LiveTag('32-60代币', null),
+      LiveTag('90+代币', 'privatePriceNinetyPlus'),
+      LiveTag('可录制私秀', null),
+      LiveTag('偷窥表演', 'autoTagSpy'),
+      LiveTag('视频通话(直播)', 'autoTagP2P'),
+    ]),
+    LiveFilterGroup('最受欢迎', [
+      LiveTag('互动玩具', null),
+      LiveTag('移动流', 'mobile'),
+      LiveTag('群交', 'tagGroupSex'),
+      LiveTag('户外', 'doPublicPlace'),
+      LiveTag('大屁股', null),
+      LiveTag('肛交', 'doAnal'),
+      LiveTag('炮机', 'fuckMachine'),
+      LiveTag('粗暴', null),
+      LiveTag('大乳头', null),
+      LiveTag('口交', 'doBlowjob'),
+      LiveTag('拳交', null),
+      LiveTag('狗式', null),
+      LiveTag('自慰', 'doMasturbation'),
+      LiveTag('多毛腋下', null),
+      LiveTag('指交', null),
+      LiveTag('剃光', 'specificShaven'),
+      LiveTag('体内射精', null),
+      LiveTag('深喉', 'doDeepThroat'),
+      LiveTag('大屌', null),
+      LiveTag('洗澡', null),
+      LiveTag('全部分类', null),
+    ]),
+  ], single: true),
+];
+/// `跨性別` tab 的子分类筛选（7 组 / 57 项 ✓）
+const List<LiveFilter> kLiveMainFiltersTrans = [
+  LiveFilter('跨性別', '跨性別', [
+    LiveFilterGroup('特别', [
+      LiveTag('Oktoberfest Party', null),
+      LiveTag('中文', null),
+      LiveTag('美国人', 'tagLanguageUSModels'),
+      LiveTag('乌克兰变性人主播', 'tagLanguageUkrainian'),
+      LiveTag('新主播们', null),
+      LiveTag('VR摄像头', 'autoTagVr'),
+      LiveTag('购票表演', 'groupShow'),
+    ]),
+    LiveFilterGroup('年龄', [
+      LiveTag('少年18+', null),
+      LiveTag('鲜嫩青年22+', 'ageYoung'),
+      LiveTag('熟女', 'ageMilf'),
+      LiveTag('成熟', 'ageMature'),
+      LiveTag('老奶奶', 'ageOld'),
+    ]),
+    LiveFilterGroup('种族', [
+      LiveTag('阿拉伯人', null),
+      LiveTag('亚洲人', 'ethnicityAsian'),
+      LiveTag('黑珍珠', 'ethnicityEbony'),
+      LiveTag('印度人', 'ethnicityIndian'),
+      LiveTag('拉丁人', null),
+      LiveTag('混血主播', 'ethnicityMultiracial'),
+      LiveTag('白人', 'ethnicityWhite'),
+    ]),
+    LiveFilterGroup('体型', [
+      LiveTag('瘦', null),
+      LiveTag('运动型', 'bodyTypeAthletic'),
+      LiveTag('中', 'bodyTypeMedium'),
+      LiveTag('丰满', null),
+      LiveTag('大号美女', 'bodyTypeBBW'),
+    ]),
+    LiveFilterGroup('头发', [
+      LiveTag('金发', null),
+      LiveTag('黑', 'hairColorBlack'),
+      LiveTag('棕发小妞', 'hairColorBrown'),
+      LiveTag('红发', null),
+      LiveTag('彩色', 'hairColorColorful'),
+    ]),
+    LiveFilterGroup('私秀表演', [
+      LiveTag('8-12代币', null),
+      LiveTag('16-24代币', 'privatePriceSixteenToTwentyFour'),
+      LiveTag('32-60代币', null),
+      LiveTag('90+代币', 'privatePriceNinetyPlus'),
+      LiveTag('可录制私秀', null),
+      LiveTag('偷窥表演', 'autoTagSpy'),
+      LiveTag('视频通话(直播)', 'autoTagP2P'),
+    ]),
+    LiveFilterGroup('最受欢迎', [
+      LiveTag('互动玩具', null),
+      LiveTag('移动流', 'mobile'),
+      LiveTag('群交', 'tagGroupSex'),
+      LiveTag('巨乳', null),
+      LiveTag('户外', 'doPublicPlace'),
+      LiveTag('大屁股', null),
+      LiveTag('肛交', 'doAnal'),
+      LiveTag('潮吹', 'doSquirt'),
+      LiveTag('大阴蒂', null),
+      LiveTag('炮机', 'fuckMachine'),
+      LiveTag('粗暴', null),
+      LiveTag('大乳头', null),
+      LiveTag('口交', 'doBlowjob'),
+      LiveTag('小胸部', 'specificSmallTits'),
+      LiveTag('拳交', null),
+      LiveTag('狗式', null),
+      LiveTag('自慰', 'doMasturbation'),
+      LiveTag('多毛腋下', null),
+      LiveTag('指交', null),
+      LiveTag('剃光', 'specificShaven'),
+      LiveTag('全部分类', null),
+    ]),
+  ], single: true),
+];
+
 // <<< LIVE_FILTERS_DATA_END
 
 /// 一个 tab 的**已选过滤器状态** ✓
@@ -359,11 +679,18 @@ const List<LiveFilter> kLiveFilters = [
 class LiveFilterSel {
   final Map<String, List<String>> _buckets = {};
 
-  LiveFilterSel();
+  /// 这份选择属于哪一组过滤器入口 ✓ —— 弹窗据此决定画什么 ✓、
+  /// 「入口上的文字」据此把 id 翻回名字 ✓：
+  ///   · 「移动流」/「手机版最新」= [kLiveFilters]（3 个入口 ✓）
+  ///   · 4 个主 tab = [kLiveMainFilters]（1 个入口「筛选」✓，每个主 tab 各一份 ✓）
+  /// ⚠️ 必须**按 tab 传对** ✗ —— 传错的话 id 会翻成别的 tab 的名字（跨 tab 串味 ✓）。
+  final List<LiveFilter> filters;
+
+  LiveFilterSel({this.filters = kLiveFilters});
 
   /// 复制一份当**草稿** ✓（弹窗改草稿 ✓ 点「进行筛选」才提交 ✓；取消 = 什么都不变 ✗
   /// —— 与 App 现成那套弹窗（`pornhub.dart` 的 PhMoreDialog「取消不改」✓）同一套语义 ✓）
-  LiveFilterSel.copyOf(LiveFilterSel o) {
+  LiveFilterSel.copyOf(LiveFilterSel o) : filters = o.filters {
     for (final e in o._buckets.entries) {
       _buckets[e.key] = List<String>.of(e.value);
     }
@@ -390,11 +717,19 @@ class LiveFilterSel {
     return false;
   }
 
-  /// 点一下 chip（同组可多选 ✓、再点取消 ✓）；**未映射的直接忽略** ✓
-  void toggle(LiveFilter f, LiveFilterGroup g, LiveTag t) {
+  /// 点一下 chip；**未映射的直接忽略** ✓。
+  /// [exclusive] = **单选**（4 个主 tab ✓ 与站点侧栏一致：点一个换一个 ✓、再点已选的 = 取消 ✓）
+  ///   —— 会先把**这个过滤器**的所有桶清空 ✓；同组**多选**（移动流/手机版最新 ✓）就是 false ✓。
+  void toggle(LiveFilter f, LiveFilterGroup g, LiveTag t,
+      {bool exclusive = false}) {
     final id = t.id;
     if (id == null) return;
     final k = _bucket(f, g);
+    if (exclusive) {
+      final had = (_buckets[k] ?? const <String>[]).contains(id);
+      resetFilter(f); // 单选：先把同过滤器里的清掉 ✓
+      if (had) return; // 再点已选的那个 = 取消 ✓
+    }
     final arr = _buckets.putIfAbsent(k, () => <String>[]);
     if (arr.contains(id)) {
       arr.remove(id);
@@ -423,7 +758,7 @@ class LiveFilterSel {
   }
 
   String _labelOf(String id) {
-    for (final f in kLiveFilters) {
+    for (final f in filters) {
       for (final g in f.groups) {
         for (final t in g.items) {
           if (t.id == id) return t.name;
@@ -434,6 +769,8 @@ class LiveFilterSel {
   }
 
   /// 入口上的文字 ✓（如 `外貌: 熟女 +1` ✓；没选就是过滤器名 ✓）
+  /// ⚠️ 只给**多入口**那排用 ✓ —— 4 个主 tab 只有 1 个「筛选」入口，按钮文字不显示已选 ✗
+  ///   （与站点一致：按钮就写「筛选」✓；已选状态在弹窗里看 ✓）
   String btnText(LiveFilter f) {
     final ids = <String>[];
     for (final g in f.groups) {
@@ -445,15 +782,33 @@ class LiveFilterSel {
   }
 
   /// 拼进请求的组 ✓：**每个有选择的子分组一个数组** ✓（空的不拼 ✗；顺序 = 数据顺序 ✓ 稳定 ✓）
+  /// ⚠️ 走的是 [filters] ✓ —— 所以 4 个主 tab 选的东西（同一组数据 ✓）也会被拼上 ✓；
+  ///    tab 自己的 `groups`（移动流固定那几组 ✓）在 `XhLiveApi._path` 里**排在前面** ✓
   List<List<String>> groups() {
     final out = <List<String>>[];
-    for (final f in kLiveFilters) {
+    for (final f in filters) {
       for (final g in f.groups) {
         final ids = selIn(f, g);
         if (ids.isNotEmpty) out.add(List<String>.of(ids));
       }
     }
     return out;
+  }
+
+  /// **单选过滤器**（`f.single` ✓ = 4 个主 tab ✓）当前选中的那一个 tag ✓；没选 = 空串 ✓。
+  /// 依据（用户 2026-10-05 拍板：以 sim 为准 ✓）：4 主 tab 的筛选与站点侧栏一致 ——
+  /// 点一个子分类 = 跳到 `/girls/<slug>` 路径 ✓，**一次只有一个** ✓ →
+  /// 请求里 `parentTag` 必须是**这个 tag** ✓（不是"组的第一个" ✗ 那是对多选组的口径 ✓），没选就不带 ✓。
+  /// ⚠️ 多选那套（移动流 / 手机版最新 ✓）**不用它** ✗ —— 它的 `parentTag` 是 tab 自带的 `tab.parentTag` ✓。
+  String selTag() {
+    for (final f in filters) {
+      if (!f.single) continue;
+      for (final g in f.groups) {
+        final ids = selIn(f, g);
+        if (ids.isNotEmpty) return ids.first;
+      }
+    }
+    return '';
   }
 }
 
@@ -520,9 +875,10 @@ class XhLiveApi {
   ///
   /// [extra] = 页内过滤器选的组 ✓（每个**有选择的子分组**一个数组 ✓，接在 tab 自带的组**后面** ✓；
   /// 不选就是空的 ✓ → 请求与第一批**一模一样** ✓ 行为不变 ✓）。
+  /// [parentTag] = **单选过滤器（4 个主 tab）**当前选中的那一个 tag ✓（多选那套不用传 ✗ 见 [_path] ✓）。
   Future<LivePageResult> list(LiveTabDef tab, int offset,
-      {List<List<String>> extra = const []}) async {
-    final txt = await _f.text(_path(tab, offset, extra));
+      {List<List<String>> extra = const [], String parentTag = ''}) async {
+    final txt = await _f.text(_path(tab, offset, extra, parentTag: parentTag));
     final j = jsonDecode(txt) as Map<String, dynamic>;
     final raw = j['models'] is List ? j['models'] as List : const <dynamic>[];
     final rooms = <LiveRoom>[];
@@ -548,8 +904,15 @@ class XhLiveApi {
   }
 
   /// 拼请求路径（顺序照简报 ✓：`limit`/`offset`/`primaryTag` → 可选的两件 → 尾巴 → 活动标签 ✓）
-  /// 组 = **该 tab 自带的**（`tab.groups` ✓）在前 + 页内过滤器选的 ✓ 在后（照 lead 的拼装规则 ✓）
-  String _path(LiveTabDef tab, int offset, List<List<String>> extra) {
+  /// 组 = **该 tab 自带的**（`tab.groups` ✓）在前 + 页内/子分类筛选取的 ✓ 在后（照 lead 的拼装规则 ✓）。
+  /// ⚠️ `parentTag` 分两条口径（用户 2026-10-05 拍板：4 主 tab 以 sim 为准 ✓）：
+  ///   · 多选那套（移动流 / 手机版最新 ✓）= tab 自带的 `tab.parentTag`（`mobile` ✓）
+  ///   · **单选那套（4 个主 tab ✓）= 当前选中的那一个 tag** ✓（[parentTag] 传进来 ✓；没选＝空 → 整个
+  ///     `filterGroupTags`/`parentTag` 都不带 ✓，与"没筛选"那条请求一模一样 ✓）
+  /// 实测（单选口径 ✓）：`[["ageMilf"]]` + `parentTag=ageMilf` → trans `filteredCount=57` ✓、
+  ///   girls `432` ✓；`[["orientationStraight"]]` + 同名 parentTag → men `136` ✓。
+  String _path(LiveTabDef tab, int offset, List<List<String>> extra,
+      {String parentTag = ''}) {
     final groups = <List<String>>[...tab.groups, ...extra];
     final b = StringBuffer('/api/front/models?limit=$_kPage&offset=$offset'
         '&primaryTag=${tab.primaryTag}');
@@ -560,7 +923,7 @@ class XhLiveApi {
       // → `[` `]` `"` `,` 都会被转义 ✓（`encodeQueryComponent` 对这几个字符**也是转义**的 ✓
       //    —— 文档原文「不是数字/字母/`-._~` 的都编码」✓ —— 两者对这串等价 ✓，取前者因为语义更贴"一个 JSON 值" ✓）
       b.write('&filterGroupTags=${Uri.encodeComponent(jsonEncode(groups))}');
-      b.write('&parentTag=${tab.parentTag ?? groups.first.first}');
+      b.write('&parentTag=${tab.parentTag ?? (parentTag.isNotEmpty ? parentTag : groups.first.first)}');
     }
     b.write(_kTail);
     if (tab.specialEvent) b.write(_kSpecialEvent);
@@ -601,7 +964,8 @@ class LiveFeed extends ChangeNotifier {
     _loading = true;
     final gen = _gen;
     try {
-      final r = await _api.list(tab, _offset, extra: sel.groups());
+      final r = await _api.list(tab, _offset,
+          extra: sel.groups(), parentTag: sel.selTag());
       if (gen != _gen) return; // 这次请求已被「进行筛选/重置」作废 ✗
       rooms.addAll(r.rooms);
       _raw += r.raw;
@@ -679,10 +1043,19 @@ class _LiveSitePageState extends State<LiveSitePage>
   /// 每个 tab 一份列表状态（切 tab 回来不重拉 ✓）
   final Map<int, LiveFeed> _feeds = {};
 
-  /// 每个 tab 一份**已选过滤器** ✓（「移动流」/「手机版最新」**互不影响** ✓ —— 用户点名要求 ✓）
+  /// 每个 tab 一份**已选过滤器** ✓（**6 个 tab 互不影响** ✓ —— 用户点名要求 ✓；
+  /// 4 个主 tab 用的是各自那份 `kLiveMainFilters*` ✓，两个叶子用 `kLiveFilters` ✓）
   final Map<int, LiveFilterSel> _sels = {};
 
-  LiveFilterSel _selOf(int i) => _sels.putIfAbsent(i, LiveFilterSel.new);
+  LiveFilterSel _selOf(int i) {
+    final tab = kLiveTabs[i];
+    return _sels.putIfAbsent(
+        i,
+        () => tab.hasMobileFilters
+            ? LiveFilterSel() // 「移动流」/「手机版最新」：3 个过滤器入口 ✓
+            : LiveFilterSel(
+                filters: tab.filters)); // 4 个主 tab：只有自己那一个「筛选」✓
+  }
 
   LiveFeed _feedOf(int i) =>
       _feeds.putIfAbsent(i, () => LiveFeed(_api, kLiveTabs[i], _selOf(i)));
@@ -715,11 +1088,19 @@ class _LiveSitePageState extends State<LiveSitePage>
           controller: _tab,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
-          // **下划线 tab**（用户指定 ✓）：选中 = 橙字加粗 + 2px 下划线；行底一条分隔线 ✓
+          // ⚠️ 2026-10-05 用户真机反馈：**6 个 tab 的间距缩短一点点** ✓
+          //    依据（Flutter 3.24.5 源码 `packages/flutter/lib/src/material/tabs.dart:1683` +
+          //    `constants.dart` 的 `kTabLabelPadding`）：**没设 labelPadding 时每侧 16** ✓
+          //    → 相邻两个 tab 文字之间 = 16+16 = **32px** ✗。这里改成每侧 **10** ✓ → 相邻 **20px** ✓
+          //    （只动间距 ✗ 不动布局：仍 `tabAlignment.start` + 横向可滚 ✓；选中态橙下划线/字色/字重照旧 ✓）
+          labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+          // **下划线 tab**（用户指定 ✓）：选中 = 橙字加粗 + 2px 下划线
+          // ⚠️ 2026-10-05 用户真机反馈：**行底那条分隔线不要**（`dividerColor` 置透明 ✓，
+          //    不是删 TabBar 的线 —— 选中态的 2px 橙下划线由 `indicatorColor` 画，仍保留 ✓）
           // ⚠️ 不是胶囊按钮 ✗（胶囊那套是子分类行的样式 ✓，别混 ✗）
           indicatorColor: const Color(0xFFE8590C),
           indicatorWeight: 2,
-          dividerColor: const Color(0xFFECEEF1),
+          dividerColor: Colors.transparent,
           labelColor: AppBg.i.isDark
               ? const Color(0xFFFFB07A)
               : const Color(0xFFE8590C),
@@ -794,11 +1175,14 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     super.build(context); // keepAlive 必需 ✓
     final body = _body();
     if (!widget.feed.tab.hasFilterRow) return body;
-    // 「移动流」「手机版最新」才有那 3 个过滤器入口 ✓（**下划线 tab 样式** ✓ —— 见 LiveFilterBar ✓）
+    // 有筛选入口的 tab 才画这排 ✓（**下划线 tab 样式** ✓ —— 见 LiveFilterBar ✓）：
+    //   · 「移动流」/「手机版最新」= 3 个过滤器入口 ✓（文字带已选摘要 ✓）
+    //   · **4 个主 tab** = 1 个「筛选」入口 ✓（文字就写「筛选」✓，已选状态在弹窗里看 ✓）
     return Column(
       children: [
         LiveFilterBar(
           sel: widget.sel,
+          label: widget.feed.tab.hasMobileFilters ? null : '筛选',
           onApplied: () {
             setState(() {}); // 入口文字（已选 / 重置）跟着刷 ✓
             widget.feed.reload(); // 清空重拉：offset 归 0 ✓ + 带上新的 filterGroupTags ✓
@@ -885,16 +1269,22 @@ class _LiveFeedViewState extends State<_LiveFeedView>
 }
 
 /// **过滤器入口行**（**下划线 tab 样式** ✓ —— 与站点页上面那排主 tab **同一套观感** ✓，不是按钮 ✗）。
-/// 3 个入口 = `kLiveFilters`（外貌 / 国家 / 可请求提供的表演 ✓）+ **有选择时**才出「重置」✓。
-/// 入口文字 = 已选摘要 ✓（`外貌: 熟女 +1` ✓，同模拟器 ✓）；有选择的那项**橙字加粗 + 2px 下划线** ✓。
-/// ⚠️ 只挂在「移动流」/「手机版最新」两个 tab 上 ✓（见 `LiveTabDef.hasFilterRow` ✓）。
+/// 入口 = `sel.filters`（「移动流」/「手机版最新」= 3 个 ✓；**4 个主 tab** = 1 个「筛选」✓）
+/// + **有选择时**才出「重置」✓。
+/// 入口文字 = 已选摘要 ✓（`外貌: 熟女 +1` ✓，同模拟器 ✓；**主 tab 那个入口不显示已选** ✗
+/// —— 按钮就写「筛选」✓）；有选择的那项**橙字加粗 + 2px 下划线** ✓。
+/// ⚠️ 挂在所有 `hasFilterRow` 的 tab 上 ✓（见 `_LiveFeedView` ✓）。
 class LiveFilterBar extends StatelessWidget {
   final LiveFilterSel sel;
+
+  /// 入口文字固定用这个（给了就用 ✓，否则用过滤器名 ✗）：4 个主 tab 传 `'筛选'` ✓
+  final String? label;
 
   /// 「进行筛选」/「重置」生效后回调宿主 ✓（宿主负责刷入口文字 + `feed.reload()` ✓）
   final VoidCallback onApplied;
 
-  const LiveFilterBar({super.key, required this.sel, required this.onApplied});
+  const LiveFilterBar(
+      {super.key, required this.sel, required this.onApplied, this.label});
 
   Future<void> _open(BuildContext context, int idx) async {
     // 草稿：弹窗里改的是副本 ✓ —— 点「进行筛选」才提交 ✓（取消/点遮罩 = 什么都不变 ✓，
@@ -917,20 +1307,18 @@ class LiveFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      // 行底一条分隔线（与上面那排主 tab 的分隔线**同一个色** ✓）
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFECEEF1))),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (var i = 0; i < kLiveFilters.length; i++)
-              _tab(kLiveFilters[i], () => _open(context, i)),
-            if (sel.any) _resetTab(),
-          ],
-        ),
+    // ⚠️ 2026-10-05 用户真机反馈：**行底分隔线整条删掉**（原来是底下那层 Container 的
+    //    `Border(bottom:)` ✓）→ 连 Container 一起删 ✗，**不留空盒占位**（1px 空盒在有些
+    //    缩放下仍会显浅线 ✗）。选中态的 2px 橙下划线画在各 tab 自己的 `_tab` 里 ✓ 不受影响 ✓
+    final fs = sel.filters;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < fs.length; i++)
+            _tab(fs[i], () => _open(context, i)),
+          if (sel.any) _resetTab(),
+        ],
       ),
     );
   }
@@ -951,7 +1339,8 @@ class LiveFilterBar extends StatelessWidget {
           ),
         ),
         child: Text(
-          sel.btnText(f),
+          // 固定文字（主 tab = 「筛选」✓）优先 ✓；否则给已选摘要 ✓
+          label ?? sel.btnText(f),
           style: TextStyle(
             fontSize: 14,
             fontWeight: on ? FontWeight.w700 : FontWeight.w400,
@@ -994,13 +1383,19 @@ class LiveFilterDialog extends StatefulWidget {
 }
 
 class _LiveFilterDialogState extends State<LiveFilterDialog> {
-  late int _idx = widget.start.clamp(0, kLiveFilters.length - 1);
+  /// ⚠️ 过滤器条目取自**草稿自己那份** [LiveFilterSel.filters] ✓ —— 4 个主 tab 只有 1 个入口 ✓；
+  ///    别再硬引用全局 `kLiveFilters` ✗（那会让主 tab 的弹窗画错内容 ✓）。
+  List<LiveFilter> get _fs => widget.sel.filters;
+
+  late int _idx = widget.start.clamp(0, _fs.length - 1);
 
   @override
   Widget build(BuildContext context) {
-    final f = kLiveFilters[_idx];
+    final f = _fs[_idx];
     return AlertDialog(
-      title: const Text('筛选器', style: TextStyle(fontSize: 16)),
+      // 顶部切换 chip 只有 1 个时（4 个主 tab ✓）标题就用过滤器名 ✓（否则照旧「筛选器」✓）
+      title: Text(_fs.length == 1 ? f.name : '筛选器',
+          style: const TextStyle(fontSize: 16)),
       content: SizedBox(
         width: double.maxFinite,
         child: ConstrainedBox(
@@ -1009,12 +1404,12 @@ class _LiveFilterDialogState extends State<LiveFilterDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 三个过滤器（切换 + 已选数 ✓）
+                // 过滤器切换 chip（只有 1 个时也照画 ✓ —— 4 个主 tab 就是只有 1 个 ✓）
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (var i = 0; i < kLiveFilters.length; i++) _topChip(i),
+                    for (var i = 0; i < _fs.length; i++) _topChip(i),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1057,7 +1452,7 @@ class _LiveFilterDialogState extends State<LiveFilterDialog> {
   }
 
   Widget _topChip(int i) {
-    final f = kLiveFilters[i];
+    final f = _fs[i];
     final n = widget.sel.count(f);
     final on = i == _idx;
     return InkWell(
@@ -1084,13 +1479,16 @@ class _LiveFilterDialogState extends State<LiveFilterDialog> {
   }
 
   /// 多选 chip（照模拟器 `.chip` / `.chip.on` / `.chip.na` ✓）：
-  /// 未映射（`id == null`）→ **灰显 + 「（未映射）」 + 点了没反应** ✓（不硬猜 tagId ✗、也不弹错 ✗）
+  /// 未映射（`id == null`）→ **灰显 + 「（未映射）」 + 点了没反应** ✓（不硬猜 tagId ✗、也不弹错 ✗）。
+  /// ⚠️ 单选过滤器（`f.single` ✓ = 4 个主 tab ✓）→ 走 `exclusive` ✓：点一个换一个 ✓、再点已选 = 取消 ✓
   Widget _chip(LiveFilter f, LiveFilterGroup g, LiveTag t) {
     final na = t.id == null;
     final on = !na && widget.sel.selIn(f, g).contains(t.id);
     return InkWell(
       borderRadius: BorderRadius.circular(15),
-      onTap: na ? null : () => setState(() => widget.sel.toggle(f, g, t)),
+      onTap: na
+          ? null
+          : () => setState(() => widget.sel.toggle(f, g, t, exclusive: f.single)),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
         decoration: BoxDecoration(
@@ -1222,6 +1620,85 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 默认**隐藏** ✓（点屏幕才出现 ✓）
   bool _showX = false;
 
+  /// **房间页专属注入**（交给 [WebEmbed.extraJs] ✓ 每次页面加载完跑一次 ✓）。
+  /// 目的（用户 2026-10-05 反馈：点卡片看到的是"网页页面"✗，要**整屏画面 + 只有我们的 X** ✓）：
+  ///   ① 关掉 18+ 与 Cookie 那两个弹窗/条（不关的话整页被 `.modal-wrapper` 盖住 ✓）
+  ///   ② 藏掉站点外框（顶栏/侧栏/页脚/聊天/相关主播/站点自己的播放器控制条 ✓）
+  ///   ③ 把播放器铺满整屏 ✓
+  /// 全部**非致命** ✓：任何一步失败都只是"站点页面照常显示" ✓，绝不白屏/报错 ✓。
+  /// ⚠️ 选择器全部来自 recon 实测 ✓（只用 `data-testid` / `[class*=语义前缀]` / 稳定 id ✗
+  ///    —— **不带 `#哈希` 的类名** ✓，那是 React 生成、随版本变 ✓）。
+  /// ⚠️ 只改 `.video-element-wrapper` ✗ 别去动 `video.video-element` 本身 ✓ ——
+  ///    recon 实测：改 video 的 width/height 会被站点 JS **每帧打回**（按 1024×1024 基座重算 transform ✓）；
+  ///    改 wrapper 才有效 ✓，改完还要 `resize` 事件触发它重算 ✓。
+  static const String _roomInjectJs = r'''
+(function () {
+  try {
+    // ---------- ① 关掉那两个挡页面的东西（异步出现 → 轮询；找不到就跳过，绝不报错） ----------
+    var tries = 0;
+    function autoOpen() {
+      try {
+        var b = document.querySelector('#agreement-root button[class*=btn-visitors]');
+        if (b && b.click) b.click();
+      } catch (e) {}
+      try {
+        var c = document.querySelector('[data-testid=CookiesAcceptAll]');
+        if (c && c.click) c.click();
+      } catch (e) {}
+      tries++;
+      if (tries < 20) setTimeout(autoOpen, 300);   // 每 300ms 一次、最多 20 次（≈6 秒）
+    }
+    autoOpen();
+
+    // ---------- ② 藏外框 + ③ 画面铺满（样式只插一次 ✓） ----------
+    var ID = 'kpxx-room-style';
+    function ensureStyle() {
+      if (document.getElementById(ID)) return;
+      var css = [
+        /* 顶栏 / 通知 / 侧栏 / 页脚 / 两个弹窗 */
+        '.header-top-wrapper, .HeaderNotifications, .SidebarOverlay,',
+        'footer#MAIN_FOOTER_ID, [data-testid=CookiesReminder], #agreement-root,',
+        '#legacy-browser-notification-root { display: none !important; }',
+        /* 聊天栏 */
+        '[class*=ViewCamWrapper__chat], .model-chat-wrapper-mobile,',
+        '.model-chat-messages-wrapper { display: none !important; }',
+        /* 相关主播 / 标签区 */
+        '[data-testid=viewcam-model-sections],',
+        '[class*=ViewCamModelListSection], [class*=ViewCamContent__tagsContainer],',
+        '.view-cam-model-tags { display: none !important; }',
+        /* 站点自己的播放器控制条（用户要"只留一个 X" ✓） */
+        '[class*=player-controls-user__], [class*=player-controls-layers__],',
+        '[class*=player-top-button], .record-show-button { display: none !important; }',
+        /* 画面铺满：**只能改 wrapper** ✓（改 video 本身会被站点 JS 每帧打回 ✓） */
+        '[data-testid=webrtc-playing], .video-element-wrapper {',
+        '  width: 100% !important; height: 100% !important; }',
+        '.video-element-wrapper { position: absolute !important; inset: 0 !important; }'
+      ].join('\n');
+      var st = document.createElement('style');
+      st.id = ID;
+      st.textContent = css;
+      (document.head || document.documentElement).appendChild(st);
+    }
+    // 铺满后**让站点重算一次**（它按 1024×1024 基座算 transform ✓，不重算画面不铺满 ✓）
+    function nudge() {
+      try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    }
+    ensureStyle();
+    nudge();
+
+    // ---------- 复查：SPA 会重渲染（样式被摘掉/画面被重置）→ 0.5s / 1.5s / 3s 各再来一次 ----------
+    //（`ensureStyle` 有 ID 去重 ✓、`nudge` 幂等 ✓、全程 try/catch ✓）
+    function recheck() {
+      try { ensureStyle(); } catch (e) {}
+      nudge();
+    }
+    setTimeout(recheck, 500);
+    setTimeout(recheck, 1500);
+    setTimeout(recheck, 3000);
+  } catch (e) {}
+})();
+''';
+
   @override
   Widget build(BuildContext context) {
     // 这一页是黑底全屏 → 状态栏图标固定用**白色** ✗ 别跟着背景图明暗翻 ✓
@@ -1233,11 +1710,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         body: GestureDetector(
           // 点屏幕 = 只切 X 的显隐 ✓（列表状态在上一层，这里什么都不动 ✓）
           behavior: HitTestBehavior.translucent,
-          onTap: () => setState(() => _showX = !_showX),
+          onTap: () {
+            if (_showX) setState(() => _showX = false);
+          },
           child: Stack(
             children: [
-              // 房间页：站点自己的页面（自带静音注入 ✓ / 内联播放 ✓）
-              WebEmbed(url: 'https://zh.xhamsterlive.com/${widget.username}'),
+              // 房间页：站点自己的页面（自带静音注入 ✓ / 内联播放 ✓ / **站点专属注入** = 藏外框 + 铺满 ✓）
+              WebEmbed(
+                url: 'https://zh.xhamsterlive.com/${widget.username}',
+                toggleX: true, // 房间页没有控制栏 → **单击**必须先显示 X ✓（与模拟器一致 ✓）
+                extraJs: _roomInjectJs, // 藏外框 + 画面铺满 + 关那两个弹窗 ✓（见下 ✓）
+              ),
               if (_showX)
                 // SafeArea：X 落在**状态栏下面** ✓（用户明确要求：不压状态栏 ✓）
                 SafeArea(

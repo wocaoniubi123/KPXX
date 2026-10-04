@@ -1834,6 +1834,54 @@ HTML 里逐个数出现次数：sultry520 **5** ✓ · LINA-LILI **5** ✓ · Ma
 - `git diff --numstat`：`lib/player_widget.dart` **6/11**；`pornhub.dart` 本轮未动
 - 版本仍 **1.0.23**；**仍未编译过**（本机无 flutter/dart，只有 node）→ 等 CI 复验
 
+---
+## 追加（2026-10-05 · **App 侧 $newVer**）黄果吃瓜修复 + 播放加载/重试四条 + 直播页外观 + 房间页去壳（sim 同步）
+
+### 一、黄果吃瓜取不到 —— `detailOf` 死代码（用户报）
+- **根因**：`lib/sites/huangguo.dart:49-55` 的 `detailOf`（按路径分流：`/archives/N/` 帖子 → `postDetail`）**定义了但全仓 0 个调用点**；`api.dart` 一直直接调 `_ui!.detail(url)` → 吃瓜帖被当**视频详情页**解析 → `videoInitialData` 找不到 → 视频为空
+- **实测证据**：真帖 `/archives/653/` 里 `videoInitialData` **0 次**、`epPlaySrcs` **0 次**，但 `div.post-video-player` 有 `data-src`（现成 m3u8）——站点侧一切正常（3 个吃瓜入口都 SSR 出 13 张卡、选择器与 App 逐条吻合、8 种 header 组合全 200 无拦截）
+- **修法**：`SiteUi` 加默认实现 `detailOf(url) => detail(url)`（未覆写的站行为**逐字不变**）→ `api.dart` 改调 `detailOf` → 两家覆写者补 `@override`
+- ⚠️ **顺带修了 porna**（同一根因）：`/melonshort/video/`、`/heiliao-chigua/`、`/novels/` 三类也从"被当普通视频解析"变成走各自解析器。**用户对此有疑问，已说明这是原代码写好的分派、只是没接线**（`sim/index.html:1292-1298` 从一开始就是这么分的），代码上只加了 3 行注释 + 1 行 `@override`、**逻辑一字未改**
+- **实测**：吃瓜帖取到 m3u8 ✓；porna 短视频取到 m3u8 ✓；porna 黑料图文 token→打包 JS→解包出 m3u8 全链通 ✓；对照页（黄果 `/video/5010/`）仍走原解析器 ✓
+- `Api.detail` 的 4 个调用者（详情页 / `_refreshSources` / 短片预热 / 短片流）现在**全经过分派**
+
+### 二、播放加载/重试四条（用户报"加载中就直接重试"+"开播后提示还在、又重载一遍"+"能放也自动重试"）
+**诊断要点（全有 `file:line`）**：
+- 看门狗**从播放器构造就开始计时**（判据只有 position 有没有前进）→ 加载期 position 恒 0 → 9 秒被判"缓冲超时" → 提前换源；`_everStarted` 只被引擎 error 用，**看门狗没引用它**
+- `_autoRetrying` **只有 4 个清除点、没有"恢复就撤"**；中途卡住时 position 早 > 0，"首帧上升沿"不会再出现 → 提示清不掉
+- 1.2 秒重试定时器**唯一取消点是首帧上升沿** → 视频自己恢复时不取消 → 到点走 `_recover()` → **重载**
+- 引擎 error 流在首帧前**任何** error 都写 `KpState.error`，而 `error` 同时是 `_openAndWait` 的"这条源失败"信号 → 启动期偶发 error = **无谓换源**
+
+**修法（全在 `lib/player_widget.dart`）**：
+1. **看门狗首帧门禁**：`_everStarted == false` 时不计 `_stuckMs`、不写 `error`（`_stuckLimitMs = 9000` **未动**）
+2. **首帧前长兜底**：具名常量 `_kFirstFrameLimitMs = 12000`（`:285`）—— 只在**已 open 成功**之后计时，12 秒仍无首帧 → 按"这条源不行"处理；与 `_openAndWait` 的 15 秒连接超时**不重叠**
+3. **恢复即撤**：`_onTick` 里位置前进 ≥100ms **且确实有排着的重试**时 → cancel 定时器 + 清 `_autoRetrying` + `_autoRetries = 0`
+4. **首帧前偶发 error 宽限**：具名常量 `_kStartupErrHoldMs = 3000`（`:332`）+ `_startupErrPending` / `_errHoldMs`；错误流**不再当场写 error**，宽限（复用现成的 1 秒看门狗 tick，**无新定时器**）内仍未 `ready` 才判失败 → 实际生效 **2~3 秒**
+5. 加固：`_initPlayer` 开头清 `_autoRetrying`；排重试守卫扩到**整段加载**（`_opening || _fetchingLazy`）；`_recover` 收尾再挡一次并发
+
+**不变量自查（5 条全过）**：加载期不产生 error/重试 · 首帧后真卡住仍 **9 秒**照旧判 · 开播瞬间起提示必撤 · 一次事故最多一次重载 · 其它站 + 短片流行为不变（短片自建 `KpPlayer` 且**从不读 `error`**）
+
+### 三、直播页外观（用户真机反馈）
+- **删掉两条行底横线**：主 tab 排 `TabBar.dividerColor` → `Colors.transparent`；过滤器排**连 Container 一起删**（不留 1px 占位盒）
+- **6 个主 tab 间距收窄**：`labelPadding` 每侧 **16 → 10**（相邻文字 32px → **20px**）
+- **4 个主 tab 补分类选择器**（之前漏做）：脚本抽取 **26 组 / 211 子分类 / 82 项未映射**（未映射灰显不猜）；**单选**（与 sim 一致，`parentTag` = 当前选中的 tag，再点取消）；**6 份已选状态各自分开存**；移动流/手机版最新 那两套多选未被影响
+
+### 四、房间页去壳（用户：点卡片是网页页面，要"整屏画面 + 一个 X"）
+- WebView 里注入：**点掉 18+ 弹窗**（`#agreement-root`，300ms × 最多 20 次）+ **Cookie 条**；注入 CSS 藏掉站点外框（顶栏 / 通知 / 侧栏 / 页脚 / 聊天 / 相关推荐 / 标签区 / **站点自己的控制条**）
+- **画面铺满**：`[data-testid=webrtc-playing], .video-element-wrapper { width/height:100% !important }` + `.video-element-wrapper{position:absolute; inset:0}` + 派发 `resize`
+  ⚠️ recon 实测：**直接改 `video` 元素会被站点 JS 每帧打回**（它按 1024×1024 基座重算 transform）→ 目标必须是 `.video-element-wrapper`
+- 选择器只用 `data-testid` / `[class*=语义前缀]` / 稳定 id，**不用 `#哈希` 类名**（React 生成、随版本变）；整段 `try/catch` **非致命**（失败就退回站点页面）
+- `web_embed.dart` 加两个**通用**参数（`extraJs` / `toggleX`），**站点脚本仍留在站点文件里**
+
+### 五、sim 同步（用户定的新规矩：**app/sim 同步改**）
+- 删掉 `.lv-tabs` 的 `border-bottom`（连带删 `margin-bottom:-1px`，避免选中下划线被 `overflow` 裁掉）+ `gap: 20px → 16px` → 实测相邻文字 **20.00px**，与 App 对齐；**分类选择器那排 sim 本来就没有线**（全页扫"宽≥200 的可见横线" = 0 条）
+- 更正 **7 处过期注释**（"4 个过滤器"→3 个；"手机版最新不给过滤器"→照给）
+
+### 六、状态与边界
+- **未编译**：本机无 Flutter SDK（`dart`/`flutter` 都不存在）→ **本次构建即验证**；括号余额与 HEAD 基线逐项一致、行尾形态未翻转
+- ⚠️ `lib/sites/porna.dart` 与 `pornhub.dart` 的 `git diff` 会显示**整文件重写**（CRLF blob + `core.autocrlf=true` 的产物），**实际改动只有几行**（用 `--ignore-cr-at-eol` 才是真实量）
+- **未提交**：`sim/**` 全部改动（模拟器侧，按用户「不提交」）
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

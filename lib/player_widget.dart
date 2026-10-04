@@ -157,14 +157,15 @@ class KpPlayer extends ValueNotifier<KpState> {
       _p.stream.volume.listen((v) => value = value.copyWith(volume: v)),
       // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
       // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
-      // 所以：还没播起来时才当失败（用于换源）；已经在播就不弹提示，
-      // 真卡住由看门狗负责判断。
+      // 所以：已经在播就不弹提示（真卡住由看门狗负责判断）；**首帧前也不立刻当失败** ✓
+      // ⚠️ 2026-10-05（用户报"明明能放，它也自动重试"）：原来首帧前**任何** error 都当场写
+      //    `KpState.error` ✗ —— 而 `error` 同时是 `_openAndWait` 的"这条源失败"信号（:1005 ✓）
+      //    → 启动期一次偶发 error = **无谓换源重载** ✗。
+      //    现在只挂"待定"（`_startupErrPending` ✓），由看门狗宽限 [_kStartupErrHoldMs] 后
+      //    **仍未就绪**才算这条源失败 ✓（见看门狗里那段 ✓）—— 单次偶发不再换源 ✓。
       _p.stream.error.listen((e) {
-        if (_everStarted) {
-          _lastFatal = e;
-        } else {
-          value = value.copyWith(error: true, errorText: e);
-        }
+        _lastFatal = e;
+        if (!_everStarted) _startupErrPending = true;
       }),
       // 引擎日志只静默留存最后一条 fatal：不再当错误弹提示
       // （网络类日志如 "tcp: ffurl_read returned ..." 是偶发的，ffmpeg 会自己重试，
@@ -193,11 +194,80 @@ class KpPlayer extends ValueNotifier<KpState> {
       // ⚠️ 2026-10-05：卡顿期间 mpv 常把 playing 报成 false（缓冲中），原来这里 `!s.playing`
       //      直接清零 → **看门狗永远判不出"卡住"** ✗（表现：画面静止、不报错、不重试 ✓）。
       //      现在只把**用户主动暂停**排除（_userPaused ✓），缓冲中照常计时 ✓。
+      // ⚠️ 2026-10-05（用户报"加载中就直接重试"）—— **首帧门禁**：
+      //      还没出过第一帧（`_everStarted == false` ✓）时**不判"卡住"、也不写 `KpState.error`** ✗。
+      //      依据：加载/缓冲期 position 恒为 0 ✓ → 原来凑够 9 秒就置 error ✓，而 `error` **同时**是
+      //      `_openAndWait` 的"这条源失败"信号（`player_widget.dart:944` ✓）→ **提前换源重载** ✗。
+      //      连接阶段的失败**交给原有兜底** ✓（`_openAndWait` 的 15 秒超时 :964-965 + 引擎 error 流
+      //      :162-168 ✓）—— 不新造判据 ✓。首帧出来之后（`_everStarted == true` ✓）照旧按 9 秒判卡住 ✓。
       if (_userPaused || s.error) {
         _stuckMs = 0;
+        _noFrameMs = 0;
+        _startupErrPending = false; // 暂停 / 已失败：待定的偶发 error 作废 ✓
+        _errHoldMs = 0;
         _lastPos = s.position;
         return;
       }
+      if (!_everStarted) {
+        // ★ 首帧前的**偶发 error 宽限**（2026-10-05，用户报"明明能放，它也自动重试" ✓）：
+        //   启动期 mpv 偶发报错（ffmpeg 自己会重试 ✓ 见上面 log 流那段注释 ✓）——
+        //   单次 error **绝不**当失败 ✗（那会被 `_openAndWait` 当"这条源失败" → 无谓换源重载 ✗）。
+        //   · 判据：`_startupErrPending`（error 流挂的待定 ✓）连挂满 [_kStartupErrHoldMs] ✓
+        //   · **`ready` 一到就作废** ✓（已经 open 成功 → 交给下面那条 12 秒无首帧兜底管 ✓，
+        //     两条判据不重叠 ✓、也不重复判 ✓）
+        //   · 到点只写 `error` ✓ → 后面走现成的失败路径 ✓（`_openAndWait` 判失败换源 /
+        //     已在播则 `_onTick` 排重试 ✓），不另起状态机 ✓
+        //   · **只触发一次** ✓：触发后 `error` 已置上 → 上面 `s.error` 分支每轮清零 ✓
+        if (_startupErrPending) {
+          if (s.ready) {
+            _startupErrPending = false; // 就绪了 → 这次偶发作废 ✓（零换源 ✓）
+            _errHoldMs = 0;
+          } else {
+            _errHoldMs += 1000;
+            if (_errHoldMs >= _kStartupErrHoldMs) {
+              _startupErrPending = false;
+              _errHoldMs = 0;
+              value = value.copyWith(
+                error: true,
+                errorText: _lastFatal.isEmpty
+                    ? '打开失败（${_kStartupErrHoldMs ~/ 1000} 秒内没有就绪）'
+                    : '打开失败；引擎日志：$_lastFatal',
+              );
+            }
+          }
+        }
+        // ★ 首帧前的**长兜底**（2026-10-05，用户拍板 ✓）：堵住"`duration` 到了（=`ready` ✓，
+        //   `_openAndWait` 已判成功 ✓）但**首帧永远不来**"这个洞（那时 15 秒超时已经用完了 ✗）。
+        //   · 判据用 **`ready`（`duration > 0` = 已经 open 成功 ✓）**，**不是**"已连上" ✓
+        //     —— 连接阶段归 `_openAndWait` 的 15 秒管 ✓，两条判据不打架 ✓（`!ready` → 清零 ✓）
+        //   · 阈值 [_kFirstFrameLimitMs] = **12 秒** ✓（用户拍板：加载流畅优先、别等太久 ✓）：
+        //     这里**不是**旧 bug 那个 9 秒 ✗ —— 那条是**从播放器构造就算**（连"连接 + 解析清单"
+        //     都算进去 ✗ → 正常加载被误判 ✗）；这条**从 open 成功（`ready`）之后才算** ✓，
+        //     那时清单已解析 ✓ 只等首帧 ✓，正常 1~3 秒 ✓ → 12 秒有 4~10 倍余量 ✓
+        //     （正常加载绝不会触发 ✓，即"用户报的那个 bug 不许回来" ✓）
+        //   · 到点 → 按"这条源不行"处理 ✓：**只写 `error`**，后面走**现成的失败路径** ✓
+        //     （`_onTick` 的 errEdge → `_notePlaybackError` → 重开/换源 ✓），不另起状态机 ✓
+        //   · **只触发一次** ✓：触发后 `error` 已被置上 → 上面 `s.error` 分支每轮清零 ✓
+        //     （error 被撤掉后要再攒满 12 秒才可能再响 ✓；整条链还有 5 次重试上限兜着 ✓）
+        _stuckMs = 0;
+        _lastPos = s.position;
+        if (s.ready) {
+          _noFrameMs += 1000;
+          if (_noFrameMs >= _kFirstFrameLimitMs) {
+            _noFrameMs = 0;
+            value = value.copyWith(
+              error: true,
+              errorText: '首帧超时（已打开但 ${_kFirstFrameLimitMs ~/ 1000} 秒没有画面）',
+            );
+          }
+        } else {
+          _noFrameMs = 0; // 还没 open 成功 → 这条不计（连接阶段不归它管 ✓）
+        }
+        return;
+      }
+      _noFrameMs = 0; // 首帧已到 → 这条兜底归零 ✓（之后只走下面 9 秒那条 ✓）
+      _startupErrPending = false; // 首帧已到 → 待定的偶发 error 也无所谓了 ✓
+      _errHoldMs = 0;
       if ((s.position - _lastPos).abs().inMilliseconds < 500) {
         _stuckMs += 1000;
         if (_stuckMs >= _stuckLimitMs) {
@@ -225,12 +295,41 @@ class KpPlayer extends ValueNotifier<KpState> {
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
+  /// **首帧前**的长兜底计时（毫秒）：只在"已 open 成功（`ready` ✓）但还没首帧"时累加 ✓。
+  /// 与 [_stuckMs] **分开两个计数器** ✗（两条阈值不同：首帧前 12 秒 / 首帧后 9 秒 ✓）。
+  int _noFrameMs = 0;
+  /// 首帧前**收到过引擎 error**（还没定罪 ✓）：由看门狗宽限 [_kStartupErrHoldMs] 后仍未就绪才判失败 ✓。
+  /// 单次偶发 error（启动期常见 ✓）到这步就作废 ✓ → **不换源、不重载、不弹重试** ✓。
+  bool _startupErrPending = false;
+  /// 上面那条宽限的计时（毫秒）：只在 `_startupErrPending` 时累加 ✓（粒度 = 看门狗 1 秒 ✓）。
+  int _errHoldMs = 0;
 
   /// 当前这个 error 是不是**看门狗自己判的卡住**（只有它才由看门狗自己撤）。
   /// 起播失败那类 error 不归它管 —— 撤了会把"真失败"静默掉。
 
-  /// 位置连续多久不前进就判为卡住（毫秒）
+  /// 位置连续多久不前进就判为卡住（毫秒）—— **首帧之后**用（保持不变 ✓）
   static const int _stuckLimitMs = 9000;
+
+  /// **首帧前**的长兜底阈值（毫秒）：已 open 成功（`ready` = `duration > 0` ✓）后这么久还没首帧
+  /// → 按"这条源不行"处理 ✓（写 `error` → 走现成失败路径 ✓）。**要调就改这一行** ✓。
+  /// 为什么 **12 秒**（用户 2026-10-05 拍板：优先保证加载流畅、等待别太长 ✓）：
+  ///   · 它与旧 bug 那个 9 秒**不是一回事** ✗ —— 旧的是**从播放器构造就开始算**（把"连接 + 解析清单"
+  ///     都算进去了 → 正常加载被误判 ✗）；这条**从 open 成功之后才算** ✓（那时清单已解析 ✓ 只等首帧 ✓）。
+  ///   · 清单解析完后正常首帧一般 1~3 秒 ✓ → 12 秒是 4~10 倍余量 ✓；也比 30 秒那版短得多 ✓，
+  ///     真卡住能更早换源 ✓（用户：优先保证加载流畅 ✓）。
+  ///   · **加载成功的场景不引入任何额外等待** ✗（它只在"真卡住"时才动作 ✓）。
+  ///   · 与 `_openAndWait` 的 15 秒连接超时**不重叠** ✓（连接阶段 `!ready` → 这条不计 ✓）。
+  static const int _kFirstFrameLimitMs = 12000;
+
+  /// **首帧前**偶发 error 的**宽限期**（毫秒）：收到 error 后先挂待定（`_startupErrPending` ✓），
+  /// 到期**仍未 `ready`**（= 还没 open 成功 ✓）才判"这条源不行" ✓（写 `error` → 换源 ✓）。
+  /// 为什么 **3 秒**：目标"单次偶发不换源、真失败 ~3 秒内判掉" ✓ ——
+  ///   · 启动期偶发 error（ffmpeg 自己会重试 ✓）通常几百毫秒内就恢复 ✓ → 3 秒足够漂过去 ✓
+  ///   · 真死源（连不上/清单 404）不再干等 `_openAndWait` 的 15 秒 ✓
+  ///   · 记账在**现成的 1 秒看门狗**里 ✓（不新起定时器 ✓/不新 await ✓）
+  ///   · ⚠️ 粒度 = 1 秒 ⇒ 实际生效 = **2~3 秒**（error 落在 tick 之间的位置决定）✓
+  ///   · `ready` 一到就作废 ✓（那时交给 [_kFirstFrameLimitMs] 那条管 ✓，两条不重叠 ✓）
+  static const int _kStartupErrHoldMs = 3000;
 
   VideoController get videoController => _vc;
 
@@ -261,6 +360,9 @@ class KpPlayer extends ValueNotifier<KpState> {
       position: Duration.zero,
     );
     _everStarted = false; // 新源重新算"还没播起来"
+    _noFrameMs = 0; // ⚠️ 2026-10-05：首帧前那条 12 秒兜底也**随换源归零** ✓（每条源各算各的 ✓）
+    _startupErrPending = false; // 首帧前那条 3 秒宽限同理：新源重新算 ✓（上一条源的偶发不作数 ✓）
+    _errHoldMs = 0;
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
@@ -667,6 +769,9 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 上次"中途卡住 → 刷新源"的时刻（挡连续的卡住信号，10 秒内只恢复一次 ✓）
   int _lastRecoverMs = 0;
   bool _started = false; // 已开始播放（首帧/位置走动后撤掉 poster）
+  /// 上一次 `_onTick` 看到的 position ✓（判"位置是不是**又在走**" → 用于"恢复即撤"那条，
+  /// 见 `_onTick` 里的说明 ✓）。只做差值，不参与任何判据的门槛 ✓。
+  Duration _lastSeenPos = Duration.zero;
   bool _controlsVisible = true;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero; // 双击落点（判断左半/右半）
@@ -807,6 +912,11 @@ class PlayerWidgetState extends State<PlayerWidget>
     // 起播时把「当前篇内序号」对齐到 switcher：续播起点不是第 1 集时（例：第 3 集 ✓），
     // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
     _curIndex = widget.switcher?.index.value ?? 0;
+    // ⚠️ 2026-10-05（用户报"提示还在"）：**重开就把"自动重试中"的提示撤掉** ✓
+    //    （与 `switchSources` / `didUpdateWidget` 那两处一致 ✓）。原来这里只清 `_error` ✗
+    //    → 从"排了重试 → 重开"这条路上来的时候，提示会一直挂到新播放的 position 抬起来为止 ✗。
+    //    ⚠️ 只清提示（`_autoRetrying`）✗ **不动** `_autoRetries` 额度 ✓（连续失败仍受 5 次上限约束 ✓）。
+    _autoRetrying = false;
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
     if (_sources.isEmpty &&
         widget.lazyUrl != null &&
@@ -997,6 +1107,27 @@ class PlayerWidgetState extends State<PlayerWidget>
   void _onTick() {
     final err = _kp?.value.error ?? false;
     final started = _kp?.value.started ?? false;
+    // ⚠️ 2026-10-05（用户报"提示还在 + 又重载一遍"）—— **恢复即撤**：
+    //    "卡住/重试中"自己恢复了（位置**又在走** ✓）→ 立刻撤掉已排的重试 ✗。
+    //    依据：原来只有 `startedEdge`（position 由 0 变正）会撤 ✗ —— 而**中途**卡住时
+    //    position 一直 >0 ✓ → 没有那个上升沿 ✓ → 1.2 秒的定时器照跑 ✓ → 把刚恢复的视频
+    //    又重载一遍、提示也一直挂着 ✗（就是用户报的那两个现象 ✓）。
+    //    ⚠️ 只在**确实有排着的重试**（定时器非空 或 `_autoRetrying` ✓）且**位置在前进**时撤 ✓ ——
+    //    正常播放期间一个字段都不碰 ✗（不然"后面再真卡住"的 5 次额度会被无谓清零 ✗）。
+    final pos = _kp?.value.position ?? Duration.zero;
+    final advanced = pos - _lastSeenPos;
+    _lastSeenPos = pos;
+    if (advanced >= const Duration(milliseconds: 100) &&
+        (_autoRetryTimer != null || _autoRetrying)) {
+      _autoRetryTimer?.cancel();
+      _autoRetryTimer = null;
+      _autoRetries = 0;
+      if (mounted && _autoRetrying) {
+        setState(() => _autoRetrying = false);
+      } else {
+        _autoRetrying = false;
+      }
+    }
     // 播完 → 按设置决定是否自动切下一个（每次播放只触发一次）
     if ((_kp?.value.completed ?? false) && !_nextFired) {
       _nextFired = true;
@@ -1072,8 +1203,13 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 5 次都失败后不再自动重试：错误提示留在屏幕上，由用户自己点重试。
   void _notePlaybackError() {
     if (!mounted) return;
-    // 源尝试循环还在跑：这次失败由循环收尾统一排期（别掐断正在加载的下一路源）
-    if (_opening) return;
+    // 🚫 整段加载流程在跑时不排重试 —— 覆盖两处（原来只覆盖后一处 ✗）：
+    //   · `_opening` = 正在**依次试各源**（`_initPlayer` 的循环 :866-914 ✓）
+    //   · `_fetchingLazy` = 正在**按需取源**（合集/黄果选集，`_initPlayer` 开头那段 :820-838 ✓）
+    // ⚠️ 2026-10-05（用户报"又重载一遍"）：只判 `_opening` 时，**取源窗口**里来的 errEdge
+    //    会排下一个 1.2 秒重试 ✗ → 和**正在跑的那个 `_initPlayer`** 并发 → 两次加载 ✗。
+    //    这两段合起来 = "整段加载流程" ✓；窗口期内的失败由流程自己收尾（`:840-847` / `:917-923` ✓）。
+    if (_opening || _fetchingLazy) return;
     if (_autoRetries >= 5) {
       // 额度用完：撤掉"自动重试中"提示，把错误提示/重试按钮露出来
       if (_autoRetrying) setState(() => _autoRetrying = false);
@@ -1105,12 +1241,20 @@ class PlayerWidgetState extends State<PlayerWidget>
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastRecoverMs < 10000) return; // 连续卡住信号只恢复一次 ✓
     _lastRecoverMs = nowMs;
+    // 记一下"刷新前的播放位置"：刷新这 6 秒里视频可能**自己恢复了** ✓（`_onTick` 的"恢复即撤"
+    // 那时已经把重试撤掉了 ✓）→ 那就别再重开 ✗（用户报的"又重载一遍"里也有这一半 ✓）。
+    final posBefore = _kp?.value.position ?? Duration.zero;
     final fresh = await (_refreshFromPage()).timeout(
       const Duration(seconds: 6),
       onTimeout: () => const <String>[],
     );
     if (!mounted) return;
     if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
+    // ① 别的加载已经在跑了（换档/手动重试/流程自身 ✓）→ 让它去，别并发开第二次 ✓
+    if (_opening || _fetchingLazy) return;
+    // ② 位置**自己在走**了（≥100ms ✓ 与 `_onTick` 同一判据）→ 视频自己好了 ✓ 不重开 ✓
+    final posNow = _kp?.value.position ?? Duration.zero;
+    if (posNow - posBefore >= const Duration(milliseconds: 100)) return;
     if (fresh.any((s) => s.isNotEmpty)) {
       _sources = fresh.where((s) => s.isNotEmpty).toList();
     }

@@ -193,8 +193,12 @@ class Api {
 
   /// 文章详情（相对路径或站内路径）。
   /// 视频 URL 带时效签名，过期时重新调用本方法即可拿到新地址。
+  /// ⚠️ 2026-10-05 修：原来直接调 `_ui!.detail(url)` ✗ —— 那是**视频**详情解析器，
+  ///    黄果的 `/archives/` 帖子 / 91porna 的小说·黑料图文会被它解析成"没有视频" ✗。
+  ///    改调 [SiteUi.detailOf]（**详情入口** ✓，默认实现 = 原样转发给 `detail` ✓
+  ///    → 未覆写的站行为一个字不变 ✓；覆写的两家见 `huangguo.dart` / `porna.dart` ✓）。
   Future<ArticleDetail> detail(String url) async {
-    return _ui!.detail(url);
+    return _ui!.detailOf(url);
   }
 
   // ---------------------------------------------------------------------------
