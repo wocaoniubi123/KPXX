@@ -106,6 +106,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     }
     _pc.dispose();
     _idle.dispose();
+    _seekSettle?.cancel();
     _seekPreview.dispose();
     // ⚠️ C：退出时把"让路"撤掉 ✓ —— 缓存是**全局单例** ✗，留着暂停会把预下载永久停住 ✗
     _bufTimer?.cancel();
@@ -304,11 +305,14 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   static const double _kSeekSlop = 18.0; // ≈ Flutter 的 kTouchSlop ✓（不额外引包 ✗）
   /// 拖动中的**进度预览** ✓（对齐详情页"拖动时进度条跟手" ✓；**不再弹 toast** ✗）
   final ValueNotifier<Duration?> _seekPreview = ValueNotifier(null);
+  Timer? _seekSettle; // A 方案 ✓ 的兜底 timer（`dispose` 里 cancel ✗，别漏 ✓）
   Duration _dragFrom = Duration.zero;
   double _dragDx = 0;
   double _dragDy = 0;
 
   void _seekStart(DragStartDetails d) {
+    // 手指按下即杀掉上一次的兜底 timer ✓ —— 它没机会清掉这次拖拽的预览 ✗（快速连续划的边界 ✓）
+    _seekSettle?.cancel();
     final kp = _kp;
     if (kp == null) return;
     // ⚠️ 起点用 `lastKnownPosition` 打底（刚换源时 `value.position` 会被清零 —— 就是"换分辨率
@@ -370,13 +374,39 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     final dy = _dragDy;
     _dragDx = 0;
     _dragDy = 0;
-    _seekPreview.value = null; // 松手 → 预览撤掉 ✓
     // #13 ✓：公式**只剩一份** ✗ —— 竖向否决 / 18pt 死区 / 一屏 30 秒 全在 `_seekTargetFor` 里 ✓
     final to = _seekTargetFor(dx, dy);
-    if (to == null) return;
-    if ((to - _dragFrom).inMilliseconds.abs() < 1000) return; // 手抖不算 ✓
+    if (to == null) {
+      _seekPreview.value = null; // 没目标（竖向为主/死区内）→ 直接撤预览 ✓ 无需等引擎 ✓
+      return;
+    }
+    if ((to - _dragFrom).inMilliseconds.abs() < 1000) {
+      _seekPreview.value = null; // 手抖不算 ✓ 也不等 ✓
+      return;
+    }
     // 用 seekExact：`seek` 会按 value.duration 裁剪（时长还没报上来时会被裁小 ✗）
     kp.seekExact(to);
+    _holdPreviewUntilSettled(kp, to); // A 方案 ✓：**这里才决定什么时候清预览** ✗
+  }
+
+  /// A 方案 ✓（2026-10-04 用户拍板；与详情页 `_SwipeSeek.swipeEnd` 同一套 ✓）：
+  /// **扛住预览** ✗ —— 清早了 Slider 会往回跳一帧（它的显示值取自 `_kp.value.position` ✓）。
+  /// 做法：每 50ms 看**引擎回报的位置** ✓，`(position − to).abs() ≤ 500ms` 当场清 ✓；
+  /// 满 **600ms** 没命中就强制清 ✗（用户 2026-10-04 拍板 ✓）：正常 seek 几十 ms 就命中、**提前清** ✓；
+/// 600ms 是**慢 seek**（m3u8 / 网络卡）最多扛的上限 ✓ —— 到点强制收尾，不留残留 ✗。
+  /// ⚠️ **seek 算法一律不动** ✗：`_seekTargetFor`（竖向否决/死区/30 秒屏）+ `seekExact` 保持原样 ✓。
+  void _holdPreviewUntilSettled(KpPlayer kp, Duration to) {
+    _seekSettle?.cancel(); // 连着两次滑：取消上一次等待 ✓ 不叠加 ✓
+    var waitedMs = 0;
+    _seekSettle = Timer.periodic(const Duration(milliseconds: 50), (t) {
+      waitedMs += 50;
+      final near =
+          (kp.value.position - to).abs() <= const Duration(milliseconds: 500);
+      if (near || waitedMs >= 600) {
+        t.cancel(); // 自适应结束 ✓（到达即清 ✓ / 满 600ms 强制清 ✗）
+        if (_seekPreview.value != null) _seekPreview.value = null;
+      }
+    });
   }
 
   static String _fmt(Duration d) {

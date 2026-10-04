@@ -393,11 +393,25 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
       swipePlayer.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）
     }
     if (swipePreview.value == null) return;
+    // A 方案 ✓（2026-10-04 用户拍板）：**扛住预览** ✗ —— 清早了进度条会往回跳一下
+    // （依据：`_SeekBar` 的显示值取自 `widget.position` ✓ 见 `:1847`；原 600ms 注释 `:396` 说的就是这件事 ✓）。
+    // 改法：**等引擎回报的位置到达 seek 目标附近（±500ms）才清** ✓ —— 引擎每次回报都会更新
+    // `swipePlayer.value` ✓，这里以 50ms 跟随它 ✓，命中第一帧即清 ✓（与"监听位置事件"等效 ✓，
+    // 且**不在 build 里改 notifier** ✗ —— 那样会 setState-during-build ✗）。
+    // 兜底：**600ms** 上限 ✗（用户 2026-10-04 拍板 ✓）—— seek 正常几十 ms 就回报、**提前清** ✓；
+    // 600ms 是**慢 seek**（m3u8 / 网络卡）最多扛的上限 ✓。⚠️ "到达目标附近"的 **500ms 阈值不变** ✗
+    final target = _dragTarget; // 复用拖拽终点 ✓（就是上面刚 seek 的那个值 ✓ 不新增字段 ✗）
     _swipeHoldTimer?.cancel();
-    // #7 ✓（2026-10-03 用户拍板）：**松手立即归位** ✗ —— 原来为了"避免进度条往回跳一下"
-    // 让预览多停 600ms ✗（原注释就在上面那行 ✓）；短片页那边一直是立即清 ✓ → 两边对齐 ✓。
-    // ⚠️ `_SwipeSeek` 的 seek 算法本身一个字未动 ✗
-    swipePreview.value = null;
+    var waitedMs = 0;
+    _swipeHoldTimer = Timer.periodic(const Duration(milliseconds: 50), (t) {
+      waitedMs += 50;
+      final near = (swipePlayer.value.position - target).abs() <=
+          const Duration(milliseconds: 500);
+      if (near || waitedMs >= 600) {
+        t.cancel(); // 自适应结束 ✓（到达就立刻清 ✓ / 满 600ms 强制清 ✗）
+        if (swipePreview.value != null) swipePreview.value = null;
+      }
+    });
   }
 
   void disposeSwipe() {
