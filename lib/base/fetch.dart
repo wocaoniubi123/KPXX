@@ -106,8 +106,8 @@ class SiteFetcher {
   /// ⚠️ 2026-10-03 从 `api.dart` 搬到此处：它**会发网络请求**（拉 master）✓，
   /// 属于底座 ✓ —— xHamster 与其它站点的详情解析都要用 ✓（原先在 `Api` 里私有，
   /// 而 xHamster 已独立成文件 → 跨文件调不到 ✗，所以上移并公开 ✓）。
-  /// 原注释：2026-10-02 改 —— 原来只留最高档（`_pickTopHlsVariant`），现在**全留着**
-  /// 给详情页的「清晰度」行选 —— 顺序仍是"最高档在最前"，所以**默认播最高档**这点没变 ✓。
+  /// 行为：各档**全留着**（高 → 低 排序 ✓）—— 详情页的「清晰度」行用它 ✓；
+  ///   顺序是"最高档在最前" ⇒ **默认播最高档** ✓。
   Future<List<String>?> hlsVariants(String masterUrl) async {
     try {
       final mu = Uri.parse(masterUrl);

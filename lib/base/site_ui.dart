@@ -65,17 +65,14 @@ Widget tagChip({
 //    - `home_page` 只读 `api.ui?.xxx ?? 默认值` ✓ —— ✅ **行为与改造前完全一致** ✓
 //      （因为默认值 = 改造前"不是这个模板就 false/null"的判断 ✓）。
 //
-// ⚠️ 这里**故意不 import flutter** ✗ —— 全是纯 Dart 的布尔事实 ✓，
-//    这样各站点文件不必因为本接口而引入 material ✓（widget 级的筛选行留到后续单独做 ✓）。
+// ⚠️ 现状（2026-10-05 更正）：本文件**已经** import 了 flutter ✓ ——
+//    因为公用件里现在有 widget 级的函数：siteTagDialog / tagChip / siteFilterBtn / confirmClear ✓；
+//    各站点文件用它们时各自 import 本文件即可 ✓ 不必额外引 material ✓。
 
 /// 站点专属 UI 事实（各站只覆盖自己那条 ✓）
 abstract class SiteUi {
   /// 列表是否走**瀑布流**（逐条按分辨率混排，不留空档）—— Pektino ✓
   bool get masonry => false;
-
-  /// "色情明星"tab 的卡片是不是**竖版头像**（→ 一行 3 个）—— Pornhub / xHamster ✓
-
-  /// "色情明星"tab 是否挂**专用筛选行**（排序/类型/时间/更多 ✓）—— Pornhub / xHamster ✓
 
   /// **本站**的「色情明星列表」判定（决定那类 tab 是否按竖版头像卡渲染 ✓）
   ///

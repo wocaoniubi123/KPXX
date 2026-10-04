@@ -2600,6 +2600,39 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - 改动只在 `lib/sites/xhamsterlive.dart`（`30/12` ✓）；行数 1048 → 1065 ✓；`{}`/`()`/`[]` 逐类等式通过 ✓；**CRLF 保持** ✓
 - **只过静态检查、未编译** ❓（本机无 Flutter SDK）；真机验：① 从**最左边缘**往里滑 ⇒ 侧滑应恢复原生手感 ② 点屏幕显隐 X ⇒ 应立即响应 ③ X 位置/大小是否合眼
 
+---
+## 追加（2026-10-05 · **1.0.38 事故修复 + 全量复查**，随 1.0.39 出包）
+
+### 一、1.0.38 真机事故：**有声音、没画面** ✗（我造成的 ✓ 已定位已修）
+**机理（逐行对照两版 + Flutter 的 Stack 尺寸规则）**：
+- 旧版 X 层是 `if (_showX) → SafeArea(...)` ⇒ 隐藏时**那一层根本不存在** ⇒ Stack 里只剩"定位型"子层 ⇒ **Stack 撑满父约束** ⇒ 画面层 `Positioned.fill` 有东西可填 ⇒ 有画面 ✓
+- 1.0.38 换成 `ValueListenableBuilder`（**非定位型**子层 ✓ 永远存在 ✓）且隐藏时返回 **0×0 的 `SizedBox.shrink()`** ✗ ⇒ **Stack 把自己缩成 0×0** ✗ ⇒ `Positioned.fill` 填了 0×0 ⇒ **画面不可见**；声音照旧（控制器活着）✓ —— 与用户现象完全一致 ✓
+- **修法**：把 X 层**position 化**（包一层 `Positioned.fill` ✓）⇒ 不再参与 Stack 尺寸 ✓ 同时**保住**"点 X 只刷那一小块"的收益 ✓
+- **新门禁（已入规矩）**：凡动 `Stack`，**必须逐个列出"非定位（非 Positioned）子层"，改前改后必须一致** ✗（这次就是漏了这条）
+
+### 二、手势与 X（用户逐条点名）
+| 项 | 结果 |
+|---|---|
+| **左滑返回迟钝（真因）** | 点击层原来**包住整棵 Stack**（`HitTestBehavior.opaque` ✓）⇒ 盖住屏幕最左边缘 ⇒ iOS **原生侧滑**必须先等 Flutter 手势判负 ⇒ 迟钝 ✓ ⇒ 改成 Stack 里**单独一层**并**让出左边 24px** ✓（代价：最左 24px 内点屏幕不再显隐 X ✓ 已知 ✓） |
+| **单击迟钝** | 原 `setState` 会**重建整棵子树**（含播放器外那层）✗ ⇒ 改 `ValueNotifier<bool>` + `ValueListenableBuilder` **只刷 X 那一小块** ✓（`git grep "setState(() => _showX"` = 空 ✓） |
+| **X 位置/大小** | 左边距 **12 → 8 → 5px**（只动左边 ✓ 上/右下 12 保持 ✓ 垂直与 SafeArea 一字未动 ✓）· 图标 **40 → 32** ✓ · 图标在 76 方块里**左对齐 + 垂直居中** ✓（否则方块内边距会把"5px"吃掉 ✗）· **命中区 76×76 未动** ✓ |
+
+### 三、全量复查（**两轮、两路独立**：`app-dev` + 独立只读审计员；第二轮按用户"只报实测"的死命令重跑）
+**修掉的**
+- **功能缺口（1 个，实锤）**：`lib/sites/xhamsterlive.dart` 删筛选行时留下的**早退** `if (!widget.feed.tab.hasFilterRow) return body;` ⇒ `RefreshIndicator` 只覆盖"移动流/手机版最新" ⇒ **4 个主分类 tab 没有下拉刷新** ✗ ⇒ 删早退 ⇒ **6/6 个 tab 都能下拉刷新** ✓
+- **真死代码 2 处**：0 调用的 `bool get hasMobileFilters`（直播页面）· 0 调用的 `XhStarController.toggle`（xvideos 侧无需 ✓）
+- **死注释 / 悬空文档 13 处**：删筛选后残留的说明文字、提到已删符号名的注释、两段自相矛盾注释（写"故意不 import flutter"而实际 import 了 ✓）、孤儿文档（函数已删、说明还在 ✓）等 —— **逐处打印改前/改后** ✓
+- **我自己制造的多余改动 3 处**（复查抓出 ✓）：`app_background` import 被挪位 ✗ / `xhamster.dart` 一条孤儿文档 ✗ / 一个空行偏移 ✗ ⇒ 全部消除 ⇒ **7 个文件的 diff 只剩预期 hunk** ✓（`xhamsterlive.dart` 的 11 条 hunk 逐条列出、无任何 import/空行相关 ✓）
+
+**"无法核实"的（照新规矩写明，不填推断 ✓）**
+- **未用 import / 能否编译**：技术障碍 = 本机无 Flutter/Dart SDK ⇒ **权威结论只能来自 CI 的 `flutter analyze`** ✓（复查过程中一版自造符号清单**判错过**：漏了 `Color get kTxt => …` 这种 getter 形式 ⇒ 误删 5 条 import ⇒ **已全部恢复**、其中 2 个文件用 `git checkout` 回到基线 ✓ 新规矩：**未用 import 只认 analyze** ✓）
+- **真机行为**：无真机 ⇒ 只能证"代码路径存在"（🔍）✓ 不给"功能正常"结论 ✓
+
+### 四、状态与门禁
+- 全量 numstat（7 个文件）＝ `base/fetch.dart 2/2` · `base/site_ui.dart 3/6` · `sites.dart 0/1` · `sites/pornhub.dart 0/3` · `sites/xhamster.dart 1/12` · `sites/xhamsterlive.dart 11/49` · `sites/xvideos.dart 0/4` ✓
+- 门禁（每个改动文件）：**括号栈扫描**（mismatch 空 / 剩余未闭合 0 ✓ · 不是只看总数 ✗ 本轮吃过大亏 ✓）+ **增量等式**（`改后 = 改前 − 删块自身 + 新块自身` ✓）+ **行尾逐文件实测**（CRLF/LF 各自原样 ✓ 无一混行 ✓）+ **词边界零残留 grep** ✓
+- **未编译**（本机无 SDK ✓）⇒ 第一次编译仍是 CI ✓；`%TEMP%` 与根目录临时文件 **0 残留** ✓
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

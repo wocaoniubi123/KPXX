@@ -82,8 +82,7 @@ class LiveTabDef {
   ///     模拟器里 4 个主 tab 本来就有筛选 ✗ 之前 App 漏做了 ✓）
   bool get hasFilterRow => groups.isNotEmpty;
 
-  /// 「移动流」/「手机版最新」的 3 个页内过滤器 ✓（4 个主 tab 那是 [filters] ✗ 别混 ✓）
-  bool get hasMobileFilters => groups.isNotEmpty;
+
 
 
   /// 接口的 `parentTag`（只有带了 `groups` 才拼 ✓）
@@ -100,9 +99,8 @@ class LiveTabDef {
 
 /// 6 个 tab（顺序 = 界面上的顺序 ✓；前 4 个是**主分类** ✓，后 2 个是**快捷叶子** ✓）
 // 2026-10-05 用户拍板：6 个 tab 的筛选入口全部删掉（渲染 + 两套弹窗 + 那批筛选数据都已移除）。
-//   这里保留 filters 字段、传空表 => 拉列表那条请求链行为不变（第二步再清 LiveFeed.sel 那层）。
 const List<LiveTabDef> kLiveTabs = [
-  // 4 个主 tab：各带**自己那一份**子分类筛选 ✓（数据是脚本产物 ✓ 见下面生成块 ✓）
+  // 4 个主 tab（女主播/情侣/男主播/跨性别 ✓）；后 2 个是快捷叶子（移动流/手机版最新 ✓）—— 各自的筛选数据已整体移除 ✓
   LiveTabDef('女主播', 'girls', specialEvent: true),
   LiveTabDef('情侣', 'couples', specialEvent: true),
   LiveTabDef('男主播', 'men', specialEvent: true),
@@ -118,9 +116,6 @@ const List<LiveTabDef> kLiveTabs = [
   ], parentTag: 'mobile'),
 ];
 
-// ===== 一·B、过滤器数据（只有「移动流」「手机版最新」这两个 tab 才有 ✓）=====
-//
-// ⚠️ 中间那一整块是**脚本产物** ✗ **别手改** ✓ —— 要改就改数据源再重新生成 ✓：
 //    生成方式 = 从 `sim/index.html` 的 `MOBILE_FILTERS` **原样抽取** ✓
 //    （recon 实测 + sim-dev 落地的最终数据 ✓：顺序 / 显示名 / tagId / 「未映射」全部照抄 ✓）。
 //    手抄会抄错 ✗（lead 明确提醒过 ✓）。
@@ -157,7 +152,7 @@ const List<LiveTabDef> kLiveTabs = [
 ///    组与组之间 = AND ✓。依据 lead 实测：`mobile + ageTeen + ethnicityAsian + bodyTypePetite
 ///    + doAnal → 5 条` ✓（年龄/种族/体型各占一组 ✓）——整个过滤器当一桶会把 AND 变成 OR ✗。
 /// ⚠️ **按 tab 各一份** ✓（「移动流」和「手机版最新」互不影响 ✓ —— 页面里按下标各存一个 ✓）。
-/// ⚠️ 未映射项（`LiveTag.id == null`）**不写进来** ✓（点了不过滤 ✓ 不硬猜 tagId ✗）。
+/// ⚠️ 未映射项（没有 tagId 的标签）**不写进来** ✓（点了不过滤、也不硬猜 id ✓）。
 
 
 /// 一条直播房（`models[]` 里**可显示**的那些 ✓）
@@ -315,11 +310,11 @@ class LiveFeed extends ChangeNotifier {
     _loading = true;
     final gen = _gen;
     try {
-      // A1-1：筛选机制已删，这里不再传 extra / parentTag。
-      // 等价性：Api.list 的默认值就是空（原文 :400 extra = const [] / parentTag = 空串）
-      //   且写入通道全仓 0 处（.toggle / .selIn 的调用点均为 0）=> 请求 URL 一字不变。
+      // 2026-10-05：筛选机制已整体移除 ⇒ 这里不再传那两个可选参数 ✓
+      //   为什么等价：那两个参数的默认值本来就是"空"，而且已经没有任何地方能写入筛选值 ✓
+      //   ⇒ 请求 URL 与移除前逐字节相同 ✓
       final r = await _api.list(tab, _offset);
-      if (gen != _gen) return; // 这次请求已被「进行筛选/重置」作废 ✗
+      if (gen != _gen) return; // 列表被重置过一轮 ⇒ 这次请求作废 ✗
       rooms.addAll(r.rooms);
       _raw += r.raw;
       _offset += _kPage;
@@ -512,16 +507,10 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   Widget build(BuildContext context) {
     super.build(context); // keepAlive 必需 ✓
     final body = _body();
-    if (!widget.feed.tab.hasFilterRow) return body;
-    //   · 「移动流」/「手机版最新」= 3 个过滤器入口 ✓（文字带已选摘要 ✓）
-    //   · **4 个主 tab** = 1 个「筛选」入口 ✓（文字就写「筛选」✓，已选状态在弹窗里看 ✓）
-    return Column(
-      children: [
-        // ② 下拉刷新（两个分支都是 scrollable ✓：错误态 ListView(:1227 ✓) / 正常态 RowsGrid(:1252 ✓)，
-        //   都带 AlwaysScrollableScrollPhysics ✓ ⇒ **空列表也能下拉** ✓）；onRefresh 走 _refresh() ✓。
-        Expanded(child: RefreshIndicator(onRefresh: _refresh, child: body)),
-      ],
-    );
+    // ① 2026-10-05 独立复查发现的功能缺口：原来这里有一句"没有筛选行就直接 return"的早退 ✗
+    //   ⇒「4 个主分类 tab」拿不到 RefreshIndicator ⇒ **它们没有下拉刷新** ✗（删筛选行后的副作用 ✓）
+    //   ⇒ 现在 6 个 tab 一律走同一条路 ✓（_refresh 用的是**当前 tab** 的 feed ✓ 未改 ✗）
+    return RefreshIndicator(onRefresh: _refresh, child: body);
   }
 
   /// ② 下拉刷新（用户 2026-10-05：现在卡片出来了都没法刷新 ✓）—— **复用** feed.reload() ✓ 不新造 ✗。
@@ -615,17 +604,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
 }
 
 /// **过滤器入口行**（**下划线 tab 样式** ✓ —— 与站点页上面那排主 tab **同一套观感** ✓，不是按钮 ✗）。
-/// 入口 = `sel.filters`（「移动流」/「手机版最新」= 3 个 ✓；**4 个主 tab** = 1 个「筛选」✓）
-/// + **有选择时**才出「重置」✓。
-/// 入口文字 = 已选摘要 ✓（`外貌: 熟女 +1` ✓，同模拟器 ✓；**主 tab 那个入口不显示已选** ✗
-/// —— 按钮就写「筛选」✓）；有选择的那项**橙字加粗 + 2px 下划线** ✓。
-/// ⚠️ 挂在所有 `hasFilterRow` 的 tab 上 ✓（见 `_LiveFeedView` ✓）。
 
-
-/// **过滤器弹窗**（**居中** ✓；尺寸/观感照 App 现成那套弹窗 ✓ —— `pornhub.dart` 的 `PhMoreDialog` ✓：
-/// `AlertDialog` + `SizedBox(width: double.maxFinite)` + `ConstrainedBox(maxHeight: 420)` + 滚动内容 ✓）。
-/// 顶部 = 3 个过滤器切换 chip ✓（带已选数 ✓）；内容 = 当前过滤器的子分组（小标题 + 多选 chip ✓）；
-/// **未映射**项灰显、点了不过滤 ✓；底部 = 「重置」（只清当前过滤器 ✓）「进行筛选」（提交草稿并关窗 ✓）。
 
 
 
@@ -774,23 +753,6 @@ String pickVariantUrl(String master) {
   return '';
 }
 
-/// 把"这条变体属于哪一档"打出来（**只用于日志** ✓ —— 方便以后排查"选到哪档了" ✓）
-/// 返回那条 `#EXT-X-STREAM-INF:` 的属性串（去掉前缀 ✓），找不到就返回 `'(未找到档位信息)'` ✓。
-String variantInfoOf(String master, String url) {
-  final lines = master.split('\n');
-  for (var i = 0; i < lines.length; i++) {
-    final t = lines[i].trim();
-    if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
-    for (var j = i + 1; j < lines.length; j++) {
-      final u = lines[j].trim();
-      if (u.isEmpty) continue;
-      if (u.startsWith('#')) break;
-      if (u == url) return t.replaceFirst('#EXT-X-STREAM-INF:', '').trim();
-      break;
-    }
-  }
-  return '(未找到档位信息)';
-}
 
 class LiveRoomPage extends StatefulWidget {
   /// 房间名（= 站内路径末段 ✓）→ 房间页 = `https://zh.xhamsterlive.com/<username>` ✓（**兜底用** ✓）
