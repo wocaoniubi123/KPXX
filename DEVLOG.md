@@ -2314,6 +2314,19 @@ kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
 - **未编译**（本机无 Flutter SDK → 本次构建即验证）；app-dev 如实标出未编译点：新加的那行 UI（`Column`+`Expanded`）、`keepBytes ~/ 2` 常量表达式
 - **未提交** `sim/**`；清理：`%TEMP%` 与工作区临时残留复核均为 0；本轮无临时产物
 
+---
+## 追加（2026-10-05 · **1.0.32 构建修复 #1**）`error_log_page.dart` 的 `const` 上下文错误
+
+- **失败原文**（CI run `37221433462`，analyze 1 条 error，构建步骤全 skipped、无产物）：
+  ```
+  error • Invalid constant value • lib/error_log_page.dart:107:55 • invalid_constant
+  ```
+- **根因**：新加的那行说明外层写了 `const Padding(`，而里面的 `style: TextStyle(fontSize: 12, color: kTxtSub)` 中 **`kTxtSub` 是运行期 getter**（`lib/app_background.dart:56`，非 const）⇒ const 上下文里引用非 const 值 ⇒ `invalid_constant`
+- **修**：去掉那个 `const`（`lib/error_log_page.dart:107`）—— 整段改为非 const 上下文；`EdgeInsets.fromLTRB` / `TextStyle` 也**不再标 const**（标了同样会报，因为 `color` 仍非 const）；注释里写明这条防以后再被"顺手加 const"
+- **同文件自查**：把所有 `const` 出现点逐行核过 —— 全部只引用字面量/框架 const 构造；运行期符号 `kTxtSub` 只有 2 处（`:111` 现为非 const ✓、`:130` 所在分支本就没标 const ✓）⇒ **无同类坑**
+- numstat：`lib/error_log_page.dart` **5/1**（只此一个文件）；括号平衡；行尾纯 LF
+- **未编译**（本机无 flutter/dart）⇒ 以 CI 复验；版本仍 **1.0.32**
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
