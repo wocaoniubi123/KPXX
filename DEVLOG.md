@@ -2105,6 +2105,52 @@ recon 实测（全部有原文/状态码/字节数）：
 - **清理**：全队执行"测试产生的文件必须清除"并报「清理情况」（re-js 删 `_re_js` 1109 文件与 `_tmp_size.mjs`；recon 每轮删 `_recon_tmp`；app-dev 删 `%TEMP%\lv2/lv3/mkv`；sim-dev 删 `sim/_shot_shorts_tab.png`（**即本文件 533 行提到的那张图，已于 10-04 清理删除**）与 `sim/tmp_xv1.html`；另清 `imgsearch_tmp`、`%TEMP%\kpxx_sites.json`、`ci-*.log` ×8）；**临时缓冲（浏览器 profile）按用户指示不清** ✓
 - **状态**：**未编译**（本机无 Flutter SDK → 本次构建即验证）；**未提交** `sim/**`（按用户「不提交」）
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.28**）X 不显示修复 + live 起播参数（mpv 缓存/预读收紧）
+
+### 用户 1.0.27 真机反馈
+1. **有声音** 已好　2. **不再无限转圈**，但**出画面仍要约 1 分钟**　3. **单击显隐的 X 还是不显示**
+
+### 一、X 不显示 —— 根因（代码实锤）
+改前的 `onTap` **只管关、不管开**：
+
+    onTap: () { if (_showX) setState(() => _showX = false); }
+
+而**能把它打开的那行**（`WebEmbed(toggleX: true)`）**在上一轮"去掉兜底"时被一起删了** ⇒ **再也没有任何代码把它设成 true**（`git grep _showX` 全仓仅三处：声明 / onTap / 渲染）
+
+**改**（`lib/sites/xhamsterlive.dart:1881-1882`）：
+
+    behavior: HitTestBehavior.opaque,                     // 整屏任意位置都归我们
+    onTap: () => setState(() => _showX = !_showX),        // 真 toggle：开 ↔ 关
+
+X 层本就在 `Video` 之后（Stack 最上）；位置 / 默认隐藏 / 静音 / master / standard / 看门狗**都没动**
+
+### 二、出画面要 1 分钟 —— mpv 侧参数收紧
+**现状原文（`player_widget.dart`，该文件本轮未动）**：`KpPlayer({int bufferMb = 200})` → `bufferSize: bufferMb*1024*1024` = **200MB**；`tuneStartupQuiet` 设 `demuxer-lavf-analyzeduration=2.0` / `demuxer-lavf-probesize=1500000` / `cache-pause-initial=no`
+
+**mpv 官方手册原文**（实测抓 `https://mpv.io/manual/stable/`，http=200 / 1,270,401 字节）：
+- `--cache-secs`：「How many seconds … to prefetch … **The default value is set to something very high**, so the actually achieved readahead will usually be limited by the value of the **--demuxer-max-bytes** option.」
+- `--cache-pause-initial`：默认 **no**；`--cache-pause-wait` 默认 1
+
+⇒ **推断（有手册依据）**：「1 分钟」最可能 = mpv 按"极高的 cache-secs + 200MB"在起播前猛堆数据（**本机无 mpv ⇒ 未复现**，如实标注）
+
+**改（只加在房间页 `lib/sites/xhamsterlive.dart:1780-1782`，共 3 行）**：
+
+| 参数 | 值 | 依据 | 风险 |
+|---|---|---|---|
+| `cache-secs` | **2** | 手册：默认极高、实际由 `demuxer-max-bytes` 限住、此选项"通常只用于限制 readahead"；直播分片本身 2 秒 ⇒ 攒够≈1 个分片即可开 | 再小（1s）弱网更易断流（有 8 秒看门狗兜底） |
+| `demuxer-max-bytes` | **8388608**（8MB） | 手册明说真正限住 readahead 的是它，而默认给到 200MB；按 2~6 Mbps ⇒ 8MB ≈ 10~30 秒缓冲 | 太小（2MB 级）弱网更易 underrun；真机画面不稳**先回调它** |
+| `cache-pause-initial` | `no` | 手册默认即 no，显式钉一次（与 `tuneStartupQuiet` 同值，无害） | 无 |
+
+**明确没设**（不猜）：`hls-bitrate`（会掉画质；哪档更稳**没实测**）、`demuxer-readahead-secs`（`cache-secs` 会覆盖它 ⇒ 不是瓶颈）
+**看门狗保留**（`_kLiveStartMs = 8000` 仍在）；**`player_widget.dart` 一个字没动**
+
+### 三、状态
+- 只改 `lib/sites/xhamsterlive.dart`（numstat **28/5**）；括号 / 行尾与 HEAD 基线一致
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；**mpv 参数的实际效果本机无 mpv ⇒ 验不了**（只有手册语义 + 分片时长为依据）
+- **未提交** `sim/**`（按用户「不提交」）
+- 清理：app-dev 删 `%TEMP%\mpvdoc`（本轮抓的 mpv 手册）；`%TEMP%` 与工作区临时残留复核均为 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗
