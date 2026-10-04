@@ -1898,6 +1898,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       //   ⚠️ 以后要再看 HTTP 细节，**别走"提高 mpv 日志级别"这条路**（会把事件流量级抬高 ✗）——
       //     改成在 Player 创建参数里设（那要动共用件 ⇒ 先报 lead ✓）或换其它抓法 ✓。
       _tapMpvLog(kp); // mpv 日志通道保留 ✓（默认级别下量很小 ✓ 过滤 + 每秒 4 条 + 200 条上限照旧 ✓）
+      // ⚠️ 2026-10-05（真机日志新线索）：**硬件解码失败** —— 日志原文
+      //   `mpv[26s] ffmpeg/video error h264: hardware accelerator failed to decode picture` ✗
+      //   ⇒ 试**纯软解**：`hwdec=no` ✓（依据 = 上面那行明写硬解这条路上报错了 ✓）
+      // ⚠️ 查过：**本仓库从没设过 `hwdec`** ✓（`git grep hwdec -- lib/` = 空 ✓）⇒ 之前用的是 mpv/media_kit 默认
+      //   （默认会试硬解 ✗；media_kit 是否自己另设了默认值，我**没查证** ❓）
+      // ⚠️ 代价（诚实写）：**CPU 高一些** ✓；我们只播一路直播 ⇒ 可接受 ✓；真机若发热/掉帧，删这一行即回退 ✓。
+      // ⚠️ 效果**只能真机验** ❓（本机无 mpv/libmpv ✗）。
+      kp.setMpvOptionQuiet('hwdec', 'no');
       _log('mpv(open 前)：日志级别=**默认**（msg-level 已回退删除 ✗）；tuneStartupQuiet 设了 demuxer-lavf-analyzeduration=2.0 / demuxer-lavf-probesize=1500000 / cache-pause-initial=no');
       // ⚠️ 2026-10-05 真机反馈"**出画面要 1 分钟**"（本机真起播只要 1.6~2 秒 ⇒ 是 mpv 侧 ✗）——
       //    **直播这边再收紧两刀**（只用 `KpPlayer` 已暴露的 `setMpvOptionQuiet` ✓ **不碰共用件** ✓；

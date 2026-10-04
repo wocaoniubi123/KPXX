@@ -2327,6 +2327,57 @@ kp.setMpvOptionQuiet('msg-level', 'ffmpeg/demuxer=debug,ffmpeg=debug');
 - numstat：`lib/error_log_page.dart` **5/1**（只此一个文件）；括号平衡；行尾纯 LF
 - **未编译**（本机无 flutter/dart）⇒ 以 CI 复验；版本仍 **1.0.32**
 
+---
+## 追加（2026-10-05 · **App 侧 1.0.33**）日志"读不出来"根因修复 + 写日志串行化 + 试关硬件解码
+
+### 真相：日志一直**在写**，是页面**读不出来**
+用户从沙盒里拿出 `kpxx_error.log`（**8562 字节，内容正常**），我实读该文件：
+```
+size=8562  roundtrip_equal=false  第一个坏字节在偏移 740  U+FFFD 计数=3
+坏处形态：…\n�� Player 时设 ✓）\n[2026-10-05 01:35:36] …
+```
+- 文件里**有内容**（`进入房间页` / `校验` / `kp.open() 返回 耗时 39ms` 等都在）
+- 但**混进 3 个坏字节**（含**半截行**）⇒ 整文件**不是合法 UTF-8**
+- ⇒ `error_log_page` 走 `SiteErrorLog.read()`，原来用**严格 UTF-8 读** ⇒ **遇坏字节抛错** ⇒ 页面**空态与读失败长得一样** ⇒ 用户看到"全空白" ✗
+- ⚠️ 上一轮把它当成"被冲垮/被清空"是**误判**（真因是读失败）；本版按真因修
+
+### 一、容错读（`lib/site_error_log.dart:114-124`）
+```dart
+static Future<String> read() async {
+  try {
+    final f = await _file();
+    if (f == null) return '（读日志失败：拿不到 App 文档目录 ✗）';
+    if (!await f.exists()) return '';                  // 只有"真没写过"才是空
+    final bytes = await f.readAsBytes();               // 原来直接 readAsString()（严格 UTF-8）
+    return utf8.decode(bytes, allowMalformed: true);    // 坏字节变 �，绝不整页空白
+  } catch (e) {
+    return '（读日志失败：$e ✗）';                       // 失败显示原因，不再伪装成"没内容"
+  }
+}
+```
+**可运行验证（Node，真造坏字节）**：严格读 → **抛错**（= 页面空白）；容错读 → **读出 198 字**、替换字符 3 个、首末行正常 ✓ ⇒ 与用户现象完全对上，且证明修后能看到内容 ✓
+（`error_log_page.dart` 本身**不用改** —— 它调的就是 `SiteErrorLog.read()`）
+
+### 二、写日志串行化（`lib/site_error_log.dart:78-87`）
+原来每条日志是 `exists → length → (超限则裁) → append` 的**读-改-写**，**并发调用互相搅**（坏字节/半截行的来源）
+改为 **Future 串行队列**（`_q = _q.then(...)`），**裁剪在 `_write()` 内部** ⇒ 不可能"边裁边追加"；零新依赖；调用方 `await` 语义不变
+**可运行验证（Node 忠实 async 模型）**：起点"刚好不到 5MB 的按行日志"，**200 次并发写入**后 —— **无队列**：5,251,630 字节（**超过上限 ⇒ 裁剪被搅掉**）；**串行**：2,630,060 字节（≈keepBytes+新增，**裁得干净**）✓
+⚠️ **诚实交代**：该实验只证明"上限失效/裁剪被搅乱"；**没有复现**用户文件里那种"半截行 + 3 坏字节"的成形过程（需要真机写入时序）⇒ **"以后再也不会产生坏字节"不能保证**；但**"再坏也能读出来"**成立 ✓
+
+### 三、起播慢：试关硬件解码（房间页侧，`lib/sites/xhamsterlive.dart:1908`）
+```dart
+kp.setMpvOptionQuiet('hwdec', 'no');   // 放在 open() 之前；一行、可回退
+```
+- **依据**：真机日志原文 `mpv[26s] ffmpeg/video error h264: hardware accelerator failed to decode picture`（硬解已报错）
+- **查证**：`git grep hwdec -- lib/` **为空** ⇒ 本仓从没设过 ⇒ 之前用 mpv/media_kit 的默认（会试硬解）；⚠️ media_kit 自身默认**未查证** ❓
+- **代价**：CPU 高一些（只播一路 ⇒ 可接受）
+- ❓ **效果只能真机验**（本机无 mpv/libmpv）
+
+### 四、状态
+- 逐文件 numstat：`lib/site_error_log.dart` **27/6** · `lib/sites/xhamsterlive.dart` **8/0**；括号三对平衡；行尾纯 LF
+- **未编译**（本机无 Flutter SDK → 本次构建即验证）；①② 的正确性有 **Node 实跑输出**支撑，③ 只能真机验
+- **未提交** `sim/**`；清理：app-dev 删两个临时脚本（`_log_fix_check*.cjs`）与两个样本目录（`%TEMP%\logchk_*`、`trimchk_*`，含上一轮后台 job 残留、job 已 kill）；`%TEMP%` 与工作区残留复核均为 0
+
 ## 八、当前待办
 
 - [ ] **「模拟器内容区放真站页面」被站点 CSP 挡死** ✗✅（实测 ✓）：`frame-ancestors 'self'` → 跨域 iframe 被 block ✗

@@ -69,8 +69,22 @@ class SiteErrorLog {
     }
   }
 
-  /// 写一条：**时间 + 站点名 + 错误信息**（+ 可选堆栈 ✓）
-  static Future<void> log(String siteName, Object error, [StackTrace? st]) async {
+  /// **写日志串行队列**（⚠️ 2026-10-05 加：修"半截行" ✗）——
+  /// `log()` 原来是 `exists()` + `length()` + `append` 的**读改写** ✓，**并发调用会交错/丢行** ✗
+  /// （用户给的日志里就有一行**只剩半截**、还带 3 个坏字节 ⇒ 文件不再是合法 UTF-8 ⇒ 页面读不出来 ✗✗）。
+  /// 做法：所有写入**串到一条 `Future` 链上** ✓（前一次写完才跑下一次 ✓）⇒ 写入之间天然互斥 ✓；
+  ///   而 `_trimTail` 是在 `_write()` **内部**调的 ✓ ⇒ **裁剪与追加也互斥** ✓（不会"边裁边追加" ✗）。
+  /// ⚠️ 绝不引入新依赖 ✓；任何一段抛错都被兜住 ✓（链子不会断 ✓）。
+  static Future<void> _q = Future<void>.value();
+
+  /// 写一条（**排队** ✓ 见 [_q] 说明 ✓）
+  static Future<void> log(String siteName, Object error, [StackTrace? st]) {
+    final next = _q.then((_) => _write(siteName, error, st)).catchError((Object _) {});
+    _q = next;
+    return next;
+  }
+
+  static Future<void> _write(String siteName, Object error, [StackTrace? st]) async {
     try {
       final f = await _file();
       if (f == null) return;
@@ -92,13 +106,20 @@ class SiteErrorLog {
   }
 
   /// 读回来（给"设置页/调试"或用户手动查看用 ✓）
+  /// ⚠️ 2026-10-05（用户实测真相反转：**日志一直在写、是"读不出来"** ✗）：
+  ///   文件里有 **3 个坏字节**（含一行开头被切掉 ⇒ 整个文件不是合法 UTF-8 ✗）⇒ 原来这里的
+  ///   `f.readAsString()` 是**严格 UTF-8** ⇒ 直接抛 ⇒ 页面**整页空白** ✗✗（看着像"没有日志"）。
+  ///   ⇒ 现在：**按字节读 + `utf8.decode(allowMalformed: true)`** ✓（坏字节显示成 `�` ✓ 绝不整页空白 ✓）；
+  ///   并且**失败要说出来** ✗：拿不到目录 / 读失败都返回一句看得懂的提示 ✓（只有"真的还没写过"才返回空 ✓）。
   static Future<String> read() async {
     try {
       final f = await _file();
-      if (f == null || !await f.exists()) return '';
-      return await f.readAsString();
-    } catch (_) {
-      return '';
+      if (f == null) return '（读日志失败：拿不到 App 文档目录 ✗）';
+      if (!await f.exists()) return ''; // 真的还没写过 ⇒ 空态 ✓（与"读失败"分清 ✓）
+      final bytes = await f.readAsBytes();
+      return utf8.decode(bytes, allowMalformed: true);
+    } catch (e) {
+      return '（读日志失败：$e ✗）';
     }
   }
 
