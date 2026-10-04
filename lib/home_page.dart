@@ -143,7 +143,7 @@ class _HomePageState extends State<HomePage>
       // 默认 `_feedFor` 是 putIfAbsent **缓存**列表 → 切回去还是那批 ✗，而短片本来就是
       // "随机批次"，缓存等于把随机性废掉 ✗ → 每次**切到**短片 tab 就丢掉它的缓存 +
       // 重新随机起始页（与 sim 侧 `listState.delete(key)` + `xhMomentsBatchFrom = 0` 同一套 ✓）。
-      // ⚠️ 必须挂在这里、不能挂在 `_feedFor`：那个函数每次 build 都可能被调用 ✗，
+      // ⚠️ 必须挂在这里、不能挂在 `_feedFor`：那个函数每次 build 都会被调用 ✗，
       //    在那儿删缓存会变成"每次重画都重拉" ✗。
       // `indexIsChanging` 挡掉切换动画中间那一次，避免重复触发。
       if (!_tab.indexIsChanging) {
@@ -1151,7 +1151,7 @@ class ArticleCard extends StatelessWidget {
             //    走**共享缓存** ✓：页面里的 `_sourcesOf` 会命中这个**在途 Future** ✓
             //    → **同一个 url 只飞一次** ✗（不会变成两次请求 ✓）；失败也不影响导航 ✓（缓存里会清掉 ✓）。
             //    ⚠️ #9：key 带命名空间 `s|` ✓ —— 与详情页的合集取源（`d|` ✓）**分开** ✗
-            //    （两条路取源策略不同 ✗，同一 url 结果可能不同 ✗ → 绝不能共用 key ✗）
+            //    （两条路取源策略不同 ✗，同一 url 的取源结果来自两套不同实现 ✓（不保证相同 ✗） → 绝不能共用 key ✗）
             SourceCache.i.get('s|${article.url}', () async {
               final d = await Api(site: site).detail(article.url);
               return SourceCache.sourcesOfDetail(d);
@@ -1492,8 +1492,13 @@ class _SearchPageState extends State<SearchPage> {
                                 child: CircularProgressIndicator()),
                           );
                         },
-                        itemBuilder: (ctx, i) => ArticleCard(
-                            article: _results[i], site: widget.site),
+                        itemBuilder: (ctx, i) {
+                          // #4 ✓（2026-10-03）：顺手预热**后面第 8 张**的封面 ✓（与首页那处同一套 ✓）
+                          if (i + 8 < _results.length) {
+                            FetchedImage.warm(_results[i + 8].cover);
+                          }
+                          return ArticleCard(article: _results[i], site: widget.site);
+                        },
                       ),
           ),
         ],

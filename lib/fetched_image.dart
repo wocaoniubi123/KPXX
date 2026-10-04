@@ -68,6 +68,12 @@ class _FetchedImageState extends State<FetchedImage> {
   static final Map<String, Uint8List> _cache = {};
   static final Map<String, Future<Uint8List?>> _inflight = {};
   static const int _maxCache = 400;
+  /// #2 ✓（2026-10-03 用户拍板）：内存缓存按**字节**封顶 ✗（原来只看张数 ✗）
+  /// **图片内存上限 64MB：实测封面中位 52.1KB（sim-dev 2026-10-04，13 张多站样本）。**
+  /// 400 张 × 中位 = 20.3MB；64MB = 400 × 164KB = 中位的 3 倍余量，作硬上界防大图爆发。
+  /// p90(425.3KB) 满 400 张需 166.1MB、最大(464.8KB) 需 181.6MB —— 不按极端值设（iPhone 有 jetsam 风险）。
+  /// 实测最小 4.3KB、最大 464.8KB ✓
+  static const int _maxBytes = 64 * 1024 * 1024;
 
   Uint8List? _bytes;
   bool _error = false;
@@ -90,8 +96,9 @@ class _FetchedImageState extends State<FetchedImage> {
 
   Future<void> _load() async {
     final url = widget.url;
-    final hit = _cache[url];
+    final hit = _cache.remove(url);
     if (hit != null) {
+      _cache[url] = hit; // #1 LRU ✓：命中挪到队尾（Map 迭代按插入序 ✓）
       setState(() => _bytes = hit);
       return;
     }
@@ -163,7 +170,7 @@ class _FetchedImageState extends State<FetchedImage> {
     final raw = r.bodyBytes;
     Uint8List? img;
     if (_looksLikeImage(raw)) {
-      img = raw; // 未加密（可能是站外图）
+      img = raw; // 未加密（不是 AES 密文 ✓）
     } else if (_isIco(raw)) {
       img = _icoToPng(raw); // 站点 favicon：ICO 解成 PNG
     } else {
@@ -176,10 +183,15 @@ class _FetchedImageState extends State<FetchedImage> {
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
     ImageDiskCache.i.put(url, img);
     if (_cache.length >= _maxCache) {
-      // 只淘汰最早的一批（Map 迭代按插入序 ≈ FIFO）。整片 clear 会让
-      // 已经在屏幕上的图全部重新下载一遍，看起来就是"列表又变慢了"。
-      for (final k in _cache.keys.take(_maxCache ~/ 4).toList()) {
-        _cache.remove(k);
+      // #1+#2 ✓：LRU（命中已挪队尾 ✓）+ 字节封顶 → **只从头砍最久没用的**，砍到合规为止 ✗
+      // （原来一次丢 100 张 ✗ → 屏幕上的图会被丢 → 立刻重下 + 重解密 ✗）
+      var totalBytes = 0;
+      for (final v in _cache.values) {
+        totalBytes += v.length;
+      }
+      while (_cache.isNotEmpty &&
+          (_cache.length > _maxCache || totalBytes > _maxBytes)) {
+        totalBytes -= _cache.remove(_cache.keys.first)?.length ?? 0;
       }
     }
     _cache[url] = img;
@@ -215,7 +227,7 @@ class _FetchedImageState extends State<FetchedImage> {
         // 非 base64 形态
       }
     } catch (_) {
-      // 解密失败（该图可能未加密/其他格式），交回上层判断
+      // 解密失败（不是 AES 密文，或不是图片格式 ✓），交回上层判断
     }
     return null;
   }

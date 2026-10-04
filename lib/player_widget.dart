@@ -33,7 +33,7 @@ String _fmt(Duration d) {
 
 /// 篇内视频切换状态：详情页持有，内嵌播放器与全屏页共用同一份。
 /// 共用一份是为了避免全屏页拿到"推送那一刻"的序号快照——
-/// 那样切到最后一个后按钮状态会不对，再点还可能跳错集。
+/// 那样切到最后一个后按钮状态会不对，再点就跳错集 ✗（切到最后一个后按钮状态会不对 ✓）
 class VideoSwitcher {
   VideoSwitcher(this.total) : index = ValueNotifier<int>(0);
 
@@ -275,7 +275,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// - `demuxer-lavf-analyzeduration` = **2.0** ✓（ffmpeg 探测"这是什么流"的最长时间，默认 5 秒 ✗ → 少等）；
   /// - `demuxer-lavf-probesize` = **1500000** ✓（探测用字节数，默认 5000000 ✗ → 少等）；
   /// - `cache-pause-initial` = **no** ✓（别等缓存填满才开播 ✓；mpv 默认本就是 no ✓，这里显式钉住 ✓）。
-  /// ⚠️ 三个值都是**保守的中间值** ✗（也可能卡网 ✓ —— 不能为了快把探测量砍到极限 ✗）；
+  /// ⚠️ 三个值都是**保守的中间值** ✗（不为快把探测量砍到极限 ✗）；
   /// ⚠️ 逐条 try/catch ✓：某个名字在这版 libmpv 上不认也**绝不影响播放** ✗（静默忽略 ✓）。
   static void tuneStartupQuiet(KpPlayer kp) {
     if (!tuneStartup) return;
@@ -393,11 +393,11 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
       swipePlayer.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）
     }
     if (swipePreview.value == null) return;
-    // seek 生效前先保持预览值，避免进度条往回跳一下
     _swipeHoldTimer?.cancel();
-    _swipeHoldTimer = Timer(const Duration(milliseconds: 600), () {
-      if (swipePreview.value != null) swipePreview.value = null;
-    });
+    // #7 ✓（2026-10-03 用户拍板）：**松手立即归位** ✗ —— 原来为了"避免进度条往回跳一下"
+    // 让预览多停 600ms ✗（原注释就在上面那行 ✓）；短片页那边一直是立即清 ✓ → 两边对齐 ✓。
+    // ⚠️ `_SwipeSeek` 的 seek 算法本身一个字未动 ✗
+    swipePreview.value = null;
   }
 
   void disposeSwipe() {
@@ -676,7 +676,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   @override
   bool get wantKeepAlive => true;
 
-  /// switcher 可能在 initState 之后才传进来（详情页是异步拿数据建 switcher 的），
+  /// switcher 会在 initState 之后才传进来（详情页异步拿数据 ✓）（详情页是异步拿数据建 switcher 的），
   /// 所以每次依赖变化/更新都重新对一遍监听，挂的是同一个回调。
   void _syncPauseHook() {
     final tick = widget.switcher?.pauseTick;
@@ -744,7 +744,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _syncPauseHook(); // switcher 可能是后到的，每次依赖变化都对一遍监听
+    _syncPauseHook(); // switcher 后到时也对一遍监听 ✓（每次依赖变化 ✓）
     if (!_init) {
       _init = true;
       // 切后台/被杀前补报一次播放进度（不注册就收不到生命周期回调）
@@ -773,7 +773,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 注意顺序：先把播放器挂到界面上（画面/声音一有就出），
   /// 再等"就绪"——就绪只用来判断要不要换下一个源，不该拦住显示。
   Future<void> _initPlayer() async {
-    // 起播时把「当前篇内序号」对齐到 switcher：续播可能直接落在第 3 集，
+    // 起播时把「当前篇内序号」对齐到 switcher：续播起点不是第 1 集时（例：第 3 集 ✓），
     // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
     _curIndex = widget.switcher?.index.value ?? 0;
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
@@ -1041,7 +1041,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       if (_autoRetrying) setState(() => _autoRetrying = false);
       return;
     }
-    // 同一次失败可能双通道报错（引擎 error + 源尝试失败），排一次就够
+    // 同一次失败会从两条通道各报一次（引擎 error + 源尝试失败 ✓）→ 排一次就够 ✓
     if (_autoRetryTimer != null) return;
     _autoRetries++;
     setState(() => _autoRetrying = true);

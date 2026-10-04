@@ -241,6 +241,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       }
       // 已缓存 / 在途 / 正在下的都交给共享缓存去判 ✓（同一 url 只飞一次 ✗ 不用在这里查表 ✓）
       _sourcesOf(j); // 并发跑，不 await（别挡当前这条起播）
+      FetchedImage.warm(_items[j].cover); // #4 ✓：封面也预热（换条瞬间就有图 ✓ 复用同一个 warm ✓）
     }
     _primeWindow(count); // 源解析完再交给预下载（同样不 await ✓）
   }
@@ -365,25 +366,15 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   void _seekEnd() {
     final kp = _kp;
     if (kp == null) return;
-    final w = MediaQuery.of(context).size.width;
     final dx = _dragDx;
     final dy = _dragDy;
     _dragDx = 0;
     _dragDy = 0;
-    if (w <= 0 || dx == 0) return;
-    // ③ 竖向为主 → **整个不 seek** ✗（"上滑别触发快进快退"的兜底 ✓）
-    if (dy.abs() >= dx.abs()) return;
-    // ② 减掉起步死区 ✓（改前那 18pt 白送 ≈5.6 秒 ✗）
-    final eff = dx.abs() - _kSeekSlop;
-    if (eff <= 0) return;
-    // ① 滑满一屏 = 30 秒 ✓（左负右正、按距离成比例 ✓）
-    final secs = (dx.isNegative ? -eff : eff) / w * _kSeekSecondsPerScreen;
-    if (secs.abs() < 1) return; // 手抖不算
-    var to = _dragFrom + Duration(milliseconds: (secs * 1000).round());
-    if (to < Duration.zero) to = Duration.zero;
-    final dur = kp.value.duration;
-    if (dur > Duration.zero && to > dur) to = dur;
-    _seekPreview.value = null; // 松手 → 预览撤掉 ✓（▶/◀ toast 已按用户要求删掉 ✗）
+    _seekPreview.value = null; // 松手 → 预览撤掉 ✓
+    // #13 ✓：公式**只剩一份** ✗ —— 竖向否决 / 18pt 死区 / 一屏 30 秒 全在 `_seekTargetFor` 里 ✓
+    final to = _seekTargetFor(dx, dy);
+    if (to == null) return;
+    if ((to - _dragFrom).inMilliseconds.abs() < 1000) return; // 手抖不算 ✓
     // 用 seekExact：`seek` 会按 value.duration 裁剪（时长还没报上来时会被裁小 ✗）
     kp.seekExact(to);
   }

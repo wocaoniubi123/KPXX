@@ -32,7 +32,7 @@ class VideoCache {
 
   // ---- 上限（都是有意定的值 ✓）----
   /// 单文件上限：超过就不预下 ✓（⚠️ B 项：`sim-dev` 实测 `Content-Length` 未到前**别改死** ✗ ——
-  /// 首条源是 `…/720p.h264.mp4` ✓，45 秒 720p 约 20~40MB ✗，现在这条 32MB **可能把常片挡在门外** ❓）
+  /// 首条源是 `…/720p.h264.mp4` ✓，32MB 是旧实现带来的值 ✓（是否放宽 → B 项，等实测数据 ✗））
   static const int maxFileBytes = 32 * 1024 * 1024;
   /// 目录总量上限（LRU 清到它以下 ✓）—— 320 → 640 → 300 → **200MB**（用户 2026-10-03 最终拍板 ✓）
   ///
@@ -43,6 +43,9 @@ class VideoCache {
   ///   · 全部中位 **2.65MB** → `200 ÷ 2.65 ≈ 75` ✓ → **条数先撞线** → 留 **70 个 ≈ 186MB**（93% ✓）
   ///   · 720p 中位 **4.40MB** → `200 ÷ 4.40 ≈ 45` ✓ → **容量先撞线** → 留 **45 个 ≈ 198MB**
   ///   · 最坏（实测最大 **5.10MB**）→ `200 ÷ 5.10 ≈ 39` ✓ → **至少也留 39 条** ✓
+  /// 实测依据 ✓（sim-dev 2026-10-04）：短片单条 **0.35 / 0.82 / 1.19MB**（7 条 m3u8-only 分段实测，
+  /// 码率 54~72KB/s）→ 200MB ≈ 最多存 250 条短片，绰绰有余 ✓。
+  /// 🔍 推算：39.2s 那条按实测码率 ≈66KB/s 外推 ≈2.53MB（**非实测** ✗）
   static const int maxTotalBytes = 200 * 1024 * 1024;
   /// 最多保留的文件个数（LRU ✓）—— 24 → **70** ✓（就按上面那个算式算的 ✓）
   /// 为什么是 70 而不是 75 ✗：75 是"全部等于中位数"的理想值 ✓，取 70 = **留约 7% 余量** ✓。
@@ -251,6 +254,22 @@ class VideoCache {
         try {
           len = await f.length();
         } catch (_) {}
+        // ⚠️ #5 ✓（2026-10-03 用户拍板）：**HLS 分段目录的字节也要计入** ✗ —— 原来只算清单文件
+        //（几 KB ✓）→ "200MB 上限"名不副实 ✗。目录与清单同名配对（`x.m3u8` ↔ `x.hls` ✓）
+        if (f.path.endsWith('.m3u8')) {
+          try {
+            final d = Directory('${f.path.substring(0, f.path.length - 5)}.hls');
+            if (await d.exists()) {
+              for (final g in await d.list().toList()) {
+                if (g is File) {
+                  try {
+                    len += await g.length();
+                  } catch (_) {}
+                }
+              }
+            }
+          } catch (_) {}
+        }
         total += len;
         if (n >= maxFiles || total > maxTotalBytes) {
           try {
@@ -292,7 +311,7 @@ class VideoCache {
   /// 分段目录先 rename ✓、**清单最后 rename** ✓ → **全部下完才算就绪** ✗（`ready()` 只认改名后的 `.m3u8` ✓）。
   /// ⚠️ **不做**：解密 ✗、鉴权重放 ✗（探测证明不需要 ✓）。遇到 `#EXT-X-KEY` / `#EXT-X-BYTERANGE` /
   /// 嵌套 master（变体里还是 `#EXT-X-STREAM-INF` ✓）→ **直接放弃** ✗（= 没预下载，回落在线播 ✓，与今天一样 ✓）。
-  /// `ponytail:` 分段目录的字节**没算进** `maxTotalBytes` ✗（只算清单文件 ✓）—— 按"每条约 ≤2~3MB、上限 70 条"
+  /// 分段目录字节**已计入** `maxTotalBytes` ✓（#5 ✓ 2026-10-04：`_prune` 里 `x.m3u8` ↔ `x.hls` 配对求和 ✓）—— 单条实测 0.35~1.19MB ✓
   /// 估最坏多占 ≤200MB ✓；真要精算再给 `_prune` 加目录求和 ✓。
   Future<void> _downloadHls(String url) async {
     final dir = _dir;
