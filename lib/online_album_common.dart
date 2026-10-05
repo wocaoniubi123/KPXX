@@ -20,6 +20,28 @@ import 'fetched_image.dart';
 /// ⚠️ 本文件**不碰任何公共件** ✗：`lib/base/**` / `fetched_image.dart` / `detail_page.dart` / `lib/sites/**`
 ///   一律只 `import` 来用 ✓ 不改它们一个字符 ✓。
 
+/// ★ 2026-10-05（用户要求"点了立刻出框选" ✓）：**原图尺寸表** —— 只记 `Size` ✗（**绝不留字节** ☠：
+///   一张几 MB ✗ 表会跟着涨 ✓；`Size` 就两个 double ✓）。
+///   谁写：① 图集1 详情列表的 `FetchedImage` 顺手回调 ✓（`onImageInfo` ✓）；
+///          ② 图集2 `AvifBytes` 解出来那一刻顺手记 ✓（同一张只解一次 ✓ **不额外解码** ✓）。
+///   谁读：`_enterCrop` ✓ —— 进框选**同步**拿尺寸 ✓（不再"点了才去下一次 + 解一次" ☠ = 原来"慢"的根 ✓）。
+///   ⚠️ 没写过的（这张还没显示过）⇒ `null` ⇒ 调用方走"尺寸未知"的兜底 ✓ **不崩、不阻塞点击** ✗。
+class AlbumImageSizes {
+  AlbumImageSizes._();
+
+  /// url → 原图像素尺寸 ✓（进程内、不落盘 ✓ 冷启动重来一遍可接受 ✓）
+  static final Map<String, Size> _m = <String, Size>{};
+
+  /// 记一笔 ✓（尺寸非法就**不记** ✗ —— 免得把 0 写进去把算框搞崩 ☠）；重复写**覆盖** ✓（后到的更可信 ✓）。
+  static void put(String url, int w, int h) {
+    if (url.isEmpty || w <= 0 || h <= 0) return;
+    _m[url] = Size(w.toDouble(), h.toDouble());
+  }
+
+  /// 取（没有 ⇒ `null` ✓ 不抛 ✗）
+  static Size? of(String url) => _m[url];
+}
+
 /// 封面卡（两页同款 ✓）：**只由封面撑** ✓（用户 2026-10-05 拍板 ✗ 不渲染标题 ✓）
 /// —— `Card(Clip.antiAlias)` + `AspectRatio(3:4)` + `FetchedImage`（fit 默认 `BoxFit.cover` ✓ 裁边不拉伸 ✓）。
 class ArtCard extends StatelessWidget {
@@ -145,6 +167,9 @@ class _ArtImageListState extends State<ArtImageList> {
           url: widget.urls[i],
           fit: BoxFit.contain,
           memWidth: 1600,
+          // ★ D ✓：图**解码出真尺寸**时顺手写进表 ✓（`AlbumImageSizes` ✓ 只记 Size ✗ 不留字节 ✓）
+          //   ⇒ 「设为背景」进框选时**同步**就能拿 ✓（原来在那儿才 `_download` + 解一次 ☠ = "慢"的根 ✓）
+          onImageInfo: (w, h) => AlbumImageSizes.put(widget.urls[i], w, h),
         );
         final r = (widget.ratios != null && i < widget.ratios!.length)
             ? widget.ratios![i]
@@ -336,6 +361,10 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// 当前框尺寸（逻辑像素 ✓）—— 由 `MediaQuery` **动态算** ✗（不写死 ✓）
   Size _frame = Size.zero;
 
+  /// ★ 2026-10-05（F ✓）：图的**显示盒** `dw×dh`（= 原图 contain 缩进 avail 盒后的尺寸 ✓ 逻辑像素 ✓）——
+  ///   与 [_frame] 一样在 `build` 里算 ✓（所以存字段 ✓：`_clampT` 每帧要用 ✓）。
+  Size _disp = Size.zero;
+
   /// ★ 2026-10-05（用户真机反馈"**设为背景后非常模糊/几乎马赛克**" ☠ 的根因修法）：
   ///   `MediaQuery.of(context).size` 给的是**逻辑尺寸** ✗（393×852 这种 ✓），而物理屏是 393×852 **@3x** ✓
   ///   ⇒ **出图必须乘上设备像素比** ✗ ⇒ 393×852 @3x ⇒ **1179×2556** ✓（= 用户要的"手机分辨率"✓）。
@@ -346,12 +375,10 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   ///   （连点两次不许弹两个转圈对话框 ☠）。由 `_confirmCrop` 的 `try/finally` 负责复位 ✓。
   bool _applying = false;
 
-  /// ★ 2026-10-05（用户要求"**在原图上自己选区域**" ✓）：图的**真实尺寸** ——
-  ///   `_enterCrop` 里取一次图就量出来 ✓（拿不到 ⇒ 留 `null` ⇒ `_clampT` **退回旧算法** ✓ 不崩 ✗）。
+  /// ★ 2026-10-05（用户要求"**在原图上自己选区域**" ✓）：图的**真实尺寸**（原图像素 ✓）——
+  ///   来源 = **尺寸表** `AlbumImageSizes` ✓（详情列表的 `FetchedImage` / 图集2 的 `AvifBytes` 解码时顺手写的 ✓）；
+  ///   拿不到 ⇒ 留 `null` ⇒ 先按 avail 盒占位 ✓ + `_clampT` **退回旧算法** ✓（不崩 ✗）；到了再重算 ✓。
   Size? _imgSize;
-
-  /// 那次取图的字节 —— 「确认」直接复用 ✓（`_rawCache ?? await _download(...)` ✓ **那条路的语义不变** ✓）。
-  Uint8List? _rawCache;
 
   @override
   void initState() {
@@ -389,31 +416,25 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     }
   }
 
-  /// ★「夹住」那一小块（唯一自己写的逻辑 ✓）：**图始终盖住框** ⇒ 平移锁在 `±框×(缩放-1)/2` 内 ✓
-  ///   （图居中放大 s 倍后四周各多出 (s-1)/2 个框尺寸 ✓）。判据（可验 ✓）：
-  ///   ① s=1 ⇒ 上下限都 0 ⇒ **拖不动** ✓（此时 `cover` 已盖满框 ✓ 不会露白 ✓）；
-  ///   ② s=2 ⇒ 每轴最多只能拖半个框 ✓ 再多就露边 ⇒ 被拦 ✗；③ **只在越界时**才写回 ✓（不打断手势 ✓）。
+  /// ★「夹住」那一小块（唯一自己写的逻辑 ✓）：**框始终被图盖住**、**贴边即止** ✓ ——
+  ///   新式（F/G 定稿 ✓）：余量按**显示盒** `dw/dh` 与框 `fw/fh` 算 ✗（**不再**按 cover 基底 ☠）：
+  ///   `mx` = 显示盒宽 × s **减去** 框宽、再折半、负数取 0 ✓（`my` 同理 ✓）。
+  ///   判据（可验 ✓）：① 框恒 ≤ 显示盒 ⇒ `s=1` 时两轴余量都 ≥ 0 ✓（横轴可能 > 0 ⇒ **能平移** ✓ **不露白** ✗）；
+  ///   ② `s` 越大余量越大 ✓；③ **只在越界时**才写回 ✓（不打断手势 ✓）。
   void _clampT() {
     final f = _frame;
     if (f.isEmpty) return;
     final m = _tc.value;
     final s = m.getMaxScaleOnAxis();
     final t = m.getTranslation();
-    // ★ 2026-10-05（用户报"图几乎只有框那么大 ⇒ 移不动" ✓ 真因）：旧式 `f*(s-1)/2` **漏了 cover 基底** ☠
-    //   ⇒ s=1 时余量恒 0 ⇒ 拖不动 ✓。新式（按图**真实尺寸** ✓）：
-    //     base = max(fw/iw, fh/ih) · dw = iw*base*s · mx = max(0,(dw-fw)/2) ✓（my 同理 ✓）
-    //   实例：框 393×852 · 图 1080×1620 ⇒ base=0.5259 ⇒ s=1: dw=568 ⇒ mx=**87.5** / my=**0** ✓（正好盖住框 + 横轴能移 ✓）；
-    //        s=2: dw=1136/dh=1704 ⇒ mx=**371.5** / my=**426** ✓（两轴都能移 ✓）；任何 s 都恒有 dw≥fw、dh≥fh ⇒ **不露白** ✓
-    final img = _imgSize;
-    double mx, my;
-    if (img == null || img.isEmpty) {
-      mx = f.width * (s - 1) / 2; // 拿不到图尺寸 ⇒ 退旧算法 ✓（不崩 ✗）
-      my = f.height * (s - 1) / 2;
-    } else {
-      final base = math.max(f.width / img.width, f.height / img.height);
-      mx = math.max(0.0, (img.width * base * s - f.width) / 2);
-      my = math.max(0.0, (img.height * base * s - f.height) / 2);
-    }
+    // ★ 2026-10-05（G ✓）：余量按**显示盒**算 ✗（原来按 `max` 取 cover 基底再乘 s ☠ —— 那套配 contain 就是错的）；
+    //   ⚠️ 尺寸还没到 ⇒ 显示盒 = avail 盒占位 ✓（照样能拖 ✓；到了 `_onImgInfo` 会 setState ⇒ 重算 ✓）
+    //      ⇒ 这里**不需要**"退旧算法"分支 ✓（显示盒恒非空 ✓，退化时也只是余量 0 = 拖不动 ✓ 不崩 ✗）。
+    //   实例（定稿数字 ✓）：屏 393×852 ⇒ avail 盒 369×632 ✓；图 1080×1620 ⇒ dw=369 · dh=553.5 ✓、框 255.3×553.5 ✓
+    //   ⇒ s0 = 1.15 ⇒ **mx = 84.5** · **my = 41.5** ✓（两轴都能拖 ✓ 且**恒不露白** ✗）。
+    final disp = _disp;
+    final mx = math.max(0.0, (disp.width * s - f.width) / 2);
+    final my = math.max(0.0, (disp.height * s - f.height) / 2);
     final x = t.x.clamp(-mx, mx).toDouble();
     final y = t.y.clamp(-my, my).toDouble();
     if ((x - t.x).abs() > 0.01 || (y - t.y).abs() > 0.01) {
@@ -479,7 +500,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         barrierDismissible: false,
         builder: (_) => const Center(child: CircularProgressIndicator()),
       ));
-      final raw = _rawCache ?? await _download(widget.urls[_index]); // ★ 复用进框选时取的那份 ✓ 语义不变 ✓
+      final raw = await _download(widget.urls[_index]); // ★ 2026-10-05：`_rawCache` 已删 ✗ ⇒ 这里**只剩直接下** ✓（与"它恒为 null"**语义等价** ✓）
       final png = await _cropPngWithFallback(raw, _frame); // ★ 后台 isolate + 回落 ✓（见下面那支 ✓）
       if (png == null) {
         msg.showSnackBar(const SnackBar(content: Text('裁剪失败：拿不到图片数据 ✗')));
@@ -581,24 +602,21 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     return bd?.buffer.asUint8List();
   }
 
-  /// ★ 2026-10-05（用户要求"在原图上自己选区域" ✓）：进框选**顺手取一次图** ✓
-  ///   ⇒ ① 量出图**真实尺寸**（给 `_clampT` 算余量 ✓）② 字节存 `_rawCache`（「确认」直接复用 ✓ 不再现取 ✓）
-  ///   ⚠️ 失败/拿不到 ⇒ `_imgSize = null` ⇒ `_clampT` 退旧算法 ✓ **不崩** ✗。
+  /// ★ 2026-10-05（用户报"点「设为背景」要等" ✓ 真因）：**点了立刻出框选** ✗ ——
+  ///   **删掉**原来那两步 ☠：`_download` 取图 + `instantiateImageCodec` 解码（原来点完要等"下载 + 解码"才出界面 ✓）
+  ///   ⇒ 那就是"慢"的根 ✓。现在尺寸走**尺寸表** `AlbumImageSizes` ✓（详情列表 / AVIF 解码时顺手写下的 ✓）⇒ **同步**拿 ✓。
+  ///   ⚠️ 尺寸还没到（这张没显示过）⇒ `_imgSize = null` ⇒ 界面上是**占位 / 转圈** ✓ **绝不为空** ✗
+  ///      （图本身仍走 `_artImage` ✓：有注入字节就用字节 ✓ 没有就回落 `FetchedImage` ✓ 它自带占位 ✓）；
+  ///      显示盒先按 avail 盒占位 ✓ ⇒ **照样能拖能捏** ✓（尺寸到了 `_onImgInfo` 会 setState 重算 ✓）⇒ **不崩、不阻塞点击** ✗。
+  ///   ⚠️ `_rawCache` 已**删掉** ✗（E 之后它恒为 null ⇒ 死代码 ☠）—— 「确认」那条现在**只剩** `await _download` ✓
+  ///      （与"它恒为 null 时"**语义等价** ✓）；裁剪出图那 5 条画质口径**一个不碰** ☠。
   Future<void> _enterCrop() async {
-    try {
-      final raw = await _download(widget.urls[_index]);
-      _rawCache = raw;
-      final codec = await ui.instantiateImageCodec(raw);
-      final fi = await codec.getNextFrame();
-      _imgSize = Size(fi.image.width.toDouble(), fi.image.height.toDouble());
-      fi.image.dispose();
-      codec.dispose();
-    } catch (e) {
-      debugPrint('取图/取尺寸失败 ⇒ 退旧夹住算法：$e');
-      _imgSize = null;
-    }
+    _imgSize = AlbumImageSizes.of(widget.urls[_index]); // ★ E ✓：同步取（可能 null ✓ 有兜底 ✓）
     if (!mounted) return;
-    _tc.value = Matrix4.identity();
+    // ★ 2026-10-05（G ✓）：初始 **s0 = 1.15** —— 依据：`InteractiveViewer` 的 `minScale: 1` ✓ 而"框（屏比）"
+    //   一般比显示盒窄 ⇒ `s=1` 时横轴有余量、**纵向常为 0**（拖不动 ✗）⇒ 先放大 15% ⇒ **两轴都能挪** ✓
+    //   （用户口径是"在**整张原图**上自己选区域" ✓）；写法与 `_clampT` 里那句同款 ✓（`scale` 同一套 ✓）。
+    _tc.value = Matrix4.identity()..scale(1.15);
     setState(() => _crop = true);
   }
 
@@ -607,16 +625,28 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     final m = MediaQuery.of(context).size;
     // ★ 2026-10-05：设备像素比**必须现取** ✗（`_cropPng` 里没有 context ✓ 只能在 build 拿 ✓）
     _dpr = MediaQuery.of(context).devicePixelRatio;
-    // 框 = **设备屏幕比例** ✓（动态取 ✗ 不写死 ✓）+ 尽量大（上下给按钮留位 ✓）
-    final aspect = m.width / m.height;
+    // ★ 2026-10-05（F ✓ 用户要求"框选时看得见整张原图"）：**contain 完整显示 + 框叠在图上** ——
+    //   盒子仍是**现有 avail 盒** ✓（m.width−24 × m.height−220 ✓ 与"上下给按钮留位"同一套口径 ✓
+    //   长图也不会把"图 + 页码 + 按钮"顶出屏幕 ☠）。
     final availW = m.width - 24;
     final availH = m.height - 220;
-    var fw = availW;
-    var fh = fw / aspect;
-    if (fh > availH) {
-      fh = availH;
-      fw = fh * aspect;
+    final aspect = m.width / m.height; // 框比 = **屏比** ✓（动态取 ✗ 不写死 ✓）
+    // ① 图的**显示盒** `dw×dh` = 原图按 `k_img = min(W/iw, H/ih)` 缩进 avail 盒 ✓（contain ✓ 完整 ✓ 不裁 ✗）
+    //    ⚠️ 尺寸还没到（"缓一拍" ✓）⇒ 先用 avail 盒当占位 ✓；到了会走 `_onImgInfo` ⇒ setState ⇒ 重算 ✓
+    final img = _imgSize;
+    final double dw, dh;
+    if (img == null || img.isEmpty) {
+      dw = availW;
+      dh = availH;
+    } else {
+      final kImg = math.min(availW / img.width, availH / img.height);
+      dw = img.width * kImg;
+      dh = img.height * kImg;
     }
+    // ② 框 = 屏比矩形**塞进显示盒**里最大的那个 ✓（`fw = min(dw, dh*a)` ⇒ 框**绝不出图** ✓ 居中 ✓）
+    final fw = math.min(dw, dh * aspect);
+    final fh = fw / aspect;
+    _disp = Size(dw, dh);
     _frame = Size(fw, fh);
 
     return Scaffold(
@@ -725,39 +755,52 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
             //     → `.row2 width:100%;margin:0` 两颗 `.ok`：**确认 → 取消** ✓（`:7025-7026` 顺序 ✓）
             Center(
               // ★ 照 sim ✓：框选那列的**外盒也带 `padding:0 12px`**（`sim:7601` 逐字 ✓）
-              //   ⇒ 按钮排的 `width:100%` 才等于"屏幕宽 − 24" ✓（与框宽 `m.width - 24` 同一套口径 ✓）
+              //   ⇒ 按钮排的 `width:100%` 才等于"屏幕宽 − 24" ✓
+              //   ⚠️ **框宽 / 显示盒的口径已经改了** ✗：现在是 avail 盒里算出来的 `dw/dh`（显示盒 ✓）
+              //      与 `fw/fh`（框 ✓）—— **不再是** `m.width - 24` ✓（见上面 ① ② 两段 ✓）
               child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12), // = sim 框的 `border-radius:12px` ✓
-                    child: SizedBox(
-                      width: fw,
-                      height: fh,
-                      child: ClipRect(
-                        child: InteractiveViewer(
-                          transformationController: _tc,
-                          minScale: 1,
-                          maxScale: 5,
-                          // ★ 2026-10-05（用户反馈"**拖不动**" ✓ 真因读数）：原来**没有** `boundaryMargin` ⇒
-                          //   默认 `EdgeInsets.zero` ⇒ 子节点与视口同尺寸（`SizedBox(fw,fh)` ✓）⇒ 可位移量 = 0 ⇒ 拖不动 ☠
-                          //   ⇒ 给足边距 ✓ ⇒ **图可随心拖** ✓；"**图始终盖住框**"由下面的 `_clampT` 每帧夹住 ✓
-                          boundaryMargin: const EdgeInsets.all(4000),
-                          // ★ 2026-10-05（用户反馈"**双指不灵敏**" ✓ 真因读数）：`_clampT` 原来挂在 `_tc` 的**监听**上，
-                          //   手势进行中**回写** `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势**互相打架** ☠
-                          //   ⇒ 改成**在回调里夹** ✓（不再用监听 ✓ 见 `initState` 的那处删改 ✓）⇒ 手指一动就跟随 ✓
-                          onInteractionUpdate: (_) => _clampT(),
-                          onInteractionEnd: (_) => _clampT(),
-                          child: _artImage(
-                            widget.urls[_index],
-                            // 框选态才用 cover（**盖满框** ✓）；详情列表与预览态仍是 contain ✓
-                            BoxFit.cover,
-                            1600,
+                  SizedBox(
+                    width: dw,
+                    height: dh,
+                    // ★ 2026-10-05（F ✓）：这一格 = 【**图（contain ✓ 完整 ✓ 不裁 ✗）+ 框外压暗 ✓**】叠在一起 ——
+                    //   ⚠️ **子层全非定位** ✓（**不用 `Positioned`** ✗ —— 那是"非定位子层集合"老坑 ☠）；
+                    //   顺序 = 图（可拖 / 可捏 ✓）⇒ 压暗（挖孔 ✓ 且 `IgnorePointer` ⇒ **不吃手势** ✗）⇒ 框由"孔的边"体现 ✓
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRect(
+                          child: InteractiveViewer(
+                            transformationController: _tc,
+                            minScale: 1,
+                            maxScale: 5,
+                            // ★ 2026-10-05（用户反馈"**拖不动**" ✓ 真因读数）：原来**没有** `boundaryMargin` ⇒
+                            //   默认 `EdgeInsets.zero` ⇒ 可位移量 = 0 ⇒ 拖不动 ☠ ⇒ 给足边距 ✓ **图可随心拖** ✓；
+                            //   "**框始终被图盖住**"由 `_clampT` 每帧夹住 ✓（新式余量 = 显示盒 − 框 ✓ 见 `_clampT` ✓）
+                            boundaryMargin: const EdgeInsets.all(4000),
+                            // ★ 2026-10-05（用户反馈"**双指不灵敏**" ✓ 真因读数）：`_clampT` 原来挂在 `_tc` 的**监听**上，
+                            //   手势进行中**回写** `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势**互相打架** ☠
+                            //   ⇒ 改成**在回调里夹** ✓（不再用监听 ✓ 见 `initState` 的那处删改 ✓）⇒ 手指一动就跟随 ✓
+                            onInteractionUpdate: (_) => _clampT(),
+                            onInteractionEnd: (_) => _clampT(),
+                            // ★ 2026-10-05（F ✓）：**框选态也是 contain** ✗ —— 原来是 cover ☠（图"正好盖住框"
+                            //   ⇒ 屏上像"已经裁好了" ⇒ 用户看不见整张原图 ✗）；详情列表与预览态本来就是 contain ✓
+                            child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
                           ),
                         ),
-                      ),
+                        // ★ 2026-10-05（F ✓）**框外压暗**：sim 用的是 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)`
+                        //   ⇒ Flutter 用**挖孔**（`PathFillType.evenOdd` ✓ 见文件末尾 `_FrameHoleClipper` ✓）；
+                        //   ⚠️ 色值仍是 `0x8C000000` ✗ **没改**（0x8C = 140 ⇒ 140/255 = **.549** ≈ sim 的 .55 ✓）。
+                        IgnorePointer(
+                          child: ClipPath(
+                            clipper: _FrameHoleClipper(fw, fh),
+                            child: const ColoredBox(color: Color(0x8C000000)),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16), // = sim `gap:16px` ✓
@@ -788,12 +831,31 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
 
   /// 一张图（预览态/框选态**共用这一处** ✓）：**有注入的已解字节就用它** ✓（`Image.memory` ✓ 零网络零解码 ✓）；
   ///   **没有**（没传 `bytesFor` ✓ 或未命中缓存 ✓）⇒ **照旧** `FetchedImage` ✓（默认行为不变 ✓）。
+  /// ★ 2026-10-05（F/G ✓）：顺手把 `onImageInfo` 接上 ⇒ **尺寸一到就记表 + 框选态重算** ✓（见 [_onImgInfo] ✓）。
   Widget _artImage(String url, BoxFit fit, int memWidth) {
     final b = widget.bytesFor?.call(url);
     if (b != null) {
       return Image.memory(b, fit: fit, cacheWidth: memWidth, gaplessPlayback: true);
     }
-    return FetchedImage(url: url, fit: fit, memWidth: memWidth);
+    return FetchedImage(
+      url: url,
+      fit: fit,
+      memWidth: memWidth,
+      onImageInfo: (w, h) => _onImgInfo(url, w, h),
+    );
+  }
+
+  /// ★ 2026-10-05（F/G ✓ 你要的那条"尺寸到了要重算" ✗）：尺寸到手 ⇒ ① 写表 ✓
+  ///   ② **框选态正看这张** ⇒ 立刻 setState ⇒ `build` 用新尺寸重算 `dw/dh`（显示盒 ✓）与 `fw/fh`（框 ✓）
+  ///   ⇒ "缓一拍"时的占位框不会留到最后 ☠。
+  ///   ⚠️ 只有**当前条**且**框选态**才 setState ✓（预览态不需要 ✓ 别的条更不该刷 ✗）；`mounted` 判过 ✓。
+  void _onImgInfo(String url, int w, int h) {
+    AlbumImageSizes.put(url, w, h);
+    if (!mounted || !_crop) return;
+    if (url != widget.urls[_index]) return;
+    final size = Size(w.toDouble(), h.toDouble());
+    if (_imgSize == size) return;
+    setState(() => _imgSize = size);
   }
 
   Widget _pill(String text, VoidCallback onTap) {
@@ -824,4 +886,34 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
     );
   }
+}
+
+/// ★ 2026-10-05（F ✓ 用户要求"框选时看得见整张原图"）：**框外压暗**用的"挖孔"裁剪器 ——
+///   路径 = **整块矩形** + 中间**挖掉**一个 `fw×fh` 的圆角矩形 ✓（`PathFillType.evenOdd` 奇偶填充 ⇒ 中间成洞 ✓）
+///   —— 等于 sim 那句 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)`（`sim/index.html:7604` ✓）的 Flutter 写法 ✓。
+///   ⚠️ 只用在**非定位**子层里 ✓（`Stack(fit: StackFit.expand)` 的第 2 个孩子 ✓ 外面套 `IgnorePointer` ⇒ 不吃手势 ✗）。
+///   ⚠️ 圆角沿用原来 `ClipRRect` 上那个 **12** ✓（= sim 框的 `border-radius:12px` ✓ **没改值** ✗）。
+///   ⚠️ **类归属**：私有 ✓、只在**本文件** `_ArtPreviewBodyState.build` 里用 ✓（声明点与使用点同文件同类 ✓）。
+class _FrameHoleClipper extends CustomClipper<Path> {
+  _FrameHoleClipper(this.fw, this.fh);
+
+  final double fw;
+  final double fh;
+
+  @override
+  Path getClip(Size size) {
+    final outer = Offset.zero & size; // 整块 = 显示盒 `dw×dh` ✓
+    final hole = Rect.fromCenter(
+      center: Offset(size.width / 2, size.height / 2), // 框**居中** ✓（与上面算 `fw/fh` 的口径同源 ✓）
+      width: fw,
+      height: fh,
+    );
+    return Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(outer)
+      ..addRRect(RRect.fromRectAndRadius(hole, const Radius.circular(12)));
+  }
+
+  @override
+  bool shouldReclip(_FrameHoleClipper old) => old.fw != fw || old.fh != fh;
 }

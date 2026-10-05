@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:kp_avif/kp_avif.dart';
 
 import 'config.dart';
+import 'online_album_common.dart'; // ★ C ✓：尺寸表 `AlbumImageSizes`（只记 Size ✗ 不留字节 ✓）
 
 /// 「在线图集2」**专用的 AVIF 兜底层**（photos18 的封面与详情图**全是 `.avif`** ✓ 实测 ✓）。
 ///
@@ -58,6 +59,8 @@ class AvifBytes {
           bytes = png;
         }
         _mem[url] = bytes;
+        // ★ C ✓：解出来那一刻**顺手**把原图尺寸记进表 ✓（不额外下载 ✗ 不再解一遍 ✓ "同一张只解一次" ✓）
+        _rememberSize(url, bytes);
         return bytes;
       } catch (e) {
         debugPrint('图集2 取图失败（第 ${attempt + 1} 次，${_short(url)}）：$e');
@@ -65,6 +68,27 @@ class AvifBytes {
     }
     debugPrint('图集2 取图最终失败（已重试 3 次，${_short(url)}）⇒ 显示占位 ✓');
     return null;
+  }
+
+  /// ★ 2026-10-05（C ✓ 用户要求"点了立刻出框选"）：把**原图像素尺寸**顺手记进 `AlbumImageSizes` ✓ ——
+  ///   机制与 `FetchedImage.onImageInfo` **同一套** ✓：`MemoryImage` + `ImageStreamListener`；
+  ///   同 bytes 的 `MemoryImage` **相等** ⇒ 命中 `ImageCache` ⇒ **不二次解码** ✓（拿的是**真原图**尺寸 ✓）。
+  ///   ☠ 加/摘成对 ✓：拿到就**摘**，但**不在回调里当场摘** ✗（回调期间改监听集合有风险 ☠）⇒ 延到**帧后**摘 ✓。
+  ///   ⚠️ 失败/抛异常 ⇒ 静默 ✓（框选那边有"尺寸未知"的兜底 ✓ **绝不崩** ✗）。
+  static void _rememberSize(String url, Uint8List bytes) {
+    try {
+      final stream = MemoryImage(bytes).resolve(ImageConfiguration.empty);
+      late final ImageStreamListener l;
+      l = ImageStreamListener((info, _) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          stream.removeListener(l); // ☠ 配对的那一半 ✓（延到帧后 ✓）
+        });
+        AlbumImageSizes.put(url, info.image.width, info.image.height);
+      });
+      stream.addListener(l);
+    } catch (e) {
+      debugPrint('图集2 记尺寸失败（不影响显示 ✓）：$e');
+    }
   }
 
   static String _short(String u) => u.length <= 60 ? u : '${u.substring(0, 60)}…';

@@ -48,11 +48,23 @@ class FetchedImage extends StatefulWidget {
   final String url;
   final BoxFit fit;
   final int? memWidth;
+
+  /// ★ 2026-10-05（用户特批 ✓ 本文件唯一一次例外）：**可选**的"尺寸到了"回调 ——
+  ///   图**真正解码出像素**时回传一次 `w/h`（= **原图像素** ✓ 不是显示尺寸 ✗）。
+  ///   用途：在线图集侧「设为背景」要按**原图**算框 ✓ —— 别在点的那一刻再下一次 + 再解一次 ☠（那就是"慢"的根 ✓）。
+  ///   ⚠️ **默认 `null` ⇒ 行为与以前一字不差** ✓（不传 ⇒ 什么都不做 ✓）。
+  ///   ⚠️ 尺寸只能这么拿 ✓：`MemoryImage` 的 `resolve` + `ImageStreamListener`（`Image.memory` 内部就是这么解的 ✓）；
+  ///      同 bytes 的 `MemoryImage` **相等** ✓ ⇒ 命中 `ImageCache` ⇒ **不二次解码** ✓。
+  ///      ⚠️ 例外口径：`Image.memory` 带 `cacheWidth` 时包的其实是 `ResizeImage` ✗（key 不同 ⇒ 可能多一次
+  ///      **全尺寸**解码 ✓）；但换来的是 `w/h` = **真原图尺寸** ✓ —— 算框**必须**用它 ✓ 不许用缩小后的 ✗。
+  final void Function(int w, int h)? onImageInfo;
+
   const FetchedImage({
     super.key,
     required this.url,
     this.fit = BoxFit.cover,
     this.memWidth,
+    this.onImageInfo,
   });
 
   /// **预热**（#8 ✓ 用户拍板）：把这张图的字节先抓进内存缓存 ✓ —— **fire-and-forget** ✓、失败静默 ✓。
@@ -78,6 +90,12 @@ class _FetchedImageState extends State<FetchedImage> {
   Uint8List? _bytes;
   bool _error = false;
 
+  /// ★ 2026-10-05：尺寸监听的**配对**持有 ☠ —— 加/摘必须成对 ✓（否则每次重建挂一个 ⇒ 泄漏 ✗）。
+  ///   同一份字节只挂**一个** ✓（`identical` 判据 ✓）；换字节 / 退出页面都走 [_unwatchSize] ✓。
+  ImageStream? _sizeStream;
+  ImageStreamListener? _sizeListener;
+  Uint8List? _sizeBytes; // 已经挂过监听的那份字节 ✓（同一份 ⇒ 不重复挂 ✗）
+
   @override
   void initState() {
     super.initState();
@@ -88,10 +106,52 @@ class _FetchedImageState extends State<FetchedImage> {
   void didUpdateWidget(covariant FetchedImage old) {
     super.didUpdateWidget(old);
     if (old.url != widget.url) {
+      _unwatchSize(); // ☠ 换图先摘旧监听 ✓（配对的那一半 ✓ 不然旧图那个会一直挂着 ✗）
       _bytes = null;
       _error = false;
       _load();
     }
+  }
+
+  /// ☠ **必须摘** ✓：不摘 ⇒ `ImageCache` 里那个 completer 一直攥着这个监听 ⇒ 每次重建多一个 ⇒ 泄漏 ✗。
+  @override
+  void dispose() {
+    _unwatchSize();
+    super.dispose();
+  }
+
+  /// 只对**当前这份字节**挂一次尺寸监听 ✓ —— 在 `build` 里调 ✓（同一份 ⇒ 直接返回 ✓ 不会每帧挂一个 ☠）。
+  ///   ⚠️ 挂上后**不在这里等结果** ✓：结果由回调丢到**帧后**处理 ✓（见下面那两行注释 ✓）。
+  void _watchSize() {
+    final b = _bytes;
+    if (b == null || identical(b, _sizeBytes)) return;
+    _unwatchSize();
+    _sizeBytes = b;
+    final stream = MemoryImage(b).resolve(ImageConfiguration.empty);
+    var sent = false; // 同一份字节只上报一次 ✗（动图每帧都会回调 ✓）
+    final l = ImageStreamListener((info, _) {
+      if (sent) return;
+      sent = true;
+      // ⚠️ **异步再抛** ✗：`addListener` 在"图已经在 `ImageCache` 里"时是**同步**回调 ✓
+      //   ⇒ 若直接抛出去，上层在构建期 `setState` 会撞到"构建期间 setState" ☠ ⇒ 一律丢到帧后 ✓
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        widget.onImageInfo?.call(info.image.width, info.image.height);
+      });
+    });
+    _sizeStream = stream;
+    _sizeListener = l;
+    stream.addListener(l);
+  }
+
+  /// 摘掉监听 ✓（换字节 / 退出页面都走这里 ✓ —— 配对的那一半 ✓）。重复调也安全 ✓（摘过就是 null ✓）。
+  void _unwatchSize() {
+    final s = _sizeStream;
+    final l = _sizeListener;
+    if (s != null && l != null) s.removeListener(l);
+    _sizeStream = null;
+    _sizeListener = null;
+    _sizeBytes = null;
   }
 
   Future<void> _load() async {
@@ -251,6 +311,9 @@ class _FetchedImageState extends State<FetchedImage> {
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
+    // ★ 2026-10-05：只对**当前这份字节**挂一次尺寸监听 ✓（同一份 ⇒ 直接返回 ✓ 不会每帧挂一个 ☠）；
+    //   ⚠️ 回调**不在构建期**发生 ✓（`_watchSize` 里丢到帧后 ✓）⇒ 上层 `setState` 不会撞构建期 ☠。
+    _watchSize();
     if (bytes != null) {
       return Image.memory(
         bytes,
