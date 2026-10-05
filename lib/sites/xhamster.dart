@@ -233,10 +233,6 @@ class XhSite extends SiteUi {
     return out;
   }
 
-
-
-
-
   /// 短片列表：**每页都抓页面里内嵌的 JSON** ✓（第 1 页 `/shorts/newest` ✓，第 2 页起 `/shorts/newest/{N}` ✓）
   /// （用户 2026-10-03 定："**短片不用 api 请求了。直接抓 json 吧**" ✓）
   ///

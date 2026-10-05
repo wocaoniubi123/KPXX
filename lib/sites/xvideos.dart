@@ -103,8 +103,6 @@ class XvSite extends SiteUi {
     return cards(html);
   }
 
-
-
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
 @override
   Future<List<Article>> search(String keyword,

@@ -18,7 +18,6 @@ import 'package:flutter/material.dart';
 enum SiteKind {
   /// 应用内原生页面（抓取解析，见 lib/api.dart 顶部注释）
   native,
-
 }
 
 /// 站点**属于哪个宫格**（2026-10-04 加 ✓）：模块页 / 直播页各是一个清单 ✓。

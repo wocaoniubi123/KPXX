@@ -50,6 +50,7 @@ import '../config.dart' show Site;
 import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
+import '../site_error_log.dart';  // [诊断] 临时：全链路时间戳日志 ✓（拿到数据后随诊断代码一起删 ✓）
 
 // ===== 一、数据层 =====
 
@@ -78,9 +79,7 @@ class LiveTabDef {
   /// 自带的 `filterGroupTags`（**移动流 / 手机版最新**才有 ✓；4 个主 tab 是空的 ✗）
   final List<List<String>> groups;
 
-  /// 这个 tab 有没有那排**页内过滤器入口** ✓：
-  ///     模拟器里 4 个主 tab 本来就有筛选 ✗ 之前 App 漏做了 ✓）
-  bool get hasFilterRow => groups.isNotEmpty;
+
 
 
 
@@ -99,6 +98,26 @@ class LiveTabDef {
 
 /// 6 个 tab（顺序 = 界面上的顺序 ✓；前 4 个是**主分类** ✓，后 2 个是**快捷叶子** ✓）
 // 2026-10-05 用户拍板：6 个 tab 的筛选入口全部删掉（渲染 + 两套弹窗 + 那批筛选数据都已移除）。
+// ============================================================================
+// [诊断] 2026-10-05 临时全链路时间戳 —— 用户报「直播返回列表后 0.5~1 秒不能滑动」✓
+//   用途：定位那 0.5~1 秒落在哪一段（点卡片 → 进房 → 出画面 → 点 X → dispose → 列表首帧 → 首次可滚动）。
+//   ⚠️ 纯日志、不改任何行为 ✓；拿到用户日志后**整段删除** ✓（含文件顶部那条 import ✓）。
+//   前缀固定 `[诊断] +<相对 t0 毫秒>  <阶段>` ✓，t0 = 点卡片那一刻 ✓。
+// ============================================================================
+final Stopwatch _diagWatch = Stopwatch();
+bool _diagFirstFrameDone = true;   // 初始 true ⇒ 只有 A1 点卡片重置后才会打 C8 ✓
+bool _diagFirstScrollDone = true;  // 同上 ✓
+void _diagLog(String stage) {
+  unawaited(SiteErrorLog.log(
+'
+诊断
+'
+, 
+'
+[诊断] +${_diagWatch.elapsedMilliseconds}ms  $stage
+'
+, StackTrace.empty));
+}
 const List<LiveTabDef> kLiveTabs = [
   // 4 个主 tab（女主播/情侣/男主播/跨性别 ✓）；后 2 个是快捷叶子（移动流/手机版最新 ✓）—— 各自的筛选数据已整体移除 ✓
   LiveTabDef('女主播', 'girls', specialEvent: true),
@@ -116,43 +135,7 @@ const List<LiveTabDef> kLiveTabs = [
   ], parentTag: 'mobile'),
 ];
 
-//    生成方式 = 从 `sim/index.html` 的 `MOBILE_FILTERS` **原样抽取** ✓
-//    （recon 实测 + sim-dev 落地的最终数据 ✓：顺序 / 显示名 / tagId / 「未映射」全部照抄 ✓）。
-//    手抄会抄错 ✗（lead 明确提醒过 ✓）。
-// >>> LIVE_FILTERS_DATA_BEGIN
 
-
-/// 过滤器里的一个**子分组**（界面 = 小标题 + 一行多选 chip ✓；组内多值 = OR ✓）
-
-
-/// 一个过滤器（外貌 / 国家 / 可请求提供的表演）—— 界面 = **下划线 tab 样式**的 3 个入口 ✓
-
-
-
-// ⚠️ 下面这段是**一次性脚本抽取的产物** ✗ 别手改 ✓ —— 数据源 = `sim/index.html` 的 `LIVE_MAIN` + `LIVE_TAG_MAP` ✓
-//    （抽取规则：顺序 / 显示名 / tagId / 「未映射」全部原样照抄 ✓、逐层括号匹配不手抄 ✓；脚本已用完删除 ✓
-//     —— 以后要改就**按同一规则重跑一次抽取** ✗ 别手改这段 ✗）。
-//    ⚠️ 里面每个 `LiveFilter` 都是 **单选**（`single: true` ✓，与 sim 一致 ✓）：点一个换一个 ✓、再点已选 = 取消 ✓；
-//    依据（实测 ✓）：`[["tagLanguageChinese"]]` + `parentTag=tagLanguageChinese` → 200 / filteredCount 296 ✓；
-//    清掉选择（不带这两件）→ 回到无筛选的 1000 ✓；leaf 那两套多选（移动流/手机版最新）不受影响 ✓。
-/// ⚠️ 拆成 4 个具名常量 ✓ —— `const kLiveTabs` 里要按 tab 引用 const 值 ✗ 不能引用列表元素 ✓
-/// `女主播` tab 的子分类筛选（7 组 / 58 项 ✓）
-/// ⚠️ **单选** ✓（`single: true` —— 与 sim 一致 ✓）：点一个换一个 ✓、再点已选 = 取消 ✓；
-/// ⚠️ 拆成 4 个具名常量 ✓ —— `const kLiveTabs` 里要按 tab 引用 const 值 ✗ 不能引用列表元素 ✓
-/// `女主播` tab 的子分类筛选（7 组 / 58 项 ✓）
-/// `情侣` tab 的子分类筛选（4 组 / 36 项 ✓）
-/// `男主播` tab 的子分类筛选（8 组 / 60 项 ✓）
-/// `跨性別` tab 的子分类筛选（7 组 / 57 项 ✓）
-
-// <<< LIVE_FILTERS_DATA_END
-
-/// 一个 tab 的**已选过滤器状态** ✓
-///
-/// ⚠️ 分桶粒度 = **子分组** ✓（键 `<过滤器key>#<子分组名>` → tagId 数组 ✓）：同组多值 = OR ✓、
-///    组与组之间 = AND ✓。依据 lead 实测：`mobile + ageTeen + ethnicityAsian + bodyTypePetite
-///    + doAnal → 5 条` ✓（年龄/种族/体型各占一组 ✓）——整个过滤器当一桶会把 AND 变成 OR ✗。
-/// ⚠️ **按 tab 各一份** ✓（「移动流」和「手机版最新」互不影响 ✓ —— 页面里按下标各存一个 ✓）。
-/// ⚠️ 未映射项（没有 tagId 的标签）**不写进来** ✓（点了不过滤、也不硬猜 id ✓）。
 
 
 /// 一条直播房（`models[]` 里**可显示**的那些 ✓）
@@ -510,7 +493,21 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     // ① 2026-10-05 独立复查发现的功能缺口：原来这里有一句"没有筛选行就直接 return"的早退 ✗
     //   ⇒「4 个主分类 tab」拿不到 RefreshIndicator ⇒ **它们没有下拉刷新** ✗（删筛选行后的副作用 ✓）
     //   ⇒ 现在 6 个 tab 一律走同一条路 ✓（_refresh 用的是**当前 tab** 的 feed ✓ 未改 ✗）
-    return RefreshIndicator(onRefresh: _refresh, child: body);
+    if (!_diagFirstFrameDone) {
+      _diagFirstFrameDone = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _diagLog('C8 列表首帧画完'));
+    }
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (!_diagFirstScrollDone &&
+            (n is ScrollUpdateNotification || n is UserScrollNotification)) {
+          _diagFirstScrollDone = true;
+          _diagLog('C9 首次可滚动（用户能滑了）');
+        }
+        return false;
+      },
+      child: RefreshIndicator(onRefresh: _refresh, child: body),
+    );
   }
 
   /// ② 下拉刷新（用户 2026-10-05：现在卡片出来了都没法刷新 ✓）—— **复用** feed.reload() ✓ 不新造 ✗。
@@ -583,7 +580,13 @@ class _LiveFeedViewState extends State<_LiveFeedView>
         FetchedImage.warm(
             i + 8 < f.rooms.length ? f.rooms[i + 8].cover : null);
         final r = f.rooms[i];
-        return LiveRoomCard(room: r, onTap: () => _openRoom(r));
+        return LiveRoomCard(room: r, onTap: () {
+          _diagWatch..reset()..start();
+          _diagFirstFrameDone = false;
+          _diagFirstScrollDone = false;
+          _diagLog('A1 点卡片（t0）');
+          _openRoom(r);
+        });
       },
     );
   }
@@ -593,7 +596,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   void _openRoom(LiveRoom r) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username, id: r.id)),
-    );
+    ).then((_) => _diagLog('C10 已 pop 回列表（push future 完成）'));
   }
 
   Widget _hint(String s) => Padding(
@@ -603,7 +606,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
       );
 }
 
-/// **过滤器入口行**（**下划线 tab 样式** ✓ —— 与站点页上面那排主 tab **同一套观感** ✓，不是按钮 ✗）。
+
 
 
 
@@ -695,7 +698,7 @@ class LiveRoomCard extends StatelessWidget {
 
 /// **全屏房间页**（⚠️ 播放路径与模拟器**不同** ✗）
 ///
-/// 用户指定 ✓：① 左上角一个 X ② **点屏幕 toggle X 显隐**（默认隐藏 ✓）③ **静音**（没得商量 ✓）
+/// 用户指定 ✓：① 左上角一个 X ② **点屏幕 toggle X 显隐**（默认隐藏 ✓）③ **有声**（要能听见 ✓ 不静音 ✓）
 /// ④ X **不压状态栏**（留安全区 ✓）⑤ 返回列表**不重拉** ✓。
 ///
 /// ⚠️ 播放实现（2026-10-05 用户拍板换过 ✗，**别照着旧注释走** ✓）：**不再用 WebView 加载房间页** ✗ ——
@@ -793,11 +796,15 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   @override
   void initState() {
     super.initState();
+    _diagLog('A2 initState 进');
+    _showX.addListener(() => _diagLog('B5 X 生效 → show=${_showX.value}'));
     _checkAndPlay();
+    _diagLog('A2 initState 出');
   }
 
   @override
   void dispose() {
+    _diagLog('C7 dispose 进');
     _showX.dispose(); // notifier 也要释放 ✓
     final c = _c;
     _c = null;
@@ -807,6 +814,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       } catch (_) {}
       unawaited(c.dispose());
     }
+    _diagLog('C7 dispose 出');
     super.dispose();
   }
 
@@ -855,16 +863,22 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// ⚠️ `httpHeaders` 带我们的 UA（照 [Site.ua] ✓）—— HLS 请求会带上它 ✓。
   Future<void> _open(String url, int id, {required bool allowFallback}) async {
     if (!mounted) return;
+    _diagLog('A3 建控制器');
     final c = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: <String, String>{'User-Agent': Site.ua},
     );
     _c = c;
     c.addListener(_onTick);
+    _diagLog('A3 已挂监听');
     try {
+      _diagLog('A3 initialize 发起');
       await c.initialize().timeout(const Duration(milliseconds: _kInitTimeoutMs + 2000));
+      _diagLog('A3 initialize 返回');
       await c.setVolume(1.0); // **不静音** ✓（给人看的 ✓ 音量走系统默认/满 ✓）
+      _diagLog('A3 setVolume 返回');
       await c.play();
+      _diagLog('A3 play 返回');
       if (!mounted) return;
       setState(() {});
     } catch (e) {
@@ -911,6 +925,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     if (v.position > Duration.zero) {
       // 真出过画面 ⇒ 这条 URL 才算"缓存可用" ✓（下次进同房间直接拼 ✓ 跳过 master ✓）
       if (!_cacheConfirmed) {
+        _diagLog('A4 首帧出画面（position>0 ✓）');
         _cacheConfirmed = true;
         final u = _kpVariantUrl;
         if (u != null && u.isNotEmpty) _variantCache[widget.id] = u;
@@ -940,7 +955,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
               left: 24, // 让出左边缘 24px 给原生侧滑 ✓（代价：最左 24px 内点屏幕不再 toggle ✓ 已知 ✓）
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => _showX.value = !_showX.value, // 只改 notifier ⇒ 不重建整页 ✓
+                onTap: () {
+                  _diagLog('B5 点屏幕');
+                  _showX.value = !_showX.value; // 只改 notifier ⇒ 不重建整页 ✓
+                },
                 child: const SizedBox.expand(),
               ),
             ),
@@ -985,7 +1003,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                         shape: const CircleBorder(),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
-                          onTap: () => Navigator.of(context).pop(), // X = 关闭回列表 ✓
+                          onTap: () {
+                            _diagLog('B6 点 X = pop 起点');
+                            Navigator.of(context).pop(); // X = 关闭回列表 ✓
+                          },
                           child: const SizedBox(
                             width: 76,
                             height: 76,
