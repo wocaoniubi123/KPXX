@@ -78,6 +78,14 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
         title: Text('错误日志', style: TextStyle(color: kTxt)),
         // ③ 2026-10-05 用户报：**返回箭头也要黑白自适应** ✓ —— 原来只给标题/正文/右上 3 按钮上了 kTxt，
         //   leading 的返回箭头漏了 ✗ ⇒ 这里补 AppBar 的 foregroundColor（照 xhamsterlive.dart:382 既有写法 ✓）。
+        // ④ 2026-10-05 用户报：进页时左上角会"闪一下 ‹ 设置"再只剩 ‹（框架自动返回按钮取上一页标题 ✗）
+        //   ⇒ 用户要求**干脆不显示"设置"** ✓：显式给 leading ⇒ 只画箭头 ✓ 颜色跟随 kTxt ✓
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new),
+          color: kTxt,
+          tooltip: '返回',
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
         foregroundColor: kTxt,
         centerTitle: true,
         actions: [

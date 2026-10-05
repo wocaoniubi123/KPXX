@@ -105,11 +105,57 @@ class LiveTabDef {
 //   前缀固定 `[诊断] +<相对 t0 毫秒>  <阶段>` ✓，t0 = 点卡片那一刻 ✓。
 // ============================================================================
 final Stopwatch _diagWatch = Stopwatch();
-bool _diagFirstFrameDone = true;   // 初始 true ⇒ 只有 A1 点卡片重置后才会打 C8 ✓
 bool _diagFirstScrollDone = true;  // 同上 ✓
 void _diagLog(String stage) {
   unawaited(SiteErrorLog.log('诊断', '[诊断] +${_diagWatch.elapsedMilliseconds}ms  $stage', StackTrace.empty));
 }
+// P1：与帧**无关**的 16ms 采样 —— 即使一帧都不出也能把卡顿量出来 ✓；约 5s / 300 tick 后自停 ✓
+void _diagStartTimerSampler() {
+  _diagLog('P1 采样开始（16ms × 300 ⇒ 约 5s ✓）');
+  var n = 0;
+  var prev = DateTime.now();
+  Timer.periodic(const Duration(milliseconds: 16), (timer) {
+    n++;
+    final now = DateTime.now();
+    final dt = now.difference(prev).inMilliseconds;
+    if (dt >= 60) _diagLog('P1 tick#$n 间隔 ${dt}ms（Timer 被卡住 ⇒ 与帧无关的卡顿）');
+    prev = now;
+    if (n >= 300) {
+      _diagLog('P1 采样结束（tick#$n）');
+      timer.cancel();
+    }
+  });
+}
+
+// P2：自续期的**帧**采样 —— 不依赖任何 build ✓；只报 ≥60ms 的帧 ✓；约 5s 后自停 ✓
+void _diagStartFrameSampler() {
+  _diagLog('P2 采样开始');
+  var n = 0;
+  var bad = 0;
+  final start = DateTime.now();
+  var prev = DateTime.now();
+  void tick(Duration _) {
+    n++;
+    final now = DateTime.now();
+    final dt = now.difference(prev).inMilliseconds;
+    if (dt >= 60) {
+      bad++;
+      if (bad == 1) {
+        _diagLog("C8' 第一帧被卡：帧#$n 间隔 ${dt}ms");
+      } else {
+        _diagLog('P2 帧#$n 间隔 ${dt}ms');
+      }
+    }
+    prev = now;
+    if (now.difference(start).inMilliseconds < 5000) {
+      WidgetsBinding.instance.addPostFrameCallback(tick);
+    } else {
+      _diagLog('P2 采样结束（帧#$n）');
+    }
+  }
+  WidgetsBinding.instance.addPostFrameCallback(tick);
+}
+
 const List<LiveTabDef> kLiveTabs = [
   // 4 个主 tab（女主播/情侣/男主播/跨性别 ✓）；后 2 个是快捷叶子（移动流/手机版最新 ✓）—— 各自的筛选数据已整体移除 ✓
   LiveTabDef('女主播', 'girls', specialEvent: true),
@@ -485,25 +531,6 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     // ① 2026-10-05 独立复查发现的功能缺口：原来这里有一句"没有筛选行就直接 return"的早退 ✗
     //   ⇒「4 个主分类 tab」拿不到 RefreshIndicator ⇒ **它们没有下拉刷新** ✗（删筛选行后的副作用 ✓）
     //   ⇒ 现在 6 个 tab 一律走同一条路 ✓（_refresh 用的是**当前 tab** 的 feed ✓ 未改 ✗）
-    if (!_diagFirstFrameDone) {
-      _diagFirstFrameDone = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _diagLog('C8 列表首帧画完');
-        // ②(b) 帧间隔采样：连排 '30 帧，只报间隔 ≥60ms 的（⇒ 直接看出"卡在第几帧"✓）；
-        //   零 API 风险 ✓（addPostFrameCallback 本项目已有先例 ✓）；纯读数、不改任何时机 ✗。
-        var k = 0;
-        var prev = DateTime.now();
-        void tick(Duration _) {
-          k++;
-          final now = DateTime.now();
-          final dt = now.difference(prev).inMilliseconds;
-          if (dt >= 60) _diagLog('C8+ 帧#$k 间隔 ${dt}ms（这一帧被卡住）');
-          prev = now;
-          if (k < 30) WidgetsBinding.instance.addPostFrameCallback(tick);
-        }
-        WidgetsBinding.instance.addPostFrameCallback(tick);
-      });
-    }
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
         if (!_diagFirstScrollDone &&
@@ -589,8 +616,9 @@ class _LiveFeedViewState extends State<_LiveFeedView>
         final r = f.rooms[i];
         return LiveRoomCard(room: r, onTap: () {
           _diagWatch..reset()..start();
-          _diagFirstFrameDone = false;
           _diagFirstScrollDone = false;
+          _diagStartTimerSampler();  // P1 ✓ 与帧无关、与路由无关
+          _diagStartFrameSampler();  // P2 ✓ 自续期、不依赖 build
           _diagLog('A1 点卡片（t0）');
           _openRoom(r);
         });
