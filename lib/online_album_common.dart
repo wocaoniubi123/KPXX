@@ -346,6 +346,13 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   ///   （连点两次不许弹两个转圈对话框 ☠）。由 `_confirmCrop` 的 `try/finally` 负责复位 ✓。
   bool _applying = false;
 
+  /// ★ 2026-10-05（用户要求"**在原图上自己选区域**" ✓）：图的**真实尺寸** ——
+  ///   `_enterCrop` 里取一次图就量出来 ✓（拿不到 ⇒ 留 `null` ⇒ `_clampT` **退回旧算法** ✓ 不崩 ✗）。
+  Size? _imgSize;
+
+  /// 那次取图的字节 —— 「确认」直接复用 ✓（`_rawCache ?? await _download(...)` ✓ **那条路的语义不变** ✓）。
+  Uint8List? _rawCache;
+
   @override
   void initState() {
     super.initState();
@@ -392,8 +399,21 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     final m = _tc.value;
     final s = m.getMaxScaleOnAxis();
     final t = m.getTranslation();
-    final mx = f.width * (s - 1) / 2;
-    final my = f.height * (s - 1) / 2;
+    // ★ 2026-10-05（用户报"图几乎只有框那么大 ⇒ 移不动" ✓ 真因）：旧式 `f*(s-1)/2` **漏了 cover 基底** ☠
+    //   ⇒ s=1 时余量恒 0 ⇒ 拖不动 ✓。新式（按图**真实尺寸** ✓）：
+    //     base = max(fw/iw, fh/ih) · dw = iw*base*s · mx = max(0,(dw-fw)/2) ✓（my 同理 ✓）
+    //   实例：框 393×852 · 图 1080×1620 ⇒ base=0.5259 ⇒ s=1: dw=568 ⇒ mx=**87.5** / my=**0** ✓（正好盖住框 + 横轴能移 ✓）；
+    //        s=2: dw=1136/dh=1704 ⇒ mx=**371.5** / my=**426** ✓（两轴都能移 ✓）；任何 s 都恒有 dw≥fw、dh≥fh ⇒ **不露白** ✓
+    final img = _imgSize;
+    double mx, my;
+    if (img == null || img.isEmpty) {
+      mx = f.width * (s - 1) / 2; // 拿不到图尺寸 ⇒ 退旧算法 ✓（不崩 ✗）
+      my = f.height * (s - 1) / 2;
+    } else {
+      final base = math.max(f.width / img.width, f.height / img.height);
+      mx = math.max(0.0, (img.width * base * s - f.width) / 2);
+      my = math.max(0.0, (img.height * base * s - f.height) / 2);
+    }
     final x = t.x.clamp(-mx, mx).toDouble();
     final y = t.y.clamp(-my, my).toDouble();
     if ((x - t.x).abs() > 0.01 || (y - t.y).abs() > 0.01) {
@@ -459,7 +479,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         barrierDismissible: false,
         builder: (_) => const Center(child: CircularProgressIndicator()),
       ));
-      final raw = await _download(widget.urls[_index]);
+      final raw = _rawCache ?? await _download(widget.urls[_index]); // ★ 复用进框选时取的那份 ✓ 语义不变 ✓
       final png = await _cropPngWithFallback(raw, _frame); // ★ 后台 isolate + 回落 ✓（见下面那支 ✓）
       if (png == null) {
         msg.showSnackBar(const SnackBar(content: Text('裁剪失败：拿不到图片数据 ✗')));
@@ -561,7 +581,23 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     return bd?.buffer.asUint8List();
   }
 
-  void _enterCrop() {
+  /// ★ 2026-10-05（用户要求"在原图上自己选区域" ✓）：进框选**顺手取一次图** ✓
+  ///   ⇒ ① 量出图**真实尺寸**（给 `_clampT` 算余量 ✓）② 字节存 `_rawCache`（「确认」直接复用 ✓ 不再现取 ✓）
+  ///   ⚠️ 失败/拿不到 ⇒ `_imgSize = null` ⇒ `_clampT` 退旧算法 ✓ **不崩** ✗。
+  Future<void> _enterCrop() async {
+    try {
+      final raw = await _download(widget.urls[_index]);
+      _rawCache = raw;
+      final codec = await ui.instantiateImageCodec(raw);
+      final fi = await codec.getNextFrame();
+      _imgSize = Size(fi.image.width.toDouble(), fi.image.height.toDouble());
+      fi.image.dispose();
+      codec.dispose();
+    } catch (e) {
+      debugPrint('取图/取尺寸失败 ⇒ 退旧夹住算法：$e');
+      _imgSize = null;
+    }
+    if (!mounted) return;
     _tc.value = Matrix4.identity();
     setState(() => _crop = true);
   }
@@ -595,10 +631,16 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       //   ⚠️ **框选态一律禁止** ✗（那会儿竖向拖动是"拖图"✓ 打架 ☠）。
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onVerticalDragEnd: (d) {
-          if (_crop) return; // 框选态禁止下滑关 ✓
-          if ((d.primaryVelocity ?? 0) > 250) _close(); // 向下 = 正速度 ✓
-        },
+        // ★ 2026-10-05（用户报"点空白不关" ✓ 真因）：透明 ≠ 不吃指针 ⇒ 空白处补一个 tap 才收得到 ✓
+        //   四类边界：空白 ⇒ 关 ✓；图上（内层那个 detector 认领）⇒ 关 ✓（同一动作 ✓）；
+        //   两颗按钮（`TextButton` 认领）⇒ **不关** 且能点 ✓；页码（下面套了 `opaque` 壳）⇒ **不关** ✓；
+        //   框选态 ⇒ `_crop ? null` ⇒ **一律不关** ✓
+        onTap: _crop ? null : _close,
+        onVerticalDragEnd: _crop
+            ? null
+            : (d) {
+                if ((d.primaryVelocity ?? 0) > 250) _close(); // 向下 = 正速度 ✓
+              },
         child: Stack(
         fit: StackFit.expand,
         children: [
@@ -619,23 +661,20 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                   children: [
                     Flexible(
                       child: GestureDetector(
-                        // ★ 2026-10-05（**用户要求 / sim 无** ✗ —— sim 侧已另派同步 ✓）：**单击图片 = 关预览** ✓
-                        //   ⚠️ 与左右滑**不打架**的依据（框架机制 ✓ 不是我"觉得"✓）：
-                        //     `onTap` 与 `onHorizontalDrag*` **挂在同一个 `GestureDetector`** ✓ ⇒
-                        //     框架把它们放进**同一个手势竞技场** ✓：按下后**没动**（< `kTouchSlop`）⇒ `Tap` 胜 ✓；
-                        //     一旦横向位移超过 slop ⇒ `Tap` 判负、Drag 接管 ✓ ⇒ **我没写任何"哪个优先"的代码** ✗
-                        //     （下滑那层是**外层** `GestureDetector` ✓ 只管竖轴 ✓ 三者在竞技场里各自判 ✓）
-                        //   ⚠️ 只在**预览态** ✓（外面就是 `if (!_crop)` ✓）；**框选态不挂** ✗（那里拖拽=移图 ✓）
-                        //   ⚠️ 只包**图片本身**（`Flexible` 内 ✓）⇒ 页码、两颗按钮在**兄弟节点**上 ✓ ⇒
-                        //     点它们**不会**关预览 ✓；"点空白关"由浮层遮罩负责 ✓（`barrierDismissible` ✓）
-                        onTap: _close,
+                        // ★ 2026-10-05（用户报"只有快划才认" ✓ 真因）：**框选态必须把预览手势全摘掉** ☠
+                        //   —— 摘之前：这层与内层 `InteractiveViewer` 抢同一个指针 ⇒ 慢拖被 tap 认走/被僵住 ✓
+                        //   ⇒ 三件全部 `_crop ? null : …` ✓ ⇒ 框选态只剩"拖 + 捏" ✓（**只看位移、不看快慢** ✓）
+                        onTap: _crop ? null : _close,
                         // 切图手势：横向位移 ≥40px 才算 ✓（照 sim ✓）；竖着划不算 ✓
-                        onHorizontalDragStart: (_) => _dragDx = 0,
-                        onHorizontalDragUpdate: (d) => _dragDx += d.delta.dx,
-                        onHorizontalDragEnd: (_) {
-                          if (_dragDx.abs() < 40) return; // = sim 的阈值 ✓
-                          _step(_dragDx < 0 ? 1 : -1); // 左滑 = 下一张 ✓ 右滑 = 上一张 ✓（sim :6969 ✓）
-                        },
+                        onHorizontalDragStart: _crop ? null : (_) => _dragDx = 0,
+                        onHorizontalDragUpdate:
+                            _crop ? null : (d) => _dragDx += d.delta.dx,
+                        onHorizontalDragEnd: _crop
+                            ? null
+                            : (_) {
+                                if (_dragDx.abs() < 40) return; // = sim 的阈值 ✓
+                                _step(_dragDx < 0 ? 1 : -1); // 左滑 = 下一张 ✓ 右滑 = 上一张 ✓（sim :6969 ✓）
+                              },
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(10), // = sim 的 border-radius:10px ✓
                           child: InteractiveViewer(
@@ -647,9 +686,15 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: 8), // = sim `margin:8px 0 0` ✓
-                      child: Text('${_index + 1} / ${widget.urls.length}',
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(0.85), fontSize: 12)),
+                      // ★ 2026-10-05（用户口径 ✓）：**点页码不算"点图"** ⇒ 包一层 `opaque` 壳把点击吃掉 ✓
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {}, // 什么都不做 ⇒ 不外泄给外层（外层那个 tap 会关预览 ✗）
+                        child: Text('${_index + 1} / ${widget.urls.length}',
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.85),
+                                fontSize: 12)),
+                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: 12), // = sim `.row2 margin-top:12px` ✓
@@ -657,7 +702,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                       //   （`Row` 默认 `mainAxisSize.max` ⇒ 宽度 = 上面的内容盒宽 ✓ = sim 的 `width:100%` ✓）
                       child: Row(
                         children: [
-                          Expanded(child: _pill('设为背景', _enterCrop)),
+                          Expanded(
+                              child: _pill('设为背景', () => _enterCrop())), // `_enterCrop` 异步化 ✓ 包一层 ✓
                           const SizedBox(width: 10), // = sim `.row2 gap:10px` ✓
                           Expanded(child: _pill('保存相册', _save)),
                         ],
