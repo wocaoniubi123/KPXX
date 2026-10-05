@@ -52,13 +52,23 @@ class WebEmbed extends StatefulWidget {
 
 class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   late final WebViewController _ctl;
-  double _progress = 0;
+  /// ★ 2026-10-05（#2 局部化）：进度**只在进度条那一小块**里用 ValueNotifier ✓
+  ///   —— 原来写 `double` + 每次 `setState` ⇒ **整页（含 WebViewWidget）重建** ✗，现在不再重建整页 ✓。
+  final ValueNotifier<double> _progress = ValueNotifier<double>(0);
   String? _error;
 
   /// ⚠️ 切到别的 tab 再回来**不重载** ✓（站点自己的 feed 有滚动位置/正在播的那条 ✓）；
   /// 之前短片 tab 那种"每次切回来重新随机"是**自研列表**的行为 ✗，现在归站点 ✓。
   @override
   bool get wantKeepAlive => true;
+
+  /// ★ 2026-10-05（#2 补漏）：释放局部化的进度 notifier ✓
+  ///   ⚠️ 顺序：**先释放子件 ✓ 再 `super.dispose()`** ✓（框架要求 ✓）。
+  @override
+  void dispose() {
+    _progress.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -85,10 +95,10 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (p) {
-            if (mounted) setState(() => _progress = p / 100);
+            if (mounted) _progress.value = p / 100; // ★ 不再 setState ✓ 只重建进度条 ✓
           },
           onPageFinished: (_) {
-            if (mounted) setState(() => _progress = 1);
+            if (mounted) _progress.value = 1; // ★ 语义不变：置 1 ⇒ 条消失 ✓
             _applyGuard();
           },
           onWebResourceError: (e) {
@@ -145,7 +155,7 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   void _reload() {
     setState(() {
       _error = null;
-      _progress = 0;
+      _progress.value = 0; // ★ 语义不变：重试 ⇒ 条重现 ✓（外层 setState 保留 ✓ 它同时清 _error ✓）
     });
     // ⚠️ 2026-10-05 修：重试改成**原地刷新** ✓ —— 原来重发的是**入口地址** ✗ ⇒ 站内跳转过的位置
     //    全丢 ✗（用户报的"点重试弹回入口页" ✓）。`reload` 就是 WKWebView 的原地刷新 ✓：
@@ -179,14 +189,24 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
           WebViewWidget(controller: _ctl),
         // 进度条压在网页顶部 ✓（原 web_page.dart 是挂在 AppBar 底下 ✓ —— 挪进来两边共用 ✓）
         // 2026-10-05 曾因误判"状态栏细条"删除；查明细条来自**背景图顶边**（换图即消失 ✓ 非软件所画 ✓）后还原 ✓
-        if (_error == null && _progress < 1)
+        // ★ 2026-10-05（#2 局部化）：把"进度"这一小块包进 ValueListenableBuilder ✓
+        //   ⚠️ 包法**必须是"Positioned 在外、builder 在内"** ✗ —— Positioned 是 ParentDataWidget ✓
+        //      塞进 builder 里会报 "Incorrect use of ParentDataWidget" ✗（硬约束 ✓）
+        //   ⚠️ 完成时**仍返回同一层 Positioned 外壳** ✗（内部 0 高度 ✓）——
+        //      保证本 Stack 的【非定位子层集合】与改前**逐条一致** ✓（"有声无画"那类隐患的守则 ✓）
+        if (_error == null)
           Positioned(
             left: 0,
             right: 0,
             top: 0,
-            child: LinearProgressIndicator(
-              value: _progress == 0 ? null : _progress,
-              minHeight: 2,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _progress,
+              builder: (_, p, __) => p >= 1
+                  ? const SizedBox.shrink()
+                  : LinearProgressIndicator(
+                      value: p == 0 ? null : p,
+                      minHeight: 2,
+                    ),
             ),
           ),
       ],

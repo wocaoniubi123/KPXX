@@ -285,6 +285,12 @@ class KpPlayer extends ValueNotifier<KpState> {
   late final List<StreamSubscription> _subs;
 
   String _lastFatal = ''; // 最后一条 error/fatal 文本（仅作卡住时的附注）
+
+  /// ★ 2026-10-05（用户拍板：起播优化 #1）：**提前建好的引擎**（还没上屏 ✓）。
+  ///   为什么：`KpPlayer(...)` + `tuneStartupQuiet` **与 URL 无关** ✓ ⇒ 可以放在"按需取源"（最长 6 秒）**之前** ✓。
+  ///   ⚠️ 只提前"构造" ✗ —— **`_attach`（上屏时机）一字不动** ✓ ⇒ 取源期间界面**不会**出现空壳播放器 ✓。
+  ///   回收：交接给 `_kp` 后置空 ✓；失败/销毁路径由 [_dropPrebuiltKp] 收掉 ✓。
+  KpPlayer? _prebuiltKp;
   bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
@@ -903,6 +909,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     disposeBv();
     disposeSwipe();
     _kp?.shutdown();
+    _dropPrebuiltKp(); // ★ 还没上屏的引擎也要收掉 ✓（新增 ✓）
     super.dispose();
   }
 
@@ -918,6 +925,14 @@ class PlayerWidgetState extends State<PlayerWidget>
     //    → 从"排了重试 → 重开"这条路上来的时候，提示会一直挂到新播放的 position 抬起来为止 ✗。
     //    ⚠️ 只清提示（`_autoRetrying`）✗ **不动** `_autoRetries` 额度 ✓（连续失败仍受 5 次上限约束 ✓）。
     _autoRetrying = false;
+    // ★ 2026-10-05（用户拍板：起播优化 #1）：**引擎构造提前**到"按需取源"之前 ✓
+    //   —— 构造 + 起播参数都与 URL 无关 ✓ ⇒ 与取源窗口（最长 6 秒 ✓）**重叠** ✓；
+    //   ⚠️ 上屏（`_attach`）**仍在取源完成之后** ✓（时机与改前逐字一致 ✓ 不出现空壳播放器 ✓）。
+    if (_kp == null && _prebuiltKp == null) {
+      _prebuiltKp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
+      // ⭐ 详情页/全屏都套起播参数（#5 ✓）——与短片页**同一个实现** ✓（`KpPlayer.tuneStartupQuiet` ✓）
+      KpPlayer.tuneStartupQuiet(_prebuiltKp!);
+    }
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
     if (_sources.isEmpty &&
         widget.lazyUrl != null &&
@@ -952,11 +967,13 @@ class PlayerWidgetState extends State<PlayerWidget>
           _error = '这一集已失效（子文章打不开或没有视频）';
         });
         _notePlaybackError();
+        _dropPrebuiltKp(); // ★ 没上屏的引擎要收掉 ✓（本次新增 ✓）
         return;
       }
     }
     if (_sources.isEmpty) {
       setState(() => _error = '该文章暂无视频');
+      _dropPrebuiltKp(); // ★ 同上 ✓
       return;
     }
     setState(() {
@@ -966,10 +983,9 @@ class PlayerWidgetState extends State<PlayerWidget>
 
     var kp = _kp;
     if (kp == null) {
-      kp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
-      // ⭐ 详情页/全屏也套上起播参数（#5 ✓）——与短片页**同一个实现** ✓（`KpPlayer.tuneStartupQuiet` ✓）
-      KpPlayer.tuneStartupQuiet(kp);
-      _attach(kp); // 立刻上屏
+      kp = _prebuiltKp!; // ★ 引擎在取源前就建好了 ✓（上面那段 ✓）—— 这里只负责**上屏** ✓
+      _prebuiltKp = null; // 交接完成 ⇒ 失败路径不再回收它 ✓
+      _attach(kp); // 立刻上屏（**时机与改前一致** ✓）
       setState(() => _busy = false);
     }
 
@@ -1093,6 +1109,14 @@ class PlayerWidgetState extends State<PlayerWidget>
     } finally {
       kp.removeListener(listener);
     }
+  }
+
+  /// ★ 收掉"提前建好但没上屏"的引擎 ✓（失败路径 + dispose 共用 ✓）。
+  ///   `shutdown()` 与 [dispose] 里对 `_kp` 用的是**同一个 API** ✓（:905 ✓）⇒ 不存在新机制 ✓。
+  void _dropPrebuiltKp() {
+    final pb = _prebuiltKp;
+    _prebuiltKp = null;
+    if (pb != null) unawaited(pb.shutdown());
   }
 
   void _attach(KpPlayer kp) {
