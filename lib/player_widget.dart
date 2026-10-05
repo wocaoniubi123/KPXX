@@ -286,11 +286,6 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   String _lastFatal = ''; // 最后一条 error/fatal 文本（仅作卡住时的附注）
 
-  /// ★ 2026-10-05（用户拍板：起播优化 #1）：**提前建好的引擎**（还没上屏 ✓）。
-  ///   为什么：`KpPlayer(...)` + `tuneStartupQuiet` **与 URL 无关** ✓ ⇒ 可以放在"按需取源"（最长 6 秒）**之前** ✓。
-  ///   ⚠️ 只提前"构造" ✗ —— **`_attach`（上屏时机）一字不动** ✓ ⇒ 取源期间界面**不会**出现空壳播放器 ✓。
-  ///   回收：交接给 `_kp` 后置空 ✓；失败/销毁路径由 [_dropPrebuiltKp] 收掉 ✓。
-  KpPlayer? _prebuiltKp;
   bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
   Timer? _stallTimer;
   Duration _lastPos = Duration.zero;
@@ -753,6 +748,13 @@ class PlayerWidgetState extends State<PlayerWidget>
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 
   KpPlayer? _kp;
+
+  /// ★ 2026-10-05（用户拍板：起播优化 #1）：**提前建好的引擎**（还没上屏 ✓）。
+  ///   为什么：`KpPlayer(...)` + `tuneStartupQuiet` **与 URL 无关** ✓ ⇒ 可以放在"按需取源"（最长 6 秒）**之前** ✓。
+  ///   ⚠️ 只提前"构造" ✗ —— **`_attach`（上屏时机）一字不动** ✓ ⇒ 取源期间界面**不会**出现空壳播放器 ✓。
+  ///   回收：交接给 `_kp` 后置空 ✓；失败/销毁路径由 [_dropPrebuiltKp] 收掉 ✓。
+  ///   ⚠️ 2026-10-05 CI 修复：本字段原来落在 `class KpPlayer` 里 ✗ ⇒ 7 条 `undefined_identifier` ⇒ 挪到本类（使用点全在 `PlayerWidgetState` ✓）。
+  KpPlayer? _prebuiltKp;
   late List<String> _sources =
       widget.sources.where((s) => s.isNotEmpty).toList();
   VoidCallback? _pauseHooked; // 挂在 switcher.pauseTick 上的监听（换 widget 时要摘）
