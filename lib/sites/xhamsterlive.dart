@@ -602,7 +602,6 @@ class _LiveFeedViewState extends State<_LiveFeedView>
             i + 8 < f.rooms.length ? f.rooms[i + 8].cover : null);
         final r = f.rooms[i];
         return LiveRoomCard(room: r, onTap: () {
-          _prewarmMaster(r.id); // P1 预热（并行 ✓ 不 await ✓）：把 master 这一跳提前到转场期间 ✓
           _openRoom(r);
         });
       },
@@ -617,28 +616,6 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     );
   }
 
-  /// P1 预热（2026-10-05 用户拍板 ✓「1.3KB 无所谓，有预热最好」✓）：点卡片时**并行**把 master 清单提前抓回来 ✓
-  ///   目的：把"自动档"带来的那次额外往返（播放器拿到 master 还要自己再拉一遍 ✓）**挪进转场时间里** ✓。
-  ///   与 `_checkAndPlay` 的抓取**完全同源** ✓（同 URL ✓ 同 UA 头 ✓ 同 `Site.httpClient` ✓）；**失败静默** ✗（不弹错、不挡导航 ✓）。
-  ///   ⚠️ 这里**也要做那两条校验**：缓存命中路径（`_checkAndPlay` :868-871 ✓）会**跳过** HTTP 200/广告清单校验 ✗
-  ///   ⇒ 只有「200 ✓ 且不含 `MOUFLON-ADVERT` ✓」才写缓存 ✓；否则**一个字都不写** ⇒ 房间页照常自己抓+校验 ✓。
-  void _prewarmMaster(int id) {
-    if (id <= 0 || _variantCache.containsKey(id)) return;
-    unawaited(() async {
-      try {
-        final r = await Site.httpClient
-            .get(Uri.parse(liveMasterUrl(id)),
-                headers: <String, String>{'User-Agent': Site.ua})
-            .timeout(const Duration(seconds: 3)); // 短超时 ✓ 免得挂着一个没人管的请求 ✗
-        if (r.statusCode != 200 || r.body.contains('MOUFLON-ADVERT')) return;
-        if (_variantCache.length >= _kLiveVariantCacheMax) _variantCache.clear(); // ★ #4：上限（只放**写入之前** ✓ 刚写的这条不会被清掉 ✓）
-        _variantCache[id] = liveMasterUrl(id); // 与 _checkAndPlay 的口径一致 ✓（值 = master URL ✓）
-        _prewarmBody[id] = r.body; // ★ #3：正文也存下来 ⇒ 房间页可省掉那次重复 GET ✓（200/广告校验已在上面做过 ✓）
-      } catch (_) {
-        // 预热失败一律静默 ✓（导航与播放都不受影响 ✓）
-      }
-    }());
-  }
 
   Widget _hint(String s) => Padding(
         padding: const EdgeInsets.all(16),
@@ -778,11 +755,6 @@ const int _kLiveVariantCacheMax = 200;
 
 final Map<int, String> _variantCache = <int, String>{};
 
-/// ★ 2026-10-05（#3 预热 body 复用）：**另存**预热抓回来的 master **正文** ✓
-///   —— ⚠️ 与 [_variantCache] **分开两张表** ✗：那张的值必须仍是 **master URL**（`_open(url…)` 直接用它 ✓）。
-///   生命周期（用户批准的最保守口径 ✓）：**用完即清**（`_checkAndPlay` 里 `remove` ✓）+ **房间页 dispose 清那一项** ✓。
-final Map<int, String> _prewarmBody = <int, String>{};
-
 /// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
 /// ⚠️ **档位策略（2026-10-05 三次拍板）**：**撤销降档上限，恢复"取 master 第一档"= 最高画质** ✓。
 ///   沿革：① 最初"不许降分辨率"（用户要画质 ✓）→ ② 为治卡顿临时降档（短边 ≤720 ✓）→ ③ **新框架已治好卡顿** ⇒ 撤上限 ✓。
@@ -859,7 +831,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   @override
   void dispose() {
     _hideX?.cancel(); // ③ 自动隐藏的 Timer 必须一起收 ✓（不打破"Timer 全有 cancel"这条 ✓）
-    _prewarmBody.remove(widget.id); // ★ #3：离开房间时清掉本房间的预热正文项 ✓（防无界增长 ✓）
     _hideX = null;
     _showX.dispose(); // notifier 也要释放 ✓
     final c = _c;
@@ -907,10 +878,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
     try {
       final url = liveMasterUrl(id);
-      // ★ 2026-10-05（#3）：命中预热 ⇒ **省掉这次 GET** ✓；⚠️ 校验**一步不省** ✗（广告校验对 body 照走 ✓）
-      var body = _prewarmBody.remove(id); // **用完即清** ✓（命中与否都清掉这一项 ✓）
-      if (body == null) {
-      // ↓ 未命中路径 = **与改前逐字一致**（缩进保持原样 ✓ 不引入无谓 diff ✗）
       final r = await Site.httpClient
           .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 8));
@@ -918,9 +885,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (mounted) setState(() => _err = '直播流打不开（HTTP ${r.statusCode}）✗');
         return;
       }
-      body = r.body; // 未命中 ⇒ 用这次抓的正文（Dart 在此提升为非空 ✓）
-      } // ← 未命中路径结束 ✓
-      if (body.contains('MOUFLON-ADVERT')) { // ★ 两条路径共用同一份校验 ✓
+      if (r.body.contains('MOUFLON-ADVERT')) {
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return;
       }
