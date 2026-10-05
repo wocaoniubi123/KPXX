@@ -6,6 +6,8 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'bg_album_page.dart';
 import 'detail_page.dart';
+import 'online_album2_page.dart';
+import 'online_album_page.dart';
 import 'play_history_page.dart';
 import 'play_record_tile.dart';
 import 'settings.dart';
@@ -185,6 +187,40 @@ class SettingsPage extends StatelessWidget {
         children: [
           _head(icon: Icons.image_outlined, title: '背景图'),
           _albumEntry(context),
+
+          // ★ 2026-10-05 用户要求：在「从相册选择 / 恢复默认」上方**加两个按钮** ✓
+          //   ✅ 现状：两个按钮**都已接线** ✓ —— 分别打开 在线图集1 / 在线图集2 ✓（各自带 `PageBg` ✓）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _button(
+                    label: '在线图集1',
+                    // ★ 2026-10-05：接线 ✓（推送时**必须包 PageBg** ✓ —— 本页其它 push 点同款 ✓）
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PageBg(child: OnlineAlbumPage()),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _button(
+                    label: '在线图集2',
+                    // ★ 2026-10-05：接线 ✓（照本页既有 push 写法 ✓ **必须包 PageBg** ✓）
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const PageBg(child: OnlineAlbum2Page()),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(

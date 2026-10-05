@@ -27,6 +27,17 @@
     position: relative; width: 100%; height: 100%; background: #fff;
     border-radius: 55px; overflow: hidden; display: flex; flex-direction: column;
   }
+  /* ---------- **独立短片模式**（`/shorts…` ✓ —— 给 App 的 WebView 当"站点自己的短片页"用 ✓）
+     把模拟器的**手机外壳整套拆掉**、铺满视口 —— WebView 里看到的就是"一个网页" ✓。
+     真机上状态栏/灵动岛由 iOS 自己画 → 我们画的那两样不显示 ✓，日志侧栏也不显示 ✓。 */
+  body.standalone { display: block; background: #000; }
+  body.standalone .phone { width: 100%; height: 100%; padding: 0; border-radius: 0; box-shadow: none; }
+  body.standalone .screen { border-radius: 0; }
+  body.standalone .island,
+  body.standalone .status,
+  body.standalone .side { display: none; }
+  /* 独立页里没有"上一层"可回 → 不显示那个 ✕（返回交给 App 自己的导航） */
+  body.standalone .feed .fclose { display: none; }
   /* 灵动岛（16 Pro 的挖孔）：真机上必有 —— iOS 系统截图**不渲染它**，所以用户给的截图里
      看不见它。用户 2026-10-02 明确要求加上；位置/尺寸照真机：125×37、顶部 11px、水平居中。 */
   .island {
@@ -198,9 +209,52 @@
   /* 短片专用：**2 列**（用户 2026-10-02："把竖屏改为2个并行"）—— 卡片更大、一屏约 6 张就铺满，
      所以接口每页 5~6 条也不算太糟（配合并发 2 页 = 10 条，首屏一次画好）。 */
   .cards.shorts { grid-template-columns: repeat(2, 1fr); }
+  /* ★ 「在线图集1」的卡片（2026-10-05 用户拍板 ✓ · app-sim 同步 ✓）—— **只作用这一页** ✗
+     ⚠️ 用 **id** 选中（`#albCards` ✓ 全文件就这一个 ✓）→ 全局 `.cards` / `.card` **一个字没动** ✗
+     · **双列**：`repeat(2, 1fr)` ✓（竖屏固定两列 ✓ 不靠 auto-fill ✗ 所以窄屏也不会塌成 1 列 ✓）
+     · **竖版封面 3:4** ✓（依据 = App 侧卡片就是 `AspectRatio(3/4)` ✓）—— ⚠️ **不写死宽高** ✗，
+       宽度由**列宽**决定 ✓（`width:100%` 那条在既有的 `.card .cover img` 里本来就有 ✓）
+     · 图片 `object-fit: cover` ✓（既有的 `.card .cover img` 那条 ✓ 裁边但**不拉伸** ✓ **没改它** ✗） */
+  #albCards { grid-template-columns: repeat(2, 1fr); }
+  #albCards .card .cover { aspect-ratio: 3 / 4; }
+  /* ★ 「在线图集1」顶部那排分类 tab —— **独立样式** ✗（用户 2026-10-05 拍板 ✓：这排不许再共用直播页那套 ✓）
+     ⚠️ 下面三条的值 = 从 `.lv-tabs` / `.lv-tab` / `.lv-tab.on`（本文件 :409-412）**逐字抄来** ✓
+        —— 用户没要求变样 ✓ 只是要**独立** ✓（改完 computed 必须逐项一致 ✓ 报告里对照 ✓）
+     ⚠️ 项用**独立类名 `.albtab`** ✓（**不是**留着 `.lv-tab` ✗）—— 依据：只要项上还挂 `.lv-tab`，
+        直播那套的**全局规则仍会命中它** ✗（以后直播加个新属性 ⇒ 立刻漏过来 ✗）⇒ 换类名才算"真独立" ✓
+        （用户允许二选一 ✓ 这里选"换类名" ✓ 见报告"选了哪种/依据" ✓）
+     ⚠️ 容器**只留 id** ✗ 不带 `lv-tabs` ✓（→ 直播那排改 gap/padding 都影响不到这排 ✓） */
+  #albTags { display: flex; gap: 16px; padding: 2px 2px 0; overflow-x: auto; }
+  #albTags .albtab { flex: 0 0 auto; padding: 9px 2px; font-size: 14px; color: #111; background: none; border: 0;
+                     border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
+  #albTags .albtab.on { color: #e8590c; font-weight: 600; border-bottom-color: #e8590c; }
+  /* ★ 「在线图集2」（photos18）—— 也**独立** ✗（按 id 作用域 ✓ 跟图集1 各管各的 ✓ 别把两组并起来 ☠） */
+  #alb2Cards { grid-template-columns: repeat(2, 1fr); }        /* 双列 ✓（竖屏固定 ✓ 全局 .cards 没动 ✗） */
+  #alb2Cards .card .cover { aspect-ratio: 3 / 4; }             /* 竖版 3:4 ✓ 不写死宽高 ✓ */
+  #alb2Tabs, #alb2Sorts { display: flex; gap: 16px; padding: 2px 2px 0; overflow-x: auto; }
+  #alb2Tabs .alb2tab, #alb2Sorts .alb2tab { flex: 0 0 auto; padding: 9px 2px; font-size: 14px; color: #111;
+    background: none; border: 0; border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
+  #alb2Tabs .alb2tab.on, #alb2Sorts .alb2tab.on { color: #e8590c; font-weight: 600; border-bottom-color: #e8590c; }
+  /* ★ 「在线图集2」的**排序标签**（用户 2026-10-05 拍板：这 5 个是**标签/chip** ✗ 不是 tab ✓）
+     · 形态值 = 从 mock **既有**的子分类行 `.subbar .sub`（本文件 :189-194）**逐字抄来** ✓ **没新造整套样式** ✗
+       （padding 5px 12px ✓ · border-radius 15px ✓ · font-size 12px ✓ · 1px 描边 ✓ · 选中橙底白字 ✓）
+     · ⚠️ 仍**独立** ✗：id 作用域 + 独立类名 `.alb2chip` ✓（**不带** `.subbar/.sub` ✗ 免得吃全局规则 ✓）
+     · 与上面 21 个 tab（`#alb2Tabs` 那套 = 14px 裸文字 + 2px 下划线 ✓）**形态明显不同** ✓（见报告 computed 对照 ✓）
+     · 容器只改了内边距（`8px 12px` → `8px 2px 0` ✓）—— 因为这排已经在页面那层 10px 留白里 ✗ 免得叠成 22px ✓ */
+  #alb2Sorts { display: flex; gap: 8px; overflow-x: auto; padding: 8px 2px 0; flex: 0 0 auto;
+               scrollbar-width: none; touch-action: pan-x; }
+  #alb2Sorts .alb2chip { flex: 0 0 auto; padding: 5px 12px; border-radius: 15px; font-size: 12px;
+    background: transparent; border: 1px solid rgba(60,60,60,.35); color: #2c2c2c; cursor: pointer; white-space: nowrap; }
+  #alb2Sorts .alb2chip.on { background: #e8590c; color: #fff; }
   /* 短片瀑布流：一屏一条、黑底铺满（用户 2026-10-02 要的抖音式竖屏流）。
      ⚠️ `touch-action: none` 必须加 —— 否则浏览器把上下滑当页面滚动、左右滑当返回，手势全被抢走。 */
   .feed { position: absolute; inset: 0; background: #000; z-index: 55; overflow: hidden; touch-action: none; }
+  /* **内嵌形态**（用户 2026-10-03 ✓）：短片 tab 的"**内容区**"= 站点自己的短片页 ——
+     「点击短片 tab 就显示播放了，播放器区域就在主分类、短片 tab 下面那块区域，**上面的 tab 要保持显示**」✓。
+     做法：把它放进 flex 流里（插到 `.tabs` 之后 ✓）→ 高度自然 = tab 行以下那块 ✓（**不全屏** ✗）。
+     全屏那套（默认 `position:absolute; inset:0`）留给"点卡片进流"那条路 ✓。 */
+  .feed.embed { position: relative; inset: auto; flex: 1 1 auto; min-height: 0; z-index: 1; }
+  .feed.embed .fclose { display: none; }  /* 内嵌没有"上一层"可回（切 tab 就是出口）→ 不显示 ✕ ✓ */
   .feed video { width: 100%; height: 100%; object-fit: contain; background: #000; }
   .feed .pstate { position: absolute; top: 50%; left: 0; right: 0; text-align: center; color: #fff; font-size: 14px; }
   .feed .fhint { position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); color: #fff;
@@ -353,6 +407,83 @@
   .scard-hd .tt { font-size: 15px; font-weight: 600; flex: 1; cursor: pointer; }
   .scard-hd .go { font-size: 12px; color: #9aa0a6; cursor: pointer; }
   .scard-sub { font-size: 12px; color: #9aa0a6; padding: 3px 16px 0 54px; }
+  /* ---------- 直播页（2026-10-03 第 9/10 轮）----------
+     第 10 轮改成三级结构 ✓：直播区（站点宫格 ✓）= 复用模块页 `.grid/.tile` ✓ 不加新样式；
+     站点页 = 顶部 4 主分类 tab（`.lv-tabs/.lv-tab` ✓）+ 筛选行（复用 Pektino 的 `.pkbar` ✓）→
+     子分类全在**筛选弹窗**里 ✓（复用通用 `phChipDlg` ✓）→ 所以"全页铺开"那套样式已删 ✗ */
+  .lv-page { padding: 10px 12px 22px; }
+  /* ★ **下拉刷新**（2026-10-05 用户拍板 ✓；App 侧 = `RefreshIndicator` ✓）：
+     这条 = 手指往下拖时从列表顶部顶出来的提示条 ✓（高度由 JS 给 ✓、拖动中跟手 ✓、松手回 0 ✓）；
+     转圈直接复用既有 `.spin` ✓（`.lv-more` 也是它 ✓）→ 不新增动画/图片 ✓。
+     ⚠️ `.drag` = 手指还在拖 → **不做过渡**（跟手 ✓）；松手那一下才用过渡收回 ✓。
+     ⚠️ **两个页面共用这一条** ✓：直播站点页 ✓ + 「在线图集1」✓（都靠 `#lvRef` 这个 id ✓
+        —— 谁在页面里渲了它、谁就有下拉刷新 ✓ 见 `enablePullRefresh` ✓）。 */
+  .lv-ref { height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+            gap: 6px; font-size: 12px; color: #9aa0a6; transition: height .18s; }
+  .lv-ref.drag { transition: none; }
+  /* ★ 经典 **tab 栏**样式 ✓（用户 2026-10-03：不要圆角胶囊 ✗，要 tab 页那样 —— 文字 + 2px 下划线选中态 ✓）
+     ⚠️ 只给**主分类那排**用 ✓（那排过滤器入口 2026-10-05 已整排删掉 ✓ —— 原来它是**独立类 `.mf-btn`** ✗ 不在这组里 ✓）
+     未选字色：用户 2026-10-03 定 **不要灰 ✗ → 黑 ✓**（#111，比纯黑柔和一点 ✓）；选中态原样 ✓
+     ⚠️ 2026-10-05（App 真机反馈改了外观 → sim 同步 ✓；App 侧见 `lib/sites/xhamsterlive.dart` 的 TabBar ✓）：
+       · **行底那条 1px 分隔线整个删掉** ✗（原来这条 `border-bottom: 1px solid #eceef1` ✗ ← 对应 App 的
+         `dividerColor: const Color(0xFFECEEF1)` → `Colors.transparent` ✓）→ **不留占位** ✗（不留 1px 透明边框 ✓）
+       · **相邻文字间距 24 → 20px** ✓：App `labelPadding: horizontal 10`（每侧 10 ✓）→ 10+10 = **20** ✓；
+         这边 `.lv-tab` 自带 `padding: 9px 2px`（每侧 2 ✓）→ `gap` **20 → 16** ✓（16+2+2 = 20 ✓）
+       · `.lv-tab` 的 `margin-bottom: -1px` **一并删掉** ✗：它原来的唯一作用 = 让选中那条 2px 下划线**压住**行底
+         分隔线（照 DEVLOG 第 29 轮 ✓）；线没了还留着 → 下划线会探出这排的 padding box 1px ✗，而
+         `overflow-x: auto` 的元素 `overflow-y` 计算值是 auto ✗ → 那 1px 会被裁掉（下划线变 1px ✗）。
+         一起删 ✓ → 这排总高基本不变 ✓（少 1px 边框 ✓ + 少 1px 负边距 ✓；实测 CDP 量到下面那排只上移
+         **0.2px**（CSS px ✓）= 亚像素 ✓ 看不出来 ✓）
+       · 选中态 2px 橙下划线 / 橙字加粗 / 横向可滚 —— 全不动 ✓ */
+  .lv-tabs { display: flex; gap: 16px; padding: 2px 2px 0; overflow-x: auto; }
+  .lv-tab { flex: 0 0 auto; padding: 9px 2px; font-size: 14px; color: #111; background: none; border: 0;
+            border-bottom: 2px solid transparent; white-space: nowrap; cursor: pointer; }
+  .lv-tab.on { color: #e8590c; font-weight: 600; border-bottom-color: #e8590c; }
+  .lv-url { font-size: 12px; color: #2f3642; background: #f5f6f8; border-radius: 10px; padding: 9px 10px;
+            word-break: break-all; line-height: 1.5; }
+  /* 房间卡：**2 列竖版** ✓（封面 3:4 + 主播名 + 观看数 + 在线标 ✓） */
+  .lv-rooms { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 10px 2px 4px; }
+  .lv-room { background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); cursor: pointer; }
+  .lv-room .cov { position: relative; width: 100%; aspect-ratio: 3 / 4; background: #eceff3; }
+  .lv-room .cov img { width: 100%; height: 100%; object-fit: cover; display: block;
+                      -webkit-user-drag: none; }   /* 下拉刷新要能从卡片上起手 ✓ —— 图默认 draggable ✗ 会掐断 pointer 流 ✗ */
+  .lv-room .live { position: absolute; left: 8px; top: 8px; background: #e03131; color: #fff; font-size: 11px;
+                   padding: 2px 7px; border-radius: 9px; font-weight: 600; }
+  .lv-room .live.off { background: rgba(0,0,0,.5); font-weight: 400; }
+  .lv-room .vw { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.55); color: #fff;
+                 font-size: 11px; padding: 2px 7px; border-radius: 9px; }
+  .lv-room .nm { font-size: 13px; color: #333; padding: 8px 9px 10px; word-break: break-all; }
+  .lv-more { text-align: center; font-size: 12px; color: #9aa0a6; padding: 10px 0 2px; }
+  /* ⚠️ 2026-10-05 用户拍板：**那排过滤器入口整个删了** ✗（主 tab 的「筛选」+ 移动流/手机版最新那 3 个 ✓）
+     → 下面这几条**只属于它的 CSS 一并删干净** ✗：`.pkbar button.mf-btn.on`（那颗按钮的选中态 ✓）
+     和整组 `.mf-dlg`（「筛选器」弹窗 ✓ 14 条 ✓）—— 一份不留 ✓。
+     ⚠️ `.pkbar button` / `.pkbar select`（上面那两条 ✓）**没动** ✗ —— Pektino / Pornhub / xHamster
+     都还在用它们自己的 `.pkbar` ✓（全文件 `.pkbar` 落点：`:3181 #phbar`、`:3398 #xhstar`、
+     `:3458 #xhbar`、`:3566 #phstarbar`、`:3978 #pkbar` ✓ ← 那些**一个字没改** ✓） */
+  /* 竖版全屏播放层（第 12 轮 ✓）：铺满整个手机屏（含 appbar/底栏 ✓），左上角**只有一个 X** ✓ */
+  .lv-player { position: absolute; inset: 0; z-index: 70; background: #000; overflow: hidden; }
+  .lv-player video { width: 100%; height: 100%; object-fit: cover; background: #000; display: block; }
+  /* ⚠️ X 要**落在状态栏以下** ✗（用户 2026-10-03："X 太高、遮挡状态栏"）——
+     状态栏 `.status` 实测高 **62px**（含 21px 上内边距 ✓）→ X 放 70px（留 8px 缝 ✓） */
+  .lv-player .x { position: absolute; left: 10px; top: 70px; width: 34px; height: 34px; border-radius: 50%;
+                  background: rgba(0,0,0,.45); color: #fff; display: none; place-items: center;
+                  font-size: 16px; line-height: 1; z-index: 2; cursor: pointer; }
+  .lv-player .x.on { display: grid; }
+  .lv-player .st { position: absolute; left: 0; right: 0; bottom: 16px; text-align: center;
+                   font-size: 12px; color: #fff; opacity: .85; }
+  /* ⚠️ 2026-10-03 第 15 轮：一度复刻不了站点那条真流（pkey 不外露 ✗ + 清单是 mmp 私有混淆格式 ✗）
+     → 那段时间 sim 里只放站点给的**预览片** ✓；**第 20 轮起**改成挂**站点自己的播放器** ✓ 所以现在放的是真画面 ✓
+     这行字只用来在"播放器没起来"时提醒"当前是预览片" ✓ */
+  .lv-player .tag { position: absolute; left: 0; right: 0; bottom: 44px; text-align: center;
+                    font-size: 11px; color: #ffd7a8; opacity: .9; padding: 0 14px; line-height: 1.45; }
+  /* （第 33 轮 ✓ 用户拍板）那个"新窗口打开站点页"的兜底按钮**整个删掉** ✗ —— DOM / 绑定 / CSS 全清 ✓
+     理由：内嵌的站点播放器已经能出真画面 ✓ 它是早期兜底，多余 ✓ 留着还占一条降级文案 ✗ */
+  /* ★ 真·直播层：挂**站点自己的播放器**（MouflonPlayer ✓）—— 实测能出真画面 ✓
+     原理：他们的播放器是个 React 组件 ✓（CDN 上 `main.js` = CommonJS 模块 ✓，导出 MouflonPlayer/useMouflonPlayer ✓）
+     → 我们给 React + module/exports/require 垫片 + 全局 modulesrc ✓ 就能渲染它 ✓（分片令牌全在它内部算 ✓ 不用逆向 ✓） */
+  .lv-player .mmp { position: absolute; inset: 0; z-index: 1; display: none; background: #000; }
+  .lv-player .mmp.on { display: block; }
+  .lv-player .mmp video { width: 100%; height: 100%; object-fit: cover; }
   .srow { display: flex; align-items: center; gap: 12px; padding: 12px 16px 0; }
   .srow .lab { flex: 1; min-width: 0; }
   .srow .lab .t { font-size: 15px; }
@@ -627,6 +758,10 @@
         <svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
         <span>模块</span>
       </div>
+      <div class="item" data-nav="live">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="7" width="19" height="13" rx="2.2"/><path d="M8 3.6 12 7l4-3.4"/></svg>
+        <span>直播</span>
+      </div>
       <div class="item" data-nav="settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.05A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.05A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.05V3a2 2 0 1 1 4 0v.05A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.05a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.05a1.7 1.7 0 0 0-1.55 1z"/></svg>
         <span>设置</span>
@@ -685,7 +820,19 @@ setInterval(tickClock, 10000);
 /* 整机自适应缩放：目标是 440×956 的 iPhone 16 Pro Max（外壳再加 12px 边距），
    窗口放不下就整体缩小 —— 用 `zoom` 而不是 transform，因为 zoom 真改布局尺寸、
    不会留下滚动条。只缩放 .phone，不动页面右边那个日志面板。 */
+/** **独立短片模式**（2026-10-03 ✓）：路径以 `/shorts` 开头 = 给 **App 的 WebView** 当
+ *  "站点自己的短片页"用 ✓（server.mjs 把 `/shorts…` 也发本页 ✓，见那边的注释 ✓）。
+ *  这一模式下：外壳铺满视口（见上面 `body.standalone` 的 CSS ✓）、不缩放（fitPhone ✓）、
+ *  **仍然静音**（initMute ✓ —— 用户 2026-10-03：播放验证严禁开声音 ✗）、
+ *  进来直接进**瀑布流**（`startStandaloneShorts()` ✓）。 */
+const STANDALONE = /^\/shorts(\/|$)/.test(location.pathname);
+if (STANDALONE) document.body.classList.add('standalone');
+
+/* 整机自适应缩放：目标是 440×956 的 iPhone 16 Pro Max（外壳再加 12px 边距），
+   窗口放不下就整体缩小 —— 用 `zoom` 而不是 transform，因为 zoom 真改布局尺寸、
+   不会留下滚动条。只缩放 .phone，不动页面右边那个日志面板。 */
 function fitPhone() {
+  if (STANDALONE) return; // 独立模式铺满视口，不缩 ✗
   const phone = document.querySelector('.phone');
   if (!phone) return;
   const needW = 440 + 24, needH = 956 + 24;
@@ -700,7 +847,9 @@ const AES_KEY = 'f5d965df75336270';   // 与 app 的 fetched_image.dart 一致
 const AES_IV = '97b60394abc2fbe1';
 
 /* 模拟器**默认静音**：所有 video（含动态插入的）自动 muted ——
-   在别的浏览器/窗口打开模拟器也不用特意去关声音 */
+   在别的浏览器/窗口打开模拟器也不用特意去关声音。
+   ⚠️ 独立短片模式（`/shorts…`，给 App 的 WebView 当站点页用）**同样静音** ✓ ——
+   用户 2026-10-03 明确要求「**播放验证严禁开声音** ✗」；要在这个页面上出声**先问用户** ✓。 */
 (function initMute() {
   const mute = () => document.querySelectorAll('video').forEach((v) => {
     v.muted = true;
@@ -750,6 +899,8 @@ const BG_TEST_IMGS = ['alb1.jpg', 'alb2.jpg', 'alb3.jpg', 'alb4.jpg', 'alb5.jpg'
 
 /** ?nav=settings：直达设置页（截图/调试用；站点清单加载完不许切回宫格） */
 const WANT_SETTINGS = /[?&]nav=settings\b/.test(location.search);
+/** ?nav=live：直达直播页（和 ?nav=settings 一个路子 ✓ 截图/调试用 ✓） */
+const WANT_LIVE = /[?&]nav=live\b/.test(location.search);
 /** ?albumpick=1：直达图集页并自动弹出「添加背景」弹层（截图/调试用，同样不许被站点清单加载抢回宫格） */
 const WANT_ALBUMPICK = /[?&]albumpick=1\b/.test(location.search);
 /** ?site=N：直达第 N 个站点的列表页（0 起；截图/调试用） */
@@ -775,7 +926,20 @@ async function reloadSites() {
   const j = await r.json();
   if (j.error) throw new Error('解析 lib/sites.dart 失败：' + j.error);
   SITES = j.sites || [];
+  // **短片预热**（用户 2026-10-03："数据加载的不是很及时" ✗）：进页面就把真站的短片条目热好 ✓
+  //（`moments` 接口 6 页并发 ✓，条目**自带片源** ✓）→ 点「短片」tab 时通常已经就绪、**换条瞬时** ✓。
+  // ⚠️ 预热的是**真站数据** ✓（不是造出来的 ✗）—— 见 warmShortsPool 的注释 ✓。
+  {
+    const xh = SITES.find((s) => s.template === 'xhamster');
+    if (xh) warmShortsPool(xh);
+  }
   log(`站点清单：${SITES.map((s) => s.name).join('、')}`, 'ok');
+  // **独立短片模式**（`/shorts…`）：清单到手就直接进瀑布流 ✓（不画宫格 ✗ —— 这一模式是
+  //  "给 App 的 WebView 当站点页面用" ✓，见 STANDALONE 与 startStandaloneShorts ✓）
+  if (STANDALONE) {
+    startStandaloneShorts();
+    return;
+  }
   // ?site=N 直达某站点的列表页（截图/调试用，和 ?nav=settings 一个路子）
   if (WANT_SITE >= 0 && SITES[WANT_SITE]) {
     openSite(SITES[WANT_SITE]);
@@ -2267,9 +2431,17 @@ async function fetchList(site, cat, subKey, page) {
     return phFetchList(site, subKey || cat.key, page);
   }
   if (tpl === 'xhamster') {
-    // 「短片」tab：**两段式**取数（第 1 页 = `/shorts/newest` 的页面 JSON（45 条 ✓）、
-    // 第 2 页起 = `/api/v1/moments?page=N`（5~6 条 ✓））—— 详见 xhMoments 上方说明 ✓
+    // 「短片」tab：**第 1 页 = 预热池** ✓（moments 条目：**自带封面 + 片源** ✓ → 卡片点开就是"设上 src 出画" ✓），
+    // 第 2 页起 = `/api/v1/moments?page=N`（5~6 条 ✓）—— 详见 xhMoments / warmShortsPool 上方说明 ✓
+    // ⚠️ 2026-10-03 对齐 App：短片 tab 回**卡片网格** ✓（见 viewList 的注释 ✓）→ 卡片要封面 ✓ 也要片源 ✓。
+    //    以前第 1 页走页面 JSON 那 45 条 ✗：**有封面但没片源** ✗ → 点开还要逐条抓详情页（5~15s ✗）。
     if (cat.name === '短片') {
+      if (page <= 1) {
+        warmShortsPool(site);                              // 进页面就热过 ✓；没热/没好就现在热 ✓
+        const items = shortsPool.length ? shortsPool : ((await shortsFirstP) || []);
+        window.__shortsItems = items.slice();               // 卡片点击靠它按 url 找下标 ✓（renderCards）
+        return items;
+      }
       return xhMoments(site, page);
     }
     // xHamster 两个 tab 各有自己的"选择器覆盖"，**只在该 tab 自己列表里生效**：
@@ -2485,39 +2657,124 @@ function shuffleArr(a) {
   return a;
 }
 
+/** `moments` 接口响应 → sim 的 item（**顶层函数**：`xhMoments` 与"短片预热池"共用 ✓，别各抄一份 ✗）。
+ *  片源（`sources.standard.h264`）：**直链 mp4 优先** ✓ —— 一是与 App 的「mp4 优先」一致 ✓，
+ *  二是**不用 hls.js** ✓（少一次 CDN 往返，换条更快 ✓）；`quality:'auto'` 那条是 m3u8 → 只当兜底 ✓。 */
+function xhMomentItems(body) {
+  const out = [];
+  if (!body) return out;
+  let j = null;
+  try { j = JSON.parse(body); } catch (_) { return out; }
+  for (const it of (j.items || [])) {
+    const url = String(it.pageURL || '').replace(/^https?:\/\/[^/]+/, '');
+    const title = String(it.title || '').replace(/\s+/g, ' ').trim();
+    if (!url || !title) continue;
+    const h264 = ((it.sources || {}).standard || {}).h264 || [];
+    const auto = h264.find((x) => x && x.quality === 'auto') || h264[0] || {};
+    // ⚠️ 取站点数组里的**第一条 mp4** = **站点默认档**（实测是 480p ✓）——
+    //    用户 2026-10-02 定的："短片的话你就使用网站默认给的分辨率就行" ✓；
+    //    顺带**起播更快** ✓（720p 同样时长要多下一倍数据 ✗，实测首帧 2.4~3.7s ✗）。
+    const mp4List = h264.filter((x) => x && x.quality !== 'auto' && /\.mp4/.test(x.url || ''));
+    out.push({
+      title,
+      url,
+      cover: it.posterUrl || it.thumbUrl || it.cover || '',
+      // meta 放作者名（站点流里每条都是「作者」+ 观看数，这里取作者就够）
+      meta: (it.landing && it.landing.name) ? String(it.landing.name) : '',
+      badge: '',
+      mp4: (mp4List[0] || {}).url || '', // 直链 mp4 = 站点默认档（480p ✓）
+      play: auto.url || '',              // m3u8 = 站点默认档（兜底 ✓）
+    });
+  }
+  return out;
+}
+
+/** CDN 主机先做 **DNS/TCP/TLS 预热**（`<link rel=preconnect>` ✓ 只建连、不拉字节 ✓）。
+ *  实测：换条慢就是慢在这里（新主机要 DNS+TLS ✗，实测 2.5~10 秒的那几条 ✓）→ 先热上省 0.3~1 秒 ✓。 */
+function preconnectHosts(items) {
+  const hosts = new Set();
+  for (const it of items.slice(0, 8)) {
+    for (const u of [it.mp4, it.play]) {
+      try { const h = new URL(u).host; if (h) hosts.add(h); } catch (_) {}
+    }
+  }
+  for (const h of hosts) {
+    if (document.querySelector('link[data-pc="' + h + '"]')) continue;
+    const l = document.createElement('link');
+    l.rel = 'preconnect';
+    l.href = 'https://' + h;
+    l.crossOrigin = '';
+    l.dataset.pc = h;
+    document.head.appendChild(l);
+  }
+}
+
+/** 预热**第一条的字节/连接** ✓ —— 用户点「短片」tab 时第一条基本就是"设上 src 出画" ✓。
+ *  ⚠️ 别用 `<video preload=auto>` ✗✗：实测（2026-10-03）**它一个请求都不发** ✗
+ *  ——`display:none` 不发 ✗；换成"挪出屏幕 + opacity:0"**也不发** ✗（`readyState` 恒 0、网络面板 0 条 ✓）。
+ *  改用 **`fetch(url, {mode:'no-cors'})`** ✓：opaque 响应读不了内容 ✗，但**请求一定发出去** ✓
+ *  → DNS/TCP/TLS + 首包都有了 ✓（可缓存的还会进 HTTP 缓存 ✓，后面 `<video>` 直接复用 ✓）。
+ *  ⚠️ no-cors 不能带 `Range` ✗（非安全列表头 ✗）→ 这条是**整文件**下载 ✗，所以**只热 1 条** ✓（不热一串 ✗）。 */
+function preloadBytes(url) {
+  if (!url) return;
+  fetch(url, { mode: 'no-cors' }).catch(() => {});
+}
+
+/** **短片预热池**（2026-10-03 ✓ 用户："**数据加载的不是很及时**" ✗）——
+ *  以前 sim 是**每条现抓详情页取源** ✗（5~15 秒 ✗，偶发代理超时 ✗）；但 `moments` 接口的条目
+ *  **自带片源** ✓ → 这里**一次并发抓 6 页**（每页 5~6 条 ✓，共 ≈33 条 ✓）攒成一个"**带源**的池子" ✓
+ *  → 之后进流/换条 **0 网络** ✓（片源已在手 ✓，只剩视频本身的下载 ✓）。
+ *  **进页面就开始预热** ✓（`reloadSites` 里调 ✓）→ 用户点「短片」tab 时通常已经好了 ✓。 */
+const SHORTS_PAGES = 3;   // ⚠️ 2026-10-03 从 6 收到 **3** ✗→✓（见下面 warmShortsPool 的注释）
+let shortsPoolP = null;   // 池子（3 页）的 promise（同一时间只热一次 ✓）
+let shortsFirstP = null;  // **第 1 页**的 promise（≈6 条 ✓ 带源 ✓）—— 进 tab 只等它 ✓，不等整个池 ✗
+let shortsPool = [];      // 热好的条目（**带 mp4/play 源** ✓）
+
+function warmShortsPool(site) {
+  if (shortsPoolP) return shortsPoolP;
+  const t0 = Date.now();
+  // ⚠️ 2026-10-03 **收紧**（用户报"模拟器站点加载不上" ✗ 之后）：原来**一进页面就并发 6 个**出站请求 ✗
+  //   （每个都走代理 ✗）→ 和首页图标/列表抢连接 ✗，很可能是把服务进程拖到卡死的诱因之一 ✗。
+  //   现在三条限制 ✓：① 第 1 页**立刻发**（进 tab 靠它起播 ✓），其余页**延迟 1.5 秒**再发（先让首页/图标 ✓）
+  //   ② 其余页**一次只开 2 个**（分批 ✓）③ 一共只抓 3 页（≈15 条 ✓ 够首屏 ✓）。
+  shortsFirstP = getHtml(site, '/api/v1/moments?page=1').then(xhMomentItems).catch(() => []);
+  shortsPoolP = (async () => {
+    const lists = [await shortsFirstP];
+    await sleep(1500);
+    for (let i = 1; i < SHORTS_PAGES; i += 2) {
+      lists.push(...(await Promise.all(
+        [i, i + 1].filter((k) => k < SHORTS_PAGES)
+          .map((k) => getHtml(site, '/api/v1/moments?page=' + (k + 1)).then(xhMomentItems).catch(() => [])))));
+    }
+    const seen = new Set();
+    shortsPool = [];
+    for (const list of lists) {
+      for (const it of list) {
+        if (!it.url || seen.has(it.url)) continue;
+        seen.add(it.url);
+        shortsPool.push(it);
+      }
+    }
+    const withSrc = shortsPool.filter((x) => x.mp4 || x.play).length;
+    // 顺序先洗一次 ✓（"每次进来不一样"：池子本身随机 + 进流时其余再打乱 ✓）
+    shuffleArr(shortsPool);
+    // 然后把**第一条**的字节/连接热起来 ✓ → 用户点「短片」tab 时第一条基本是"设上 src 就出画" ✓
+    preloadBytes(shortsPool[0] && (shortsPool[0].mp4 || shortsPool[0].play));
+    preconnectHosts(shortsPool);
+    log(`短片预热：${shortsPool.length} 条（带源 ${withSrc} 条）用时 ${Date.now() - t0}ms；已预热首条字节+CDN 连接`, 'dim');
+    return shortsPool;
+  })().catch((e) => {
+    shortsPoolP = null; // 失败别粘住（下次还能重试 ✓）
+    log('短片预热失败：' + ((e && e.message) || e), 'err');
+    return [];
+  });
+  return shortsPoolP;
+}
+
 async function xhMoments(site, page) {
   const p = Math.max(1, Math.floor(Number(page) || 1));
-  // 接口条目 → sim 的 item（moments 用；首屏页面 JSON 用下面的 xhShortsFirst ✓）
-  const parse = (html) => {
-    const out = [];
-    if (!html) return out;
-    let j = null;
-    try { j = JSON.parse(html); } catch (_) { return out; }
-    for (const it of (j.items || [])) {
-      const url = String(it.pageURL || '').replace(/^https?:\/\/[^/]+/, '');
-      const title = String(it.title || '').replace(/\s+/g, ' ').trim();
-      if (!url || !title) continue;
-      // 片源：接口里就带着（`sources.standard.h264`）—— ⚠️ 2026-10-03 起**只当兜底** ✓：
-      // App 的短片列表（`/shorts/newest` 的 initials JSON）里**不含 sources** ✗ → 片源一律
-      // 逐条抓详情页（见 feedSources）；这里是详情页取不到时的兜底。
-      // 取 `quality === 'auto'` 那条 = **站点默认档**（用户 2026-10-02："短片的话你就使用
-      // 网站默认给的分辨率就行"）；再留一个直链 mp4 当兜底（hls.js 起不来时用）。
-      const h264 = ((it.sources || {}).standard || {}).h264 || [];
-      const auto = h264.find((x) => x && x.quality === 'auto') || h264[0] || {};
-      const mp4 = (h264.find((x) => x && x.quality !== 'auto' && /\.mp4/.test(x.url || '')) || {}).url || '';
-      out.push({
-        title,
-        url,
-        cover: it.posterUrl || it.thumbUrl || it.cover || '',
-        // meta 放作者名（站点流里每条都是「作者」+ 观看数，这里取作者就够）
-        meta: (it.landing && it.landing.name) ? String(it.landing.name) : '',
-        badge: '',
-        play: auto.url || '',
-        mp4: mp4,
-      });
-    }
-    return out;
-  };
+  // 接口条目 → sim 的 item（映射见上面 `xhMomentItems` ✓，两处共用一份 ✓）
+  const parse = xhMomentItems;
   // **两段式取数**（见函数上方的说明 ✓）：第 1 页走页面 JSON，第 2 页起走 moments 接口
   const out = (p === 1)
     ? await xhShortsFirst(site)
@@ -3978,6 +4235,7 @@ function parseHtml(html) { return new DOMParser().parseFromString(html, 'text/ht
 function viewList(site, idx, scrollTop) {
   const cat = site.categories[idx];
   if (!cat) { log(site.name + ' 没有分类', 'err'); return; }
+  unmountShortsFeed(); // 从短片 tab 切走 → 先把内嵌的流收起来 ✓（否则它会一直盖在那块区域上 ✗）
   // 最深的一层子分类 key 就是实际要抓的路径/排序（与 api.dart 的 category() 一致）
   const sub1 = subTabOf(site, cat);
   const sub2 = subTabOf2(site, cat);
@@ -3996,11 +4254,13 @@ function viewList(site, idx, scrollTop) {
   //   再切到短片，数据就要重新随机取一份"。默认是按 key **缓存**列表状态的 → 切回去还是那批 ✗，
   //   而短片本来就是"随机批次"，缓存等于把这个特性废掉 ✗ → 进这个 tab 先把状态丢掉重拉。
   if (site.template === 'xhamster' && cat.name === '短片') {
-    listState.delete(key); // 丢掉列表状态 → 回到第 1 页重拉（2026-10-03 起第 1 页 = 页面 JSON ✓）
-    // ⚠️ 以前这里还要清 `xhMomentsBuf`/批次号（旧的"随机起始页"机制 ✗）—— 那套已删 ✓。
-    //   现在"每次进来不一样"靠两件事：每批**打乱**（xhMoments 里 ✓）+ 翻页走 moments 接口（内容不同 ✓）。
-    //   第 1 页那 45 条本身是站点固定的一份（与 App 一致 ✓），顺序才是随机的 ✓。
+    listState.delete(key); // 丢掉列表状态 → 回到第 1 页重拉（第 1 页 = 预热池 ✓ 见 fetchList）
   }
+  // ⚠️ 2026-10-03 **改回卡片网格**（App 1.0.17 起回退了 WebView、回到自研瀑布流 ✓，用户要求 sim 对齐 ✓）：
+  //   · 短片 tab = **2 列卡片网格**（封面 + 标题 ✓）→ **点卡片**才进瀑布流 ✓
+  //   · 卡片点击 → 瀑布流的老接线还在 ✓（见 renderCards 里 `a.url.startsWith('/shorts/')` 那段 ✓）
+  //   · 「tab 里直接就是播放器」那套（`mountShortsFeed` ✗）**不再用于这个 tab** ✗ —— 函数留着给
+  //     `/shorts…` 独立页当参考 ✓（那是"App 的 WebView 要加载站点页"时代的产物 ✗）
   const st = listState.get(key) || { items: [], page: 1, done: false };
   listState.set(key, st);
 
@@ -4302,8 +4562,14 @@ function feedClock(t) {
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
 }
 
-/** 退出瀑布流：把流元素藏起来 + 走正常的返回（回到短片卡片列表）。 */
+/** 退出瀑布流：把流元素藏起来 + 走正常的返回（回到短片卡片列表）。
+ *  ⚠️ **独立模式（`/shorts…`）** 和 **内嵌形态（短片 tab 里）** 都**没有"上一层"** ✗ ——
+ *  这两种情况直接不理 ✓（否则会把 App 的 WebView / 模拟器甩到别的界面上 ✗）。
+ *  内嵌形态的出口 = **切别的 tab** ✓（见 unmountShortsFeed ✓）。 */
 function feedExit() {
+  if (STANDALONE) return;
+  const fe = document.getElementById('feed');
+  if (fe && fe.classList.contains('embed')) return;
   const f = document.getElementById('feed');
   if (f) f.style.display = 'none';
   try { const v = document.getElementById('v'); if (v) v.pause(); } catch (_) {}
@@ -4363,14 +4629,15 @@ let feedPreCache = null;
 
 async function feedPreload(from) {
   if (!feedPreCache) feedPreCache = new Set();
-  const COUNT = 5; // 永远保持"前面 5 条已缓存"
+  const COUNT = 5; // 源地址预取窗口：永远保持"前面 5 条已拿到源"（0 网络 ✓）
+  const COUNT_BYTES = 2; // ⚠️ 只有**前面 2 条**真去拉字节 ✓（拉字节是跨域全量下载 ✗，多了白耗带宽且和当前条抢 ✗）
   const added = [];
   // 真去预取（去重 + 记账 ✓）；源还没到手时由下面的 then 补上 ✓
   const warm = (url, k) => {
     if (!url || feedPreCache.has(url)) return; // 已在缓存里的跳过（这就是"只补差额"）
     feedPreCache.add(url);
     added.push(k);
-    feedPrecacheOne(url, k);
+    if (k < COUNT_BYTES) feedPrecacheOne(url, k);
   };
   for (let k = 0; k < COUNT; k++) {
     const j = from + k;
@@ -4387,10 +4654,18 @@ async function feedPreload(from) {
   // 用户 2026-10-02："打日志就没必要了吧。只要修改好就可以了" → 不再打补货日志（行为见上方注释）
 }
 
+/** 预热**一条源**的字节/连接（给"前面几条"用 ✓）。
+ *  ⚠️ 2026-10-03 修：mp4 那次 `fetch(url)` **跨域会被 CORS 拒** ✗（CDN 不给 CORS 头 ✗）→
+ *  异常被吞掉 → **等于没预热** ✗（实测：换条 2.5~10 秒全卡在 DNS+TLS+首字节 ✓）。
+ *  改成 **`mode:'no-cors'`** ✓：拿到的是 opaque 响应、读不了内容 ✗，但**请求真发出去了**
+ *  ✓ → DNS/TCP/TLS 都热了 ✓（响应可缓存的话还会顺带进 HTTP 缓存 ✓）。
+ *  ⚠️ no-cors 下**不能带 `Range`** ✗（非安全列表头 → 会触发预检 ✗），所以别指望只拉前 256KB ✗ —— 
+ *  因此**只对"前面 1~2 条"做字节预热** ✓（见 `feedPreload` 的 COUNT_BYTES ✓），不是 5 条全拉 ✗。 */
 async function feedPrecacheOne(url, idx) {
   try {
     const isM3u8 = /\.m3u8/i.test(url);
-    if (!isM3u8) { await fetch(url).catch(() => {}); return; } // 直链 mp4：拉一下进缓存
+    if (!isM3u8) { await fetch(url, { mode: 'no-cors' }).catch(() => {}); return; }
+    // m3u8（兜底形态）：要读文本 ✗ → no-cors 读不了 ✗，只能按原样试（CDN 给 CORS 时才有效 ✓）
     const master = await (await fetch(url)).text();
     if (!/#EXTM3U/.test(master)) return;
     // master → 取**起播档**（hls.js 默认从低档起步，这里取第一条变体 = 最低档）
@@ -4409,14 +4684,14 @@ async function feedPrecacheOne(url, idx) {
   } catch (_) {}
 }
 
-/** **短片取源**：逐条抓详情页 → `sources`（与 App 的 `ShortsFeedPage._sourcesOf` **同一套语义** ✓）。
+/** **短片取源**：条目**自己带源就直接用** ✓（**0 网络** ✓）；不带源才去抓详情页 ✓。
  *
- *  ⚠️ 2026-10-03 对齐（App 1.0.10/1.0.11）：App 的短片列表来自页面 JSON，**列表里没有 sources** ✗
- *  → 片源必须**点哪条抓哪条的详情页**（`/shorts/<slug>`），源有**两种形态**（直链 mp4 / m3u8，
- *  见 `xhDetail` 的注释 ✓）。sim 原来直接用列表接口带的源开播 → 走不到详情页这条主路径 ✗。
- *  列表里那份源（`play`=HLS 默认档 / `mp4`=直链）**只当兜底**（App 没有这层；只在详情页取不到时用，
- *  日志会写明用了哪条 ✓ 免得把"兜底"误当成"正常路径"）。
- *  带缓存（同一条 URL 只抓一次）✓。 */
+ *  ⚠️ 两个来源的差别（2026-10-03 实测 ✓）：
+ *   · `moments` 接口的条目（含"短片预热池" ✓）**自带 `sources.standard.h264`** ✓ → 直接拿 ✓
+ *     （`mp4` = 直链、最高画质 ✓；`play` = m3u8 站点默认档 ✓ 当兜底）→ **换条瞬时** ✓
+ *   · 页面 JSON（`/shorts/newest` 的 45 条）**不含 sources** ✗ → 只能抓详情页 ✗（5~15 秒 ✗）
+ *  ⚠️ mp4 优先：一是与 App 的「mp4 优先」一致 ✓，二是**不加载 hls.js** ✓（少一次 CDN 往返 ✓）。
+ *  带缓存（同一条 URL 只算一次）✓ + 在途去重 ✓。 */
 const feedSrcCache = new Map();
 const feedSrcFetching = new Map(); // url → 正在取的 promise（同一时间只抓一次 ✓ 照 App 的 `_fetching`）
 let feedSeq = 0; // 抢答保护：等源期间用户又划走了 → 旧结果作废，别覆盖新条 ✗
@@ -4428,26 +4703,32 @@ function feedSources(i) {
   if (hit) return Promise.resolve(hit);
   const flying = feedSrcFetching.get(it.url);
   if (flying) return flying;
-  const listSrc = [it.play, it.mp4].filter(Boolean);
   const tail = (u) => String(u).split('?')[0].slice(-26);
+  // ① **条目自带源** → 直接用（0 网络 ✓ 换条瞬时 ✓）
+  const own = [it.mp4, it.play].filter(Boolean);
+  if (own.length) {
+    feedSrcCache.set(it.url, own);
+    log(`短片取源 #${i + 1}：条目自带 ${own.length} 条（首条 …${tail(own[0])}）`, 'dim');
+    return Promise.resolve(own);
+  }
+  // ② 不带源（页面 JSON 那 45 条 ✗）→ 抓详情页（慢 ✗，见上面的说明 ✓）
   const p = getHtml(feedSite, it.url)
     .then((html) => parseDetail(html, feedSite, it.url))
     .then((d) => (d && d.videos && d.videos[0] && d.videos[0].sources) || [])
     .then((srcs) => {
-      const use = srcs.length ? srcs : listSrc;
-      feedSrcCache.set(it.url, use);
+      feedSrcCache.set(it.url, srcs);
       feedSrcFetching.delete(it.url);
       // ⚠️ 这里**不做**字节预取 —— 字节预取只针对"前面几条"（`feedPreload` ✓）；
       //    当前这条由播放器自己拉，再 fetch 一份 = 白耗流量、且和起播抢带宽 ✗
       log(`短片取源 #${i + 1}：` + (srcs.length
         ? `详情页 ${srcs.length} 条（首条 …${tail(srcs[0])}）`
-        : '详情页 0 条 → 退回列表源' + (listSrc.length ? `（…${tail(listSrc[0])}）` : '（列表也没有）')), 'dim');
-      return use;
+        : '详情页 0 条 → 这条没有片源 ✗'), 'dim');
+      return srcs;
     })
     .catch((e) => {
       feedSrcFetching.delete(it.url);
-      log(`短片取源失败 #${i + 1}：${(e && e.message) || e}` + (listSrc.length ? ' → 退回列表源' : ''), 'err');
-      return listSrc;
+      log(`短片取源失败 #${i + 1}：${(e && e.message) || e}`, 'err');
+      return [];
     });
   feedSrcFetching.set(it.url, p);
   return p;
@@ -4484,8 +4765,10 @@ async function feedPlay(i) {
   if (my !== feedSeq) return;
   const url = srcs[0] || '';
   if (!url) { st.textContent = '这条没有片源'; return; }
-  const okHls = await ensureHls();
   const isM3u8 = /\.m3u8/i.test(url);
+  // ⚠️ 只有真要播 m3u8 才去加载 hls.js ✓ —— 短片的主源是**直链 mp4** ✓（见 `xhDetail` 的两种形态），
+  //    以前是无条件加载 → 每次进流都先去 3 个 CDN 试一遍 ✗（独立页/WebView 里就是"站外死链"风险 ✗）
+  const okHls = isM3u8 ? await ensureHls() : false;
   // ⚠️ **一旦真的开始播就抹掉"加载中…"**（用户 2026-10-02："我都开始看了还一直在"）：
   //    根因是 `else`（mp4 兜底）那条分支我忘了清 `pstate` ✗ —— hls.js 没加载上时视频照样播，
   //    但"加载中…"永远挂着。这里用 onplaying 兜住**所有**路径，以后加分支也不会再漏。
@@ -4521,6 +4804,9 @@ async function feedPlay(i) {
     if (isM3u8 && it.mp4) it._fb = true;
   }
   const upd = () => {
+    // ⚠️ 拖动跟手期间**不许被 timeupdate 覆盖** ✗（用户 2026-10-03 要求"拖动时跟手滚 + 时间跟手" ✓；
+    //    视频此时还在播 → `ontimeupdate` 每秒 4 次会把进度条/时间拽回去 ✗，实测就是这样 ✗）。
+    if (window.__feedScrub) return;
     const pos = v.currentTime || 0;
     const dur = v.duration || 0;
     $('ptime').textContent = feedClock(pos) + ' / ' + feedClock(dur);
@@ -4539,12 +4825,71 @@ async function feedPlay(i) {
   if (feedIdx >= feedItems.length - 2) feedLoadMore();
   // **预取接下来 5 条的片源地址**（与 App 的 `_precache` 5 条一致 ✓）—— 换条不用现等详情页
   feedPrecacheSources(feedIdx + 1, 5);
+  // **滚动 preconnect**（2026-10-03 ✓）：xHamster 的 mp4 主机**每条都不一样** ✗（`video7…` / `ip<随机号>.ahcdn.com` ✗）
+  // → 每次换条都要现做 DNS+TLS ✗（实测这就是"慢的那几条"：0.2s ✓ vs 1.5~3.8s ✗）。
+  // 所以每播一条，就把**后面 8 条**的主机先连上 ✓（只建连、不拉字节 ✓）。
+  preconnectHosts(feedItems.slice(feedIdx + 1, feedIdx + 9));
   // **预缓冲下一条**（当前这条开播之后再去做，别抢它的带宽 ✓）
   feedPreload(feedIdx + 1);
   upd();
 }
 
-function viewShortsFeed(site, items, start) {
+/** **独立短片页的入口**（`/shorts…` ✓ —— 给 App 的 WebView 当"站点自己的短片页"用 ✓）：
+ *  直接进瀑布流，条目取**预热池**（真站 `moments`，**自带片源** ✓ → 起播快 ✓）。
+ *  `/shorts/<slug>` 则**从那条开始**（池子里找得到就跳过去 ✓，找不到就从头 ✓）。 */
+async function startStandaloneShorts() {
+  const site = SITES.find((s) => s.template === 'xhamster');
+  if (!site) { log('独立短片页：站点清单里没有 xhamster 站', 'err'); return; }
+  // `/shorts/newest`、`/shorts/newest/2` 这些不是单条 slug ✓ → 从头开始 ✓
+  const m = /^\/shorts\/([^/?#]+)/.exec(location.pathname);
+  const want = (m && m[1] && m[1] !== 'newest') ? m[1] : '';
+  try {
+    const items = shortsPool.length ? shortsPool : await warmShortsPool(site);
+    if (!items.length) { log('独立短片页：预热池 0 条（站点或代理可能不通）', 'err'); return; }
+    let idx = 0;
+    if (want) {
+      const at = items.findIndex((x) => x.url.endsWith('/' + want));
+      if (at >= 0) idx = at;
+    }
+    viewShortsFeed(site, items, idx);
+  } catch (e) {
+    log('独立短片页加载失败：' + ((e && e.message) || e), 'err');
+  }
+}
+
+/** **短片 tab 的内嵌形态**（用户 2026-10-03 ✓）：
+ *  「点击短片 tab 就显示播放了，播放器区域就在主分类、短片 tab 下面那块区域，**上面的 tab 要保持显示**」✓
+ *  → 条目取**预热池**（真站 `moments` 6 页并发 ✓ **自带片源** ✓ → 换上**瞬时** ✓），渲染走现成的
+ *    `viewShortsFeed(…, embed=true)` ✓（**不新写播放器、不新写取数** ✗）。 */
+async function mountShortsFeed(site) {
+  unmountShortsFeed(); // 先收上一轮的（切走再切回来会重取 ✓，符合"每次进来都随机" ✓）
+  try {
+    let items = shortsPool;                        // 池子已经热好了 → 直接用 ✓
+    if (!items.length) {
+      warmShortsPool(site);                        // 没热/还没好 → 现在热（第 1 页**立刻**发 ✓）
+      items = (await shortsFirstP) || [];          // **只等第 1 页** ✓（≈6 条 ✓ 够起播 ✓；不等整个池 ✗）
+    }
+    if (!items.length) { log('短片 tab：第 1 页 0 条（站点或代理可能不通）', 'err'); return; }
+    viewShortsFeed(site, items, 0, true);
+  } catch (e) {
+    log('短片 tab 内嵌加载失败：' + ((e && e.message) || e), 'err');
+  }
+}
+
+/** 离开短片 tab（切到别的 tab / 回宫格）时收尾：暂停 + 把内嵌的流藏起来 ✓
+ *  （它会一直占着"tab 下面那块" ✗，不收起来别的内容就没地方显示 ✗）。 */
+function unmountShortsFeed() {
+  const el = document.getElementById('feed');
+  if (!el || !el.classList.contains('embed')) return;
+  try { const v = document.getElementById('v'); if (v) v.pause(); } catch (_) {}
+  el.style.display = 'none';
+  const b = $('body');
+  if (b) b.style.display = '';
+  const sc = document.querySelector('.screen');
+  if (sc) sc.classList.remove('feedon', 'feedpause');
+}
+
+function viewShortsFeed(site, items, start, embed) {
   feedSite = site;
   feedPreCache = null; // 每次进流重新预缓存（上一轮的缓存 key 作废，避免误判"已缓存"）
   // **瀑布流随机**（用户 2026-10-02："瀑布流随机"）：点的那条放第 1 位（点啥先看啥），其余全部打乱；
@@ -4553,12 +4898,20 @@ function viewShortsFeed(site, items, start) {
   const picked = arr.splice(Math.max(0, Math.min(start || 0, arr.length - 1)), 1)[0];
   feedItems = picked ? [picked].concat(shuffleArr(arr)) : shuffleArr(arr);
   push(() => {
-    showNav(false);
-    $('tabs').style.display = 'none';
-    $('subbar').style.display = 'none';
-    const sb2 = $('subbar2');
-    if (sb2) sb2.style.display = 'none';
-    setAppbar(`<div class="ic" onclick="feedExit()">‹</div><h1>短片</h1><div class="spacer"></div>`);
+    if (embed) {
+      // **内嵌形态**（用户 2026-10-03 ✓）：外壳的**顶栏 + tab 行保持显示** ✓
+      //   → 这里**不动** appbar / tabs / 底部导航 ✗（那些是外壳 ✓），只把卡片区腾空 ✓。
+    } else {
+      showNav(false);
+      $('tabs').style.display = 'none';
+      $('subbar').style.display = 'none';
+      const sb2 = $('subbar2');
+      if (sb2) sb2.style.display = 'none';
+      // 独立模式（`/shorts…`）没有"上一层"可回 → 不放返回键 ✓（导航交给 App 自己 ✓）
+      setAppbar(STANDALONE
+        ? `<div class="spacer"></div><h1>短片</h1><div class="spacer"></div>`
+        : `<div class="ic" onclick="feedExit()">‹</div><h1>短片</h1><div class="spacer"></div>`);
+    }
     const screen = document.querySelector('.screen');
     $('body').innerHTML = '';
     let el = document.getElementById('feed');
@@ -4580,14 +4933,24 @@ function viewShortsFeed(site, items, start) {
       screen.appendChild(el);
     }
     el.style.display = 'block';
-    // 状态栏：流是黑底的 → 用 sim 自己的"深底白字"机制（`.screen.hasbg.darkbg .status`）
-    // 否则状态栏是深色字、在黑底上**看不见** ✗（用户 2026-10-02 提 X 位置时一并暴露的问题）
+    el.classList.toggle('embed', !!embed);
+    if (embed) {
+      // 搬进 flex 流：**紧跟 tab 行之后** → 高度 = tab 行以下那块 ✓（CSS `.feed.embed` ✓）
+      const tabs = $('tabs');
+      if (tabs && tabs.nextSibling !== el) tabs.parentNode.insertBefore(el, tabs.nextSibling);
+      $('body').style.display = 'none';  // 卡片区让位（flex 里不占高度 ✓）
+    } else {
+      $('body').style.display = '';
+      if (el.parentNode !== screen) screen.appendChild(el);
+    }
+    // 状态栏/覆盖层的类：内嵌时**只加 feedon/feedpause** ✓ —— 不加 hasbg/darkbg ✗
+    //（那套是给"全屏黑底时状态栏翻白字"用的 ✗，内嵌时状态栏在上方、不在黑底上 ✓）
     const sc0 = document.querySelector('.screen');
-    if (sc0 && !sc0.classList.contains('darkbg')) {
+    if (!embed && sc0 && !sc0.classList.contains('darkbg')) {
       sc0.classList.add('hasbg', 'darkbg');
       window.__feedAddedBg = true;
     }
-    if (sc0) sc0.classList.add('feedon', 'feedpause'); // feedon=状态栏可提到流之上；feedpause=暂停态（刚进来还没播，按暂停态显示 X）
+    if (sc0) sc0.classList.add('feedon', 'feedpause'); // feedon=状态栏可提到流之上；feedpause=暂停态（刚进来还没播，按暂停态显示 ▶ 与标题）
     // 左上角 X（用户 2026-10-02 要求）＋ 顶栏返回键也走同一个出口（否则只会 pop 不会收起流元素）
     const fc = $('fclose');
     if (fc) fc.onclick = () => feedExit();
@@ -4617,6 +4980,45 @@ function viewShortsFeed(site, items, start) {
         const h = document.getElementById('fhint');
         if (h) h.style.display = 'none';
       };
+      // ---- 左右滑 = 快进/快退（**对齐 App 1.0.20 ✓**，用户 2026-10-03 要求 sim 跟上 ✓）----
+      //   ① 先减 **18pt 死区** ✓（横划不足 18pt = 不 seek ✓）
+      //   ② **一屏 = 30 秒** ✓（不再是"整条时长"✗，也不是固定大步 ✗）
+      //   ③ **按距离成比例** ✓（划得远就 seek 得多 ✓）
+      //   ⚠️ App 已删「▶/◀ N 秒」提示 ✗ → sim 照删 ✓；改成**跟手**：拖动时进度条 + 时间跟着手指走 ✓，
+      //      **松手才真跳** ✓（拖动过程中**不写 currentTime** ✗）。
+      const SEEK_DEAD_PX = 18, SEEK_SECS_PER_SCREEN = 30;
+      const seekSecs = (dx, w) => {
+        const d = Math.abs(dx) - SEEK_DEAD_PX;
+        if (d <= 0 || !w) return 0;
+        return (dx > 0 ? 1 : -1) * (d / w) * SEEK_SECS_PER_SCREEN;
+      };
+      window.__feedScrub = null; // 拖动中的 {base, target}（单位秒）
+      const seekPaint = () => {
+        const vv = document.getElementById('v');
+        const sc = window.__feedScrub;
+        if (!vv || !sc) return;
+        const dur = vv.duration || 0;
+        $('ptime').textContent = feedClock(sc.target) + ' / ' + feedClock(dur);
+        const pc = dur > 0 ? (sc.target / dur * 100) : 0;
+        $('pplay').style.width = pc + '%';
+        $('pknob').style.left = pc + '%';
+      };
+      const seekDrag = (dx) => {   // 跟手（**不写 currentTime** ✗）
+        const vv = document.getElementById('v');
+        if (!vv) return;
+        const bb = feedEl().getBoundingClientRect();
+        const add = seekSecs(dx, bb.width);
+        const base = window.__feedScrub ? window.__feedScrub.base : (vv.currentTime || 0);
+        const dur = vv.duration || 0;
+        window.__feedScrub = { base, target: Math.max(0, Math.min(dur || 9999, base + add)) };
+        seekPaint();
+      };
+      const seekDrop = () => {     // 松手才跳 ✓
+        const vv = document.getElementById('v');
+        const sc = window.__feedScrub;
+        window.__feedScrub = null;
+        if (vv && sc) vv.currentTime = sc.target;
+      };
       document.addEventListener('pointerdown', (e) => {
         if (!feedOpen()) return;
         window.__feedDown = true; // ⚠️ 必须记"按下了"：否则鼠标**只是悬停**时 pointermove 也会触发，
@@ -4643,9 +5045,7 @@ function viewShortsFeed(site, items, start) {
         const vv = document.getElementById('v');
         if (!vv) return;
         if (window.__feedMode === 'seek') {
-          const bb = feedEl().getBoundingClientRect();
-          const add = dx / bb.width * ((vv.duration || 0) || 120);
-          showHint((add >= 0 ? '▶ ' : '◀ ') + feedClock(Math.abs(add)));
+          seekDrag(dx); // **跟手**：进度条 + 时间跟着手指走 ✓（⚠️ 不再弹「▶/◀ N 秒」✗，App 已删 ✓）
         } else {
           showHint(dy < 0 ? '↑ 下一条' : '↓ 上一条');
         }
@@ -4664,9 +5064,7 @@ function viewShortsFeed(site, items, start) {
         const vv = document.getElementById('v');
         if (!vv) return;
         if (mode === 'seek') {
-          const bb = feedEl().getBoundingClientRect();
-          const add = dx / bb.width * ((vv.duration || 0) || 120);
-          vv.currentTime = Math.max(0, Math.min(vv.duration || 9999, (vv.currentTime || 0) + add));
+          seekDrop(); // 松手才跳 ✓（跟手期间只画进度条/时间 ✓）
         } else if (mode === 'switch') {
           if (Math.abs(dy) > 55) feedPlay(feedIdx + (dy < 0 ? 1 : -1));
         } else {
@@ -4674,7 +5072,7 @@ function viewShortsFeed(site, items, start) {
           if (vv.paused) vv.play().catch(() => {}); else vv.pause();
         }
       }, true);
-      document.addEventListener('pointercancel', () => { window.__feedMode = ''; window.__feedDown = false; hideHint(); }, true);
+      document.addEventListener('pointercancel', () => { window.__feedMode = ''; window.__feedScrub = null; window.__feedDown = false; hideHint(); }, true);
     }
     // 进度条也可点（跟详情页一致）
     $('pbar').onclick = (e) => {
@@ -5419,6 +5817,1880 @@ function stToggleAll() {
   log(`播放记录：${stShowAll ? '展开全部 ' + ST_RECORDS.length + ' 条' : '只显示前 ' + ST_PREVIEW + ' 条'}`);
 }
 
+/* -------- 直播页（2026-10-03 第 9 轮：**正式结构** ✓；底栏入口是第 8 轮加的 ✓）--------
+   用户要求 ✓：① 直播页 = **按钮宫格入口** ② **顶部 4 个主分类 tab**（女主播/情侣/男主播/跨性別 ✓）
+   ③ 每个 tab 下是**它自己的**子分类，按**分组**排列（组名小标题 + 组内按钮 ✓）
+   ④ 点子分类 → 先"**模拟跳转**"到 `https://zh.xhamsterlive.com/<path>` ✓（**先不做播放** ✗）
+   ⚠️ 下面的清单是用户给的 recon 结果 **原样转录** ✓（不自己造、不补条目 ✗）——
+      两个坑已避开 ✓：「全部分类」= `/tags/<main>` ✓；**不拼** `/<main>/best` ✗（那个固定是 `/girls/best` ✗）。 */
+const LIVE_MAIN = [
+  { name: '女主播', groups: [
+    { name: '特别', items: [['Oktoberfest Party', '/girls/oktoberfest-party'], ['中文', '/girls/chinese'], ['美国人', '/girls/american'], ['乌克兰女主播', '/girls/ukrainian'], ['新主播', '/girls/new'], ['VR摄像头', '/girls/vr'], ['虐恋', '/girls/bdsm'], ['购票表演', '/girls/ticket-and-group-shows']] },
+    { name: '年龄', items: [['少女18+', '/girls/teens'], ['鲜嫩青年22+', '/girls/young'], ['熟女', '/girls/milfs'], ['成熟', '/girls/mature'], ['老奶奶', '/girls/grannies']] },
+    { name: '种族', items: [['阿拉伯人', '/girls/arab'], ['亚洲人', '/girls/asian'], ['黑珍珠', '/girls/ebony'], ['印度人', '/girls/indian'], ['拉丁人', '/girls/latin'], ['混血主播', '/girls/mixed'], ['白人', '/girls/white']] },
+    { name: '体型', items: [['瘦', '/girls/petite'], ['运动型', '/girls/athletic'], ['中', '/girls/medium'], ['丰满', '/girls/curvy'], ['大号美女', '/girls/bbw']] },
+    { name: '头发', items: [['金发', '/girls/blondes'], ['黑', '/girls/black-hair'], ['棕发小妞', '/girls/brunettes'], ['红发', '/girls/redheads'], ['彩色', '/girls/colorful']] },
+    { name: '私秀表演', items: [['8-12代币', '/girls/cheapest-privates'], ['16-24代币', '/girls/cheap-privates'], ['32-60代币', '/girls/middle-priced-privates'], ['90+代币', '/girls/luxurious-privates'], ['可录制私秀', '/girls/recordable-privates'], ['偷窥表演', '/girls/spy'], ['视频通话(直播)', '/girls/cam2cam']] },
+    { name: '最受欢迎', items: [['互动玩具', '/girls/interactive-toys'], ['移动流', '/girls/mobile'], ['群交', '/girls/group-sex'], ['巨乳', '/girls/big-tits'], ['阴部多毛', '/girls/hairy'], ['户外', '/girls/outdoor'], ['大屁股', '/girls/big-ass'], ['肛交', '/girls/anal'], ['潮吹', '/girls/squirt'], ['炮机', '/girls/fuck-machine'], ['粗暴', '/girls/hardcore'], ['口交', '/girls/blowjob'], ['小胸部', '/girls/small-tits'], ['孕妇', '/girls/pregnant'], ['拳交', '/girls/fisting'], ['自慰', '/girls/masturbation'], ['剃光', '/girls/shaven'], ['深喉', '/girls/deepthroat'], ['恋足', '/girls/foot-fetish'], ['办公室', '/girls/office'], ['全部分类', '/tags/girls']] },
+  ] },
+  { name: '情侣', groups: [
+    { name: '特别', items: [['Oktoberfest Party', '/couples/oktoberfest-party'], ['中文', '/couples/chinese'], ['美国人', '/couples/american'], ['乌克兰情侣主播', '/couples/ukrainian'], ['新主播们', '/couples/new'], ['VR摄像头', '/couples/vr'], ['购票表演', '/couples/ticket-and-group-shows']] },
+    { name: '种族', items: [['印度人', '/couples/indian']] },
+    { name: '私秀表演', items: [['8-12代币', '/couples/cheapest-privates'], ['16-24代币', '/couples/cheap-privates'], ['32-60代币', '/couples/middle-priced-privates'], ['90+代币', '/couples/luxurious-privates'], ['可录制私秀', '/couples/recordable-privates'], ['偷窥表演', '/couples/spy'], ['视频通话(直播)', '/couples/cam2cam']] },
+    { name: '最受欢迎', items: [['互动玩具', '/couples/interactive-toys'], ['移动流', '/couples/mobile'], ['群交', '/couples/group-sex'], ['户外', '/couples/outdoor'], ['肛交', '/couples/anal'], ['潮吹', '/couples/squirt'], ['炮机', '/couples/fuck-machine'], ['粗暴', '/couples/hardcore'], ['口交', '/couples/blowjob'], ['孕妇', '/couples/pregnant'], ['拳交', '/couples/fisting'], ['狗式', '/couples/doggy-style'], ['自慰', '/couples/masturbation'], ['深喉', '/couples/deepthroat'], ['恋足', '/couples/foot-fetish'], ['办公室', '/couples/office'], ['假阳具或震动器', '/couples/dildo-or-vibrator'], ['老少配22+', '/couples/old-young'], ['69姿势', '/couples/69-position'], ['哥特', '/couples/goth'], ['全部分类', '/tags/couples']] },
+  ] },
+  { name: '男主播', groups: [
+    { name: '特别', items: [['Oktoberfest Party', '/men/oktoberfest-party'], ['中文', '/men/chinese'], ['美国人', '/men/american'], ['乌克兰男主播', '/men/ukrainian'], ['新主播们', '/men/new'], ['VR摄像头', '/men/vr'], ['购票表演', '/men/ticket-and-group-shows']] },
+    { name: '性取向', items: [['双性恋', '/men/bisexuals'], ['同性恋', '/men/gays'], ['直男', '/men/straight']] },
+    { name: '年龄', items: [['小鲜肉', '/men/twinks'], ['鲜嫩青年22+', '/men/young'], ['老爹', '/men/daddies'], ['成熟', '/men/mature'], ['老爷爷', '/men/grandpas']] },
+    { name: '种族', items: [['阿拉伯人', '/men/arab'], ['亚洲人', '/men/asian'], ['黑珍珠', '/men/ebony'], ['印度人', '/men/indian'], ['拉丁', '/men/latin'], ['混血主播', '/men/mixed'], ['白人', '/men/white']] },
+    { name: '体型', items: [['瘦', '/men/skinny'], ['肌肉发达', '/men/muscular'], ['中', '/men/medium'], ['矮胖', '/men/chunky'], ['大', '/men/big']] },
+    { name: '头发', items: [['金发', '/men/blondes'], ['黑', '/men/black-hair'], ['褐色头发', '/men/brunettes'], ['红发', '/men/redheads'], ['彩色', '/men/colorful']] },
+    { name: '私秀表演', items: [['8-12代币', '/men/cheapest-privates'], ['16-24代币', '/men/cheap-privates'], ['32-60代币', '/men/middle-priced-privates'], ['90+代币', '/men/luxurious-privates'], ['可录制私秀', '/men/recordable-privates'], ['偷窥表演', '/men/spy'], ['视频通话(直播)', '/men/cam2cam']] },
+    { name: '最受欢迎', items: [['互动玩具', '/men/interactive-toys'], ['移动流', '/men/mobile'], ['群交', '/men/group-sex'], ['户外', '/men/outdoor'], ['大屁股', '/men/big-ass'], ['肛交', '/men/anal'], ['炮机', '/men/fuck-machine'], ['粗暴', '/men/hardcore'], ['大乳头', '/men/big-nipples'], ['口交', '/men/blowjob'], ['拳交', '/men/fisting'], ['狗式', '/men/doggy-style'], ['自慰', '/men/masturbation'], ['多毛腋下', '/men/hairy-armpits'], ['指交', '/men/fingering'], ['剃光', '/men/shaven'], ['体内射精', '/men/creampie'], ['深喉', '/men/deepthroat'], ['大屌', '/men/big-cocks'], ['洗澡', '/men/shower'], ['全部分类', '/tags/men']] },
+  ] },
+  { name: '跨性別', groups: [
+    { name: '特别', items: [['Oktoberfest Party', '/trans/oktoberfest-party'], ['中文', '/trans/chinese'], ['美国人', '/trans/american'], ['乌克兰变性人主播', '/trans/ukrainian'], ['新主播们', '/trans/new'], ['VR摄像头', '/trans/vr'], ['购票表演', '/trans/ticket-and-group-shows']] },
+    { name: '年龄', items: [['少年18+', '/trans/teens'], ['鲜嫩青年22+', '/trans/young'], ['熟女', '/trans/milfs'], ['成熟', '/trans/mature'], ['老奶奶', '/trans/grannies']] },
+    { name: '种族', items: [['阿拉伯人', '/trans/arab'], ['亚洲人', '/trans/asian'], ['黑珍珠', '/trans/ebony'], ['印度人', '/trans/indian'], ['拉丁人', '/trans/latin'], ['混血主播', '/trans/mixed'], ['白人', '/trans/white']] },
+    { name: '体型', items: [['瘦', '/trans/petite'], ['运动型', '/trans/athletic'], ['中', '/trans/medium'], ['丰满', '/trans/curvy'], ['大号美女', '/trans/bbw']] },
+    { name: '头发', items: [['金发', '/trans/blondes'], ['黑', '/trans/black-hair'], ['棕发小妞', '/trans/brunettes'], ['红发', '/trans/redheads'], ['彩色', '/trans/colorful']] },
+    { name: '私秀表演', items: [['8-12代币', '/trans/cheapest-privates'], ['16-24代币', '/trans/cheap-privates'], ['32-60代币', '/trans/middle-priced-privates'], ['90+代币', '/trans/luxurious-privates'], ['可录制私秀', '/trans/recordable-privates'], ['偷窥表演', '/trans/spy'], ['视频通话(直播)', '/trans/cam2cam']] },
+    { name: '最受欢迎', items: [['互动玩具', '/trans/interactive-toys'], ['移动流', '/trans/mobile'], ['群交', '/trans/group-sex'], ['巨乳', '/trans/big-tits'], ['户外', '/trans/outdoor'], ['大屁股', '/trans/big-ass'], ['肛交', '/trans/anal'], ['潮吹', '/trans/squirt'], ['大阴蒂', '/trans/big-clit'], ['炮机', '/trans/fuck-machine'], ['粗暴', '/trans/hardcore'], ['大乳头', '/trans/big-nipples'], ['口交', '/trans/blowjob'], ['小胸部', '/trans/small-tits'], ['拳交', '/trans/fisting'], ['狗式', '/trans/doggy-style'], ['自慰', '/trans/masturbation'], ['多毛腋下', '/trans/hairy-armpits'], ['指交', '/trans/fingering'], ['剃光', '/trans/shaven'], ['全部分类', '/tags/trans']] },
+  ] },
+  /* ★ 第 5 个主 tab **`移动流`**（用户 2026-10-03 改名 ✓ 原来叫"移动端直播"✗；站上叶子就是「移动流」✓ `/girls/mobile` ✓）
+     —— 它**不是独立 primaryTag** ✗（`primaryTag=mobile` → 400 ✗ 实测），是 4 主分类共有的**叶子过滤标签** ✓
+     → 当**快捷入口**：默认看**女主播的移动流** ✓（在线最多 ✓）
+     ⚠️ 叶子 ✓ → 没有「筛选」单按钮 ✓；页内过滤器入口**2026-10-05 用户拍板整排删掉** ✗
+        （原来 3 个：外貌 / 国家 / 可请求提供的表演 ✓ → 现在这个 tab **只有列表** ✓，见 `renderLiveSite` ✓） */
+  { name: '移动流', mobile: true, groups: [] },
+  /* ★ 第 6 个主 tab **`手机版最新`**（用户 2026-10-03 加 ✓）：站点页 `/girls/new-mobile` ✓
+     ⚠️ 请求参数**实测确认**（不是猜 ✓）：`primaryTag=girls` + `filterGroupTags=[["autoTagNew"],["mobile"]]`（两组 **AND** ✓）+ `parentTag=mobile`
+        → `filteredCount=292` ✓；证据：该页 HTML 里出现的正是这个组合的前三条（sultry520 / LINA-LILI / Malis_ss ✓），
+          而 `[["mobile"]]` 的首条 winter11、`[["autoTagNew"]]` 的条目**一次都没出现** ✗
+     ⚠️ 它也是**叶子** ✓ → 无「筛选」单按钮 ✓；页内过滤器入口**2026-10-05 用户拍板整排删掉** ✗
+        （两套弹窗一起没 ✓ —— 所以它现在也只有列表 ✓；⚠️ 请求参数那一行**没动** ✗：`liveFetch` 仍按
+        `newMobileMode` 拼 `[[autoTagNew],[mobile]]` + `parentTag=mobile` ✓ 实测口径不变 ✓） */
+  { name: '手机版最新', newMobile: true, groups: [] },
+];
+/** 直播站的域名（用户指定 ✓；sim 只**模拟**这个跳转 ✗ 不真加载 ✗ —— 先不做播放 ✓） */
+const LIVE_HOST = 'https://zh.xhamsterlive.com';
+/** 直播**站点**清单（第 10 轮：直播区 = 站点宫格 ✓，目前就 1 个 ✓） */
+const LIVE_SITES = [{ name: 'xHamster直播', iconName: 'xHamster' }];
+let liveSite = LIVE_SITES[0]; // 当前进的直播站点
+let liveMain = 0;             // 当前主分类 tab 下标
+let liveCat = null;           // 筛选里选中的子分类 { name, path }（null = 还没选 ✓）
+
+/** **直播区**（底栏「直播」进来这页 ✓）= 站点**按钮宫格** ✓，照模块页那套 `.grid/.tile` ✓ */
+function viewLive() {
+  showNav(true);
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="spacer"></div><h1>直播</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  $('body').innerHTML = `<div class="grid">${LIVE_SITES.map((s, i) => `
+    <div class="tile" data-i="${i}">
+      <div class="box">
+        <img src="/icon?name=${encodeURIComponent(s.iconName)}" onerror="iconFallback(this)" />
+      </div>
+      <span>${esc(s.name)}</span>
+    </div>`).join('')}</div>`;
+  $('body').querySelectorAll('.tile img').forEach((im) => { im.onerror = () => iconFallback(im); });
+  $('body').querySelectorAll('.tile').forEach((t) => {
+    t.onclick = () => viewLiveSite(LIVE_SITES[parseInt(t.dataset.i, 10)]);
+  });
+  log(`直播区：${LIVE_SITES.length} 个站点入口`, 'dim');
+}
+
+/** **直播站点页** = 顶部 6 个主分类 tab + 房间列表（**下拉刷新** ✓ 最顶上 ✓）。
+ *  ⚠️ 2026-10-05 用户拍板（App 同步 ✓）：**那排筛选入口整排删掉** ✗（主 tab 的子分类选择器 ✓ +
+ *     移动流/手机版最新那 3 个页内过滤器 ✓，两套弹窗一起没 ✓）→ 这页现在**没有 `.pkbar` 那一排** ✓。
+ *     （同日早些时候量到过：那排 `border-bottom: 0px` ✓、App 侧 `LiveFilterBar` 的行底分隔线也删了 ✓
+ *      —— 那笔结论留档 ✓，但整排现在是**不存在**了 ✓）
+ *  ⚠️ 第 11 轮：**下面接房间列表** ✓（用户拍板）—— tab 决定 `primaryTag` ✓（`移动流`/`手机版最新`
+ *     另带 `filterGroupTags` ✓ 见 `liveFetch` ✓）。 */
+function viewLiveSite(site) {
+  liveSite = site || LIVE_SITES[0];
+  liveMain = 0;   // 换站点回到第一个主分类（与 App 一致 ✓）
+  liveCat = null;
+  liveRooms = { tag: '', filter: '', offset: 0, items: [], loading: false, done: false };  // 换站点清空列表 ✓
+  // ★ 站点页**不带底栏** ✓（用户 2026-10-03：对齐 App —— App 里点站点 = push 一个全屏页 ✗ 不带底栏）
+  //   返回靠 appbar 那个 ‹ ✓（它调 viewLive() ✓，那里面会 showNav(true) ✓ → 底栏自己就回来了 ✓）
+  //   ⚠️ 只有**这个**站点页不显示 ✗：直播区（站点宫格那页）仍是 tab ✓ 保留底栏 ✓
+  showNav(false);
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="ic" onclick="viewLive()">‹</div><h1>${esc(liveSite.name)}</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  renderLiveSite();
+}
+
+function renderLiveSite() {
+  const m = LIVE_MAIN[liveMain];
+  const tag = LIVE_TAG_OF[m.name] || 'girls';
+  const tabs = LIVE_MAIN.map((x, i) =>
+    `<div class="lv-tab${i === liveMain ? ' on' : ''}" data-mi="${i}">${esc(x.name)}</div>`).join('');
+  // ★ 预热 ✓：一进**站点页**就把播放器组件（React + mmp 模块）拉起来 —— 别等用户点卡片才拉 ✗
+  //   （用户报过"点进房间说组件不可用"✗：那时才现拉，网慢/被拦就赶不上 ✓ 现在提前几秒到几十秒 ✓）
+  ensureMmp().catch(() => {});
+  // ⚠️ 2026-10-05 用户拍板（App 同步 ✓）：**那排筛选入口整排删掉** ✗ ——
+  //   主 tab 那颗「筛选」（子分类选择器）+ 移动流/手机版最新那 3 个过滤器入口 ✗，**两套弹窗一起没** ✓
+  //   → 页面只剩「下拉刷新提示条 + 6 个主分类 tab + 房间列表」✓（`.pkbar` 本身没动 ✗ —— 别的站点还在用 ✓）
+  $('body').innerHTML = `<div class="spage lv-page">
+    <div class="lv-ref" id="lvRef"></div>
+    <div class="lv-tabs">${tabs}</div>
+    <div class="lv-rooms" id="lvRooms"></div>
+    <div class="lv-more" id="lvMore"></div>
+  </div>`;
+  $('body').querySelectorAll('.lv-tab[data-mi]').forEach((el) => {   // ⚠️ 只绑**主分类** tab ✓（过滤器 tab 也是 .lv-tab ✗ 别被接走 ✗）
+    el.onclick = () => { liveMain = parseInt(el.dataset.mi, 10) || 0; liveCat = null; renderLiveSite(); };
+  });
+  // ⚠️ 2026-10-05：**这排的绑定全删了** ✗（`#lvFilterBtn` / `#lvReset` / `.mf-btn` / `#mfResetAll` ✓
+  //   随那排入口 + 两套弹窗一起去掉 ✓）—— 剩下的只有 tab 绑定（上面那条）与下拉刷新 ✓
+  // 滚到底续拉（`#body` 是滚动容器 —— 站点列表页也是这个套路 ✓）
+  $('body').onscroll = () => {
+    const b = $('body');
+    if (b.scrollTop + b.clientHeight >= b.scrollHeight - 240) loadLiveRooms();
+  };
+  enablePullRefresh(liveRefresh, () => liveRooms.loading);   // ★ 下拉刷新（顶部往下拖 → 重拉第 1 页 ✓；见下面那两段 ✓）
+  // 换主分类 → 重拉（同一 tag **且"移动流/手机版最新"标记也一致** 才复用 ✓，别白拉 ✗；⚠️ 这三个 tab 的 tag 都是 girls ✗ 只看 tag 会串 ✗）
+  const wantMobile = !!m.mobile, wantNewMobile = !!m.newMobile;
+  if (liveRooms.tag !== tag || !!liveRooms.mobile !== wantMobile || !!liveRooms.newMobile !== wantNewMobile) {
+    liveRooms = { tag: tag, mobile: wantMobile, newMobile: wantNewMobile,
+                  filter: wantMobile ? 'mobile' : '', offset: 0, items: [], loading: false, done: false,
+                  rawCount: 0, skipped: 0 };
+    loadLiveRooms();
+  } else {
+    renderLiveRooms();
+  }
+  log(`直播站点页：${liveSite.name} · ${m.name}（primaryTag=${tag}）`, 'dim');
+}
+
+/* ---------- **下拉刷新**（2026-10-05 用户拍板 ✓；App 侧 = `RefreshIndicator` ✓）----------
+   ⚠️ **两个页面共用这一套** ✓：直播站点页（`liveRefresh` ✓）与「在线图集1」（`albReload` ✓）——
+      进哪个页面就调一次 `enablePullRefresh(刷新回调, 忙判据)` ✓（**换页=换回调** ✓，监听只挂一次 ✓）。
+   语义与 App 一致 ✓：**下拉 → 重拉第 1 页** ✓（页面的 tab / 筛选状态**全不动** ✗ —— 这不是"重置" ✓）。
+   三个前提（缺一不触发 ✓）：① 当前页有那条提示条（`#lvRef` 在 ✓ —— 没有 = 这页没挂下拉 ✓）
+                              ② 列表**已经在顶部**（`scrollTop === 0` ✓）
+                              ③ **不在加载中**（页面自己给的忙判据为假 ✓ —— 免得在途那页回来
+                                 跟刷新出的新列表**叠一起** ✗；两个页面的 load 都没有作废计数 ✗）
+   ⚠️ 手势**分两套**（实测：只挂 pointer ✗ 不行 —— **触摸那条会被浏览器抢走** ✗）：
+      · **鼠标** = pointer 事件 ✓（与 `.tabs`、短片流那几处同写法 ✓）
+      · **触摸** = `touchstart/move/end` ✓，且 `touchmove` **必须 `{passive:false}` + `preventDefault()`** ✓
+        —— 否则浏览器把竖滑当页面滚动接管 ✗、手势流被掐断。**CDP 实测证据**：只挂 pointer 时，
+        触屏拖 170px 提示条高度 **0** ✗、也没有新请求 ✗；补了 touchmove 这条之后才动 ✓
+      · `touchmove` 只在**到顶 + 往下拖**时才 prevent ✓ —— 往上滑 / 已在滚动中一律放行 ✓（正常滚动不受影响 ✓）
+   ⚠️ 拖过 8px 就吞掉随后那次 click ✗（照 `enableDragScroll` 的套路 ✓ → 松手不会误进卡片 ✓）。
+   ⚠️ 监听挂在**常驻的 `#body`** 上（每页都是它 ✗）→ 靠 `dataset.pullBound` 只挂一次 ✓，
+      并且每次起手都先确认 `#lvRef` 在 ✗（没挂下拉的页面直接 return ✓ 不会误触发 ✓）。 */
+const LV_PULL_TH = 64;                    // 松手触发阈值（= 提示条顶出来的高度 px ✓）
+let pullRefreshFn = null, pullBusyFn = null;   // 当前页面的：刷新动作 ✓ / 忙判据 ✓（每次进页面覆盖 ✓）
+function enablePullRefresh(refreshFn, busyFn) {
+  pullRefreshFn = refreshFn; pullBusyFn = busyFn;   // ★ 先覆盖回调（换页立刻生效 ✓），再（只挂一次地）绑监听 ✓
+  const b = $('body');
+  if (!b || b.dataset.pullBound === '1') return;   // 只挂一次 ✓
+  b.dataset.pullBound = '1';
+  let down = false, y0 = 0, pull = 0;
+  const bar = () => $('lvRef');
+  const setBar = (px, txt, spin) => {
+    const el = bar(); if (!el) return;
+    el.classList.toggle('drag', !spin && px > 0 && px < LV_PULL_TH);   // 拖动中不做过渡 ✓
+    el.style.height = px + 'px';
+    el.innerHTML = txt ? (spin ? '<span class="spin"></span>' + txt : esc(txt)) : '';
+  };
+  const hideBar = () => { const el = bar(); if (el) { el.classList.remove('drag'); el.style.height = '0px'; el.innerHTML = ''; } };
+  const stop = (refresh) => {
+    down = false;
+    if (refresh) {
+      setBar(LV_PULL_TH, '正在刷新 ✓', true);
+      // 拉完把提示条收回 ✓（页面自己的 load 内部都已 catch ✗ → 不会卡住 ✓；`Promise.resolve` 兼容同步返回 ✓）
+      Promise.resolve(pullRefreshFn ? pullRefreshFn() : null).then(hideBar);
+    } else setBar(0, '');
+    pull = 0;
+  };
+  const swallowClick = () => {   // 拖过之后那一次 click 吞掉 ✗（免得松手正好点进卡片 ✓）
+    const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    b.addEventListener('click', swallow, true);
+    setTimeout(() => b.removeEventListener('click', swallow, true), 300);
+  };
+  const canStart = () => !!bar() && b.scrollTop <= 0 && !(pullBusyFn && pullBusyFn());   // 三个前提 ✓
+  /** 拖动中：算位移 + 画提示条（鼠标 / 触摸**共用** ✓）；返回值 = "这次算下拉" ✓（触摸那条据此 preventDefault ✓） */
+  const onMove = (y) => {
+    if (b.scrollTop > 0) { stop(false); return false; }              // 拖到一半被滚走 → 收掉 ✓
+    const dy = y - y0;
+    if (dy <= 0) { if (pull) { pull = 0; setBar(0, ''); } return false; }  // 往上 = 正常滚 ✗ 不做下拉 ✓
+    pull = Math.min(dy * 0.5, LV_PULL_TH + 24);                      // 0.5 阻尼（iOS 那套手感 ✓）
+    setBar(pull, pull >= LV_PULL_TH ? '松手刷新 ✓' : '下拉刷新 ✓');
+    return pull > 8;
+  };
+  const onUp = () => {
+    if (!down) return;
+    const hit = pull >= LV_PULL_TH;
+    if (pull > 8) swallowClick();
+    stop(hit);
+  };
+  // ① 鼠标走 pointer ✓（**触摸不走这条** ✗ —— 交给下面 ②，免得同一手势两边各算一遍 ✓）
+  b.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'touch') return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (!canStart()) return;
+    down = true; y0 = e.clientY; pull = 0;
+  });
+  b.addEventListener('pointermove', (e) => {
+    if (!down || e.pointerType === 'touch') return;
+    if (onMove(e.clientY) && e.cancelable) e.preventDefault();
+  });
+  b.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') onUp(); });
+  b.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'touch' && down) stop(false); });
+  // ② 触摸走 touch ✓（`touchmove` 必须 `{passive:false}` ✓ 才能 preventDefault 拦住浏览器接管竖滑 ✓）
+  b.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || !canStart()) return;
+    down = true; y0 = e.touches[0].clientY; pull = 0;
+  }, { passive: true });
+  b.addEventListener('touchmove', (e) => {
+    if (!down || e.touches.length !== 1) return;
+    if (onMove(e.touches[0].clientY) && e.cancelable) e.preventDefault();
+  }, { passive: false });   // ★ 必须 false ✓（Chrome 默认把 touchmove 当 passive ✗ 拦不住 ✓）
+  b.addEventListener('touchend', () => onUp());
+  b.addEventListener('touchcancel', () => { if (down) stop(false); });
+}
+/** 直播页的下拉刷新**动作**：清空列表 + offset 归 0 + 立刻重拉（tab / 移动流标记**全不动** ✓）
+ *  （提示条的收回由 `enablePullRefresh` 里那个 `stop()` 统一做 ✓ 这里不重复 ✗） */
+function liveRefresh() {
+  liveRooms.offset = 0; liveRooms.items = []; liveRooms.rawCount = 0; liveRooms.skipped = 0;
+  liveRooms.done = false;
+  log(`直播列表：下拉刷新 → 重拉第 1 页 ✓（primaryTag=${liveRooms.tag || 'girls'}` +
+      `${liveRooms.filter ? ' filter=' + liveRooms.filter : ''}）`, 'dim');
+  renderLiveRooms();
+  return loadLiveRooms();           // ← 返回 promise：提示条等它拉完再收回 ✓
+}
+
+/* ---------- 直播房间列表（接口 B ✓ 2026-10-03 第 11 轮）----------
+   用户给的 recon：`GET https://zh.xhamsterlive.com/api/front/models?limit=60&offset=0&primaryTag=girls` ✓
+   → `{models, totalCount, filteredCount}`；翻页 = `offset` 步长 60 ✓，**服务端封顶 1000** ✓；
+     ⚠️ UA 必须浏览器样（iPhone UA 可以 ✓ —— sim 的 `/proxy` 用的正是 iPhone UA ✓）；**不要 cookie** ✓。
+   ⚠️ 代理：**不改 `server.mjs`** ✓ —— 直接用现成的通用转发 `/proxy?url=<绝对URL>` ✓（它原样回 body ✓，
+     浏览器直连会被 CORS 拦 ✗，走本机就没有跨域问题 ✓）。 */
+const LIVE_API = 'https://zh.xhamsterlive.com/api/front/models';
+const LIVE_PAGE = 60, LIVE_MAX = 1000;
+/** 4 主分类 → `primaryTag`（用户给的：只有 4 个值 ✓ 按**名字**取值，别按下标 ✗ 免得以后加 tab 错位 ✗） */
+const LIVE_TAG_OF = { '女主播': 'girls', '情侣': 'couples', '男主播': 'men', '跨性別': 'trans', '移动流': 'girls', '手机版最新': 'girls' };
+/* ===== 移动流/手机版最新 tab 的 3 个**页内过滤器**（外貌 / 国家 / 可请求提供的表演 ✓；lead 2026-10-03 给 recon 原文 ✓；原文里带 `#<tagId>` 的照抄 ✓
+ *  ⚠️ 2026-10-05 更正注释数字 ✓：原来这里是 **4** 个 ✗ —— 「私秀价格 / 类型」那组后来整个删了 ✓（见下 ✓），现在是 **3** 个 ✓
+ *  ⚠️ 规则：**只认原文里明确给的 tagId** ✓；没给的（如多数国家）→ `null` = **未映射** ✓
+ *     （原文说"按 tagLanguage+国家英文名 拼"，但样例里 GermanSpeaking / USModels / Nordic 这种后缀**不统一** ✗
+ *       → 拿不准就留空 ✓ 不硬猜 ✓：chip 上标「未映射」✓、点了只提示不过滤 ✓，等 recon 补齐再填 ✓）
+ *  关系：**同组多值 OR ✓、跨组 AND ✓**（接口 `filterGroupTags=[["mobile"],["ageTeen"],…]` ✓ lead 实测 ✓） */
+const MOBILE_FILTERS = [
+  { key: 'appearance', name: '外貌', groups: [
+    { name: '年龄', items: [['成熟', 'ageMature'], ['老奶奶', 'ageOld'], ['少女18+', 'ageTeen'], ['熟女', 'ageMilf'], ['鲜嫩青年22+', 'ageYoung']] },
+    { name: '种族', items: [['阿拉伯人', 'ethnicityMiddleEastern'], ['白人', 'ethnicityWhite'], ['黑珍珠', 'ethnicityEbony'], ['混血主播', 'ethnicityMultiracial'], ['拉丁人', 'ethnicityLatino'], ['亚洲人', 'ethnicityAsian'], ['印度人', 'ethnicityIndian']] },
+    { name: '体型', items: [['大号美女', 'bodyTypeBBW'], ['丰满', 'bodyTypeCurvy'], ['瘦', 'bodyTypePetite'], ['运动型', 'bodyTypeAthletic'], ['中', 'bodyTypeMedium']] },
+    { name: '头发', items: [['彩色', 'hairColorColorful'], ['黑发', 'hairColorBlack'], ['红发', 'hairColorRed'], ['金发', 'hairColorBlonde'], ['棕发小妞', 'hairColorBrown']] },
+    { name: '身体特征', items: [['大屁股', 'specificsBigAss'], ['大乳头', 'specificBigNipples'], ['大阴蒂', 'specificBigClit'], ['多毛腋下', 'specificHairyArmpits'], ['巨乳', 'specificsBigTits'], ['剃光', 'specificShaven'], ['剃毛', 'specificTrimmed'], ['无发', 'hairColorHairless'], ['小胸部', 'specificSmallTits'], ['阴部多毛', 'specificsHairy']] },
+  ] },
+  { key: 'countries', name: '国家', groups: [
+    { name: '北美(3)', items: [['加拿大人', null], ['美国人', 'tagLanguageUSModels'], ['墨西哥人', null]] },
+    { name: '南美(8)', items: [['阿根廷人', null], ['巴西人', null], ['厄瓜多尔人', null], ['哥伦比亚人', null], ['秘鲁人', null], ['委内瑞拉人', null], ['乌拉圭人', null], ['智利人', null]] },
+    { name: '欧洲(32)', items: [['爱尔兰人', null], ['爱沙尼亚人', null], ['奥地利人', null], ['保加利亚人', null], ['北欧', 'tagLanguageNordic'], ['比利时人', null], ['波兰语', null], ['丹麦语', null], ['德语', 'tagLanguageGermanSpeaking'], ['法语', null], ['芬兰语', null], ['格鲁吉亚人', null], ['荷兰语', null], ['捷克语', null], ['克罗地亚语', null], ['拉脱维亚人', null], ['立陶宛人', null], ['罗马尼亚语', null], ['挪威语', null], ['欧洲女孩', 'european'], ['葡萄牙语', null], ['瑞士人', null], ['瑞语', 'tagLanguageSwedish'], ['塞尔维亚语', null], ['斯洛伐克人', null], ['斯洛文尼亚', 'tagLanguageSlovenian'], ['乌克兰女主播', 'tagLanguageUkrainian'], ['西班牙语', null], ['希腊人', null], ['匈牙利语', null], ['意大利语', null], ['英国主播', 'tagLanguageUKModels']] },
+    { name: '亚洲&太平洋(12)', items: [['澳大利亚人', null], ['菲律宾', 'tagLanguageFilipino'], ['韩语', null], ['马来西亚人', null], ['孟加拉人', null], ['日语', null], ['斯里兰卡人', null], ['泰语', null], ['印度尼西亚语', null], ['印度人', 'ethnicityIndian'], ['越语', 'tagLanguageVietnamese'], ['中文', 'tagLanguageChinese']] },
+    { name: '非洲(10)', items: [['阿尔及利亚人', null], ['埃及人', null], ['非洲裔', 'tagLanguageAfrican'], ['津巴布韦人', null], ['肯尼亚人', null], ['马尔加什人', null], ['摩洛哥人', null], ['南非人', null], ['尼日利亚人', null], ['乌干达', 'tagLanguageUgandan']] },
+    { name: '中东(3)', items: [['阿拉伯人', 'ethnicityMiddleEastern'], ['土耳其语', null], ['以色列人', null]] },
+    { name: '语言(14)', items: [['俄国人', 'tagLanguageRussianSpeaking'], ['说阿萨姆语', null], ['说奥里亚语', null], ['说古吉拉特语', null], ['说卡纳达语', null], ['说马拉地语', null], ['说马拉雅拉姆语', null], ['说孟加拉语', null], ['说旁遮普语', null], ['说葡萄牙语', 'tagLanguagePortugueseSpeaking'], ['说泰卢固语', null], ['说泰米尔语', null], ['说印地语', null], ['西班牙人', 'tagLanguageSpanishSpeaking']] },
+  ] },
+  /* ⚠️ 第 34 轮（用户拍板）：**原「私秀价格 / 类型」那一组整个删掉** ✗ ——
+     理由：付费房（门票制/按分钟计费）已经**在客户端逐条筛掉了** ✓（见 `liveShowable` ✓），按价格/类型筛选没意义了 ✓
+     ⇒ 选项数据（`privatePrice*` / `autoTagRecordablePrivate` / `autoTagP2P` / `autoTagSpy`）**一并删掉** ✓ 别留死数据 ✗
+     ⚠️ `LIVE_TAG_MAP` 里那几条 `*-privates` → `privatePrice*` 是**另一套**（4 个主 tab 的子分类筛选 ✓）→ **不动** ✓ */
+  { key: 'activitiesOnRequest', name: '可请求提供的表演', groups: [
+    { name: '表演', items: [['潮吹', 'doSquirt'], ['肛交', 'doAnal'], ['互动玩具', 'autoTagInteractiveToy'], ['口交', 'doBlowjob'], ['炮机', 'fuckMachine'], ['自慰', 'doMasturbation'], ['69姿势', 'do69Position'], ['按摩', 'doMassage'], ['鞭打', 'doSpanking'], ['厕板洞', 'doSph'], ['赤裸上身', 'doTopless'], ['穿戴式阳具', 'doStrapon'], ['粗暴', 'doHardcore'], ['打飞机', 'doHandjob'], ['大屌评分', 'cockRating'], ['电臀舞', 'doTwerk'], ['肛交到口交', 'doAssToMouth'], ['高潮', 'doOrgasm'], ['高潮脸', 'doAhegao'], ['狗式', 'doDoggyStyle'], ['后庭玩具', 'doAnalToys'], ['集体颜射', 'doGangbang'], ['假阳具或震动器', 'doDildoOrVibrator'], ['假阴茎肛交', 'doPegging'], ['交换伴侣', 'subcultureSwingers'], ['精油表演', 'doOilShow'], ['开肛', 'doGape'], ['快闪裸体', 'doFlashing'], ['骑乘女', 'doCowgirl'], ['骑脸', 'doFacesitting'], ['强制塞口', 'doGagging'], ['情境扮演', 'doRolePlay'], ['拳交', 'doFisting'], ['裙底风光', 'doUpskirt'], ['群交', 'tagGroupSex'], ['乳交', 'doTittyFuck'], ['乳头玩具', 'doNippleToys'], ['三人性交', 'doDoublePenetration'], ['色情短信', 'sexting'], ['色情舞', 'doEroticDance'], ['射精', 'doEjaculation'], ['深喉', 'doDeepThroat'], ['手淫指导', 'jerkOffInstruction'], ['双茎插入', 'doDoublePenetration'], ['四人性交', 'doGangbang'], ['体内射精', 'doCreamPie'], ['舔鲍鱼', 'doPussyLicking'], ['脱衣舞', 'doStriptease'], ['洗澡', 'doShower'], ['下流話', 'doTalk'], ['性玩具', 'doSexToys'], ['羞辱', 'doHumiliation'], ['颜射', 'doFacial'], ['阴部骆驼趾', 'doCamelToe'], ['瑜伽', 'doYoga'], ['指交', 'doFingering'], ['足交', 'doFootFetish'], ['Cosplay', 'doCosplay'], ['Kiiroo', 'autoTagKiiroo'], ['Lovense', 'autoTagLovense'], ['The Handy', 'autoTagHandy']] },
+  ] },
+];
+// ⚠️ 2026-10-05 用户拍板：喂那排入口 + 「筛选器」弹窗的**状态与助手全删了** ✗ ——
+//   `mfSelBy` / `mfTab` / `mfSel` / `mfGKey` / `mfSelIn` / `mfLabelOf` / `mfCount` / `mfAny` /
+//   `mfBtnText` / `mfGroups` / `openMobileFilter` / `insideMobileApply` ✓ 一并去掉 ✓
+//   → 页内过滤器那套**整个没有了** ✓（请求里也不再拼它那几组 ✓ 见 `liveFetch` ✓）；
+//   上面 `MOBILE_FILTERS` 那张表**已无代码引用** ✗，只当 recon 记录留着 ✓（要清就说一声 ✓）。
+// ⚠️ 2026-10-05：`openMobileFilter()`（全屏「筛选器」modal ✓）**整个删掉** ✗ ——
+//   它只被那 3 个 `.mf-btn` 打开 ✓，按钮没了 ✓ → 弹窗一并去掉 ✓（`.mf-dlg` 那套 CSS 也删了 ✓）
+/** **子分类 slug → 站点筛选 tag**（用户 2026-10-03 给的 recon 映射 ✓ **原样照抄** ✗ 不许自己猜 ✗）。
+ *  取值 = 路径末段（`/girls/milfs` → `milfs` ✓；`/tags/<main>` **不是**子分类 → 不映射 ✓）。
+ *  ⚠️ **不在这个表里的就是"未映射"** ✓（men/trans 最受欢迎里 big-cocks / shower / big-clit 那一批 ✓）——
+ *  弹窗里会标「未映射」✓、点了**不筛选** ✗（只提示 ✓），等 recon 补齐再填 ✓。 */
+const LIVE_TAG_MAP = {
+  // 特别
+  chinese: 'tagLanguageChinese', american: 'tagLanguageUSModels', ukrainian: 'tagLanguageUkrainian',
+  new: 'autoTagNew', vr: 'autoTagVr', bdsm: 'subcultureBdsm', 'ticket-and-group-shows': 'groupShow',
+  // 年龄
+  teens: 'ageTeen', young: 'ageYoung', milfs: 'ageMilf', mature: 'ageMature', grannies: 'ageOld',
+  // 种族
+  arab: 'ethnicityMiddleEastern', asian: 'ethnicityAsian', ebony: 'ethnicityEbony', indian: 'ethnicityIndian',
+  latin: 'ethnicityLatino', mixed: 'ethnicityMultiracial', white: 'ethnicityWhite',
+  // 体型
+  petite: 'bodyTypePetite', athletic: 'bodyTypeAthletic', medium: 'bodyTypeMedium',
+  curvy: 'bodyTypeCurvy', bbw: 'bodyTypeBBW',
+  // 头发
+  blondes: 'hairColorBlonde', 'black-hair': 'hairColorBlack', brunettes: 'hairColorBrown',
+  redheads: 'hairColorRed', colorful: 'hairColorColorful',
+  // 私秀表演
+  'cheapest-privates': 'privatePriceEight', 'cheap-privates': 'privatePriceSixteenToTwentyFour',
+  'middle-priced-privates': 'privatePriceThirtyTwoSixty', 'luxurious-privates': 'privatePriceNinetyPlus',
+  'recordable-privates': 'autoTagRecordablePrivate', spy: 'autoTagSpy', cam2cam: 'autoTagP2P',
+  // 最受欢迎（4 个主分类共用 ✓）
+  'interactive-toys': 'autoTagInteractiveToy', mobile: 'mobile', 'group-sex': 'tagGroupSex',
+  'big-tits': 'specificsBigTits', hairy: 'specificsHairy', outdoor: 'doPublicPlace',
+  'big-ass': 'specificsBigAss', anal: 'doAnal', squirt: 'doSquirt', 'fuck-machine': 'fuckMachine',
+  hardcore: 'doHardcore', blowjob: 'doBlowjob', 'small-tits': 'specificSmallTits', pregnant: 'specificPregnant',
+  fisting: 'doFisting', masturbation: 'doMasturbation', shaven: 'specificShaven', deepthroat: 'doDeepThroat',
+  'foot-fetish': 'doFootFetish', office: 'doOffice',
+  // 男主播专属
+  bisexuals: 'orientationBisexual', gays: 'orientationGay', straight: 'orientationStraight',
+  twinks: 'tagMenTwinks', daddies: 'ageDaddies', grandpas: 'ageGrandpas',
+  skinny: 'bodyTypeSkinny', muscular: 'bodyTypeMuscular', chunky: 'bodyTypeChunky', big: 'bodyTypeBig',
+  // 情侣专属（最受欢迎）
+  'doggy-style': 'doDoggyStyle', 'old-young': 'autoTagOldYoung', '69-position': 'do69Position',
+  goth: 'subcultureGoth', 'dildo-or-vibrator': 'doDildoOrVibrator',
+};
+/** 路径 → slug（`/girls/milfs` → `milfs` ✓；`/tags/girls` 这类**不是**子分类 → 空 ✓） */
+function liveSlug(path) {
+  const p = String(path || '');
+  if (p.indexOf('/tags/') === 0 || p === '/') return '';
+  const parts = p.split('/').filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '';
+}
+/** 路径 → 筛选 tag（取不到 = null = **未映射** ✓，不猜 ✗） */
+function liveTagOf(path) {
+  const s = liveSlug(path);
+  return s && LIVE_TAG_MAP[s] ? LIVE_TAG_MAP[s] : null;
+}
+/** 带筛选时的固定尾巴（recon **原样** ✓）：`sortBy=stripRanking` ✓（`topScore` 会 400 ✗）+ 一串站点默认开关 ✓
+ *  ⚠️ 拆两段：`specialEventTagIds`（万圣节活动）**「移动端直播」那个 tab 不能带** ✗（recon 明确 ✓） */
+const LIVE_FILTER_TAIL_BASE =
+  '&sortBy=stripRanking&nic=true&byw=false&rcmGrp=A&rbCnGr=true&iem=true&decMb=false&dmv=false' +
+  '&ctryTop=true&mlfv=false&rectf=false&eab=false&sac=true';
+const LIVE_FILTER_TAIL = LIVE_FILTER_TAIL_BASE + '&specialEventTagIds=' + encodeURIComponent('["oktoberfest"]');
+let liveRooms = { tag: '', mobile: false, newMobile: false, filter: '', offset: 0, items: [], loading: false, done: false };
+
+/** 拉一页（`limit`=60 ✓）。参数只剩**两个 tab 口径** ✓ —— 那两套页内过滤器删掉后，
+ *  `filterGroupTags`/`parentTag` 只可能来自「移动流」/「手机版最新」这两个 tab ✓（见 LIVE_MAIN ✓）。 */
+function liveFetch(tag, offset, mobileMode, newMobileMode) {
+  // ⚠️ 不带 filterGroupTags = 默认热门 ✓（4 个主 tab 就走这条 ✓，与第 11 轮跑通的那条**一模一样** ✓ 别乱加参数 ✗）
+  let url = `${LIVE_API}?limit=${LIVE_PAGE}&offset=${offset}&primaryTag=${encodeURIComponent(tag)}`;
+  const groups = [];
+  if (newMobileMode) {                                           // 「手机版最新」= 两组 **AND** ✓（实测确认 ✓ 见 LIVE_MAIN 注释）
+    groups.push(['autoTagNew']); groups.push(['mobile']);
+  } else if (mobileMode) groups.push(['mobile']);                // 「移动流」tab：固定一组 ✓（lead 实测 ✓）
+  if (groups.length) {
+    url += '&filterGroupTags=' + encodeURIComponent(JSON.stringify(groups)) +
+           '&parentTag=mobile' +                                   // 这两个 tab 的 parentTag 都是 `mobile` ✓（实测 ✓）
+           (mobileMode ? LIVE_FILTER_TAIL_BASE : LIVE_FILTER_TAIL);
+  }
+  return fetch('/proxy?url=' + encodeURIComponent(url)).then((r) => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then((j) => ({
+    models: Array.isArray(j.models) ? j.models : [],
+    totalCount: Number(j.totalCount) || 0,
+    filteredCount: Number(j.filteredCount) || 0,
+  }));
+}
+
+/** ★ 只显示**免费公开且在线**的房 ✓（lead recon 960 条样本实测给的判据 ✓ 照抄 ✓）
+ *  ⚠️ **必须看 `groupShowType`** ✗ 不能只看 status：有一类是"已预告门票秀但还没开演"（`status='public'` + `groupShowType='ticket'`）✗
+ *  ⚠️ **别用** `doPrivate`/`doSpy`/`privateRate`/`spyRate`/`publicRecordingsRate` ✗ —— 那只是"主播提供付费服务"的**能力标志** ✓
+ *     85%~90% 的**免费房也带** ✗，用了会把免费房全杀掉 ✗
+ *  ⚠️ **服务端没法过滤** ✗（`filterGroupTags=[["groupShow"]]` 反而是专门**捞**付费房的 ✗）→ 只能客户端逐条筛 ✓
+ *  ⚠️ 容错：`groupShowType` 字段缺失时按**免费**算 ✓（`!m.groupShowType` ✓）—— 免得字段一没整页被清空 ✗ */
+function liveShowable(m) {
+  if (!m) return false;
+  if (m.groupShowType) return false;                       // ticket / perMinute = 付费房 ✓
+  if (m.status && m.status !== 'public') return false;     // 非公开 ✗
+  return !!m.isOnline;                                     // 只留在线 ✓
+}
+
+async function loadLiveRooms() {
+  if (liveRooms.loading || liveRooms.done) return;
+  liveRooms.loading = true;
+  const off = liveRooms.offset;
+  const tag = liveRooms.tag || 'girls';
+  const flt = liveRooms.filter || '';   // ⚠️ 2026-10-05 起**没人读了** ✗（子分类 chip 删了 ✓）—— 字段先留着 ✓
+  paintLiveMore();
+  try {
+    const j = await liveFetch(tag, off, !!liveRooms.mobile, !!liveRooms.newMobile);
+    // ★ 逐条筛掉付费房 ✓（所有 tab 一视同仁 ✓）；计数用**原始条数** ✓ 别用筛完的 ✗（否则 `>= filteredCount` 永远不成立 ✗）
+    const raw = Array.isArray(j.models) ? j.models : [];
+    const keep = raw.filter(liveShowable);
+    liveRooms.rawCount = (liveRooms.rawCount || 0) + raw.length;
+    liveRooms.skipped = (liveRooms.skipped || 0) + (raw.length - keep.length);
+    liveRooms.lastRaw = raw.length; liveRooms.lastKeep = keep.length;
+    liveRooms.items = liveRooms.items.concat(keep);
+    liveRooms.offset = off + LIVE_PAGE;
+    // "到底"的三条判据（任一成立即停 ✓）：这页空 / 已到 filteredCount / 撞 1000 封顶
+    if (!raw.length) liveRooms.done = true;
+    else if (j.filteredCount && liveRooms.rawCount >= j.filteredCount) liveRooms.done = true;
+    else if (liveRooms.offset >= LIVE_MAX) liveRooms.done = true;
+    log(`直播列表：primaryTag=${tag}` +
+        (liveRooms.newMobile ? ' filterGroupTags=[[autoTagNew],[mobile]]（手机版最新 ✓）'
+          : (liveRooms.mobile ? ' filterGroupTags=[[mobile]]（移动流 ✓）' : '')) +
+        ` offset=${off} → 原始 ${raw.length} 条 / 显示 ${keep.length} 条` +
+        ((raw.length - keep.length) ? `（筛掉 ${raw.length - keep.length} 个付费房 ✓）` : '') +
+        `（累计显示 ${liveRooms.items.length} · 原始 ${liveRooms.rawCount}${j.filteredCount ? ' / ' + j.filteredCount : ''}${liveRooms.done ? '，到底' : ''}）`, 'dim');
+  } catch (e) {
+    liveRooms.done = true; // 失败别一直转圈 ✗（把原因打出来 ✓）
+    log(`直播列表拉取失败（primaryTag=${tag}${flt ? ' filter=' + flt : ''} offset=${off}）：${(e && e.message) || e}`, 'err');
+  }
+  liveRooms.loading = false;
+  renderLiveRooms();
+}
+
+function paintLiveMore() {
+  const el = $('lvMore');
+  if (!el) return;
+  if (!liveRooms.items.length && !liveRooms.loading) {
+    // ★ 一页被筛空时别留空白 ✗（付费房占比小，但票秀扎堆的页会全被筛掉 ✓）
+    el.innerHTML = liveRooms.done ? '没有可显示的免费直播间 ✗' : '这页没有免费直播间 · 上滑加载更多 ✓';
+    return;
+  }
+  el.innerHTML = liveRooms.loading ? '<span class="spin"></span>'
+    : (liveRooms.items.length ? (liveRooms.done ? '没有更多了' : '上滑加载更多') : '');
+}
+
+function renderLiveRooms() {
+  const box = $('lvRooms');
+  if (!box) { paintLiveMore(); return; }
+  box.innerHTML = liveRooms.items.map((r) => {
+    const un = String(r.username || '');
+    const liveNow = !!r.isLive;
+    // 封面：**直播中 → 清晰图 ✓；非直播 → 模糊图 ✓**（用户给了这两个地址 ✓；`onerror` 再退回另一张 ✓）
+    const c1 = `https://img.doppiocdn.net/${liveNow ? 'snapshot' : 'snapshot_blurred'}/${r.id}/${r.snapshotTimestamp}`;
+    const c2 = `https://img.doppiocdn.net/${liveNow ? 'snapshot_blurred' : 'snapshot'}/${r.id}/${r.snapshotTimestamp}`;
+    const badge = liveNow ? '<span class="live">LIVE</span>'
+      : `<span class="live off">${r.isOnline ? '在线' : '离线'}</span>`;
+    return `<div class="lv-room" data-u="${esc(un)}">
+      <div class="cov">
+        <img src="/proxy?url=${encodeURIComponent(c1)}" alt="" loading="lazy"
+             onerror="this.onerror=null;this.src='/proxy?url=${encodeURIComponent(c2)}'" />
+        ${badge}
+        ${(r.viewersCount || r.viewersCount === 0) ? `<span class="vw">${esc(String(r.viewersCount))} 人</span>` : ''}
+      </div>
+      <div class="nm">${esc(un)}</div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.lv-room').forEach((el) => {
+    el.onclick = () => viewLiveRoom(el.dataset.u);
+  });
+  paintLiveMore();
+}
+
+/** 点房间卡 = **竖版全屏真实流** ✓（用户 2026-10-03：点卡片直接进竖版全屏 ✓、**只有左上角一个 X** ✓、
+ *  点屏幕 toggle X 显隐 ✓、直接放真实流 ✓；**静音** ✗ 没得商量 ✓）。
+ *  ⚠️ 源 = 列表接口里每条 model 的 `hlsPlaylist` ✓（例 `edge-hls.doppiocdn.media/hls/<id>/master/<id>_240p.m3u8` ✓）——
+ *    **实测该 CDN 给 `access-control-allow-origin: *`** ✓（master 200 + 变体 302 都带 ✓）→
+ *    hls.js **直连**就行 ✓，**不用过 `/proxy`** ✓（也就**不需要重写分段路径** ✓）。
+ *  ⚠️ 层是**盖在 `.screen` 上的浮层** ✓（`position:absolute; inset:0` ✓）→ 列表 DOM 一个字没动 ✓，
+ *    关掉就只是把浮层 remove ✓（**列表状态全保留 ✓ 不重拉** ✓）。 */
+let lvPlayer = null; // { el, v, hls }
+// ★ 站点自己的播放器（MouflonPlayer ✓ React 组件）：CDN 上是 CommonJS 模块 ✓
+//   实测可行 ✓（2026-10-03）：给 React + module/exports/require 垫片 + 全局 modulesrc → 渲染它 → 真·活流自己就播起来了 ✓
+//   好处：分片令牌全在它内部算 ✓ **不用逆向** ✓（我前面逆向卡住的那一步，直接绕过 ✓）
+let mmpMod = null, mmpP = null, mmpCdnUsed = '';
+/** ⚠️ 用户报过「ReactDOM 不可用」✗ —— 查清：那句的**充要条件**是 `window.React`/`window.ReactDOM` 都是真值、
+ *  但**既没 createRoot 也没 render** ✗（= 拿到了**坏/不完整的一份** ✗；"根本没加载上"会走「React 拉不到」✗ 另一句 ✓）。
+ *  ⇒ 修法：① 双源**链式兜底**（jsdelivr 优先 ✓ sim 的 hls.js 本来就走它 ✓，unpkg 兜底 ✓）
+ *          ② **顺序加载** React → ReactDOM ✓（UMD 的 react-dom 执行时要 window.React ✓ 并发会撞 ✗）
+ *          ③ 加载后**验 API** ✓（createElement + createRoot|render ✓），不合格 = 这个源作废 ✗ 换下一个 ✓
+ *          ④ 失败**不缓存** ✓（能重试 ✓）*/
+const REACT_CDNS = [
+  ['jsdelivr', 'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js',
+    'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js'],
+  ['unpkg', 'https://unpkg.com/react@18/umd/react.production.min.js',
+    'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'],
+];
+function scrOnce(src, ms) {
+  return new Promise((res) => {
+    const t = document.createElement('script');
+    t.src = src; t.async = false;
+    let done = false;
+    const fin = (v) => { if (!done) { done = true; res(v); } };
+    t.onload = () => fin(true); t.onerror = () => fin(false);
+    document.head.appendChild(t);
+    setTimeout(() => fin(false), ms || 18000);
+  });
+}
+function reactOk() {
+  const R = window.React, RD = window.ReactDOM;
+  return !!(R && typeof R.createElement === 'function' && RD &&
+    (typeof RD.createRoot === 'function' || typeof RD.render === 'function'));
+}
+async function loadReact() {
+  if (reactOk()) return true;
+  for (const [name, u1, u2] of REACT_CDNS) {
+    delete window.React; delete window.ReactDOM;        // 清掉上次失败留下的坏副本 ✓（不清就永远救不回来 ✗）
+    const a = await scrOnce(u1);
+    const b = a ? await scrOnce(u2) : false;
+    if (a && b && reactOk()) {
+      mmpCdnUsed = name;
+      log('播放器组件：React ' + String(window.React.version || '?') + ' / ReactDOM ' +
+        String(window.ReactDOM.version || '?') + ' 就绪 ✓（源 ' + name + '）', 'ok');
+      return true;
+    }
+    log('播放器组件：' + name + ' 这份不可用 ✗（react ' + (a ? '到' : '没到') + ' / react-dom ' +
+      (b ? '到' : '没到') + ' / API ' + (reactOk() ? '正常' : '缺失') + '）→ 换下一个源 ✓', 'err');
+  }
+  return false;
+}
+function ensureMmp() {
+  if (mmpMod) return Promise.resolve(mmpMod);
+  if (mmpP) return mmpP;
+  const BASE = 'https://mmp.doppiocdn.com/player/mmp/v2.13.0/';
+  mmpP = (async () => {
+    if (!await loadReact()) { log('播放器组件：所有源都不可用 ✗（离线 / 被拦？）', 'err'); return null; }
+    let txt = '';
+    try { txt = await (await fetch(BASE + 'main.js')).text(); } catch (e) { log('mmp 拉不到 ✗ ' + e.message, 'err'); return null; }
+    window.modulesrc = BASE;                                   // ← 它自己找 chunk 用的全局 ✓
+    const jsx = (type, cfg, key) => { const p = Object.assign({}, cfg || {}); if (key !== undefined) p.key = key; return window.React.createElement(type, p); };
+    const shim = (n) => n === 'react' ? window.React
+      : n === 'react-dom' ? window.ReactDOM
+        : n === 'react-dom/client' ? { createRoot: window.ReactDOM.createRoot, hydrateRoot: window.ReactDOM.hydrateRoot }
+          : (n === 'react/jsx-runtime' || n === 'react/jsx-dev-runtime') ? { jsx: jsx, jsxs: jsx, jsxDEV: jsx, Fragment: window.React.Fragment }
+            : {};
+    shim.resolve = () => '';
+    const mod = { exports: {} };
+    try { new Function('module', 'exports', 'require', 'modulesrc', txt)(mod, mod.exports, shim, BASE); }
+    catch (e) { log('mmp 模块执行失败 ✗ ' + e.message, 'err'); return null; }
+    if (!mod.exports || !mod.exports.MouflonPlayer) { log('mmp 没导出 MouflonPlayer ✗', 'err'); return null; }
+    mmpMod = mod.exports;
+    log('站点播放器已就绪 ✓ ' + String(mmpMod.MMP_VERSION || '') + '（React 源 ' + mmpCdnUsed + '）', 'ok');
+    return mmpMod;
+  })().then((r) => { if (!r) mmpP = null; return r; });        // ★ 失败**不缓存** ✓ → 下次调用/重试会重新来 ✓
+  return mmpP;
+}
+// 把站点播放器挂进全屏层（静音 ✓）；起不来就保持预览片 ✓ 不炸 ✓
+// 失败提示 + **点提示就能重试** ✓（别只甩一句「ReactDOM 不可用」✗ —— 用户就是这么被卡住的 ✓）
+function lvFail(tag, msg, retry) {
+  if (!tag) return;
+  tag.textContent = msg + (retry ? ' · 点这里重试 ↻' : '');
+  tag.style.pointerEvents = 'auto';
+  tag.onclick = retry ? (e) => {
+    e.stopPropagation();
+    tag.textContent = '重试中…';
+    tag.onclick = null;
+    retry();
+  } : null;
+}
+function lvOk(tag, msg) { if (!tag) return; tag.onclick = null; tag.textContent = msg; }
+function mountMmpLive(m, el, pv, tag) {
+  const box = el.querySelector('#lvmmp');
+  const apiUrl = String(m.hlsPlaylist || '');            // 接口给的那档（兜底 ✓）
+  if (!box || !apiUrl) { lvFail(tag, '这条没给真流地址 ✗（放预览片）', () => mountMmpLive(m, el, pv, tag)); return; }
+  ensureMmp().then((mod) => {
+    if (!mod) {
+      lvFail(tag, '播放器组件加载失败 ✗（外部源不通）· 现在放的是预览片',
+        () => mountMmpLive(m, el, pv, tag));
+      return;
+    }
+    if (!lvPlayer || lvPlayer.el !== el) return;                 // 已经关掉了 ✓
+    // 用"选档器"挑出的高档 ✓（它带缓存 ✓ 不会重复打接口）；挑不到就用接口默认档 ✓
+    return Promise.resolve(pickLivePreset(m)).catch(() => null).then((picked) => {
+      const url = (picked && picked.url) || apiUrl;
+      if (!lvPlayer || lvPlayer.el !== el) return;
+      log('真·直播取档：' + ((picked && picked.preset) || '(接口默认档)') + ' · …' + url.slice(-34), 'dim');
+      return renderMmp(mod, box, el, pv, tag, m, url);
+    });
+  });
+}
+function renderMmp(mod, box, el, pv, tag, m, url) {
+  let ref = null;
+  const ve0 = document.createElement('video');            // ← 必须给它一个 video 元素 ✓（漏了这个就不出播放器 ✗ 实测）
+  ve0.muted = true; ve0.volume = 0; ve0.playsInline = true; ve0.autoplay = true;   // 静音 ✓
+  try {
+    ref = window.React.createRef();
+    const R = window.React, RD = window.ReactDOM;
+    log('React ' + String((R && R.version) || '?') + ' / ReactDOM ' + String((RD && RD.version) || '?') +
+      ' / createRoot=' + (RD && typeof RD.createRoot === 'function' ? '有' : '无') + ' ' + (RD && typeof RD.render === 'function' ? '有render' : '无render'), 'dim');
+    const el2 = R.createElement(mod.MouflonPlayer, {
+      videoElement: ve0, playerType: 'hls', HLSStreamUrl: url, playerRef: ref,
+      volume: 0, isABREnabled: true, muted: true, autoplay: true,
+    });
+    // createRoot 优先 ✓，没有就退回老 API ✓（两种 UMD 构建都覆盖到 ✓）
+    if (RD && typeof RD.createRoot === 'function') RD.createRoot(box).render(el2);
+    else if (RD && typeof RD.render === 'function') RD.render(el2, box);
+    else { lvFail(tag, 'ReactDOM 不可用 ✗（这份是坏的/不完整的）', () => mountMmpLive(m, el, pv, tag)); return; }
+  } catch (e) { lvFail(tag, '渲染站点播放器失败 ✗ ' + e.message, () => mountMmpLive(m, el, pv, tag)); return; }
+  let n = 0;
+  const t = setInterval(() => {
+    n++;
+    const ve = (ref.current && ref.current._videoElement) || ve0;
+    const started = !!(ref.current && (ref.current._currentPlayerWrapperInstance || ref.current._videoElement));
+    if (ve && started) {
+      clearInterval(t);
+      ve.muted = true; ve.volume = 0; ve.playsInline = true;   // 静音 ✓（规矩 §六-11 ✓）
+      if (ve.parentNode !== box) box.appendChild(ve);
+      box.classList.add('on');
+      if (pv) pv.style.display = 'none';                       // 真画面优先 ✓
+      lvOk(tag, '真·直播 ✓（站点自己的播放器 · 静音播放）');
+      log('真·直播已起 ✓ ' + String(m.username || '') + ' · 静音 ✓', 'ok');
+    } else if (n > 60) {
+      clearInterval(t);
+      lvFail(tag, '站点播放器没给出 video 元素 ✗（放的是预览片）', () => mountMmpLive(m, el, pv, tag));
+    }
+  }, 500);
+}
+function viewLiveRoom(username) {
+  const m = liveRooms.items.find((x) => String(x.username) === String(username));
+  if (!m) { log('直播房间：列表里找不到 ' + username, 'err'); return; }
+  closeLiveRoom(); // 先收上一轮（保险 ✓）
+  const sc = document.querySelector('.screen');
+  if (!sc) return;
+  const el = document.createElement('div');
+  el.className = 'lv-player';
+  el.innerHTML = `<video id="lvv" playsinline muted></video><div class="mmp" id="lvmmp"></div><div class="x" id="lvx">✕</div>` +
+    `<div class="tag">正在起站点自己的播放器（真画面）… 起不来就退回预览片 ✗</div><div class="st" id="lvst"></div>`;
+  sc.appendChild(el);
+  const v = el.querySelector('#lvv');
+  v.muted = true; v.volume = 0;                     // 静音 ✓（规矩 §六-11 ✓）
+  const x = el.querySelector('#lvx');
+  const st = el.querySelector('#lvst');
+  el.onclick = () => x.classList.toggle('on');      // 点屏幕 = 只切 X ✓（第 33 轮：那个新窗口兜底按钮已删 ✗）
+  x.onclick = (e) => { e.stopPropagation(); closeLiveRoom(); }; // X = 关闭回列表 ✓
+  lvPlayer = { el: el, v: v, hls: null };
+  mountMmpLive(m, el, v, el.querySelector('.tag'));   // ★ 并行起"站点自己的播放器"（真画面 ✓），失败不影响预览 ✓
+  const bs = m.broadcastSettings || {};
+  log(`直播房间：${m.username} · ${bs.width || '?'}×${bs.height || '?'} · 接口默认档=${String(m.hlsPlaylist || '').slice(-24)}`, 'dim');
+  st.textContent = '选画质…';
+  v.onplaying = () => { st.textContent = ''; };
+  v.onwaiting = () => { st.textContent = '缓冲中…'; };
+  const native = v.canPlayType('application/vnd.apple.mpegurl');
+  pickLivePreset(m).then((picked) => {
+    if (!lvPlayer || lvPlayer.el !== el) return;    // 已经关掉了 → 别再往上挂 ✗
+    const src = (picked && picked.url) || '';
+    if (!src) { st.textContent = '这条没有可用流 ✗'; return; }
+    log(`直播取流：${picked.preset ? picked.preset : '(退回接口默认档)'} · …${src.slice(-38)}`, 'dim');
+    st.textContent = '加载中…';
+    return ensureHls().then((ok) => {
+      if (!lvPlayer || lvPlayer.el !== el) return;
+      if (ok && window.Hls && window.Hls.isSupported()) {
+        const h = new window.Hls();
+        lvPlayer.hls = h;
+        h.on(window.Hls.Events.ERROR, (_e, d) => {
+          if (d && d.fatal) st.textContent = '播放出错：' + (d.details || d.type || '');
+        });
+        h.attachMedia(v);
+        h.loadSource(src);                            // **直连** ✓（CDN 给了 ACAO:* ✓）
+        v.play().catch(() => {});
+      } else if (native) {
+        v.src = src;
+        v.play().catch(() => {});
+      } else {
+        st.textContent = '这个环境放不了 HLS ✗';
+      }
+    });
+  }).catch(() => { st.textContent = 'hls.js 没加载上 ✗'; });
+}
+
+/** 取**更高档**的流（用户 2026-10-03："240p 太糊" ✗）——
+ *  实测（同一 model 只换 URL 后缀 ✓）：`…/master/<id>_240p.m3u8` 里的 `_240p` 换成
+ *  **`_480p` / `_960p` / `_960p60` 都是 200 + 合法 m3u8** ✓（`_1080p` → **404** ✗）；
+ *  有哪些档由 model 自己的 `presets` 给（例 `["960p60","960p","480p","240p","160p_blurred"]` ✓）。
+ *  选档顺序：**960p → 480p → 240p** ✓（**跳过 `960p60`** ✗ 60fps 码率更高、起播更慢 ✓；
+ *  **跳过 `*_blurred`** ✗ 那是马赛克档 ✓；`presetsAv1` 是 AV1 那套 ✗ 不用 ✓）；
+ *  逐个探（`fetch` 读状态 + `#EXTM3U` ✓ —— CDN 有 `ACAO:*` ✓ 探得动 ✓），**第一个能用的就用** ✓；
+ *  全探不到才退回接口给的 `hlsPlaylist` ✓（= 原来那档 240p ✓）。挑好的记进 `livePresetCache` ✓ 同一房间不重复探 ✓。 */
+const livePresetCache = new Map();
+function probeLivePreset(m) {
+  const base = String(m.hlsPlaylist || '');
+  const urls = [];
+  const add = (p) => {
+    const u = base ? base.replace(/_[A-Za-z0-9_]+\.m3u8(\?.*)?$/, '_' + p + '.m3u8') : '';
+    if (u && u !== base && urls.indexOf(u) < 0) urls.push(u);
+  };
+  add('960p'); add('480p'); add('240p');
+  if (base) urls.push(base);
+  const labelOf = (u) => { const mm = /_([A-Za-z0-9_]+)\.m3u8(\?|$)/.exec(u); return mm ? mm[1] : ''; };
+  const step = (i) => {
+    if (i >= urls.length) return { url: base, preset: '' };
+    return fetch(urls[i]).then((r) => (r.ok ? r.text() : '')).then((t) => {
+      if (t && t.indexOf('#EXTM3U') === 0) return { url: urls[i], preset: labelOf(urls[i]) };
+      return step(i + 1);
+    }).catch(() => step(i + 1));
+  };
+  return Promise.resolve().then(() => step(0));
+}
+function pickLivePreset(m) {
+  const key = String(m.id || m.username || '');
+  if (!livePresetCache.has(key)) livePresetCache.set(key, probeLivePreset(m));
+  return livePresetCache.get(key);   // 始终是 promise ✓（并发点两次也只探一遍 ✓）
+}
+
+/** 收掉全屏播放层（**只 remove 浮层** ✓ —— 列表 DOM 与 liveRooms 数据都不动 ✓ 所以回列表不用重拉 ✓） */
+function closeLiveRoom() {
+  if (!lvPlayer) return;
+  const cur = lvPlayer;
+  lvPlayer = null;
+  try { if (cur.hls) cur.hls.destroy(); } catch (_) {}
+  try { cur.v.pause(); cur.v.removeAttribute('src'); cur.v.load(); } catch (_) {}
+  try { cur.el.remove(); } catch (_) {}
+}
+
+// ⚠️ 2026-10-05 用户拍板：`openLiveFilter()`（**子分类选择器弹窗** ✓ 复用通用 `phChipDlg('lvdlg')` ✓）
+//   **整个删掉** ✗ —— 它只被那排里的「筛选」按钮打开 ✓，按钮没了 ✓ → 弹窗一并去掉 ✓
+//   （`LIVE_TAG_MAP` / `liveTagOf()` / `liveSlug()` 现在**没有代码引用** ✗，只当 recon 记录留着 ✓；
+//    它们跟那排入口是同一批 recon ✓ 要清就说一声 ✓）
+
+/** 旧的"子分类整页铺开"入口 → 现在只剩"模拟跳转"这一件事 ✓（保留给别处调用，不乱删 ✗） */
+function openLiveCat(name, path) {
+  liveCat = { name: name, path: path };
+  log(`直播跳转（模拟）：${LIVE_HOST}${path} ← ${name}`, 'dim');
+  renderLiveSite();
+}
+
+/* ---------- 「在线图集1」卡片页（2026-10-05 用户要求 · **app-sim 同步** ✓）----------
+   ★ **数据来自真站** ✓（用户 2026-10-05 改口径：不要假数据 ✗）：`/arttype/2000/` ✓ **服务端渲染** ✓
+      ⚠️ 浏览器直连会被 CORS 挡 ✗ ⇒ 走 sim 自己的服务端取页代理 `/albpage`（**只放行这一个域名** ✓
+      见 `server.mjs` 的 `ALB_ALLOW_HOSTS` ✓ —— 不做任意 URL 代理 ✗）✓；**图片不走代理** ✗（`<img src>` 直连 ✓）
+   解析口径 = **与 App 侧逐字对齐**（app-dev recon ✓）：
+      · 条目 `a.album-item` ✓ · 封面取 **`data-src`** ✓（`src` 是占位 gif `loading_3_green_dot` ✗ **跳过** ✓）
+      · 标题 `.album-name` ✓（**解析保留 ✓ 但本轮不渲染** ✗ 见 `albPageData` 里那行注释 ✓）
+      · **每页 24 条** ✓ · 翻页 `/arttype/2000-<page>/` ✓ · 站点是 **utf-8** ✓（`<meta>` 实测 ✓）
+   版式（**用户 2026-10-05 拍板 ✓ app-sim 同步 ✓，只作用这一页 ✗**，见 style 里 `#albCards`/`#albTags` 那几条 ✓）：
+      · **双列** ✓（`repeat(2, 1fr)` ✓ 竖屏固定两列 ✓；全局 `.cards` 一个字没动 ✗）
+      · 卡片 = **只有封面** ✓（**标题整行删掉** ✗ —— 不是"藏起来/透明"✓ 是**不渲染** ✓）
+      · 封面 **竖版 3:4** ✓（依据 = App 侧 `AspectRatio(3/4)` ✓）· **不写死宽高** ✗（宽度由列宽决定 ✓）
+      · 图片 **`object-fit: cover`** ✓（既有规则 ✓ 裁边**不拉伸** ✓）
+   ⚠️ **那 19 个分类**：形态 = **一排独立 tab** ✓（页面顶部、卡片之上 ✓ 文案照抄 ✓ 顺序不动 ✗）
+      · 样式 **独立** ✓（`#albTags` + `.albtab` ✓ 跟直播页 `.lv-tabs`/`.lv-tab` **无共用** ✓ 见 style 那三条 ✓）
+      · `path` **已全部填上** ✓（来源 = 探站 HTML 的分类入口原始 href ✓ 逐条实测 ✓ 19/19 见报告 ✓）
+      · 点 tab = **按该分类重拉第 1 页** ✓（清空重来 ⇒ 零串台 ✓）
+      · **19 条全上 tab** ✓；`韩国` 那条**故意**改指 `/arttype/5034/` ✓（站点导航指向的 `/t/5034/` 探过是**真空** ✗）
+   ⚠️ **详情页**已接 ✓（点卡片 → `viewOnlineAlbumDetail` ✓ 见下面那段注释 ✓） */
+const ALB_PER_PAGE = 24;                 // 真站每页 24 条 ✓（实测 ✓）
+const ALB_BASE = 'https://zaeg-kiga-rpuv.xofulitu-108.com';   // 站点根 ✓（= 服务端白名单那一个域名 ✓）
+const ALB_PLACEHOLDER = 'loading_3_green_dot';                // 占位 gif 标记 ✓（`src` 里那个 ✓）
+let albSt = { page: 0, loading: false, err: '', items: [], done: false };
+let albReq = 0;                          // ★ 请求代号：换分类/重拉都 +1 ⇒ **在飞的旧响应一律丢弃** ✗（防串台 ✓）
+/** 失败态演示开关 ✓（**只给 mock 调试** ✗）：'' = 正常 ✓ / 'err' = 强制失败 ✓
+ *  （真数据下失败本来就可能发生 ✓ 这个口子只是方便随时复现失败态 ✓） */
+let albDemo = '';
+// ⚠️ 旧的 `ALB_CAT` / `ALB_CAT_IDS` 已删 ✗ —— 19 条 path 现在**只在 `ALB_TAGS` 里有一份** ✓（两处真值会打架 ✓）
+
+/** 第 N 页的**站点地址** ✓ —— 跟着**当前选中的分类**走 ✓（换分类 = 换 path ✓）
+ *  ⚠️ **翻页形式不套模板** ✗：只有 `/arttype/NNNN/` 这套**实测**是 `/arttype/NNNN-<n>/` ✓
+ *     （`/arttype/2001-2/` 实测 200 · 24 条 ✓；韩国那条 `/arttype/5034-2/` 实测 200 · **0 条** ⇒ 它只有 1 页 ✓） */
+function albPageUrl(page) {
+  const tag = albCurTag();
+  if (page <= 1) return ALB_BASE + tag.path;
+  const m = /^(\/arttype\/\d+)\/$/.exec(tag.path);
+  return m ? ALB_BASE + m[1] + '-' + page + '/' : ALB_BASE + tag.path;   // 认不出形式 ⇒ 停在第一页 ✓（别瞎拼 ✗）
+}
+
+/** 站点条目里的 `data-src` **可能是站内相对路径** ✗（实测：`/upload/art/20231019/….jpg` → nw=0 拿不到图 ✗）
+ *  ⇒ 统一补成**绝对** ✓（基线 = `ALB_BASE` ✓；真站上它是同源 ✓ 所以真站本来就没事 ✓）
+ *  ⚠️ 判据必须**大小写不敏感**的 `^https?://` ✓（`HTTP://` 这种也别漏 ✗）；空值原样返回 '' ✓ */
+function albAbs(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  return /^https?:\/\//i.test(s) ? s : new URL(s, ALB_BASE).href;
+}
+
+/** 取一页并**按 App 同口径**解析成条目 ✓（经 `/albpage` 代理 ✓ 只发到白名单那个域名 ✓） */
+function albPageData(page) {
+  if (albDemo === 'err') return Promise.reject(new Error('调试开关 albDemo=err：故意造的失败 ✓'));
+  const url = '/albpage?url=' + encodeURIComponent(albPageUrl(page));
+  return fetch(url).then((r) => {
+    if (!r.ok) throw new Error('取页失败：HTTP ' + r.status);
+    return r.text();                                    // 站点 utf-8 ✓ 服务端也按 utf-8 回 ✓
+  }).then((html) => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return [...doc.querySelectorAll('a.album-item')].map((a) => {
+      const img = a.querySelector('img');
+      let cover = albAbs(img && img.getAttribute('data-src'));      // ★ 真封面在 data-src ✓ 相对路径补绝对 ✓
+      if (cover.includes(ALB_PLACEHOLDER)) cover = '';              // 占位 gif → 当没有封面 ✓（跳过 ✓）
+      const nm = a.querySelector('.album-name');
+      // ⚠️ `title`（真站 `.album-name` ✓）**本轮不渲染** ✗（用户 2026-10-05：标题去掉 ✓）——
+      //    这里**照旧解析并留着** ✓ 给以后详情/搜索备用 ✓ **别当"没删干净"再删一遍** ✗
+      return { href: a.getAttribute('href') || '', cover, title: (nm ? nm.textContent : '').trim() };
+    });
+  });
+}
+
+/** ★ 那 **19 个分类标签**（用户 2026-10-05 要求 ✓ 文案**逐字照抄** ✓ 顺序**不动** ✗）
+ *  ⚠️ `path` = **已填** ✓（来源 = 探站 HTML 里"分类入口"的**原始 href** ✓ + 本机逐条实测 ✓ 见报告 19/19 表 ✓）
+ *      · `全部` = `/arttype/2000/` ✓
+ *      · **没有 5040** ✓（`網路收集系列` 是 5041 ✓ 别按连号推 ✗）
+ *  ⚠️⚠️ **「韩国」这条是唯一故意偏离站点导航的** ✗ —— **别按导航"纠正"回去** ✗，来龙去脉如下：
+ *      ① **站点自己的分类导航**指向 `/t/5034/`（原文 `<dd><a href="/t/5034/">韩国</a></dd>` ✓，全站唯一一条不用 `/arttype/` ✓）
+ *      ② 但**它探过、是真空** ✗：HTTP **200**（不是 404 ✓）· `<title>` = 「最新韩国-推荐韩国-第1页」✓（**路径没走错** ✓）
+ *         · 页内 `album-item` = **0** ✓ · `/art/pic/id` 链接 = **0** ✓ · `data-src` = **0** ✓（**没有列表容器** ✓）
+ *         · 翻页形式也试了三种：`/t/5034-2/`、`/t/5034/2/`、`/t/5034/?page=2` → 都 200 且**字节数完全相同**
+ *           （104,177 ✓）= **同一张空页** ✓ ⇒ **不是"翻页写法不同"** ✓
+ *      ③ 同 id 的 **`/arttype/5034/`** 存在 ✓ `<title>` 也是「韩国」✓ **有 3 条** ✓（首条 `BamBi MIGNON` ✓）
+ *      ④ ⇒ **用户 2026-10-05 拍板：改指 `/arttype/5034/`** ✓（19 个 tab 全都回来 ✓ 韩国仍在**第 12 位** ✓）
+ *  ⚠️ **图片域不同** ✗：`/arttype/5034/` 那 3 条的封面来自 **`imagedatas.com`** ✓（**不是** `img.img12345.com` ✓）
+ *     —— 所以别处"图片只有 `img.img12345.com`"那条口径，**要把这条算进去** ✓（域名记账报告里已按两个域列 ✓）
+ *  ⚠️ **`empty: true` = 探过、真的空 ⇒ 暂不上 tab** ✓（`ALB_TABS` 会滤掉 ✓ 用户 2026-10-05 口径"空的就不写上去"✓）
+ *      —— 现在**没有任何一条**带这个标 ✓（机制留着 ✗，哪天再探到空分类，加上一行 + 一句注释就行 ✓）
+ *  ⚠️ 分类的**翻页形式**见 `albPageUrl()` ✓ —— 只有 `/arttype/NNNN/` 那套实测有连号翻页 ✓（`/arttype/2001-2/` ✓）；
+ *      别的形式**没实测过就不套模板** ✗（只给第 1 页 ✓ 见那函数注释 ✓） */
+const ALB_TAGS = [
+  { name: '全部', path: '/arttype/2000/' },            // 实测 200 · 24 条 ✓
+  { name: '热姐', path: '/arttype/2001/' },            // 实测 200 · 24 条 ✓
+  { name: '罗莉塔', path: '/arttype/2002/' },          // 实测 200 · 24 条 ✓
+  { name: '性感的', path: '/arttype/2003/' },          // 实测 200 · 24 条 ✓
+  { name: '杂志', path: '/arttype/2004/' },            // 实测 200 · 15 条 ✓
+  { name: '角色扮演', path: '/arttype/5001/' },        // 实测 200 · 24 条 ✓
+  { name: '美足', path: '/arttype/5029/' },            // 实测 200 · 8 条 ✓
+  { name: '唯美写真', path: '/arttype/5030/' },        // 实测 200 · 24 条 ✓
+  { name: '模特儿', path: '/arttype/5031/' },          // 实测 200 · 2 条 ✓
+  { name: '日本', path: '/arttype/5032/' },            // 实测 200 · 4 条 ✓
+  { name: '东盟', path: '/arttype/5033/' },            // 实测 200 · 2 条 ✓
+  { name: '韩国', path: '/arttype/5034/' },            // ✗ 唯一一条偏离站点导航 —— **有意为之** ✓ 见上面那段注释 ✓
+  { name: '柚木', path: '/arttype/5035/' },            // 实测 200 · 18 条 ✓
+  { name: '少女映画', path: '/arttype/5036/' },        // 实测 200 · 15 条 ✓
+  { name: '沫沫真爱', path: '/arttype/5037/' },        // 实测 200 · 14 条 ✓
+  { name: 'Fushii_海堂', path: '/arttype/5038/' },     // 实测 200 · 8 条 ✓
+  { name: '年年', path: '/arttype/5039/' },            // 实测 200 · 10 条 ✓
+  { name: '網路收集系列', path: '/arttype/5041/' },     // 实测 200 · 24 条 ✓
+  { name: '福利姬', path: '/arttype/5042/' },          // 实测 200 · 24 条 ✓
+];
+/** tab 行上**真正要渲染**的（= 有数据的 ✓ 空的滤掉 ✗ —— 用户 2026-10-05 口径 ✓） */
+const ALB_TABS = ALB_TAGS.filter((t) => !t.empty);
+let albTagSel = 0;                          // 默认选中「全部」✓（下标 = `ALB_TABS` 的下标 ✓）
+const albCurTag = () => ALB_TABS[albTagSel] || ALB_TABS[0];
+
+/** 画顶部那排分类 **tab**（页面顶部、卡片网格之上 ✓）——
+ *  **独立样式** ✗：容器只留 `id="albTags"` ✓、项用**独立类名 `.albtab`** ✓（见 style 里那三条 ✓）
+ *  —— 与直播那排 `.lv-tabs`/`.lv-tab` **没有任何共用** ✓（用户 2026-10-05 拍板 ✓）
+ *  ⚠️ 点击**只切选中态** ✗ **不发任何请求** ✓（本轮口径 ✓ 见 `ALB_TAGS` 注释 ✓）；切换后**只重画这一排** ✓ */
+function renderAlbTags() {
+  const el = $('albTags'); if (!el) return;
+  el.innerHTML = ALB_TABS.map((t, i) =>
+    `<div class="albtab${i === albTagSel ? ' on' : ''}" data-i="${i}">${esc(t.name)}</div>`).join('');
+  el.querySelectorAll('.albtab').forEach((n) => {
+    n.onclick = () => {
+      albTagSel = parseInt(n.dataset.i, 10) || 0;
+      renderAlbTags();                      // 只重画这排 ✓
+      // ★ 换分类 = **按该分类的 path 重新拉第一页** ✓（清空重来 ✓ ⇒ 不会残留上一个分类的卡片 ✓）
+      //   ⚠️ 同时 `albReq++` 作废在飞的旧请求 ✗（慢响应会串台 —— 见 `albLoad` 里那段实测注释 ✓）
+      albReq++;
+      albSt = { page: 0, loading: false, err: '', items: [], done: false };
+      renderAlbCards();
+      albLoad();
+      const t = albCurTag();
+      log(`在线图集1：切到分类「${t.name}」（${t.path}）→ 重拉第 1 页 ✓`, 'dim');
+    };
+  });
+}
+
+/** 设置页那颗「在线图集1」→ 进这页 ✓（先把设置页压栈，back() 才回得到设置 ✓ —— 与「背景图集」子页同一套 ✓） */
+function onlineAlbum1Open() { push(viewSettings); push(viewOnlineAlbum1); }
+
+function viewOnlineAlbum1() {
+  albPreviewClose();                       // ★ 同上：预览层是挂在 #screen 上的 ✗ 换页要手动收 ✓
+  showNav(false);                          // 子页不带底栏 ✓（照「背景图集」子页 ✓）
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>在线图集1</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  $('body').innerHTML = `<div class="lv-page" style="padding:8px 10px 22px">
+    <div class="lv-ref" id="lvRef"></div>
+    <div id="albTags"></div>
+    <div class="cards" id="albCards"></div>
+    <div class="lv-more" id="albMore"></div>
+  </div>`;
+  albSt = { page: 0, loading: false, err: '', items: [], done: false };
+  albTagSel = 0;                                          // 每次进页都回到「全部」✓
+  renderAlbTags();                                        // ★ 顶部那排 19 个分类标签 ✓
+  renderAlbCards();
+  albLoad();
+  enablePullRefresh(albReload, () => albSt.loading);      // ★ 下拉刷新 ✓（与直播页**同一个**函数 ✓）
+  $('body').onscroll = () => {                            // 滚到底续拉 ✓（照直播页 ✓）
+    const b = $('body');
+    if (b.scrollTop + b.clientHeight >= b.scrollHeight - 240) albLoad();
+  };
+  log('在线图集1：真站数据（经 /albpage 代理 ✓）· 每页 24 条 ✓ · 解析口径 = album-item / data-src / album-name ✓', 'dim');
+}
+
+/** 卡片（2 列 ✓ · 竖版封面 3:4 ✓ · **无标题** ✓ —— 三条都在 style 的 `#albCards` 里 ✓）——
+ *  结构照 mock 既有卡片 ✓ + 带上真站口径的类名/属性 ✓ */
+function renderAlbCards() {
+  const box = $('albCards'); if (!box) return;
+  // 封面 = 站点 `data-src` 那条**真图** ✓，`<img src>` **直连**加载 ✓（不走 `/albpage` 代理 ✗ —— 代理只管 HTML ✓）
+  box.innerHTML = albSt.items.map((it) => `
+    <div class="card album-item" data-href="${esc(it.href)}">
+      <div class="cover">${it.cover ? `<img src="${esc(it.cover)}" alt="" loading="lazy" draggable="false" style="-webkit-user-drag:none" />` : ''}</div>
+    </div>`).join('');
+  // ★ 点卡片 ⇒ 进详情页 ✓（`href` 就是留着干这个的 ✓）—— **点了才取** ✗ 不预取 ✓
+  box.querySelectorAll('.album-item').forEach((el, i) => {
+    el.onclick = () => onlineAlbumDetailOpen(albSt.items[i]);
+  });
+  albPaintMore();
+}
+
+/** 状态行（三态 ✓ 照 mock 既有页：失败/空 = 既有 `.hint` ✓；加载中 / 还有更多 = `.lv-more` + 既有 `.spin` ✓）
+ *  ★ 失败态**可点重试** ✓（用户 2026-10-05 要求 ✓）—— 复用既有 `.sbtn` ✓ 不新造样式 ✗（`flex:none` 覆盖掉 `flex:1` ✓） */
+function albPaintMore() {
+  const el = $('albMore'); if (!el) return;
+  if (albSt.err) {
+    el.innerHTML = `<div class="hint">加载失败：${esc(albSt.err)}<br />`
+      + `<span class="sbtn" style="display:inline-block;flex:none;padding:8px 18px;margin-top:10px" `
+      + `onclick="albReload()">重试 ✓</span><br />（或下拉刷新 ✓）</div>`;
+    return;
+  }
+  if (!albSt.items.length) {
+    el.innerHTML = albSt.loading ? '<span class="spin"></span>' : '<div class="hint">没有图集（空态 ✓）</div>';
+    return;
+  }
+  el.innerHTML = albSt.loading ? '<span class="spin"></span>' : (albSt.done ? '没有更多了' : '上滑加载更多');
+}
+
+async function albLoad() {
+  if (albSt.loading || albSt.done) return;
+  const req = albReq;                       // ★ 我是"哪一代"请求 ✓（换分类/重拉会 `albReq++` ✓）
+  albSt.loading = true; albPaintMore();
+  const page = albSt.page + 1;
+  try {
+    const items = await albPageData(page);
+    // ★★ 关键：换分类后**旧响应一律丢弃** ✗ —— 不然它会把上一个分类的条目塞进新列表（**实测串台过** ✗：
+    //    少女映画那次响应慢，落到了下一次点击之后 → 沫沫真爱页里出现 29 条 = 15(少女映画)+14(沫沫真爱) ✗）
+    if (req !== albReq) return;             // 丢掉时**连 loading 都不动** ✗（那是新一代的状态 ✓）
+    albSt.items = albSt.items.concat(items);
+    albSt.page = page;
+    albSt.err = '';
+    // ★ "到底" = 这一页**一条都没有** ✓（真站第 999 页返回 0 条 ✓ 实测 ✓）；
+    //   顺便：不满 24 条也当最后一页 ✓（免得白拉一页空的 ✗）
+    if (items.length < ALB_PER_PAGE) albSt.done = true;
+    log(`在线图集1「${albCurTag().name}」：第 ${page} 页（${albPageUrl(page)}）→ ${items.length} 条` +
+        `（累计 ${albSt.items.length}${albSt.done ? '，到底' : ''}）`, 'dim');
+  } catch (e) {
+    if (req !== albReq) return;             // 旧代的失败也丢掉 ✗（否则会把新分类显示成失败态 ✓）
+    albSt.err = (e && e.message) || String(e);
+    albSt.done = true;                    // 失败不自动重拉 ✓（失败态那颗「重试 ✓」/ 下拉刷新 ✓）
+    log('在线图集1：' + albSt.err, 'err');
+  }
+  albSt.loading = false;
+  renderAlbCards();
+}
+
+/** 下拉刷新 = **清空、重拉第 1 页** ✓（这页没有筛选状态 ✓ 所以就是把列表推倒重来 ✓） */
+function albReload() {
+  albReq++;                                // ★ 作废所有在飞的旧请求 ✓
+  albSt = { page: 0, loading: false, err: '', items: [], done: false };
+  renderAlbCards(); albPaintMore();
+  return albLoad();
+}
+
+/* ---------- 「在线图集1」详情页（2026-10-05 用户要求 ✓ · **只 sim** ✓ app-sim 同步 ✓）----------
+   ★ 数据 = 同域名详情页 ✓ 走**同一个** `/albpage` 白名单代理 ✓（**只复用、不改它** ✗ 白名单已覆盖 ✓）
+   实测口径（我探明的 ✓ 见 `DEVLOG`/本轮报告 ✓）：图片真址也在 **`data-src`** ✓
+      （`src` 是占位 gif `loading_3_green_dot` ✗ 跳过 ✓）；容器 `#picture-item-row` ✓；
+      该图集 **23 张** ✓ **无分页/加载更多** ✓（SSR 一次给全 ✓）；页面 **`srcset`=0 · `<picture>`=0** ✓
+   ⚠️ **无损口径**（用户原话 ✓ 别过度解读 ✗）：`width:100%; height:auto` ✓ **不写固定像素** ✗、
+      **不用 `object-fit: cover`** ✗（默认 `fill` + `height:auto` ⇒ 盒子比例 = 原图比例 ⇒ **不裁不压** ✓）；
+      图比屏宽 ⇒ 浏览器按宽度自适应 ✓（仍算无损 ✓）；**"点开放大"本轮不做** ✗（要做先问 ✓）
+   ⚠️ **占位**：灰底 = 既有色 `#eceff3`（`.lv-room .cov` 那个 ✓）+ 内联 `aspect-ratio: 2/3` ✓
+      （本站扫图常见比例 ✓ 实测 `023.jpeg` = 2162×3840 ✓）→ 图 `onload` 回填**真实比例** ✓ ⇒ 不跳版不变形 ✓
+      （⚠️ 占位只是"没图时别白一片" ✓ **不是**压图 ✗） */
+let albDSt = { loading: false, err: '', items: [], done: false };
+let albDReq = 0;                         // ★ 同 `albReq`：换图集/重拉都 +1 ⇒ 旧响应丢弃 ✗（免得上一本的图串到这一本 ✓）
+
+/** 点卡片 → 详情页 ✓（把 item 带进栈 ✓ 返回时 `back()` 回图集列表 ✓） */
+function onlineAlbumDetailOpen(item) { push(() => viewOnlineAlbumDetail(item)); }
+
+function viewOnlineAlbumDetail(item) {
+  albPreviewClose();                       // ★ 进页先关掉可能还开着的预览层 ✓（弹层挂在 #screen 上 ✗ 不会自己消失 ✓）
+  showNav(false);                          // 子页不带底栏 ✓（照「在线图集1」✓）
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>${esc(item.title || '图集')}</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  $('body').innerHTML = `<div class="lv-page" style="padding:8px 10px 22px">
+    <div class="lv-ref" id="lvRef"></div>
+    <div id="albDList"></div>
+    <div class="lv-more" id="albDMore"></div>
+  </div>`;
+  albDReq++;                                              // ★ 作废上一本还在飞的请求 ✗
+  albDSt = { loading: false, err: '', items: [], done: false };
+  renderAlbDetail();
+  albDetailLoad(item);
+  enablePullRefresh(() => albDetailReload(item), () => albDSt.loading);   // ★ 共用那条下拉刷新 ✓
+  log(`图集详情：${item.title || '（无标题）'} · ${item.href} —— **点了才取** ✓ 不预取 ✓`, 'dim');
+}
+
+/** 详情页图列表（**竖排、每张占满宽度、原图直出** ✓）—— 三态在 `albDPaintMore()` ✓ */
+function renderAlbDetail() {
+  const box = $('albDList'); if (!box) return;
+  box.innerHTML = albDSt.items.map((src, i) => `
+    <div id="albDBox${i}" style="background:#eceff3;aspect-ratio:2/3;overflow:hidden">
+      <img src="${esc(src)}" alt="" loading="lazy" draggable="false" style="width:100%;height:auto;display:block;-webkit-user-drag:none" />
+    </div>`).join('');
+  box.querySelectorAll('img').forEach((im, i) => {                 // 加载完把占位框换成**真实比例** ✓ 不跳版 ✓
+    const set = () => {
+      const el = document.getElementById(`albDBox${i}`);
+      if (el && im.naturalWidth) el.style.aspectRatio = im.naturalWidth + ' / ' + im.naturalHeight;
+    };
+    if (im.complete && im.naturalWidth) set(); else im.onload = set;
+    // ★ 点图 ⇒ 弹预览 ✓（复用**同一个 URL** ✓ 已缓存 ⇒ **不新增请求** ✗ 不重新拉图 ✓）
+    //   参数传**下标** ✓ ⇒ 进预览就定位到"点的那张" ✓ 页码 `i+1 / 总数` ✓
+    im.onclick = () => albPreviewOpen(i);
+  });
+  albDPaintMore();
+}
+
+/** 详情页状态行（三态 ✓ 与图集页同一套既有件 ✓；失败也可点重试 ✓） */
+function albDPaintMore() {
+  const el = $('albDMore'); if (!el) return;
+  if (albDSt.err) {
+    el.innerHTML = `<div class="hint">加载失败：${esc(albDSt.err)}<br />`
+      + `<span class="sbtn" style="display:inline-block;flex:none;padding:8px 18px;margin-top:10px" `
+      + `onclick="albDetailRetry()">重试 ✓</span><br />（或下拉刷新 ✓）</div>`;
+    return;
+  }
+  if (albDSt.loading) { el.innerHTML = '<span class="spin"></span>'; return; }
+  if (!albDSt.items.length) { el.innerHTML = '<div class="hint">这个图集没有图片（空态 ✓）</div>'; return; }
+  el.innerHTML = '';
+}
+
+let albDLast = null;                       // 记住当前详情项（重试用 ✓ —— 只是本地变量 ✓ 不做缓存/预取 ✗）
+function albDetailRetry() { if (albDLast) albDetailLoad(albDLast); }
+
+function albDetailLoad(item) {
+  if (albDSt.loading) return;
+  const req = albDReq;                     // ★ 我是哪一代 ✓（换了图集就丢弃 ✓）
+  albDLast = item;
+  albDSt.loading = true; albDPaintMore();
+  const url = '/albpage?url=' + encodeURIComponent(ALB_BASE + item.href);
+  return fetch(url).then((r) => {
+    if (!r.ok) throw new Error('取页失败：HTTP ' + r.status);
+    return r.text();
+  }).then((html) => {
+    if (req !== albDReq) return;           // 旧代 ⇒ 什么都不动 ✗（连 loading 也不碰 ✓）
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // ★ 与列表页/App 同口径：**图片真址在 `data-src`** ✓（`src` = 占位 gif ✗ 跳过 ✓）
+    const row = doc.getElementById('picture-item-row') || doc;
+    albDSt.items = [...row.querySelectorAll('img[data-src]')]
+      .map((im) => albAbs(im.getAttribute('data-src')))          // ★ 同款：相对路径补绝对 ✓（详情图也可能有相对的 ✗）
+      .filter((s) => s && !s.includes(ALB_PLACEHOLDER));
+    albDSt.err = '';
+    log(`图集详情：${item.href} → **${albDSt.items.length} 张**（取自 data-src ✓ 跳过占位 gif ✓）`, 'dim');
+    albPreloadAll(albDSt.items);                        // ★ 后台预热整本 ✓ 不挡首屏 ✓ 失败静默 ✓
+  }).catch((e) => {
+    if (req !== albDReq) return;
+    albDSt.err = (e && e.message) || String(e);
+    log('图集详情：' + albDSt.err, 'err');
+  }).then(() => { if (req === albDReq) { albDSt.loading = false; renderAlbDetail(); } });
+}
+
+/** 下拉刷新 = 清空重取这一页 ✓（详情没有分页/筛选 ✓ 就是把图重拉一遍 ✓） */
+function albDetailReload(item) {
+  albDReq++;                               // ★ 作废在飞的旧请求 ✓
+  albDSt = { loading: false, err: '', items: [], done: false };
+  renderAlbDetail();
+  return albDetailLoad(item);
+}
+
+/* ---------- 图片预览 / 框选（2026-10-05 用户要求 ✓ **只 sim** ✓ App 本轮不动 ✗）----------
+   口径（用户原话 ✓ 照此实现 ✓）：
+   ① **框选比例 = 手机屏幕（分辨率）的比例** ✓ —— 框在**图片范围内**移动 ✓（用户框出要显示的那部分 ✓）
+   ② **设为背景** = **一次性选择** ✓ —— **不写进"背景图集"** ✗；sim 里**不真设** ✓（只给提示 ✓）
+      并在提示里注明真机语义（**设完即用 ✓ 不进图集 ✓**）
+   ③ **保存相册** = **原图无损、不裁剪、直接存** ✓ —— 与本轮的"框选"**无关** ✗（它不需要框选 ✓）；sim 不真存 ✓
+   件：**全部复用既有** `.ovl`（遮罩弹层 ✓ 挂在 `#screen` 上 ✓）+ `.ovl .row2/.cancel/.ok`（那排两颗按钮 ✓）
+      ⇒ **没新造样式** ✗（只在内联里调了布局 ✓）
+   ⚠️ 移动交互选了「**拖图**」（框固定 ✓ 手一拖图走 ✓）：设壁纸/裁剪本来就是这个手势 ✓，
+      比"拖框"顺（框始终在屏幕固定位置 ✓ 不会拖出屏幕外 ✗）；拖的方向还能靠"图跟手"直观看出来 ✓
+   ⚠️ 图和框按 **cover** 口径缩放 ✓（`max(框宽/图宽, 框高/图高)` ✓）⇒ 竖图/横图/方图都**不露底** ✓；
+      两个方向各自夹住 ✓ ⇒ **框永远不出图** ✓
+   ⚠️ 提示**不用 `alert`** ✗（headless 下会卡住 ✓ 用弹层里那条既有 `.hint` ✓ + 1.4s 后自动关 ✓） */
+let albPv = null;          // { src, mode:'view'|'crop' } —— 当前预览态 ✓（关掉即 null ✓）
+let albCropSt = null;      // 框选态的位移/余量 ✓：{ dx, dy, dw, dh, slackX, slackY }
+
+/** 打开预览（点详情页的图 ✓）—— URL 与详情页那张**同一个** ✓ 已缓存 ⇒ **不新增请求** ✗
+ *  ★ 参数是**下标** ✓：进预览就按"点的那张"定位 ⇒ 页码显示 `下标+1 / 总数` ✓ */
+function albPreviewOpen(i) {
+  albPreviewClose();                                  // 幂等：先清旧的 ✓
+  const n = albDSt.items.length;
+  const idx = Math.max(0, Math.min(n - 1, parseInt(i, 10) || 0));
+  const o = document.createElement('div');
+  o.className = 'ovl';
+  o.style.alignItems = 'center';                      // 预览要**整图居中** ✓（`.ovl` 默认 flex-end 是底弹层 ✓ 内联盖掉 ✓）
+  o.onclick = (e) => { if (e.target === o) albPreviewClose(); };   // 点遮罩关 ✓（照既有弹层规矩 ✓）
+  $('screen').appendChild(o);
+  albPv = { mode: 'view', i: idx, src: albDSt.items[idx] || '' };
+  albPreviewPaint();
+  log(`图片预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓ 点遮罩关 ✓）`, 'dim');
+}
+
+/** ★ 换上一张/下一张（`d` = +1 下一张 / -1 上一张）——
+ *  ⚠️ 方向 = **用户最终口径** ✓（2026-10-05 拍板）：**左滑 = 下一张** ✓ **右滑 = 上一张** ✗
+ *     （口径换过三次 ☠ 以"左=下一张"为准 ✓ 见 `albPreviewSwipe` 头上那段历史注释 ✓）
+ *  ⚠️ **不循环** ✗：到边界就停住 ✓（只记一条日志 ✓）；⚠️ **只在预览态生效** ✗ —— 框选态的手势归拖图 ✓
+ *  ⚠️ **零新增请求** ✓：只把 `src` 换成**列表里早就加载过的那条 URL** ✓（同 URL ⇒ 浏览器缓存 ✓ 不重新拉 ✗） */
+function albPreviewStep(d) {
+  if (!albPv || albPv.mode !== 'view') return;        // ★ 框选态不许切图 ✗（那里拖拽要用来移图 ✓）
+  const n = albDSt.items.length;
+  const ni = albPv.i + d;
+  if (ni < 0 || ni > n - 1) {                         // ★ 边界（按最终口径 ✓）：**第一张右滑 / 最后一张左滑 ⇒ 一动不动** ✓
+    log(`预览：已经是${ni < 0 ? '第一' : '最后'}张 ✓ 不循环 ✗`, 'dim');
+    return;
+  }
+  albPv.i = ni;
+  albPv.src = albDSt.items[ni];                       // 详情页早加载过这条 ✓ ⇒ 零新增请求 ✓
+  albPreviewPaint();
+  log(`预览：${ni + 1} / ${n} ✓`, 'dim');
+}
+
+/** ★ 预览图的左右滑（pointer ✓ 鼠标/触屏同一套 ✓；横位移 > 40px 且比竖位移大才算 ✓ 免得跟"点遮罩关"打架 ✗）
+ *  ★ 2026-10-05 **用户最终口径** ✓：**左滑 = 下一张** ✓ **右滑 = 上一张** ✗（框选态不切图 ✗）
+ *     判定一行：`dx < 0`（往左划）给 `+1`（下一张）✓；`dx > 0` 给 `-1`（上一张）✓
+ *  ⚠️ **不跟动画打架** ☠：这边**没有滑动动画** ✗（换图 = 直接换 `src` ✓ 无位移过渡 ✓）⇒ 方向只决定"换哪张" ✓
+ *  ⚠️ 图集2 那条是**另一份**同款代码（`alb2PreviewSwipe` ✓）⇒ 两处必须一起改 ✓ 别只改一处 ☠（漏过一次 ✗）
+ *  ⚠️ 历史 ☠：这条口径换过三次（最初左=下 → 2026-10-05 改成左=上 → 同日**用户拍板翻回左=下** ✓ 以本次为准 ✗） */
+function albPreviewSwipe() {
+  const o = document.querySelector('.ovl'); if (!o) return;
+  const im = o.querySelector('img'); if (!im) return;
+  let down = false, sx = 0, sy = 0;
+  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; });
+  const end = (e) => {
+    if (!down) return; down = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;   // 太小 / 竖着划 ⇒ 不切图 ✓
+    albPreviewStep(dx < 0 ? 1 : -1);                                 // ★ 左滑=下一张 ✓ 右滑=上一张 ✓
+  };
+  im.addEventListener('pointerup', end);
+  im.addEventListener('pointercancel', () => { down = false; });
+}
+
+function albPreviewClose() {
+  const o = document.querySelector('.ovl'); if (o) o.remove();
+  albPv = null; albCropSt = null;
+}
+
+/** 框的宽高比 = **手机屏幕的比例** ✓ —— 取 `.screen`（模拟器那台手机 ✓）的**实际 rect** 现算 ✓ 不写死 ✗
+ *  ⚠️ 为什么不取 `window.innerWidth/innerHeight` ✗：那是**浏览器窗口** ✗ —— 窗口一拉伸/最大化，
+ *     比例就跟着变（实测 headless 里 `--window-size=430,932` 拿到的视口是 492×840 ⇒ 0.5857 ✗，
+ *     而手机屏是 440×956 ⇒ **0.4603** ✓ ≈ 用户说的 430/932 = 0.4614 ✓）。
+ *     用户原话是"**手机分辨率（屏幕）的比例**" ✓ ⇒ 取手机屏 ✓（换机型/改 CSS 尺寸会自动跟着变 ✓）
+ *  ⚠️ `.screen` 万一取不到 → 退回视口 ✓（不会 NaN ✗） */
+function albScreenRatio() {
+  const sc = $('screen');
+  const r = sc ? sc.getBoundingClientRect() : null;
+  if (r && r.width > 0 && r.height > 0) return r.width / r.height;
+  return window.innerWidth / window.innerHeight;
+}
+
+function albPreviewPaint() {
+  const o = document.querySelector('.ovl'); if (!o || !albPv) return;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const ratio = albScreenRatio();
+  const n = albDSt.items.length || 1;
+  if (albPv.mode === 'view') {                        // ① 预览态：整图 + 页码 + 两颗按钮（设为背景 / 保存相册 ✓）
+    // ⚠️ 两颗按钮**都亮** ✓（2026-10-05 用户截图：原来 保存相册 用的是 `.cancel` 灰底 ✗ ⇒ 改成主按钮那套橙底白字 ✓）
+    o.innerHTML = `<div style="width:100%;padding:0 12px;box-sizing:border-box">
+      <img src="${esc(albPv.src)}" alt="" draggable="false"
+        style="width:100%;height:auto;display:block;border-radius:10px;-webkit-user-drag:none" />
+      <div style="text-align:center;color:#fff;opacity:.85;font-size:12px;margin:8px 0 0">${albPv.i + 1} / ${n}</div>
+      <div class="row2"><div class="ok" onclick="albPreviewCrop()">设为背景</div>
+        <div class="ok" onclick="albPreviewSave()">保存相册</div></div></div>`;
+    albPreviewSwipe();                                // ★ 左滑=下一张 · 右滑=上一张（只在预览态 ✓ 框选态不切图 ✗）
+    return;
+  }
+  // ② 框选态：**两颗按钮藏起来** ✗ → 换 确认/取消 ✓；框 = 手机屏比例 ✓；框外压暗 ✓
+  //   ⚠️ 2026-10-05 用户截图报「框贴最左 ✗ + 确认/取消那排也偏左 ✗」—— **实测复现 + 根因**：
+  //      这层外框原来只有"内容宽" ✗：`.ovl` 是 **row 方向** flex 且默认 `justify-content:flex-start`
+  //      ⇒ 它被顶到最左 ✓，宽只剩框宽 **201.83** ✗（父宽 **370.06** ✗）⇒ 里面 `width:100%` 的 `.row2`
+  //      也只有 201.83 ✗ ⇒ 框和按钮排**一起贴左** ✓（实测左间隙 0 / 右间隙 168.23 ✗）
+  //   ⇒ 最小修法：外框补 **width:100% + box-sizing:border-box + 左右留白** ✓（框的水平居中交给
+  //      `align-items:center` ✓ 天然对称 ✓）；`.row2` 自己那份 padding 去掉 ✗（免得和外层叠成 24px ✗）
+  //   ⚠️ **比例口径 / 拖拽 / 夹住 / 按钮文案顺序 一律没动** ✗
+  const fw = Math.max(120, Math.round(Math.min(vw - 96, vh * ratio * 0.62)));
+  const fh = Math.round(fw / ratio);
+  o.innerHTML = `<div style="width:100%;box-sizing:border-box;padding:0 12px;
+    display:flex;flex-direction:column;align-items:center;gap:16px">
+    <div id="albCropStage" style="position:relative;width:${fw}px;height:${fh}px;overflow:hidden;border-radius:12px;
+      background:#000;box-shadow:0 0 0 9999px rgba(0,0,0,.55)"></div>
+    <div style="text-align:center;color:#fff;opacity:.85;font-size:12px;position:relative;z-index:1">${albPv.i + 1} / ${n}</div>
+    <div class="row2" style="width:100%;margin:0;position:relative;z-index:1">
+      <div class="ok" onclick="albCropOk()">确认</div>
+      <div class="ok" onclick="albCropCancel()">取消</div></div></div>`;
+  // ⚠️ 上面那颗 `取消` 原来用 `.cancel`（灰底 ✗ = mock 里"禁用"那套语义 ✗）⇒ 2026-10-05 用户截图报"看着灰"
+  //    ⇒ 改成和 `确认` 同一套**主按钮橙底白字** ✓（用户要"都亮" ✓）
+  // ⚠️ 这一排另加了 `position:relative;z-index:1` ✗ —— **实测根因**：框那层是 `position:relative`（定位元素）
+  //    且带 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)` ⇒ 它在绘制顺序上**压在这排 static 按钮之上** ✗
+  //    （像素实测：确认按钮底色 **105,40,5** ✗ = 本色 #E8590C(232,89,12) × 0.45 ✓ 正是被 0.55 黑压过 ✓）
+  //    抬层级后按钮恢复本色 ✓；**框外压暗本身保留** ✓（那是框选的视觉语义 ✓ 不能取消 ✗）
+  const st = $('albCropStage');
+  st.addEventListener('click', (e) => e.stopPropagation());   // 框上点一下**别**当"点遮罩关" ✗
+  albCropBuild();
+  log(`框选：框 ${fw}×${fh}（= 视口比 ${ratio.toFixed(4)} ✓）· 拖图选区域 ✓`, 'dim');
+}
+
+/** 框里铺图 + 指针拖拽 + **双指捏缩放/滚轮缩放**（鼠标/触屏都走 pointer ✓ —— 照 mock 里 `enablePullRefresh` 那套 ✓）
+ *  ★ 2026-10-05 用户要求（与 App 的 `InteractiveViewer` 对齐 ✓）：**拖动平移 + 双指捏缩放** ✓
+ *     · 缩放上下限 `z ∈ [1, 4]` ✓（`z=1` = 刚好盖住框 ✓ ⇒ **永远不露底** ✗；最大 4 倍 ✓）
+ *     · 缩放锚点 = 两指中点 ✓（滚轮锚在舞台中心 ✓）· 每次缩放**重算余量并夹住** ✓ ⇒ 图始终盖住框 ✓
+ *     · 桌面可测：**滚轮**在舞台内直接缩放 ✓ · `touch-action:none` 防浏览器抢双指手势 ✓ */
+function albCropBuild() {
+  const st = $('albCropStage'); if (!st || !albPv) return;
+  st.style.touchAction = 'none';                      // ★ 别让浏览器把双指手势当页面缩放/滚动抢走 ✓
+  const fw = st.clientWidth, fh = st.clientHeight;
+  const im = document.createElement('img');
+  im.src = albPv.src; im.alt = ''; im.draggable = false;
+  im.style.cssText = 'position:absolute;left:0;top:0;-webkit-user-drag:none;user-select:none';
+  st.appendChild(im);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  /** 按 `z` 重算尺寸/余量，并把 dx/dy 夹住 ✓（`wantDx/wantDy` = 缩放锚点希望的新位移 ✓ 没给就居中 ✓） */
+  const applyZoom = (z) => {
+    const nw = im.naturalWidth || fw, nh = im.naturalHeight || fh;
+    const base = Math.max(fw / nw, fh / nh);          // ★ "刚好盖住框"那档 = z 的 1 倍 ✓
+    const s = base * z;
+    albCropSt.z = z;
+    albCropSt.dw = nw * s; albCropSt.dh = nh * s;
+    albCropSt.slackX = Math.max(0, albCropSt.dw - fw);
+    albCropSt.slackY = Math.max(0, albCropSt.dh - fh);
+    albCropSt.dx = (typeof albCropSt.wantDx === 'number') ? albCropSt.wantDx : -albCropSt.slackX / 2;
+    albCropSt.dy = (typeof albCropSt.wantDy === 'number') ? albCropSt.wantDy : -albCropSt.slackY / 2;
+    delete albCropSt.wantDx; delete albCropSt.wantDy;
+    albCropSt.dx = clamp(albCropSt.dx, -albCropSt.slackX, 0);   // ★ 夹住：图必须**盖住**框 ✓ 框不出图 ✓
+    albCropSt.dy = clamp(albCropSt.dy, -albCropSt.slackY, 0);
+    albCropPaint(im);
+  };
+  const fit = () => { albCropSt = { z: 1 }; applyZoom(1); };
+  if (im.complete && im.naturalWidth) fit(); else im.onload = fit;
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  st.addEventListener('pointerdown', (e) => {
+    if (!albCropSt || !im.naturalWidth || albCropSt.pinching) return;   // 双指进行时让位 ✓
+    dragging = true; sx = e.clientX; sy = e.clientY; ox = albCropSt.dx; oy = albCropSt.dy;
+    try { st.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  st.addEventListener('pointermove', (e) => {
+    if (!dragging || !albCropSt || albCropSt.pinching) return;
+    albCropSt.dx = clamp(ox + (e.clientX - sx), -albCropSt.slackX, 0);
+    albCropSt.dy = clamp(oy + (e.clientY - sy), -albCropSt.slackY, 0);
+    albCropPaint(im);
+  });
+  const up = () => { dragging = false; };
+  st.addEventListener('pointerup', up);
+  st.addEventListener('pointercancel', up);
+  // ★ 接上共用的手势工具（双指捏 + 滚轮 ✓ 纯工具 ✓ 状态仍归 `albCropSt` ✓）
+  albCropSt = albCropSt || { z: 1 };
+  albCropSt.reflow = () => applyZoom(typeof albCropSt.wantZ === 'number' ? albCropSt.wantZ : (albCropSt.z || 1));
+  albCropGestures(st, () => albCropSt);
+}
+
+/** ★ 框选舞台的**双指捏缩放 + 滚轮缩放**（2026-10-05 用户要求 ✓ 与 App 的 `InteractiveViewer` 对齐 ✓）
+ *  ⚠️ 上下限：`z ∈ [1, 4]` ✓（z=1 = "图刚好盖住框"那档 ⇒ **永远不露底** ✗；最大 4 倍 ✓）
+ *  ⚠️ 缩放锚点 = **两指中点** ✓（滚轮 = 舞台中心 ✓）· 夹住交给调用方的 `reflow()` ✓
+ *  ⚠️ 双指期间置 `st.pinching = true` ✓ ⇒ 单指拖动那套**自动让位** ✗（免得两套手势打架 ☠）
+ *  ⚠️ 桌面可测：**滚轮**直接缩放 ✓（`preventDefault` 只吃舞台里那一下 ✗ 页面滚动不受影响 ✓）
+ *  ⚠️ **纯工具** ✓：状态由调用方持有（图集1 的 `albCropSt` / 图集2 的 `alb2CropSt` ✓ 不共享页面状态 ✗） */
+function albCropGestures(stage, get) {
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const pts = new Map();
+  let startDist = 0, startZ = 1, ax = 0, ay = 0;
+  const two = () => { const a = [...pts.values()]; return a.length >= 2 ? a.slice(0, 2) : null; };
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const apply = (nz, anchorX, anchorY) => {
+    const st = get(); if (!st || typeof st.reflow !== 'function') return;
+    nz = clamp(nz, 1, 4);
+    const rz = nz / (st.z || 1);
+    st.wantZ = nz;
+    st.wantDx = anchorX - (anchorX - st.dx) * rz;      // ★ 锚点不动：位移按缩放比一起放/缩 ✓
+    st.wantDy = anchorY - (anchorY - st.dy) * rz;
+    st.reflow();                                        // 由调用方重算余量 + 夹住 + 画 ✓
+  };
+  stage.addEventListener('pointerdown', (e) => {
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+    const p = two(), st = get();
+    if (p && st) {
+      st.pinching = true;                              // ★ 单指拖动让位 ✓
+      startDist = Math.max(1, dist(p[0], p[1]));
+      startZ = st.z || 1;
+      const r = stage.getBoundingClientRect();
+      ax = (p[0].x + p[1].x) / 2 - r.left;             // 换成舞台内坐标 ✓（dx/dy 就在这个坐标系 ✓）
+      ay = (p[0].y + p[1].y) / 2 - r.top;
+    }
+  }, true);
+  stage.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = two();
+    if (!p || !startDist) return;
+    apply(startZ * (dist(p[0], p[1]) / startDist), ax, ay);
+  }, true);
+  const up = (e) => {
+    pts.delete(e.pointerId);
+    const st = get();
+    if (pts.size < 2) { if (st) st.pinching = false; startDist = 0; }
+  };
+  stage.addEventListener('pointerup', up, true);
+  stage.addEventListener('pointercancel', up, true);
+  stage.addEventListener('wheel', (e) => {             // ★ 桌面也能测 ✓
+    const st = get(); if (!st) return;
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    apply((st.z || 1) * (1 - e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+}
+
+/** ★ 进详情后**后台预热整本图**（2026-10-05 用户要求 ✓ 与 App 同款 ✓）
+ *  ⚠️ **不许挡首屏** ✗：起手那 1~2 张由详情页自己拉 ✓；其余的**推迟一拍**再以 `fetchPriority:'low'` 丢出去 ✓
+ *  ⚠️ 失败/被拒**一律静默** ✗（不弹错 ✓ 不刷日志 ✓）；纯预取 ✓ 不碰任何页面 DOM ✓
+ *  ⇒ 收益：之后在预览里左右滑**不再临时拉图** ✓（图已在缓存 ✓）
+ *  ⚠️ 图集1/图集2 共用这一支纯工具 ✓（只持有引用防 GC ✓ 不共享任何页面状态 ✗） */
+let albPre = [];
+function albPreloadAll(urls) {
+  albPre = [];
+  const list = (urls || []).slice();
+  setTimeout(() => {
+    for (const u of list) {
+      const im = new Image();
+      im.fetchPriority = 'low'; im.decoding = 'async';
+      im.onerror = () => {};                            // ★ 静默 ✓
+      im.src = u;
+      albPre.push(im);
+    }
+    log(`预热：${list.length} 张图后台低优先加载 ✓（失败静默 ✓ 不挡首屏 ✓）`, 'dim');
+  }, 300);
+}
+
+/** 把当前 `albCropSt` 画到图上 ✓（尺寸 + 位移 ✓） */
+function albCropPaint(im) {
+  if (!albCropSt || !im) return;
+  im.style.width = albCropSt.dw + 'px';
+  im.style.height = albCropSt.dh + 'px';
+  im.style.transform = `translate(${albCropSt.dx}px, ${albCropSt.dy}px)`;
+}
+
+// ===== 框选态那两颗 =====
+function albPreviewCrop() { if (!albPv) return; albCropSt = null; albPv.mode = 'crop'; albPreviewPaint(); }
+function albCropCancel() {                              // 取消 ⇒ **退回预览态**（按钮复原 ✓ 框消失 ✓）
+  if (!albPv) return;
+  albCropSt = null; albPv.mode = 'view'; albPreviewPaint();
+  log('框选：取消 ✓ 回到预览态 ✓', 'dim');
+}
+function albCropOk() {                                  // 确认 ⇒ 提示真机语义 + 关预览 ✓（sim 不真设 ✗）
+  albPreviewTip('模拟器不真设背景 ✓（真机：设完即用 ✓ 不进背景图集 ✗）');
+}
+function albPreviewSave() {                             // 保存相册 ⇒ **与框选无关** ✗ 原图直存 ✓
+  albPreviewTip('模拟器不保存相册 ✓（真机：原图无损、不裁剪、直接存 ✓ 与框选无关 ✗）');
+}
+
+/** 弹层里冒一条提示 ✓（复用既有 `.hint` ✓）→ 1.4s 后自动关预览 ✓（**不用 alert** ✗ headless 会卡 ✓） */
+function albPreviewTip(msg) {
+  const o = document.querySelector('.ovl'); if (!o) return;
+  let t = o.querySelector('.albTip');
+  if (!t) {
+    t = document.createElement('div');
+    t.className = 'hint albTip';
+    t.style.cssText = 'position:absolute;left:12px;right:12px;bottom:76px;text-align:center;z-index:2;'
+      + 'background:rgba(0,0,0,.72);color:#fff;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5';
+    o.appendChild(t);
+  }
+  t.textContent = msg;
+  log('图片预览：' + msg, 'dim');
+  setTimeout(albPreviewClose, 1400);
+}
+
+/* ---------- 「在线图集2」卡片页（photos18 ✓ 2026-10-05 用户定案 ✓ **只 sim** ✓ App 本轮不动 ✗）----------
+   ★ 数据：`https://www.photos18.com` ✓ 走**同一个** `/albpage` 白名单代理 ✓（`server.mjs` 里已把本域加进
+      `ALB_ALLOW_HOSTS` ✓ **全等比较 ✓ 无通配** ✗ —— 实测验过：本域 200 ✓ / example.com 403 ✓ /
+      错协议 403 ✓ / 后缀伪造 `www.photos18.com.evil.com` 403 ✓）
+   站上实测口径（我逐条抓的 ✓ 详见本轮报告）：
+      · **每页 100 条** ✓（`class="card-body` 数 = 100 ✓；翻页 `?page=N&per-page=100` ✓）
+      · 卡片 = `<div class="card">` 里 `<a class="visited" href="/v/XXXX">` + `<img src="/images/node/…avif?版本号">` ✓
+        ⇒ **封面在 `src`（相对路径 + 版本号 ✗）⇒ 必须补绝对** ✓ 基线 `https://www.photos18.com` ✓
+      · `srcset` = 0 ✓ `data-src` = 0 ✓（和"图集1"那边**不一样** ✗ 那边是 `data-src` ✓ 别套错 ☠）
+      · 排序 = **路径段** ✓：`/sort/created | hits | views | score | likes` ✓（不是 `?sort=` ✗）
+   ⚠️⚠️ **分类 × 排序 = 可以叠加** ✓✓（2026-10-05 **修正** ✗ —— 我先前在这段里下过**错误结论**：以为站上不支持
+      "分类内排序" ✗ ⇒ 把两个选择器写成了**点一个就把另一个重置回默认** ✗（用户实报"点标签就跳回全部" ☠）
+      ⇒ 留个来龙去脉免得后人再踩：那结论的根因 = 我只搜了 `/sort/` 前缀 ✗ 漏看了站上分类页**自带**的那组控件 ✗）
+      · 错在哪：我先前只搜 `/sort/` 前缀 ✗ ⇒ 漏看了站上分类页**自带**的那组排序控件 ✗
+        （原文：`<div class="btn-group bottom-10"><a class="btn btn-danger" href="/cat/11/created">最新</a>
+         <a class="btn btn-dark" href="/cat/11/hits">最多</a> … href="/cat/11/views|score|likes">…</div>` ✓）
+      · 正确形式 = **`/cat/<分类id>/<sort>`** ✓（实测：`/cat/11/hits` 与 `/cat/11?sort=hits` **完全一样** ✓）
+      · 实测对照（`/cat/11` 前三条 = `5RJDa/ZQygA/V702n` ✓）：
+        `/cat/11/hits` → `pNxgo/mPm4g/n82eJ` ✓ · `/cat/11/views` → `pL9aa/2nR21/6Zg7W` ✓ ·
+        `/cat/11/score` → `MoO2A/PoO2w/eE91p` ✓ · `/cat/11/likes` → `pNxgo/n82eJ/YLD7y` ✓
+        `/cat/11/created` → 与 `/cat/11` **完全相同** ✓（⇒「最新」就是该分类的默认 ✓）
+        跨分类：`/cat/3/hits`(`QPVLY/pNLqg/rkkOr`) ≠ `/cat/3`(`BB6dO/l7WOK/pY9yR`) ≠ `/sort/hits`(`QPVLY/exZBM/pNLqg`) ✓
+      · 翻页也叠得上 ✓：`/cat/11/hits?page=2&per-page=100` → 200 · 100 条 · 首条 `jQ9lX` ≠ 第 1 页 `pNxgo` ✓
+      · 无效形式（别用 ✗）：`?order=hits` ✗（与默认一样）· `/sort/hits?cat=11` ✗（`cat=` 被忽略）
+      ⇒ 界面口径：**两个选择器各自独立、真叠加** ✓（点分类不动排序 ✓ 点排序不动分类 ✓）
+         ① 「全部」+「最新」 ⇒ `/`（首页 ✓ 依据 = 用户口径"全部 = 首页"✓ 且与 `/sort/created` 前三条完全相同 ✓）
+         ② 「全部」+ 非默认排序 ⇒ `/sort/<sort>` ✓
+         ③ 分类 + 任意排序 ⇒ `/cat/<id>/<sort>` ✓（含 `/cat/<id>/created` = 分类默认 ✓）
+   版式 = 照「在线图集1」那套 ✓（2 列 ✓ 竖版 3:4 ✓ **无标题** ✓），但**样式独立** ✗（按 id 作用域 ✓ 见 style ✓）
+   ⚠️ 代际计数器**另起一套 `alb2Req`** ✗ —— 跟图集1 的 `albReq` **绝不共用** ☠（两边同时开着会互相作废 ✗） */
+const ALB2_BASE = 'https://www.photos18.com';
+const ALB2_PER_PAGE = 100;                    // 实测每页 100 条 ✓
+const ALB2_TABS = [                           // ★ 21 个：第 1 个「全部」= 首页 ✓ + 20 个分类 ✓ 顺序/文案照抄 ✓（括号数字不显示 ✗）
+  { name: '全部', path: '/' },
+  { name: '極品美女', path: '/cat/11' }, { name: '清涼寫真', path: '/cat/3' },
+  { name: '性感激情', path: '/cat/7' },  { name: '歐美寫真', path: '/cat/1' },
+  { name: '美女圖', path: '/cat/5' },    { name: '絲襪美腿', path: '/cat/4' },
+  { name: 'COSPLAY', path: '/cat/8' },   { name: '亞洲美女', path: '/cat/9' },
+  { name: '素人正妹', path: '/cat/6' },  { name: 'Chinese', path: '/cat/17' },
+  { name: 'Aidol', path: '/cat/13' },    { name: 'Gravure', path: '/cat/12' },
+  { name: '歐美美女', path: '/cat/10' }, { name: 'Thailand', path: '/cat/16' },
+  { name: 'Korea', path: '/cat/15' },    { name: '國產美女', path: '/cat/21' },
+  { name: '港台美女', path: '/cat/20' }, { name: 'Magazine', path: '/cat/14' },
+  { name: '日韓美女', path: '/cat/19' }, { name: '夜店辣妹', path: '/cat/2' },
+];
+const ALB2_SORTS = [                          // ★ 5 个排序 ✓ 路径段形态 ✓（站上那组链接逐字对照 ✓）
+  { name: '最新', path: '/sort/created' }, { name: '最多', path: '/sort/hits' },
+  { name: '最火', path: '/sort/views' },   { name: '推薦', path: '/sort/score' },
+  { name: '最好', path: '/sort/likes' },
+];
+let alb2TabSel = 0, alb2SortSel = 0;          // 默认：「全部」✓ + 「最新」✓（依据 = 站上 `btn-danger` 高亮的是 /sort/created ✓）
+let alb2St = { page: 0, loading: false, err: '', items: [], done: false };
+let alb2Req = 0;                              // ★ 图集2 **自己的**代际计数器 ✗（不跟 `albReq` 共用 ☠）
+
+/** 相对路径补绝对 ✓（`HTTP://` 大写也不漏 ✓ —— 跟图集1 的 `albAbs` 同一套判据 ✓ 只是基线不同 ✗） */
+function alb2Abs(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  return /^https?:\/\//i.test(s) ? s : new URL(s, ALB2_BASE).href;
+}
+
+/** 第 N 页的真实地址 ✓ —— **分类 × 排序真叠加** ✓（口径与实测见上面那段注释 ✓）
+ *  ① 分类 + 排序 ⇒ `/cat/<id>/<sort>` ✓    ② 「全部」+ 非默认排序 ⇒ `/sort/<sort>` ✓
+ *  ③ 「全部」+「最新」 ⇒ `/`（首页 ✓ 依据 = 用户口径"全部 = 首页" ✓ 且实测与 `/sort/created` 前三条完全相同 ✓）
+ *  ④ 分类 + 「最新」 ⇒ `/cat/<id>/created` ✓（= 该分类默认 ✓）
+ *  ⚠️ 翻页实测过 ✓：`/cat/11/hits?page=2&per-page=100` → 200 · 100 条 · 首条 ≠ 第 1 页 ✓（`/sort/hits?page=2…` 同理 ✓） */
+function alb2PageUrl(page) {
+  const q = page > 1 ? `?page=${page}&per-page=${ALB2_PER_PAGE}` : '';
+  const sort = ALB2_SORTS[alb2SortSel] || ALB2_SORTS[0];
+  const sortSlug = sort.path.replace('/sort/', '').replace(/\//g, '');      // 'created' / 'hits' / 'views' / 'score' / 'likes' ✓
+  const cat = ALB2_TABS[alb2TabSel] || ALB2_TABS[0];
+  if (cat.path === '/') {                                   // 「全部」
+    return alb2SortSel === 0 ? ALB2_BASE + '/' + q : ALB2_BASE + sort.path + q;
+  }
+  return ALB2_BASE + cat.path + '/' + sortSlug + q;         // 分类 + 排序 ⇒ /cat/<id>/<sort> ✓
+}
+
+/** 取一页 + 解析（容器 `.card-columns .card` ✓ 首图在 `img src` ✓ 详情链接 `/v/XXX` 先存着 ✓） */
+function alb2PageData(page) {
+  return fetch('/albpage?url=' + encodeURIComponent(alb2PageUrl(page))).then((r) => {
+    if (!r.ok) throw new Error('取页失败：HTTP ' + r.status);
+    return r.text();
+  }).then((html) => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const seen = new Set();
+    return [...doc.querySelectorAll('.card-columns .card')].map((c) => {
+      const a = c.querySelector('a[href^="/v/"]');
+      const im = c.querySelector('img');
+      const t = c.querySelector('.card-body a[href^="/v/"]');
+      return { href: a ? a.getAttribute('href') : '', cover: alb2Abs(im && im.getAttribute('src')),
+        title: t ? t.textContent.trim() : '' };            // 标题**解析保留** ✓ 本轮**不渲染** ✗（照图集1 ✓）
+    }).filter((x) => {                                     // 去重 + 丢掉没链接/没封面的脏条目 ✓
+      if (!x.href || !x.cover || seen.has(x.href)) return false;
+      seen.add(x.href); return true;
+    });
+  });
+}
+
+/** 设置页那颗「在线图集2」→ 进这页 ✓（把设置页压栈 ✓ 与图集1 同一套返回栈 ✓） */
+function onlineAlbum2Open() { push(viewSettings); push(viewOnlineAlbum2); }
+
+function viewOnlineAlbum2() {
+  albPreviewClose();                          // 弹层挂在 #screen 上 ✗ 换页手动收 ✓（沿用图集1 那套 ✓）
+  showNav(false);                             // 子页不带底栏 ✓
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>在线图集2</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  $('body').innerHTML = `<div class="lv-page" style="padding:8px 10px 22px">
+    <div class="lv-ref" id="lvRef"></div>
+    <div id="alb2Tabs"></div>
+    <div id="alb2Sorts"></div>
+    <div class="cards" id="alb2Cards"></div>
+    <div class="lv-more" id="alb2More"></div>
+  </div>`;
+  alb2TabSel = 0; alb2SortSel = 0;            // 每次进页都回到「全部」+「最新」✓
+  alb2Req++;
+  alb2St = { page: 0, loading: false, err: '', items: [], done: false };
+  renderAlb2Tabs(); renderAlb2Sorts(); renderAlb2Cards();
+  alb2Load();
+  enablePullRefresh(alb2Reload, () => alb2St.loading);      // ★ 共用那条下拉刷新 ✓
+  $('body').onscroll = () => {                              // 滚到底续拉 ✓（照图集1 ✓）
+    const b = $('body');
+    if (b.scrollTop + b.clientHeight >= b.scrollHeight - 240) alb2Load();
+  };
+  log('在线图集2：photos18 ✓ 每页 100 条 ✓ 分类×排序**可以叠加** ✓（/cat/<id>/<sort> ✓ 两轴独立 ✗）', 'dim');
+}
+
+/** 21 个分类 tab（独立类名 `.alb2tab` ✓ 样式按 id 作用域 ✓ 不跟图集1 共用 ✗）
+ *  ⚠️ **点分类不再重置排序** ✗（2026-10-05 修正 ✓：站上分类内排序 = `/cat/<id>/<sort>` ✓ 真能叠加 ✓
+ *     —— 原来那句"回默认排序"是**按错误结论写的** ✗ 已删 ✓ 见 `alb2PageUrl` 注释 ✓） */
+function renderAlb2Tabs() {
+  const el = $('alb2Tabs'); if (!el) return;
+  el.innerHTML = ALB2_TABS.map((t, i) =>
+    `<div class="alb2tab${i === alb2TabSel ? ' on' : ''}" data-i="${i}">${esc(t.name)}</div>`).join('');
+  el.querySelectorAll('.alb2tab').forEach((n) => {
+    n.onclick = () => {
+      alb2TabSel = parseInt(n.dataset.i, 10) || 0;
+      alb2Req++;                              // ★ 作废在飞的旧请求 ✓（防串台 ✓）
+      alb2St = { page: 0, loading: false, err: '', items: [], done: false };
+      renderAlb2Tabs(); renderAlb2Cards();
+      alb2Load();
+      log(`在线图集2：分类「${ALB2_TABS[alb2TabSel].name}」× 排序「${ALB2_SORTS[alb2SortSel].name}」⇒ ${alb2PageUrl(1).replace(ALB2_BASE, '')} ✓`, 'dim');
+    };
+  });
+}
+
+/** 5 个**排序标签**（形态 = 标签/chip ✓ 从 mock 既有子分类行抄来 ✓）
+ *  ⚠️ **点排序不再重置分类** ✗（同上：真叠加 ✓ 分类照旧停在原处 ✓） */
+function renderAlb2Sorts() {
+  const el = $('alb2Sorts'); if (!el) return;
+  el.innerHTML = ALB2_SORTS.map((s, i) =>
+    `<div class="alb2chip${i === alb2SortSel ? ' on' : ''}" data-i="${i}">${esc(s.name)}</div>`).join('');
+  el.querySelectorAll('.alb2chip').forEach((n) => {
+    n.onclick = () => {
+      alb2SortSel = parseInt(n.dataset.i, 10) || 0;
+      alb2Req++;
+      alb2St = { page: 0, loading: false, err: '', items: [], done: false };
+      renderAlb2Sorts(); renderAlb2Cards();
+      alb2Load();
+      log(`在线图集2：排序「${ALB2_SORTS[alb2SortSel].name}」× 分类「${ALB2_TABS[alb2TabSel].name}」⇒ ${alb2PageUrl(1).replace(ALB2_BASE, '')} ✓`, 'dim');
+    };
+  });
+}
+
+/** 卡片（2 列 ✓ 竖版 3:4 ✓ **无标题** ✓ —— 三条都在 style 的 `#alb2Cards` 里 ✓ 与图集1 各管各的 ✗） */
+function renderAlb2Cards() {
+  const box = $('alb2Cards'); if (!box) return;
+  box.innerHTML = alb2St.items.map((it) => `
+    <div class="card album2-item" data-href="${esc(it.href)}">
+      <div class="cover">${it.cover ? `<img src="${esc(it.cover)}" alt="" loading="lazy" draggable="false" style="-webkit-user-drag:none" />` : ''}</div>
+    </div>`).join('');
+  // ★ 点卡片 ⇒ 进详情页 ✓（`href` 就是留着干这个的 ✓）—— **点了才取** ✗ 不预取 ✓
+  box.querySelectorAll('.album2-item').forEach((el, i) => {
+    el.onclick = () => onlineAlbum2DetailOpen(alb2St.items[i]);
+  });
+  alb2PaintMore();
+}
+
+/** 状态行（三态 ✓ 与图集1 同一套既有件 ✓ 失败可点重试 ✓） */
+function alb2PaintMore() {
+  const el = $('alb2More'); if (!el) return;
+  if (alb2St.err) {
+    el.innerHTML = `<div class="hint">加载失败：${esc(alb2St.err)}<br />`
+      + `<span class="sbtn" style="display:inline-block;flex:none;padding:8px 18px;margin-top:10px" `
+      + `onclick="alb2Reload()">重试 ✓</span><br />（或下拉刷新 ✓）</div>`;
+    return;
+  }
+  if (alb2St.loading) { el.innerHTML = '<span class="spin"></span>'; return; }
+  if (!alb2St.items.length) { el.innerHTML = '<div class="hint">没有图集（空态 ✓）</div>'; return; }
+  el.innerHTML = alb2St.done ? '没有更多了' : '上滑加载更多';
+}
+
+async function alb2Load() {
+  if (alb2St.loading || alb2St.done) return;
+  const req = alb2Req;                                  // ★ 我是哪一代 ✓
+  alb2St.loading = true; alb2PaintMore();
+  const page = alb2St.page + 1;
+  try {
+    const items = await alb2PageData(page);
+    if (req !== alb2Req) return;                        // ★ 换选择器了 ⇒ 旧响应一律丢弃 ✗（连 loading 都不碰 ✓）
+    alb2St.items = alb2St.items.concat(items);
+    alb2St.page = page;
+    alb2St.err = '';
+    if (items.length < ALB2_PER_PAGE) alb2St.done = true;   // 不满 100 条 ⇒ 最后一页 ✓
+    log(`在线图集2：第 ${page} 页（${alb2PageUrl(page).replace(ALB2_BASE, '')}）→ ${items.length} 条` +
+        `（累计 ${alb2St.items.length}${alb2St.done ? '，到底' : ''}）`, 'dim');
+  } catch (e) {
+    if (req !== alb2Req) return;
+    alb2St.err = (e && e.message) || String(e);
+    alb2St.done = true;
+    log('在线图集2：' + alb2St.err, 'err');
+  }
+  alb2St.loading = false;
+  renderAlb2Cards();
+}
+
+/** 下拉刷新 = 清空重拉第 1 页 ✓（当前分类/排序不变 ✓） */
+function alb2Reload() {
+  alb2Req++;
+  alb2St = { page: 0, loading: false, err: '', items: [], done: false };
+  renderAlb2Cards(); alb2PaintMore();
+  return alb2Load();
+}
+
+/* ---------- 「在线图集2」详情页 + 预览 + 框选（照「在线图集1」那套**逐项对齐** ✓ 但**整条线独立** ✗）----------
+   实测口径（`/v/ZQygA` ✓ 只抓文本 ✓）：
+     · 图片容器 = `#content .imgHolder img` ✓ **图在 `src`** ✓（**绝对 URL** ✓，没有 `data-src`/`srcset` ✗ —— 
+       ⚠️ 与列表页不同：列表页封面是**相对**的 `src` ✓ 那边已用 `alb2Abs` 补绝对 ✓）
+     · **该本 24 张** ✓（`data-fancybox="gallery"` 也是 24 ✓）· **没有分页/加载更多** ✓（`下一页/加载更多/pagination/查看更多` 全 0 ✓）
+     · 图片域名 = **`img.photos18.com`** ✗（**与列表页的 `www.photos18.com` 不是一个域** ✓）
+       ⚠️ 但图片是**页面里的 `<img>` 直接加载**的 ✗ 不走 `/albpage` 代理 ✓ ⇒ **白名单完全不用动** ✓✓
+   本段 = 图集1 那条线的**镜像** ✓（详情 ✓ 预览两按钮 ✓ 左右滑+页码 ✓ 框选+夹住+压暗+抬层级 ✓ 三态 ✓ 下拉刷新 ✓）
+   ⚠️⚠️ **状态与代际计数器全部另起一套**（`alb2DSt`/`alb2DReq`/`alb2Pv`/`alb2CropSt` ✗）—— **绝不与图集1 共用** ☠
+   ⚠️ 样式：**一律内联 + 既有件**（`.ovl/.row2/.ok/.hint/.spin/.sbtn` ✓）→ **没新加一条 CSS** ✗
+      （两排的 id 作用域样式在 :226-238 ✓ 与这里无关 ✓；框比那支 `albScreenRatio()` 是**纯读 DOM 的工具** ✓ 复用它 ✓） */
+let alb2DSt = { loading: false, err: '', items: [] };     // 详情：图 URL 列表 ✓
+let alb2DReq = 0;                                        // ★ 图集2 详情**自己的**代际计数器 ✗
+let alb2DLast = null;                                    // 重试用：记住当前那本 ✓
+let alb2Pv = null;                                       // { mode:'view'|'crop', i, src } ✓
+let alb2CropSt = null;                                   // 框选位移/余量 ✓
+
+function onlineAlbum2DetailOpen(item) { push(() => viewOnlineAlbum2Detail(item)); }
+
+function viewOnlineAlbum2Detail(item) {
+  alb2PreviewClose();                      // 弹层挂在 #screen 上 ✗ 换页要手动收 ✓
+  showNav(false);                          // 子页不带底栏 ✓
+  $('tabs').style.display = 'none';
+  $('subbar').style.display = 'none';
+  const sb2 = $('subbar2'); if (sb2) sb2.style.display = 'none';
+  setAppbar(`<div class="ic" onclick="back()">‹</div><h1>${esc(item.title || '图集')}</h1><div class="spacer"></div>`);
+  $('body').className = 'body';
+  $('body').onscroll = null;
+  applyBg();
+  $('body').innerHTML = `<div class="lv-page" style="padding:8px 10px 22px">
+    <div class="lv-ref" id="lvRef"></div>
+    <div id="alb2DList"></div>
+    <div class="lv-more" id="alb2DMore"></div>
+  </div>`;
+  alb2DReq++;
+  alb2DSt = { loading: false, err: '', items: [] };
+  renderAlb2Detail();
+  alb2DetailLoad(item);
+  enablePullRefresh(() => alb2DetailReload(item), () => alb2DSt.loading);   // ★ 共用那条下拉刷新 ✓
+  log(`图集2详情：${item.title || '（无标题）'} · ${item.href} —— **点了才取** ✓ 不预取 ✓`, 'dim');
+}
+
+/** 详情图列表（**竖排、每张占满宽度、原图直出** ✓ 无 cover 裁切 ✗；占位框按真实比例回填 ✓） */
+function renderAlb2Detail() {
+  const box = $('alb2DList'); if (!box) return;
+  box.innerHTML = alb2DSt.items.map((src, i) => `
+    <div id="alb2DBox${i}" style="background:#eceff3;aspect-ratio:2/3;overflow:hidden">
+      <img src="${esc(src)}" alt="" loading="lazy" draggable="false" style="width:100%;height:auto;display:block;-webkit-user-drag:none" />
+    </div>`).join('');
+  box.querySelectorAll('img').forEach((im, i) => {
+    const set = () => { const el = document.getElementById(`alb2DBox${i}`); if (el && im.naturalWidth) el.style.aspectRatio = im.naturalWidth + ' / ' + im.naturalHeight; };
+    if (im.complete && im.naturalWidth) set(); else im.onload = set;
+    im.onclick = () => alb2PreviewOpen(i);          // ★ 点图 ⇒ 预览 ✓（同 URL 已加载 ⇒ 零新增请求 ✗）
+  });
+  alb2DPaintMore();
+}
+
+function alb2DPaintMore() {
+  const el = $('alb2DMore'); if (!el) return;
+  if (alb2DSt.err) {
+    el.innerHTML = `<div class="hint">加载失败：${esc(alb2DSt.err)}<br />`
+      + `<span class="sbtn" style="display:inline-block;flex:none;padding:8px 18px;margin-top:10px" `
+      + `onclick="alb2DetailRetry()">重试 ✓</span><br />（或下拉刷新 ✓）</div>`;
+    return;
+  }
+  if (alb2DSt.loading) { el.innerHTML = '<span class="spin"></span>'; return; }
+  if (!alb2DSt.items.length) { el.innerHTML = '<div class="hint">这本没有图片（空态 ✓）</div>'; return; }
+  el.innerHTML = '';
+}
+
+function alb2DetailLoad(item) {
+  if (alb2DSt.loading) return;
+  const req = alb2DReq;
+  alb2DLast = item;
+  alb2DSt.loading = true; alb2DPaintMore();
+  return fetch('/albpage?url=' + encodeURIComponent(ALB2_BASE + item.href)).then((r) => {
+    if (!r.ok) throw new Error('取页失败：HTTP ' + r.status);
+    return r.text();
+  }).then((html) => {
+    if (req !== alb2DReq) return;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    // ★ 图在 `img src` ✓（实测是**绝对** URL ✓ 仍统一过一遍 `alb2Abs` ✓ 万一是相对的也不怕 ✓）
+    alb2DSt.items = [...doc.querySelectorAll('#content .imgHolder img')].map((im) => alb2Abs(im.getAttribute('src')))
+      .filter((s) => /\.(jpe?g|png|webp|avif|gif)(\?|$)/i.test(s));
+    alb2DSt.err = '';
+    log(`图集2详情：${item.href} → **${alb2DSt.items.length} 张**（取自 img src ✓）`, 'dim');
+    albPreloadAll(alb2DSt.items);                       // ★ 后台预热整本 ✓ 不滑不再临时拉图 ✓
+  }).catch((e) => {
+    if (req !== alb2DReq) return;
+    alb2DSt.err = (e && e.message) || String(e);
+    log('图集2详情：' + alb2DSt.err, 'err');
+  }).then(() => { if (req === alb2DReq) { alb2DSt.loading = false; renderAlb2Detail(); } });
+}
+
+function alb2DetailRetry() { if (alb2DLast) alb2DetailLoad(alb2DLast); }
+function alb2DetailReload(item) {
+  alb2DReq++;
+  alb2DSt = { loading: false, err: '', items: [] };
+  renderAlb2Detail();
+  return alb2DetailLoad(item);
+}
+
+// ===== 预览 / 框选（与图集1 同款行为 ✓ 但状态各管各的 ✗）=====
+function alb2PreviewOpen(i) {
+  alb2PreviewClose();
+  const n = alb2DSt.items.length;
+  const idx = Math.max(0, Math.min(n - 1, parseInt(i, 10) || 0));
+  const o = document.createElement('div');
+  o.className = 'ovl';
+  o.style.alignItems = 'center';
+  o.onclick = (e) => { if (e.target === o) alb2PreviewClose(); };
+  $('screen').appendChild(o);
+  alb2Pv = { mode: 'view', i: idx, src: alb2DSt.items[idx] || '' };
+  alb2PreviewPaint();
+  log(`图集2预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓）`, 'dim');
+}
+
+function alb2PreviewClose() {
+  const o = document.querySelector('.ovl'); if (o) o.remove();
+  alb2Pv = null; alb2CropSt = null;
+}
+
+function alb2PreviewStep(d) {
+  if (!alb2Pv || alb2Pv.mode !== 'view') return;            // ★ 框选态不切图 ✗
+  const n = alb2DSt.items.length;
+  const ni = alb2Pv.i + d;
+  if (ni < 0 || ni > n - 1) { log(`图集2预览：已经是${ni < 0 ? '第一' : '最后'}张 ✓ 不循环 ✗`, 'dim'); return; }
+  alb2Pv.i = ni; alb2Pv.src = alb2DSt.items[ni];
+  alb2PreviewPaint();
+  log(`图集2预览：${ni + 1} / ${n} ✓`, 'dim');
+}
+
+/** ★ 预览图的左右滑（图集2 版 ✓ 与图集1 的 `albPreviewSwipe` 是**两份同款代码** ☠ 改一处必改另一处 ✗）
+ *  ★ 2026-10-05 **用户最终口径** ✓：**左滑 = 下一张** ✓ **右滑 = 上一张** ✗（框选态不切图 ✗） */
+function alb2PreviewSwipe() {
+  const o = document.querySelector('.ovl'); if (!o) return;
+  const im = o.querySelector('img'); if (!im) return;
+  let down = false, sx = 0, sy = 0;
+  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; });
+  const end = (e) => {
+    if (!down) return; down = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
+    alb2PreviewStep(dx < 0 ? 1 : -1);        // ★ 2026-10-05 用户最终口径：左滑=下一张 · 右滑=上一张（框选态不切图 ✗）
+  };
+  im.addEventListener('pointerup', end);
+  im.addEventListener('pointercancel', () => { down = false; });
+}
+
+function alb2PreviewPaint() {
+  const o = document.querySelector('.ovl'); if (!o || !alb2Pv) return;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const ratio = albScreenRatio();                            // 复用那支纯函数 ✓（读 .screen 的实际 rect ✓）
+  const n = alb2DSt.items.length || 1;
+  if (alb2Pv.mode === 'view') {
+    o.innerHTML = `<div style="width:100%;padding:0 12px;box-sizing:border-box">
+      <img src="${esc(alb2Pv.src)}" alt="" draggable="false"
+        style="width:100%;height:auto;display:block;border-radius:10px;-webkit-user-drag:none" />
+      <div style="text-align:center;color:#fff;opacity:.85;font-size:12px;margin:8px 0 0">${alb2Pv.i + 1} / ${n}</div>
+      <div class="row2"><div class="ok" onclick="alb2PreviewCrop()">设为背景</div>
+        <div class="ok" onclick="alb2PreviewSave()">保存相册</div></div></div>`;
+    alb2PreviewSwipe();
+    return;
+  }
+  const fw = Math.max(120, Math.round(Math.min(vw - 96, vh * ratio * 0.62)));
+  const fh = Math.round(fw / ratio);
+  o.innerHTML = `<div style="width:100%;box-sizing:border-box;padding:0 12px;
+    display:flex;flex-direction:column;align-items:center;gap:16px">
+    <div id="alb2CropStage" style="position:relative;width:${fw}px;height:${fh}px;overflow:hidden;border-radius:12px;
+      background:#000;box-shadow:0 0 0 9999px rgba(0,0,0,.55)"></div>
+    <div style="text-align:center;color:#fff;opacity:.85;font-size:12px;position:relative;z-index:1">${alb2Pv.i + 1} / ${n}</div>
+    <div class="row2" style="width:100%;margin:0;position:relative;z-index:1">
+      <div class="ok" onclick="alb2CropOk()">确认</div>
+      <div class="ok" onclick="alb2CropCancel()">取消</div></div></div>`;
+  const st = $('alb2CropStage');
+  st.addEventListener('click', (e) => e.stopPropagation());
+  alb2CropBuild();
+  log(`图集2框选：框 ${fw}×${fh}（= 手机屏比 ${ratio.toFixed(4)} ✓）· 拖图选区域 ✓`, 'dim');
+}
+
+function alb2CropBuild() {
+  const st = $('alb2CropStage'); if (!st || !alb2Pv) return;
+  const fw = st.clientWidth, fh = st.clientHeight;
+  const im = document.createElement('img');
+  im.src = alb2Pv.src; im.alt = ''; im.draggable = false;
+  im.style.cssText = 'position:absolute;left:0;top:0;-webkit-user-drag:none;user-select:none';
+  st.appendChild(im);
+  st.style.touchAction = 'none';                      // ★ 别让浏览器抢双指手势 ✓（照图集1 ✓）
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  /** 按 `z` 重算尺寸/余量并夹住 ✓（`z=1` = 刚好盖住框 ✓ ⇒ 不露底 ✗） */
+  const applyZoom = (z) => {
+    const nw = im.naturalWidth || fw, nh = im.naturalHeight || fh;
+    const base = Math.max(fw / nw, fh / nh);
+    const s = base * z;
+    alb2CropSt.z = z;
+    alb2CropSt.dw = nw * s; alb2CropSt.dh = nh * s;
+    alb2CropSt.slackX = Math.max(0, alb2CropSt.dw - fw);
+    alb2CropSt.slackY = Math.max(0, alb2CropSt.dh - fh);
+    alb2CropSt.dx = (typeof alb2CropSt.wantDx === 'number') ? alb2CropSt.wantDx : -alb2CropSt.slackX / 2;
+    alb2CropSt.dy = (typeof alb2CropSt.wantDy === 'number') ? alb2CropSt.wantDy : -alb2CropSt.slackY / 2;
+    delete alb2CropSt.wantDx; delete alb2CropSt.wantDy;
+    alb2CropSt.dx = clamp(alb2CropSt.dx, -alb2CropSt.slackX, 0);   // ★ 夹住：图盖住框 ✓
+    alb2CropSt.dy = clamp(alb2CropSt.dy, -alb2CropSt.slackY, 0);
+    alb2CropPaint(im);
+  };
+  const fit = () => { alb2CropSt = { z: 1 }; applyZoom(1); };
+  if (im.complete && im.naturalWidth) fit(); else im.onload = fit;
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  st.addEventListener('pointerdown', (e) => {
+    if (!alb2CropSt || !im.naturalWidth || alb2CropSt.pinching) return;   // 双指进行时让位 ✓
+    dragging = true; sx = e.clientX; sy = e.clientY; ox = alb2CropSt.dx; oy = alb2CropSt.dy;
+    try { st.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  st.addEventListener('pointermove', (e) => {
+    if (!dragging || !alb2CropSt || alb2CropSt.pinching) return;
+    alb2CropSt.dx = clamp(ox + (e.clientX - sx), -alb2CropSt.slackX, 0);
+    alb2CropSt.dy = clamp(oy + (e.clientY - sy), -alb2CropSt.slackY, 0);
+    alb2CropPaint(im);
+  });
+  const up = () => { dragging = false; };
+  st.addEventListener('pointerup', up);
+  st.addEventListener('pointercancel', up);
+  // ★ 接上共用的手势工具（双指捏 + 滚轮 ✓ 状态仍归 `alb2CropSt` ✓ 与图集1 不共享 ✗）
+  alb2CropSt = alb2CropSt || { z: 1 };
+  alb2CropSt.reflow = () => applyZoom(typeof alb2CropSt.wantZ === 'number' ? alb2CropSt.wantZ : (alb2CropSt.z || 1));
+  albCropGestures(st, () => alb2CropSt);
+}
+
+function alb2CropPaint(im) {
+  if (!alb2CropSt || !im) return;
+  im.style.width = alb2CropSt.dw + 'px';
+  im.style.height = alb2CropSt.dh + 'px';
+  im.style.transform = `translate(${alb2CropSt.dx}px, ${alb2CropSt.dy}px)`;
+}
+
+function alb2PreviewCrop() { if (!alb2Pv) return; alb2CropSt = null; alb2Pv.mode = 'crop'; alb2PreviewPaint(); }
+function alb2CropCancel() {
+  if (!alb2Pv) return;
+  alb2CropSt = null; alb2Pv.mode = 'view'; alb2PreviewPaint();
+  log('图集2框选：取消 ✓ 回到预览态 ✓', 'dim');
+}
+function alb2CropOk() { alb2PreviewTip('模拟器不真设背景 ✓（真机：设完即用 ✓ 不进背景图集 ✗）'); }
+function alb2PreviewSave() { alb2PreviewTip('模拟器不保存相册 ✓（真机：原图无损、不裁剪、直接存 ✓ 与框选无关 ✗）'); }
+
+function alb2PreviewTip(msg) {
+  const o = document.querySelector('.ovl'); if (!o) return;
+  let t = o.querySelector('.alb2Tip');
+  if (!t) {
+    t = document.createElement('div');
+    t.className = 'hint alb2Tip';
+    t.style.cssText = 'position:absolute;left:12px;right:12px;bottom:76px;text-align:center;z-index:2;'
+      + 'background:rgba(0,0,0,.72);color:#fff;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5';
+    o.appendChild(t);
+  }
+  t.textContent = msg;
+  log('图集2预览：' + msg, 'dim');
+  setTimeout(alb2PreviewClose, 1400);
+}
+
 function viewSettings() {
   showNav(true);
   $('tabs').style.display = 'none';
@@ -5469,6 +7741,14 @@ function viewSettings() {
             <div class="meta"><span>当前：${bgCurTxt}</span><span>${bgAlbum.length} 张 ›</span></div>
           </div>
         </div>
+        <!-- ★ 2026-10-05 用户要求（**app-sim 同步** ✓）：在「从相册选择 / 恢复默认」**上方**先加两个按钮 ✓
+             ⚠️ **功能待定** ✓ 点了**什么都不做** ✗ —— 与 App 侧一致（lib/settings_page.dart 里那两个 onTap 空回调 ✓）
+             别当 bug 修 ✗；样式**照抄下面那排** ✓（同一个 .sbtnrow + .abtn ✓ 不新造 ✗）
+             ⚠️ 这段在 JS 模板串里 → 注释里**不能出现反引号** ✗（会提前截断模板串 · node --check 实测会炸 ✓） -->
+        <div class="sbtnrow" style="padding-top:12px;gap:10px">
+          <div class="abtn" onclick="onlineAlbum1Open()">在线图集1</div>
+          <div class="abtn" onclick="onlineAlbum2Open()">在线图集2</div>
+        </div>
         <div class="sbtnrow" style="padding-top:12px;gap:10px">
           <div class="abtn" onclick="bgPickGallery()">从相册选择</div>
           ${appBg === 'bg_default.jpg'
@@ -5506,7 +7786,10 @@ $('nav').querySelectorAll('.item').forEach((it) => {
     $('nav').querySelectorAll('.item').forEach((x) => x.classList.remove('on'));
     it.classList.add('on');
     stack = [];
-    if (it.dataset.nav === 'grid') viewGrid(); else viewSettings();
+    // 底栏三项 = **模块 → 直播 → 设置** ✓（用户 2026-10-03 拍板，与 App 的 BottomNavigationBar 同序 ✓）
+    if (it.dataset.nav === 'grid') viewGrid();
+    else if (it.dataset.nav === 'live') viewLive();
+    else viewSettings();
   };
 });
 // 先把外壳渲染出来（否则第一屏是空白，要等 /sites 回来才有东西）
@@ -5515,6 +7798,15 @@ $('nav').querySelectorAll('.item').forEach((it) => {
 if (WANT_ALBUMPICK) {
   viewAlbum();
   bgAlbumPick();
+} else if (WANT_LIVE) {
+  const it = $('nav').querySelector('[data-nav="live"]');
+  if (it) {
+    $('nav').querySelectorAll('.item').forEach((x) => x.classList.remove('on'));
+    it.classList.add('on');
+    viewLive();
+  } else {
+    viewGrid();
+  }
 } else if (WANT_SETTINGS) {
   const it = $('nav').querySelector('[data-nav="settings"]');
   if (it) {
@@ -5524,7 +7816,7 @@ if (WANT_ALBUMPICK) {
   } else {
     viewGrid();
   }
-} else if (WANT_SITE < 0) {
+} else if (WANT_SITE < 0 && !STANDALONE) {
   viewGrid();
 }
 log('模拟器已就绪；站点清单来自 lib/sites.dart', 'ok');

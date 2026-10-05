@@ -40,6 +40,13 @@ const DESKTOP_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
   'Chrome/131.0.0.0 Safari/537.36';
 
+/** 「在线图集1 / 2」取页代理的**白名单**（2026-10-05 用户要求 ✓ · app-sim 同步 ✓）：
+ *  ⚠️ **两个站，逐条写全名** ✗ —— 用户明确要求"不许做成任意 URL 代理"（那是个 SSRF 口子 ☠）✓
+ *  ⚠️ 别往里加通配/正则 ✗；要加站点就写**完整主机名** ✓（比较用 `hostname` 全等 ✓ 后缀伪造挡得住 ✓）
+ *   · `zaeg-…108.com` = 「在线图集1」（xofulitu ✓ arttype 那套 ✓）
+ *   · `www.photos18.com` = 「在线图集2」（2026-10-05 用户定案 ✓ 分类 `/cat/N` + 排序 `/sort/xxx` ✓） */
+const ALB_ALLOW_HOSTS = new Set(['zaeg-kiga-rpuv.xofulitu-108.com', 'www.photos18.com']);
+
 /** 文件里 `const List<SiteTab> _xxx = [ ... ]` 形式的具名子分类表（供下面的引用解析） */
 function parseNamedTabLists(src) {
   const map = new Map();
@@ -591,6 +598,17 @@ async function handleRequest(req, res) {
       return;
     }
 
+    // 独立短片页（2026-10-03）：给 **App 的 WebView** 当"站点自己的短片页"用 ✓ ——
+    //   `/shorts`、`/shorts/newest`、`/shorts/newest/2`、`/shorts/<slug>` 一律发 index.html；
+    //   页面自己看 `location.pathname` 决定进"独立短片"模式（见 index.html 的 STANDALONE ✓）。
+    //   真站那边 App 打开的是 `https://tw.xhamster.com/shorts/…` ✓ → 换掉 base 就能指到这儿 ✓。
+    if (/^\/shorts(\/|$)/.test(me.pathname)) {
+      const html = await readFile(join(DIR, 'index.html'));
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...cors });
+      res.end(html);
+      return;
+    }
+
     // 静态素材（背景图等）：只放行 sim 目录下、这几个后缀的白名单文件，
     // 不做目录遍历（路径里出现 .. 或 / 一律拒）
     if (/^\/[\w.-]+\.(jpg|jpeg|png|webp|gif)$/i.test(me.pathname)) {
@@ -704,6 +722,31 @@ async function handleRequest(req, res) {
       return;
     }
 
+    /* ---------- 「在线图集1」取页代理（**白名单** ✓ 2026-10-05 用户要求 · app-sim 同步 ✓）----------
+       ⚠️ **不是通用代理** ✗ —— 只放行 `ALB_ALLOW_HOSTS` 里那**一个**域名 ✓，而且只取 **HTML 文本** ✓
+          （图片**不走这里** ✗：页面里 `<img src>` 直接加载 ✓；站点是 **utf-8** ✓ 原样回文本 ✓）。
+       用法：`/albpage?url=<整条绝对 URL>`（URL 仍要编码 ✓）；不在白名单 / 不是 https / 上游不是 html → 拒绝 ✓。 */
+    if (me.pathname === '/albpage') {
+      const raw = me.searchParams.get('url') || '';
+      let u = null;
+      try { u = new URL(raw); } catch (e) {}
+      if (!u || u.protocol !== 'https:' || !ALB_ALLOW_HOSTS.has(u.hostname)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', ...cors });
+        res.end('这个地址不在白名单里 ✗（只允许 ' + [...ALB_ALLOW_HOSTS].join(' / ') + '）');
+        return;
+      }
+      const r = await fetchUrl(u.href);              // 与 App 同一个 UA（文件头 `UA` = iPhone UA ✓ 见注释 ✓）
+      const ctype = String(r.headers['content-type'] || '');
+      if (r.status !== 200 || !/text\/html/i.test(ctype)) {
+        res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8', ...cors });
+        res.end('上游不是 HTML（status=' + r.status + ' · content-type=' + ctype + '）');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', ...cors });
+      res.end(r.body);
+      return;
+    }
+
     if (me.pathname === '/vproxy') {
       // 视频中转（流式，支持 Range）：见 streamVideo 注释
       const target = me.searchParams.get('url');
@@ -777,7 +820,9 @@ if (!process.env.KPXX_NO_RELOAD) {
   try {
     // 盯目录而不是盯文件：编辑器保存常是"替换文件"，盯文件会跟丢
     watch(DIR, (_ev, fname) => {
-      if (fname && String(fname).toLowerCase().endsWith('server.mjs')) reload();
+      // ⚠️ 2026-10-05 用户批准收紧：原来用 `endsWith('server.mjs')` ✗ ⇒ 任何**临时副本**（如 `_tmp_server.mjs`）
+      //    都会误触发重载 ☠（实测把用户的实例顶掉过两次 ✗）⇒ 改成**全等** ✓ 只有正主改了才重启 ✓
+      if (fname && String(fname).toLowerCase() === 'server.mjs') reload();
     });
   } catch (e) {
     console.log('热重载不可用（不影响使用）：' + e.message);

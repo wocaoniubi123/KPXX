@@ -314,15 +314,81 @@ class AppBg extends ChangeNotifier {
       imageQuality: 88,
     );
     if (picked == null) return false;
+    // ⚠️ 2026-10-05（用户拍板 A2 ✓）：原来落地的那 6 步**抽出去共用** ✗
+    //   —— 本方法前半段（弹相册 / 取到文件）**一个字没动** ✓
+    // ★ 2026-10-05（用户拍板）：把**原文件名**一并交下去 ✓ —— 只用于"认不出格式时"退回它自己的扩展名 ✓
+    await _landDirect(await File(picked.path).readAsBytes(), srcName: picked.path);
+    return true;
+  }
+
+  /// ★ 2026-10-05（用户拍板）：**按实际内容**挑扩展名 ✗ —— 否则"内容是 HEIC/PNG，文件却叫 `.jpg`"，
+  ///   传给别人会出问题 ✓。判据**只看字节头** ✗（**不许猜** ✗）：
+  ///     PNG       `89 50 4E 47`（偏移 0 ✓）                              ⇒ `.png`
+  ///     JPEG      `FF D8 FF`（偏移 0 ✓）                                 ⇒ `.jpg`
+  ///     HEIC/HEIF 偏移 **4** 起 = `ftypheic`/`ftypheix`/`ftypmif1`/`ftypmsf1` ✓ ⇒ `.heic`
+  ///     WebP      `RIFF`（偏移 0 ✓）且偏移 **8** = `WEBP` ✓              ⇒ `.webp`
+  ///     GIF       `GIF8`（偏移 0 ✓）                                     ⇒ `.gif`
+  ///     认不出 ⇒ 退回 **原文件名自己的扩展名**（只有"从相册选择"那条路知道原文件名 ✓）；
+  ///     再没有 ⇒ `.jpg` ✓ 且**静默** ✗（不弹错 ✓ —— 与 `_download`/`warm` 那类"失败静默"口径一致 ✓）。
+  ///   ⚠️ 只影响**文件名那一个字符串** ✓：`_current` 存的仍是相对路径 ✓、键名/时机/判据一律不动 ✓。
+  ///   ⚠️ 旧文件兼容 ✗：已存在的 `bg_direct_*.jpg`（内容其实是 PNG/HEIC 的）**不管** ✓ ——
+  ///     删除靠前缀 `bg_direct_`（[_isDirect] ✓）与扩展名无关 ✓；**不扫盘改名** ☠。
+  static String _extOf(List<int> b, String? srcName) {
+    bool at(int i, List<int> sig) {
+      if (b.length < i + sig.length) return false;
+      for (var k = 0; k < sig.length; k++) {
+        if (b[i + k] != sig[k]) return false;
+      }
+      return true;
+    }
+
+    bool ascii(int i, String s) => at(i, s.codeUnits);
+
+    if (at(0, [0x89, 0x50, 0x4E, 0x47])) return '.png';
+    if (at(0, [0xFF, 0xD8, 0xFF])) return '.jpg';
+    if (ascii(4, 'ftypheic') ||
+        ascii(4, 'ftypheix') ||
+        ascii(4, 'ftypmif1') ||
+        ascii(4, 'ftypmsf1')) {
+      return '.heic';
+    }
+    if (ascii(0, 'RIFF') && ascii(8, 'WEBP')) return '.webp';
+    if (ascii(0, 'GIF8')) return '.gif';
+    final n = srcName;
+    if (n != null) {
+      final d = n.lastIndexOf('.');
+      if (d >= 0 && d < n.length - 1) {
+        final e = n.substring(d).toLowerCase();
+        if (RegExp(r'^\.[a-z0-9]{2,5}$').hasMatch(e)) return e; // 只认像扩展名的尾巴 ✓
+      }
+    }
+    return '.jpg'; // 认不出 ⇒ 保持 .jpg ✓ **静默** ✗
+  }
+
+  /// ★ 2026-10-05（用户拍板 A2 ✓）：把"**单选图**设为一次性背景"的 6 步**共用** ✗ ——
+  ///   本方法里 6 步与 `pickFromGallery` 原来那 6 步**逐条相同** ✓（对照表见报告 ✓）：
+  ///   ① 写 `bg_direct_<毫秒时间戳><按内容取的扩展名>`（前缀 `bg_direct_` **不许变** ✗ —— [_isDirect] 靠它 ✓；
+  ///      放 documents 根目录 ✓ 不进 `bg_album/` ✓）
+  ///   ② `FileImage(dst).evict()`（双保险 ✓）
+  ///   ③ `_current = rel`（**相对路径** ✓ 绝不存绝对路径 ✗ —— 见本文件顶部那段 UUID 事故 ✓）
+  ///   ④ `notifyListeners()`（位置：`_current` 之后、`_judgeDark()` 之前 ✓）
+  ///   ⑤ `await _judgeDark()` → `await _persistCurrent()`（落盘键名由它内部用 `_kCurrent` ✓ 未动 ✓）
+  ///   ⑥ 删上一张 direct（判据 `old != null && old != rel && _isDirect(old)` ✓ 失败静默 ✓）
+  /// ⚠️ 与原来**唯一的两处机械差别**（都是为了接受"字节"而不是"用户刚选的文件" ✗）：
+  ///   `File(picked.path).copy(dst.path)` ⇒ `dst.writeAsBytes(bytes, flush: true)`；
+  ///   因此 `pickFromGallery` 那侧多一次 `readAsBytes()` ✓（同一份字节 ✓ 结果等价 ✓）。
+  ///   其余口径（顺序 / 参数 / 路径拼法 / 判据）**一字未改** ✓。
+  Future<void> _landDirect(List<int> bytes, {String? srcName}) async {
     if (_root.isEmpty) {
       // 根目录还没就绪（load 没跑完/失败）→ 现取一次，绝不拿空路径拼
       _root = (await getApplicationDocumentsDirectory()).path;
     }
     final old = _current;
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    final rel = 'bg_direct_$stamp.jpg'; // 单选图放 documents 根目录（不进 bg_album/）
+    // ★ 只改这里：扩展名**按内容**取 ✗（前缀 `bg_direct_` 照旧 ✓）
+    final rel = 'bg_direct_$stamp${_extOf(bytes, srcName)}'; // 单选图放 documents 根目录（不进 bg_album/）
     final dst = File(_abs(rel));
-    await File(picked.path).copy(dst.path);
+    await dst.writeAsBytes(bytes, flush: true);
     await FileImage(dst).evict(); // 双保险（新 key 本来也命中不了旧缓存）
     _current = rel;
     notifyListeners();
@@ -337,8 +403,15 @@ class AppBg extends ChangeNotifier {
         // 删不掉就算了（下次启动清扫还会试）
       }
     }
-    return true;
   }
+
+  /// ★ 2026-10-05（用户拍板 A2 ✓）：**公开薄方法** ✗ —— 只把外部（在线图集的框选）交来的
+  ///   **裁剪结果字节**交给 [_landDirect] ✓；语义与「从相册选择」完全一致 ✓（**一次性 ✓ 不进图集** ✗）。
+  /// ⚠️ 参数用 `List<int>` 而**不是** `Uint8List` ✗：本文件没有 `dart:typed_data` 这个 import ✓
+  ///   而 `Uint8List` 就是 `List<int>` 的子类 ✓ 调用方照传不误 ✓ ⇒ **不多加一行 import** ✓。
+  /// ★ 2026-10-05（用户拍板"按实际格式保存"✓）：交来的字节是**框选裁出的 PNG** ✓
+  ///   ⇒ 由 [_extOf] **按内容**判定 ⇒ 自然写成 `.png` ✓（不再出现"内容是 PNG 却叫 .jpg" ✗）。
+  Future<void> useDirectImage(List<int> bytes) => _landDirect(bytes);
 
   /// 应用图集第 i 张（图集页点一条 = 立即应用，不跳页）
   Future<void> applyAlbum(int i) async {
