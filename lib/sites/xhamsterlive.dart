@@ -108,15 +108,7 @@ final Stopwatch _diagWatch = Stopwatch();
 bool _diagFirstFrameDone = true;   // 初始 true ⇒ 只有 A1 点卡片重置后才会打 C8 ✓
 bool _diagFirstScrollDone = true;  // 同上 ✓
 void _diagLog(String stage) {
-  unawaited(SiteErrorLog.log(
-'
-诊断
-'
-, 
-'
-[诊断] +${_diagWatch.elapsedMilliseconds}ms  $stage
-'
-, StackTrace.empty));
+  unawaited(SiteErrorLog.log('诊断', '[诊断] +${_diagWatch.elapsedMilliseconds}ms  $stage', StackTrace.empty));
 }
 const List<LiveTabDef> kLiveTabs = [
   // 4 个主 tab（女主播/情侣/男主播/跨性别 ✓）；后 2 个是快捷叶子（移动流/手机版最新 ✓）—— 各自的筛选数据已整体移除 ✓
