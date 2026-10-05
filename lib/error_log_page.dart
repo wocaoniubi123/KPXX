@@ -115,8 +115,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
           ),
         ],
       ),
-      body: PageBg(
-        child: Column(
+      body: Column(
           children: [
             // ⚠️ 2026-10-05（用户拍板把上限改成 5MB）：**把上限写清楚** ✓ ——
             //   免得再有人问"为什么显示 512KB / 到底多大" ✓
@@ -136,7 +135,6 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             Expanded(child: _body()),
           ],
         ),
-      ),
     ));
   }
 

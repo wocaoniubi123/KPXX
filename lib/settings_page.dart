@@ -290,7 +290,7 @@ class SettingsPage extends StatelessWidget {
           _button(
             label: '错误日志',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ErrorLogPage()),
+              MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage())),
             ),
           ),
           _note('有站点出错时会记下「时间 + 站点名 + 错误信息」，方便定位是哪个站挂了'),

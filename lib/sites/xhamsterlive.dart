@@ -51,6 +51,7 @@ import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
 import '../site_error_log.dart';  // [诊断] 临时：全链路时间戳日志 ✓（拿到数据后随诊断代码一起删 ✓）
+import 'dart:math' as math; // ④ 2026-10-05：X 与 AppBar 对齐需要 math.max 夹取 ✓（同一步内加 ✓）
 
 // ===== 一、数据层 =====
 
@@ -387,6 +388,36 @@ class LiveFeed extends ChangeNotifier {
     notifyListeners();
     ensureMore();
   }
+
+  /// ⑤ 软刷新（2026-10-05 用户拍板）：**先拉第一页，成功才替换** ✓ —— 下拉时旧卡片留在屏上（不闪 ✗）。
+  ///   ⚠️ 与 `reload()` 的区别：`reload()` 会 `rooms.clear()` + 立刻 `notifyListeners()`：**当场清空** ✗
+  ///     （用户报"下拉太暴力、卡片直接被清空"✓）⇒ 那条路径**保持不动** ✗（它另有语义 ✓）。
+  ///   失败 ⇒ **沿用当前语义**：显示错误页（`error = true` ✓）—— 不改成 SnackBar ✗。
+  Future<void> refreshSoft() async {
+    final gen = _gen;
+    try {
+      final r = await _api.list(tab, 0);
+      if (gen != _gen) return;   // 期间被 reload / 换 feed 作废 ⇒ 丢弃 ✓
+      _gen++;                    // 让此后所有在途旧请求作废 ✓
+      rooms
+        ..clear()
+        ..addAll(r.rooms);
+      _offset = _kPage;
+      _raw = r.raw;
+      // 「到底」三条判据与 ensureMore 逐字同款 ✓（空页 / 到服务端计数 / 撞 1000 封顶 ✓）
+      _done = r.raw == 0 ||
+          (_offset >= _kLiveMax) ||
+          (r.filteredCount > 0 && _raw >= r.filteredCount);
+      error = false;
+      errorText = '';
+    } catch (e) {
+      if (gen != _gen) return;
+      errorText = e.toString();
+      error = true;
+    } finally {
+      notifyListeners();
+    }
+  }
 }
 
 // ===== 二、界面 =====
@@ -550,7 +581,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   ///   加 12 秒上限兜底 ✗（万一永远不结束，也别把转圈挂死 ✗）。
   Future<void> _refresh() async {
     final f = widget.feed;
-    f.reload();
+    f.refreshSoft(); // ⑤ 软刷新：旧卡片留屏上，成功才替换 ✓（原 f.reload() 会当场清空 ✗）
     await Future<void>.delayed(const Duration(milliseconds: 80));
     var waited = 0;
     while (f.loading && waited < 12000) {
@@ -584,6 +615,22 @@ class _LiveFeedViewState extends State<_LiveFeedView>
                     child: const Text('重试')),
               ],
             ),
+          ),
+        ],
+      );
+    }
+    // R（2026-10-05 用户拍板）：**空列表专属分支** ✓ —— 照 `home_page.dart:920-938` **逐字同款** ✓
+    //   为什么需要：没有它时，空列表下 RowsGrid 的**尾项**成为唯一内容 ⇒ 落在列表顶部（约 24px ✗），
+    //   与下拉时的 RefreshIndicator ⟳ 视觉上**叠在同一片区域** ✗（用户报"两个圈叠在一起"✓）；
+    //   其它站点没这问题：它们这个场景显示的是 top:120 的居中圈 ✓（与 ⟳ 垂直分开 ✓）。
+    //   ⚠️ 必须用**可滚动**的 ListView + AlwaysScrollableScrollPhysics ✗ 否则下拉拉不动 ✗（同其它站点 ✓）。
+    if (f.rooms.isEmpty && !f.done) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          Padding(
+            padding: EdgeInsets.only(top: 120),
+            child: Center(child: CircularProgressIndicator()),
           ),
         ],
       );
@@ -733,7 +780,7 @@ class LiveRoomCard extends StatelessWidget {
 
 /// **全屏房间页**（⚠️ 播放路径与模拟器**不同** ✗）
 ///
-/// 用户指定 ✓：① 左上角一个 X ② **点屏幕 toggle X 显隐**（默认隐藏 ✓）③ **有声**（要能听见 ✓ 不静音 ✓）
+/// 用户指定 ✓：① **右上角**一个 X（2026-10-05 用户拍板② 从左上角挪来 ✓）② **点屏幕 toggle X 显隐**（默认隐藏 ✓）③ **有声**（要能听见 ✓ 不静音 ✓）
 /// ④ X **不压状态栏**（留安全区 ✓）⑤ 返回列表**不重拉** ✓。
 ///
 /// ⚠️ 播放实现（2026-10-05 用户拍板换过 ✗，**别照着旧注释走** ✓）：**不再用 WebView 加载房间页** ✗ ——
@@ -810,6 +857,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// X 显隐用 notifier ✓ —— 点一下**只刷 X 这一小块**，不再 setState 重建整页（原来连播放器层一起重建 ✗）
   final ValueNotifier<bool> _showX = ValueNotifier<bool>(false);
 
+  /// ③ 2026-10-05 用户拍板：X **显示后 3 秒自动隐藏** ✓（⚠️ 只隐藏 ✗ **不是**退出房间 —— 点 X 那个动作仍是 `Navigator.pop` 关页面 ✓ 两者别混 ✗）
+  /// 先例：`player_widget.dart` 的控制条自动隐藏（同款"起 Timer / 再点先 cancel" ✓）；
+  /// 释放：`dispose()` 里 `_hideX?.cancel()` ✓（硬要求：本仓库的 Timer 全部有 cancel ✓）。
+  Timer? _hideX;
+
   /// 错误提示 —— ⚠️ 2026-10-05 用户拍板：**"状态提示"（打开中/连接中/仍在加载…/90 秒兜底）全删** ✗，
   ///   但**这条错误提示保留** ✓ —— 打不开/初始化失败时屏幕上必须有一行明确文案，
   ///   否则失败就是黑屏、无从判断 ✓（错误提示 ≠ 状态提示 ✓）。
@@ -840,6 +892,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   @override
   void dispose() {
     _diagLog('C7 dispose 进');
+    _hideX?.cancel(); // ③ 自动隐藏的 Timer 必须一起收 ✓（不打破"Timer 全有 cancel"这条 ✓）
+    _hideX = null;
     _showX.dispose(); // notifier 也要释放 ✓
     final c = _c;
     _c = null;
@@ -851,6 +905,22 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
     _diagLog('C7 dispose 出');
     super.dispose();
+  }
+
+  /// ③ 显隐 X + **显示后 3 秒自动隐藏** ✓（用户 2026-10-05 拍板；**只隐藏，绝不 pop** ✗）
+  /// 同款先例：`player_widget.dart` 的控制条自动隐藏（起 Timer / 再点先 cancel ✓）。
+  void _toggleX() {
+    _hideX?.cancel();   // 无论显→隐 还是 隐→显，先把旧 Timer 收掉 ✓
+    _hideX = null;
+    final next = !_showX.value;
+    _showX.value = next; // 只改 notifier ⇒ 不重建整页 ✓
+    if (next) {
+      _hideX = Timer(const Duration(seconds: 3), () {
+        _hideX = null;
+        if (!mounted) return;      // 硬要求：回调里判 mounted ✓
+        _showX.value = false;      // 只隐藏 ✓ 绝不 pop ✗
+      });
+    }
   }
 
   /// 校验/缓存逻辑**保留**（与播放器无关 ✓ 省的是**我们自己**的抓取 ✓）：
@@ -902,6 +972,15 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     final c = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: <String, String>{'User-Agent': Site.ua},
+      // M1（2026-10-05 A/B 实验）：显式指定**视图方式** —— 拿到判据后决定保留或回退 ✓
+      //   依据① 官方文档原文（pub.dev/packages/video_player 的 "Video view type" 段）：
+      //     "If set to VideoViewType.platformView, platform views will be used instead of texture view on supported platforms."
+      //     "The relative performance of the different view types may vary by platform…"
+      //   依据② 我们的真机实测：E③b 已证「画面层在**合成/平台视图**侧拖帧」（P1 全程健康、P2 空档 507~4593ms）
+      //   判据：P2 的 10s 段「最长帧间隔」**显著变小 ⇒ 视图方式就是主因**（那就是最终解法 ✓）；
+      //         一样巨大 ⇒ 不是它 ⇒ 下一步 M3（画面换静态盒子做独立确认）
+      //   ⚠️ 官方原文警告 platformView 在某些平台"可能有正确性问题"⇒ **若画面异常/黑屏，立刻回退这一行** ✓
+      videoViewType: VideoViewType.platformView,
     );
     _c = c;
     c.addListener(_onTick);
@@ -995,7 +1074,12 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                       //   目的：把"画面层拖住帧管线"拆成两个因素 —— **触摸仲裁** vs **合成/平台视图** ✓
                       //   判据：帧空档数 = 0 且最长帧间隔 < 100ms ⇒ 触摸仲裁 ✓；若仍出现 ≥300ms 空档 ⇒ 合成/平台视图 ✓
                       //   ⚠️ 日志口径（免下次误读）：`B5 X 生效` = **通知器改值**（≈0ms ✓）**不等于画面已更新** ✗（画面要等下一帧 ✓）
-                      child: IgnorePointer(child: VideoPlayer(_c!)),
+                      // E③a（2026-10-05 对照实验，临时 ✓ 拿到判据后**一行回退** ✓）：把画面换成**静态黑盒** ——
+                      //   控制器照建 / 照 initialize / 照 play ✓ 只换"显示"这一个 widget ✓（不是关播放 ✗）。
+                      //   ⚠️ 用户在**电脑推流房间**里会看到**纯黑**（声音仍在 ✓）⇒ 这次是"只测不看" ✓ 已明确告知 ✓。
+                      //   判据：电脑房间 **P2 的 10s 段最长帧间隔** —— 归零 ⇒ **就是画面层**（解码/合成）✅；仍巨大 ⇒ 另有元凶 ✗。
+                      //   回退：把本行还原为 IgnorePointer(child: VideoPlayer(_c!)) ✓（一行 ✓）。
+                      child: const ColoredBox(color: Colors.black),
                     ),
                   ),
                 )
@@ -1019,7 +1103,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
                     _diagLog('B5 点屏幕');
-                    _showX.value = !_showX.value; // 只改 notifier ⇒ 不重建整页 ✓
+                    _toggleX(); // ③ 显示后 3 秒自动隐藏 ✓（只隐 X ✗ 不退出房间 ✓）
                   },
                   child: const SizedBox.expand(),
                 ),
@@ -1035,9 +1119,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ? const SizedBox.shrink()
                     : SafeArea(
                   child: Align(
-                    alignment: Alignment.topLeft,
+                    alignment: Alignment.topRight,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(5, 12, 12, 12), // ① 2026-10-05 用户拍板：左边距 12→8→**5** ✓（只动左边 ✓ 上右下仍 12 ✓ 垂直与 SafeArea 未动 ✓）
+                      // ④ 2026-10-05 用户拍板 C：X 与「错误日志页 AppBar 右上角那个图标」**对齐**（同一条水平线 ✓）
+                      //   垂直推导：图标中心 y = top + 38（38 = 76/2 ✓ 图标在 76 方块内垂直居中 ✓）
+                      //     要求 y == 安全区顶 + kToolbarHeight/2 ⇒ **top = kToolbarHeight/2 − 38** ✓
+                      //     ⚠️ 依据 = 框架常量 `kToolbarHeight`（= AppBar 的默认工具栏高 ✓）；
+                      //        **本机无 Flutter SDK ⇒ 它的具体数值我未在本机核实** ✗（不许当实锤 ✓）；
+                      //        为防 kToolbarHeight/2 < 38 出现负数（Padding 会抛错 ✗）⇒ 用 math.max(0.0, …) 夹取 ✓。
+                      //   水平：AppBar `actions` 末尾的**默认内边距也是框架默认** ✗ ⇒ 本机同样无法核实 ✗
+                      //     ⇒ **暂保持右距 5 不动** ✓；真机若还差一点 ⇒ 用户给像素（方案 B）⇒ 一行改死 ✓。
+                      padding: EdgeInsets.fromLTRB(12, math.max(0.0, kToolbarHeight / 2 - 38), 5, 12),
                       child: Material(
                         color: Colors.black.withOpacity(0.45),
                         shape: const CircleBorder(),
@@ -1053,7 +1145,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                             // ③ 图标**左对齐 + 垂直居中** ✓ —— 原来居中会把 76 方块左右一多半的内边距
                             //   算进"视觉距离"✗（看着离屏幕很远 ✓）；命中区仍是 76×76 不动 ✗
                             child: Align(
-                              alignment: Alignment.centerLeft,
+                              alignment: Alignment.centerRight,
                               child: Icon(Icons.close, color: Colors.white, size: 32),
                             ),
                           ),
