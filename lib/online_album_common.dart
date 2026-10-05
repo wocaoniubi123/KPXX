@@ -268,17 +268,6 @@ class ArtPreviewBody extends StatefulWidget {
   ///   ⚠️ **同步返回** ✓：命中缓存立即出图 ✓；未命中给 `null` ⇒ **回落到 `FetchedImage`** ✓（老路照旧 ✓）。
   final Uint8List? Function(String url)? bytesFor;
 
-  /// ★ ⑤（✓ 用户拍板）：**打开预览时顺带预取"相邻"几张** ✗ —— **可选挂点** ✓：
-  ///   ⚠️ **默认 `null` ⇒ 行为一字不变** ✓（**图集1 侧不传** ✓ ⇒ 仍全靠 `FetchedImage` 按需取 ✓
-  ///      依据 ✓：图集1 的详情列表/预览本来就是 `FetchedImage` 老路 ✓ 它**自带下载后的缓存** ✓
-  ///      这里再挂一层只会多一条与它并行的路 ✗ ⇒ 按"别加没用的挂点"不传 ✓）。
-  ///   ⚠️ 只传**"取某一张"的取法** ✓ —— "相邻 ±2 / 串行 / 跳过已就绪"都在调用侧排 ✓
-  ///      （依据 ✓：共用件**不许反向 import `online_album2_avif.dart`**（会成环 ☠）⇒ 回调是唯一干净的路 ✓）。
-  ///   ⚠️ **不挡首张显示** ✓、**不影响"绝不空白"** ✗：未就绪那张仍走 `FetchedImage` 自带占位 ✓。
-  ///   ⚠️ **串行**要的就是它能被 `await` ✓ ⇒ 类型是 `Future<void> Function(String)` ✗（不是 `void` ✗：
-  ///      那就只能靠间隔"错峰" ✗ 不等于串行 ☠）；调用侧逐个 `await` ⇒ **真串行** ✓。
-  final Future<void> Function(String url)? prefetch;
-
   const ArtPreviewBody({
     super.key,
     required this.urls,
@@ -286,7 +275,6 @@ class ArtPreviewBody extends StatefulWidget {
     this.onApplyAsBg,
     this.onClose,
     this.bytesFor,
-    this.prefetch,
   });
 
   @override
@@ -309,7 +297,6 @@ Future<void> showArtPreviewOverlay(
   int initial = 0,
   Future<void> Function(Uint8List png)? onApplyAsBg,
   Uint8List? Function(String url)? bytesFor,
-  Future<void> Function(String url)? prefetch, // ★ ⑤ 可选挂点 ✓（默认不传 ⇒ 一点行为变化都没有 ✓）
 }) {
   return showGeneralDialog<void>(
     context: context,
@@ -325,7 +312,6 @@ Future<void> showArtPreviewOverlay(
         initial: initial,
         onApplyAsBg: onApplyAsBg,
         bytesFor: bytesFor, // ★ 透传给内容 ✓（不传 ⇒ null ⇒ 老路 `FetchedImage` ✓）
-        prefetch: prefetch, // ★ ⑤ 透传 ✓（不传 ⇒ null ⇒ 一条都不会多跑 ✓ 图集1 侧走这条 ✓）
         onClose: () => Navigator.of(dialogCtx).pop(),
       ),
     ),
@@ -401,27 +387,6 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     //   监听在回写 `_tc.value` 会与手势打架 ☠。
     // ★ 2026-10-05（**方案 A** ✓ 用户拍板）：框选态**已不用 `InteractiveViewer`** ✗ ⇒ 变换全由
     //   `_onScaleUpdate` 自己算、**写前必夹** ✓（见框选态那处 ✓）⇒ 本处只剩"别挂监听"这一条 ✓。
-    // ★ ⑤（✓ 用户拍板）：**打开预览 ⇒ 顺带预取"相邻"几张** ✗ —— ① 这一步**不 await 任何东西** ✓
-    //   ⇒ **不挡首张显示** ✓；② 起手丢到**帧后** ✓ ⇒ 连首帧都不影响 ✓；③ 顺序 = 近的优先（±1 → ±2 ✓）。
-    final pf = widget.prefetch;
-    if (pf != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _prefetchNeighbors(pf);
-      });
-    }
-  }
-
-  /// ★ ⑤：相邻 **±1 / ±2**（近的优先 ✓）**逐个 `await` ⇒ 真串行** ✓（不并发轰炸 ✓）；
-  ///   ⚠️ 越界跳过 ✓；⚠️ 页面已退立刻停 ✓；⚠️ 失败静默 ✓（`prefetch` 自己兜 ✓ 不影响预览 ✗）。
-  Future<void> _prefetchNeighbors(Future<void> Function(String url) pf) async {
-    final us = widget.urls;
-    for (final d in const <int>[1, -1, 2, -2]) {
-      final i = _index + d;
-      if (i < 0 || i >= us.length) continue;
-      if (!mounted) return;
-      await pf(us[i]);
-    }
   }
 
   @override
