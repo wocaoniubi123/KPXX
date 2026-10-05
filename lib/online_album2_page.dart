@@ -74,7 +74,15 @@ List<_P18Item> parseP18List(String html) {
     final chunk = html.substring(start, end);
     var cover = RegExp(r'<img[^>]*\ssrc="([^"]+)"').firstMatch(chunk)?.group(1) ?? '';
     if (cover.isEmpty) continue;
-    if (!cover.startsWith('http')) cover = '$_p18Host$cover'; // **相对 ⇒ 补绝对** ✗
+    // ★ 2026-10-05（复核结论 ✓）：**站内相对这条路本来就修过了** ✓ —— `!startsWith('http') ⇒ 补 `$_p18Host` ✓
+    //   （与 sim 口径一致 ✓）。⚠️ 本次只补**一个缺口** ✗：**协议相对 `//…`** ☠ ——
+    //   老写法会把它拼成 `https://www.photos18.com//img…` ✗（**错的 URL**）；先判 `//` 再补 `https:` ✓
+    //   （与图集1 的 `absArtUrl` 同口径 ✓）。其余一律不动 ✗（判定 / 去重 / 比例 / 文案 ✗）。
+    if (cover.startsWith('//')) {
+      cover = 'https:$cover';
+    } else if (!cover.startsWith('http')) {
+      cover = '$_p18Host$cover';
+    }
     final detail = RegExp(r'href="(/v/[A-Za-z0-9]+)"').firstMatch(chunk)?.group(1) ?? '';
     final title = RegExp(r'href="/v/[A-Za-z0-9]+">([^<]*)<').firstMatch(chunk)?.group(1)?.trim() ?? '';
     final pad = RegExp(r'padding-top:\s*([\d.]+)%').firstMatch(chunk)?.group(1);

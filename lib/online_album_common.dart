@@ -416,32 +416,56 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     }
   }
 
-  /// ★「夹住」那一小块（唯一自己写的逻辑 ✓）：**框始终被图盖住**、**贴边即止** ✓ ——
-  ///   新式（F/G 定稿 ✓）：余量按**显示盒** `dw/dh` 与框 `fw/fh` 算 ✗（**不再**按 cover 基底 ☠）：
-  ///   `mx` = 显示盒宽 × s **减去** 框宽、再折半、负数取 0 ✓（`my` 同理 ✓）。
-  ///   判据（可验 ✓）：① 框恒 ≤ 显示盒 ⇒ `s=1` 时两轴余量都 ≥ 0 ✓（横轴可能 > 0 ⇒ **能平移** ✓ **不露白** ✗）；
-  ///   ② `s` 越大余量越大 ✓；③ **只在越界时**才写回 ✓（不打断手势 ✓）。
+  /// ★「夹住」那一小块（唯一自己写的逻辑 ✓）：**图的四条边始终盖住框** ✗ —— 任何缩放 / 任何方向**都不许露白** ☠。
+  ///
+  /// ⚠️ 2026-10-05 **真 bug 的根**（用户报"能把图的顶边拉到框中下部 ⇒ 框内露白" ✓）—— 必读：
+  ///   `_tc` 是 `translate·scale` 约定 ✓，而 `Matrix4..scale(s)`（`vector_math` 的 `scale` 是**右乘** S ⇒ `M = T·S` ✓）
+  ///   是**绕内容左上角（原点）**缩放的 ✗、**不是**绕中心 ✗ ⇒ 点 `p` 画到 `s·p + t` ✓。
+  ///   ⇒ "居中"对应的平移**不是 0** ✗，而是允许区间的**中点**（s=1.15 时 = −27.7 / −41.5 ✓）。
+  ///   上一版用"对称区间 ±mx"（`mx` = 显示盒宽×s 减框宽再折半 ✓）⇒ **整个区间偏了 (s−1)·disp/2** ☠
+  ///   ⇒ 纵向成了 `t.y ∈ [−41.5, +41.5]` ✗，而**只要 `t.y > 0` 顶边就进框 ⇒ 露白** ✗✗（正是用户看到的那一幕 ✓）。
+  ///   本版不再依赖"居中"这个隐含假设 ✓，直接用**覆盖条件**推区间 ✓。
+  ///
+  /// 推导（内容 `[0,dw]` 经 `p → s·p + t` 后必须盖住**居中**的框 `[ (dw−fw)/2 , (dw+fw)/2 ]` ✓）：
+  ///   `t ≤ (dw−fw)/2` ✓ 且 `t ≥ (dw+fw)/2 − s·dw` ✓（y 轴同理 ✓）；s ≥ 1 且 fw ≤ dw ⇒ lo ≤ hi 恒成立 ✓
+  ///   ⇒ **跨度** = hi − lo = `s·dw − fw` ✓（与"对称 ±mx"的跨度**一致** ✓ —— 只是整体**平移**了 (s−1)·dw/2 ✓）。
   void _clampT() {
-    final f = _frame;
-    if (f.isEmpty) return;
+    if (_frame.isEmpty) return;
     final m = _tc.value;
     final s = m.getMaxScaleOnAxis();
     final t = m.getTranslation();
-    // ★ 2026-10-05（G ✓）：余量按**显示盒**算 ✗（原来按 `max` 取 cover 基底再乘 s ☠ —— 那套配 contain 就是错的）；
-    //   ⚠️ 尺寸还没到 ⇒ 显示盒 = avail 盒占位 ✓（照样能拖 ✓；到了 `_onImgInfo` 会 setState ⇒ 重算 ✓）
-    //      ⇒ 这里**不需要**"退旧算法"分支 ✓（显示盒恒非空 ✓，退化时也只是余量 0 = 拖不动 ✓ 不崩 ✗）。
-    //   实例（定稿数字 ✓）：屏 393×852 ⇒ avail 盒 369×632 ✓；图 1080×1620 ⇒ dw=369 · dh=553.5 ✓、框 255.3×553.5 ✓
-    //   ⇒ s0 = 1.15 ⇒ **mx = 84.5** · **my = 41.5** ✓（两轴都能拖 ✓ 且**恒不露白** ✗）。
-    final disp = _disp;
-    final mx = math.max(0.0, (disp.width * s - f.width) / 2);
-    final my = math.max(0.0, (disp.height * s - f.height) / 2);
-    final x = t.x.clamp(-mx, mx).toDouble();
-    final y = t.y.clamp(-my, my).toDouble();
+    final L = _tLimits(s);
+    final x = t.x.clamp(L[0], L[1]).toDouble();
+    final y = t.y.clamp(L[2], L[3]).toDouble();
     if ((x - t.x).abs() > 0.01 || (y - t.y).abs() > 0.01) {
       _tc.value = Matrix4.identity()
         ..translate(x, y)
         ..scale(s);
     }
+  }
+
+  /// 「图仍盖住框」时平移 `t` 的**精确允许区间** `[loX, hiX, loY, hiY]` ✓ —— **单一出处** ✓
+  ///   （`_clampT` 与初始居中 `_centerT` 都走这里 ✗ —— 免得两处口径再漂 ☠）。
+  ///   ⚠️ 只依赖两个量 ✓：**显示盒** `_disp`（dw/dh ✓）与**框** `_frame`（fw/fh ✓）
+  ///   ⇒ 与"实际绘制尺寸 = 显示盒 × s"**严格一致** ✓（`s·dw` 就是图被画出来的宽度 ✓）。
+  List<double> _tLimits(double s) {
+    final d = _disp;
+    final f = _frame;
+    final loX = (d.width + f.width) / 2 - s * d.width;
+    final hiX = (d.width - f.width) / 2;
+    final loY = (d.height + f.height) / 2 - s * d.height;
+    final hiY = (d.height - f.height) / 2;
+    return <double>[loX, hiX, loY, hiY];
+  }
+
+  /// 把平移摆到**居中**（= 允许区间的**中点** ✓）—— 初始态专用 ✓。
+  ///   ⚠️ 依据 ✓：`..scale(s)` 绕左上角 ⇒ 想"看起来绕中心"，就得**同时**补 `(1−s)·disp/2` 的位移 ✓
+  ///   （s=1.15、显示盒 369×553.5 ⇒ 中点 = (−27.7, −41.5) ✓；旧版起点是 t=0 ⇒ 一开始就是偏的 ✓）。
+  void _centerT(double s) {
+    final L = _tLimits(s);
+    _tc.value = Matrix4.identity()
+      ..translate((L[0] + L[1]) / 2, (L[2] + L[3]) / 2)
+      ..scale(s);
   }
 
   /// 取**原图字节**（`FetchedImage` 的缓存不外露 ✗ ⇒ 自己下一次 ✓ —— 保存与裁剪都要原图 ✓）
@@ -464,20 +488,31 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       await f.writeAsBytes(bytes, flush: true);
       if (!await Gal.hasAccess()) {
         if (!await Gal.requestAccess()) {
+          // ★ 2026-10-05（用户拍板 ✓）：**删掉"去设置里开"那套指引** ✗ ——
+          //   依据（用户原话 ✓）：点保存时**系统自己会弹权限窗** ✓ 用户点一下确认就行 ✓ ⇒ 不必再教他去设置 ✗。
+          //   ⚠️ 但**绝不许"点了保存什么都不发生"** ☠ ⇒ 拒权也**必须有反馈** ✗ ⇒ 走失败提示同一套口径：
+          //   **1 秒 + 短句**（不教去设置 ✗），与下面那条「保存失败」同一档 ✓；控制流照旧**不落库、直接收尾** ✓。
           msg.showSnackBar(const SnackBar(
-              content: Text('没有相册权限 —— 去「设置 → 隐私 → 照片」里给 KPXX 打开')));
+              duration: const Duration(seconds: 1),
+              content: Text('没有相册权限')));
           return;
         }
       }
       await Gal.putImage(f.path);
-      msg.showSnackBar(const SnackBar(content: Text('已保存到相册')));
+      // ★ 2026-10-05（用户要求 ✓）：完成提示 **1 秒后消失** ✗（原来走 `SnackBar` 默认 **4 秒** ☠）；
+      //   同组这条"保存失败"为**一致性**同样设 1 秒 ✓（文案 / 触发时机 / 分支一律未动 ✗）
+      msg.showSnackBar(const SnackBar(
+          duration: const Duration(seconds: 1),
+          content: Text('已保存到相册')));
       try {
         await f.delete();
       } catch (_) {
         // 临时文件删不掉就算了（系统临时目录自己会清）
       }
     } catch (e) {
-      msg.showSnackBar(SnackBar(content: Text('保存失败：$e')));
+      msg.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 1),
+          content: Text('保存失败：$e')));
     }
   }
 
@@ -503,7 +538,11 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       final raw = await _download(widget.urls[_index]); // ★ 2026-10-05：`_rawCache` 已删 ✗ ⇒ 这里**只剩直接下** ✓（与"它恒为 null"**语义等价** ✓）
       final png = await _cropPngWithFallback(raw, _frame); // ★ 后台 isolate + 回落 ✓（见下面那支 ✓）
       if (png == null) {
-        msg.showSnackBar(const SnackBar(content: Text('裁剪失败：拿不到图片数据 ✗')));
+        // ★ 2026-10-05（用户要求 ✓）：本组提示统一 **1 秒后消失** ✗（原来走 `SnackBar` 默认 **4 秒** ☠）；
+        //   "裁剪失败 / 设为背景失败"这两条失败提示 ⇒ 为**一致性**也设 1 秒 ✓（文案与分支未动 ✗）
+        msg.showSnackBar(const SnackBar(
+            duration: const Duration(seconds: 1),
+            content: Text('裁剪失败：拿不到图片数据 ✗')));
         return;
       }
       final hook = widget.onApplyAsBg;
@@ -512,16 +551,21 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         //   —— 两个图集**都已传入挂点** ✓（见本文件 `onApplyAsBg` 的说明 ✓）⇒ 正常路径走不到这里 ✓
         //   ⚠️ 别再写成"待定/待用户定"✗（那是接挂点之前的说法 ✓ 已经过期 ✓）
         msg.showSnackBar(const SnackBar(
+            duration: const Duration(seconds: 1),
             content: Text('这个页面没有接「设为背景」的挂点 ✗')));
         return;
       }
       await hook(png);
       if (!mounted) return;
       _close(); // 浮层 ⇒ 关浮层 ✓（**不退详情页** ✗）；整页 ⇒ pop ✓ —— 同一处实现 ✓
-      msg.showSnackBar(const SnackBar(content: Text('已设为背景（一次性、不进图集）✓')));
+      msg.showSnackBar(const SnackBar(
+          duration: const Duration(seconds: 1),
+          content: Text('已设为背景（一次性、不进图集）✓')));
     } catch (e) {
       // ★ 失败**要有提示** ✓（不静默死 ✗）
-      msg.showSnackBar(SnackBar(content: Text('设为背景失败：$e')));
+      msg.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 1),
+          content: Text('设为背景失败：$e')));
     } finally {
       // ★ 三条路统一在这里关掉转圈 ✓（成功 / return / 异常 ⇒ 都会走到 ✓）
       if (mounted) {
@@ -615,8 +659,11 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     if (!mounted) return;
     // ★ 2026-10-05（G ✓）：初始 **s0 = 1.15** —— 依据：`InteractiveViewer` 的 `minScale: 1` ✓ 而"框（屏比）"
     //   一般比显示盒窄 ⇒ `s=1` 时横轴有余量、**纵向常为 0**（拖不动 ✗）⇒ 先放大 15% ⇒ **两轴都能挪** ✓
-    //   （用户口径是"在**整张原图**上自己选区域" ✓）；写法与 `_clampT` 里那句同款 ✓（`scale` 同一套 ✓）。
-    _tc.value = Matrix4.identity()..scale(1.15);
+    //   （用户口径是"在**整张原图**上自己选区域" ✓）。
+    // ⚠️ 2026-10-05 修（用户报"能把顶边拉进框 ⇒ 框内露白" ✓）：起点**不再**写 `..scale(1.15)` ✗ ——
+    //   `Matrix4..scale` 是**绕左上角**缩放的 ✓ ⇒ 起点会偏 ✗；改走 `_centerT` ✓ = 摆到允许区间的**中点** ✓
+    //   ⇒ 视觉上就是**绕中心**缩放 ✓，且一开始就**盖满框**（不露白 ✗）✓。
+    _centerT(1.15);
     setState(() => _crop = true);
   }
 
@@ -784,6 +831,9 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                             // ★ 2026-10-05（用户反馈"**双指不灵敏**" ✓ 真因读数）：`_clampT` 原来挂在 `_tc` 的**监听**上，
                             //   手势进行中**回写** `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势**互相打架** ☠
                             //   ⇒ 改成**在回调里夹** ✓（不再用监听 ✓ 见 `initState` 的那处删改 ✓）⇒ 手指一动就跟随 ✓
+                            // ★ 2026-10-05 修（用户报"露白" ✓）：**按下那一刻也先夹一次** ✗ ——
+                            //   免得"上一次遗留的越界值"在下一次手势的第一帧被画出来 ☠（update 里本来每帧也夹 ✓）
+                            onInteractionStart: (_) => _clampT(),
                             onInteractionUpdate: (_) => _clampT(),
                             onInteractionEnd: (_) => _clampT(),
                             // ★ 2026-10-05（F ✓）：**框选态也是 contain** ✗ —— 原来是 cover ☠（图"正好盖住框"
@@ -856,6 +906,12 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     final size = Size(w.toDouble(), h.toDouble());
     if (_imgSize == size) return;
     setState(() => _imgSize = size);
+    // ★ 2026-10-05 修（露白 ✓）：尺寸一变 ⇒ `dw/dh` 与 `fw/fh` 全变 ⇒ **帧后立刻再夹一次** ✗。
+    //   ⚠️ 不能在 build 里夹 ☠（写 `_tc.value` 会在构建期触发通知 ⇒ 构建期 setState ✗）⇒ 丢到帧后 ✓
+    //   ⇒ 哪怕"缓一拍"那张进来，起始态也照样**盖满框**（不露白 ✗）✓。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _clampT();
+    });
   }
 
   Widget _pill(String text, VoidCallback onTap) {

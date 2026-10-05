@@ -32,6 +32,24 @@ class OnlineAlbumPage extends StatefulWidget {
 /// 站点根（详情页也要用 ✓ —— 列表项给的 `detail` 是相对路径 `/art/pic/id/N/` ✓）。
 const String kOnlineAlbumHost = 'https://zaeg-kiga-rpuv.xofulitu-108.com';
 
+/// ★ 2026-10-05（用户报"有的分类整屏不显示" ✓ 真因）：把站点给的图片地址**绝对化** ✗ ——
+///   逐类探测实录（19 类 ✓ 只读头 ✓ 已跑）证实**三种形态混着出现**：
+///     · `https://img.img12345.com/comics/...` ⇒ 已经绝对 ✓（`全部 /arttype/2000/` 24/24 都这种 ✓）
+///     · `/upload/art/20231019/xxx.jpg` ⇒ **站内相对** ☠（`/arttype/2003/` **24/24 全是** ✗；
+///       `2001` 23/24 · `2002` 14/24 · `2004` 3/14 ✓ —— **占比逐类不同** ✓ 所以"只测一类"当年漏了 ✗）
+///     · `//imagedatas.com/upload/...` ⇒ **协议相对** ☠（`2001/2002/2004` 里混着 ✓）
+///   ⚠️ **不绝对化会怎样**：`FetchedImage` 拿到没有 scheme 的 URI ⇒ `Uri.parse` 的 host 为空 ⇒
+///   请求发不出去 ✗、Referer 还会退到写死那条 ✗ ⇒ **那一类整屏不出封面** ☠（正是用户看到的 ✓）。
+///   ⚠️ 只补前缀 ✗：路径本身一律不动 ✓（不编解码 / 不去重 / 不改大小写 ✗）。
+String absArtUrl(String u) {
+  final s = u.trim();
+  if (s.isEmpty) return s;
+  if (s.startsWith('//')) return 'https:$s'; // 协议相对 ⇒ 补 https: ✓
+  if (s.startsWith('http://') || s.startsWith('https://')) return s; // 已绝对 ⇒ 原样 ✓
+  if (s.startsWith('/')) return '$kOnlineAlbumHost$s'; // 站内相对 ⇒ 拼站点根 ✓
+  return '$kOnlineAlbumHost/$s'; // 兜底（不带前导斜杠的少见形态 ✓）
+}
+
 /// 一个主分类（照 sim 的 `ALB_TAGS` ✓ 逐条 ✓）。
 class AlbCat {
   final String path;
@@ -84,6 +102,7 @@ class ArtItem {
 ///   `<a href="/art/pic/id/2632/" class="album-item">`
 ///   `<img src="/MDassets/img/loading_3_green_dot.gif" data-src="https://img.img12345.com/comics/images01710/001.jpg">`
 ///   `<div class="album-name">Shiro x Kuro</div>`
+/// ⚠️ 2026-10-05（逐类实测 ✓）：`data-src` 拿到的可能是**站内相对 / 协议相对** ✗ ⇒ 一律过 [absArtUrl] ✓。
 List<ArtItem> parseArtList(String html) {
   final re = RegExp(r'<a href="(/art/pic/id/\d+/)" class="album-item">');
   final ms = re.allMatches(html).toList();
@@ -93,11 +112,11 @@ List<ArtItem> parseArtList(String html) {
     final start = ms[i].end;
     final end = (i + 1 < ms.length) ? ms[i + 1].start : html.length;
     final chunk = html.substring(start, end);
-    var cover = RegExp(r'data-src="([^"]+)"').firstMatch(chunk)?.group(1) ?? '';
+    var cover = absArtUrl(RegExp(r'data-src="([^"]+)"').firstMatch(chunk)?.group(1) ?? '');
     if (cover.isEmpty) {
       // 退路：没 `data-src` 才用 `src` ✓ —— 但要**跳过占位 gif** ✗（原文里 `src` 就是它 ✓）
       final s = RegExp(r'<img[^>]*\ssrc="([^"]+)"').firstMatch(chunk)?.group(1);
-      if (s != null && !s.contains('loading_3_green_dot')) cover = s;
+      if (s != null && !s.contains('loading_3_green_dot')) cover = absArtUrl(s);
     }
     final title =
         RegExp(r'class="album-name">([^<]*)<').firstMatch(chunk)?.group(1)?.trim();
@@ -119,7 +138,8 @@ List<String> parseArtImages(String html) {
     final u = m.group(1)!;
     // 占位图一律跳过（详情页的 `src` 是占位 gif ✓；万一 data-src 也被写成它 ⇒ 挡住 ✗）
     if (u.contains('loading_3_green_dot')) continue;
-    if (seen.add(u)) out.add(u);
+    final abs = absArtUrl(u); // ★ 2026-10-05：详情页同样混着"相对 / 协议相对" ✗ ⇒ 一并绝对化 ✓
+    if (seen.add(abs)) out.add(abs);
   }
   return out;
 }
@@ -300,13 +320,35 @@ class _CatFeedState extends State<_CatFeed> {
   String? _err;
   List<ArtItem> _items = const <ArtItem>[];
 
+  /// ★ 2026-10-05（用户要求 ✓）：**自动翻页（无限滚动）** ✗ —— 原来只加载第 1 页 ☠（tab 重做时丢了 ✓）。
+  ///   ⚠️ 口径**照图集2**（`online_album2_page.dart:282-402` ✓ 现成那套 ✓ **不自造** ✗）：
+  ///   `_page` = 已加载到第几页 ✓ · `_more` = 正在续拉 ✓ · `_done` = 到底 ✓。
+  int _page = 1;
+  bool _more = false;
+  bool _done = false;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  /// 站点翻页形态 ✓（原文实测：`<a href="/arttype/2000-2/" class="paging-item--next">下一页</a>` ✓ 共 53 页 ✓）：
+  ///   **第 1 页 = `catPath` 本身** ✓（不拼 `-1` ✗）；之后 = `/arttype/<id>-<page>/` ✓。
+  String _url(int page) {
+    if (page <= 1) return '$kOnlineAlbumHost${widget.catPath}';
+    final m = RegExp(r'/arttype/(\d+)/').firstMatch(widget.catPath);
+    if (m == null) return '$kOnlineAlbumHost${widget.catPath}';
+    return '$kOnlineAlbumHost/arttype/${m.group(1)}-$page/';
+  }
+
   Future<void> _load() async {
+    // ★ 照图集2 ✓：刷新期间内容换成转圈 ⇒ **尾部不会被构造** ⇒ 续拉与"下拉刷新"**互不打架** ✓
+    setState(() {
+      _loading = true;
+      _err = null;
+      _done = false;
+    });
     try {
       final r = await Site.httpClient
           .get(Uri.parse('$kOnlineAlbumHost${widget.catPath}'),
@@ -326,6 +368,7 @@ class _CatFeedState extends State<_CatFeed> {
       if (!mounted) return;
       setState(() {
         _items = list;
+        _page = 1; // 刷回第 1 页 ✓（续拉的凭据一起复位 ✓）
         _err = list.isEmpty ? '这一页没解析到卡片 ✗（站点结构可能变了）' : null;
         _loading = false;
       });
@@ -336,6 +379,42 @@ class _CatFeedState extends State<_CatFeed> {
           _loading = false;
         });
       }
+    }
+  }
+
+  /// 续拉下一页 ✓（照图集2 `_loadMore` ✓ **逐条同款** ✗）：
+  ///   · 守卫 `_more || _done || _loading` ✓ ⇒ 与刷新 / 自己**不并发** ✓
+  ///   · **某页解析为空** ⇒ `_done = true` ✓（= "到底"判据 ✓）。⚠️ **不按"不足 24 条"判** ✗ ——
+  ///     我们的解析器会**丢条目** ✓（实测 `/arttype/2004/` 首页只解析出 **15** 条 ✓ 但站点并没到底 ✗）
+  ///     ⇒ 用"条数不足"当到底会**提前截断** ☠。
+  ///   · 追加时按 `detail` **去重** ✓：万一越界页返回的是"最后一页的重复" ✗ ⇒ 不会重复铺一屏 ✓；
+  ///     且"这一页全是旧的"也当到底 ✓ —— 即口径里的"**不足则停**" ✓（用净增量判 ✓ 比看条数稳 ✗）。
+  ///   · 失败**静默** ✓（下拉刷新仍可救 ✓ 与图集2 同款 ✓）
+  Future<void> _loadMore() async {
+    if (_more || _done || _loading) return;
+    _more = true;
+    try {
+      final r = await Site.httpClient
+          .get(Uri.parse(_url(_page + 1)),
+              headers: <String, String>{'User-Agent': Site.ua})
+          .timeout(const Duration(seconds: 20));
+      if (r.statusCode != 200 || !mounted) return;
+      final list = parseArtList(utf8.decode(r.bodyBytes, allowMalformed: true));
+      if (!mounted) return;
+      setState(() {
+        final have = _items.map((a) => a.detail).toSet();
+        final fresh = list.where((a) => have.add(a.detail)).toList();
+        if (fresh.isEmpty) {
+          _done = true; // 空页 / 全是旧的 ⇒ 到头 ✓
+        } else {
+          _items = [..._items, ...fresh];
+          _page += 1;
+        }
+      });
+    } catch (_) {
+      // 续拉失败静默 ✓（下拉刷新仍可救 ✓）
+    } finally {
+      _more = false;
     }
   }
 
@@ -353,6 +432,23 @@ class _CatFeedState extends State<_CatFeed> {
       cols: 2, // 用户指定：2 列 ✓（sim `#albCards` 也是 `repeat(2, 1fr)` ✓）
       physics: const AlwaysScrollableScrollPhysics(),
       count: _items.length,
+      // ★ 2026-10-05（用户要求 ✓）：**滚到尾部 ⇒ 顺手续拉下一页** ✗（懒加载 ✓ 不在进页时预拉 ✗）——
+      //   口径照图集2（`online_album2_page.dart:389-403` ✓）；到底 ⇒ 留一小段白 ✓ **不再空转圈** ✓。
+      tail: () {
+        _loadMore();
+        return _done
+            ? const SizedBox(height: 24)
+            : const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              );
+      },
       itemBuilder: (context, i) {
         final it = _items[i];
         return ArtCard(
