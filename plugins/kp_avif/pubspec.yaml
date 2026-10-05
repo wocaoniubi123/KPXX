@@ -1,0 +1,20 @@
+name: kp_avif
+description: KPXX 本地插件——iOS 侧用系统自带的 ImageIO 把 AVIF 解成 PNG。非 iOS / 解不出 ⇒ 一律 null（不崩）。
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: KpAvifPlugin

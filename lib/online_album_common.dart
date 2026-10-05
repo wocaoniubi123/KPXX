@@ -155,16 +155,23 @@ class _ArtImageListState extends State<ArtImageList> {
   }
 }
 
-/// 预览层（两页同款 ✓ 用户拍板 ✓）：**左右滑切图 + 页码 `x / N` + 下方按钮** ✓。
+/// 预览层的**内容**（两页同款 ✓ 用户拍板 ✓）：**左右滑切图 + 页码 `x / N` + 下方按钮** ✓。
 /// ⚠️ 结构照 `detail_page.dart:838-897` 的 `PhotoViewerPage` **写一份** ✗（**不改那个文件** ✗ ——
 ///   它的"点图退出"语义与本层要加的"按钮 + 框选"冲突 ✓）。
-/// ★ 2026-10-05 用户**最终**口径：**左滑 = 下一张** ✓ **右滑 = 上一张** ✓（= `PageView` 框架默认 ✓
-///   故**不加** `reverse` ✗ —— 上一轮曾按"左滑 = 上一张"加过一次，已被这次口径作废 ✓）。
-///   ⇒ **第 1 张右滑不动** ✓ **最后一张左滑不动** ✓ **不循环** ✗ —— 两个边界由 `PageView` 自身的
-///   `ScrollPhysics` 夹住 ✓（**不写任何边界代码** ✗ 也没有任何循环代码 ✓）。
+/// ★ 2026-10-05（**照 sim 1:1** ✗）：切图 = **指针按下→抬起比位移** ✓（sim `:6963-6972` 逐字 ✓）
+///   ⇒ **不用 `PageView`** ✗（没有滑动动画 ✓ 与 sim `:6956`"直接换图"一致 ✓）
+///   · 方向：**左滑 = 下一张** ✓ **右滑 = 上一张** ✓（sim `dx < 0 ? 1 : -1` ✓ `:6969` ✓）
+///   · 阈值：**绝对位移 ≥ 40px** ✓ 且**横向要大于纵向** ✓（sim `Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy) ⇒ return` ✓ `:6968` ✓）
+///   · 边界：**越界不动** ✓（sim `ni < 0 || ni > n - 1 ⇒ return` ✓）⇒ **第 1 张右滑不动** ✓
+///     **最后一张左滑不动** ✓ **不循环** ✗（不写取模 ✗）
+/// ★ 2026-10-05（照 sim 1:1 ✓）：预览态 = **一列居中**（图 → 页码 → 按钮排 ✓）——
+///   **没有顶栏、没有 X** ✗（sim 靠"点遮罩关" ✓ `:6928` ✓）；页码在**图下方居中** ✓（不是顶栏 ✓）。
 /// ⚠️ `Stack(fit: StackFit.expand)` ✗：**所有子层都非定位** ✓ ⇒ 不触碰"非定位子层集合"那类坑 ✓
 ///   （先例 `shorts_feed_page.dart:524-525` 同款 ✓）。
-class ArtPreviewPage extends StatefulWidget {
+/// ⚠️ **本组件的定位 = 纯内容** ✓：不带 `Scaffold`、不自己决定"怎么关" ⇒ 由外层外壳决定 ✓
+///   —— 两种外壳（**浮层** = 主用 ✓ / **整页** = 保留 ✗）见下面 `showArtPreviewOverlay` / `ArtPreviewPage` ✓
+///   ⇒ **内容只有这一份实现** ✓ 两面永不漂移 ✓。
+class ArtPreviewBody extends StatefulWidget {
   final List<String> urls;
   final int initial;
 
@@ -172,6 +179,80 @@ class ArtPreviewPage extends StatefulWidget {
   ///   传了 ⇒ 点「确认」把裁剪好的 **PNG 字节**交给它 ✓（由调用方决定怎么落地 ✓）；
   ///   ✅ **现状：两个图集都已传入** ✓ —— `onApplyAsBg: (png) => AppBg.i.useDirectImage(png)` ✓
   ///   落到「设置页 → 背景图 → 从相册选择」**那一套存储** ✓（一次性 ✓ **不进图集** ✗）。
+  final Future<void> Function(Uint8List png)? onApplyAsBg;
+
+  /// 关闭动作（X 与「设为背景」成功后调 ✓）：
+  ///   **浮层**外壳 ⇒ 传"关掉浮层" ✓（`showArtPreviewOverlay` 里给 ✓）；
+  ///   **整页**外壳 ⇒ 传 `null` ⇒ 内部退回 `Navigator.pop` ✓。
+  final VoidCallback? onClose;
+
+  /// ★ 2026-10-05（**用户点破** ✓）：预览里的图**不再一律从 URL 走 `FetchedImage`** ☠ ——
+  ///   允许调用方注入"**已经解好的字节**"（图集2 的 AVIF 解完就缓存在它自己的 `AvifBytes` 里 ✓）
+  ///   ⇒ 预览**零额外网络、零额外解码** ✓（用户原话："你都自己解了 —— AVIF 的预览直接用详情页解好的不就行了" ✓）。
+  ///   ⚠️ **默认 `null` ⇒ 行为与以前一字不变** ✓（仍走 `FetchedImage(url:)` ✓）—— 图集1 与其它调用点**不传** ✓。
+  ///   **我选"取字节"**（`Uint8List? Function(String url)?`）**而不是给 Widget / ImageProvider**，依据 ✓：
+  ///     ① 预览里同一张图要被**两处**用（预览态 `contain` ✓ / 框选态 `cover` ✓）⇒ 给字节，
+  ///        本组件自己按各自 `fit` 喂 `Image.memory` ✓（最省事 ✓）；给 Widget ⇒ 得复制两套布局 ✗；
+  ///     ② 给 `ImageProvider` 是**同义反复** ✗（`MemoryImage` 也要先有字节 ✓ 调用方还得再造一次壳 ✓）。
+  ///   ⚠️ **同步返回** ✓：命中缓存立即出图 ✓；未命中给 `null` ⇒ **回落到 `FetchedImage`** ✓（老路照旧 ✓）。
+  final Uint8List? Function(String url)? bytesFor;
+
+  const ArtPreviewBody({
+    super.key,
+    required this.urls,
+    this.initial = 0,
+    this.onApplyAsBg,
+    this.onClose,
+    this.bytesFor,
+  });
+
+  @override
+  State<ArtPreviewBody> createState() => _ArtPreviewBodyState();
+}
+
+/// ★ 2026-10-05 用户拍板（呈现方式 ③）：预览 = **浮层** ✗（**不跳页** ✓ 当前页上浮一层半透明遮罩 ✓ 点空白关 ✓）。
+/// 用**框架自有机制** `showGeneralDialog` ✓（不自造 Overlay ✗）—— **依据**（每条都省掉了手搭的活 ✓）：
+///   ① `barrierColor: Colors.black45` = 半透明遮罩 ✓（**照 sim 的 `rgba(0,0,0,.45)`** ✓ `sim/index.html:694` ✓）；
+///      `barrierDismissible: true` = **点空白关** ✓
+///      （遮罩自己处理点击 ⇒ **图/按钮区域不会误关** ✓ —— 点在内容上时不触达遮罩 ✓）；
+///   ② 它是**独立路由** ⇒ **系统返回键/侧滑手势只关浮层、不退详情页** ✓（要求 5 ✓ 不用手写 `PopScope` ✓）；
+///   ③ 内容直接用共用的 [ArtPreviewBody] ✓ ⇒ 与整页版**同一份** ✓。
+/// ⚠️ **下滑关** ✓（用户口径 ✓）：实现见 `ArtPreviewBody.build` 的 `GestureDetector(onVerticalDragEnd:)` ✓
+///   —— **只在图片区之外**（黑色留白 / 页码行 ✓）生效 ✓，因为 `InteractiveViewer` 的手势声明两轴、
+///   **会吃掉图片区里的竖向拖动** ☠（框架行为 ✓ 不是 bug ✓）；**框选态一律禁止** ✗（`if (_crop) return;` ✓）。
+Future<void> showArtPreviewOverlay(
+  BuildContext context, {
+  required List<String> urls,
+  int initial = 0,
+  Future<void> Function(Uint8List png)? onApplyAsBg,
+  Uint8List? Function(String url)? bytesFor,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: '关闭预览',
+    // ★ 2026-10-05（照 sim 抄 ✓）：遮罩色 = sim `.ovl` 的 `background: rgba(0,0,0,.45)` ✓
+    //   （`sim/index.html:694` 逐字 ✓）⇒ Flutter 的 `Colors.black45` 就是 rgba(0,0,0,.45) ✓ 不多不少 ✓
+    barrierColor: Colors.black45,
+    transitionDuration: const Duration(milliseconds: 150),
+    pageBuilder: (dialogCtx, _, __) => SafeArea(
+      child: ArtPreviewBody(
+        urls: urls,
+        initial: initial,
+        onApplyAsBg: onApplyAsBg,
+        bytesFor: bytesFor, // ★ 透传给内容 ✓（不传 ⇒ null ⇒ 老路 `FetchedImage` ✓）
+        onClose: () => Navigator.of(dialogCtx).pop(),
+      ),
+    ),
+  );
+}
+
+/// **整页**外壳（旧入口 ✓ **保留不删** ✗）。
+/// ⚠️ 2026-10-05 现状（如实 ✓）：**调用点 = 0** ✗ —— 两个图集都已改成 [showArtPreviewOverlay]（浮层 ✓）
+///   ⇒ 本类现在是**备用入口**（留作"将来要整页看"的退路 ✓）⇒ 去留由用户定 ✓ **别当 bug 删** ✗。
+class ArtPreviewPage extends StatelessWidget {
+  final List<String> urls;
+  final int initial;
   final Future<void> Function(Uint8List png)? onApplyAsBg;
 
   const ArtPreviewPage({
@@ -182,19 +263,38 @@ class ArtPreviewPage extends StatefulWidget {
   });
 
   @override
-  State<ArtPreviewPage> createState() => _ArtPreviewPageState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: ArtPreviewBody(
+        urls: urls,
+        initial: initial,
+        onApplyAsBg: onApplyAsBg,
+      ),
+    );
+  }
 }
 
-class _ArtPreviewPageState extends State<ArtPreviewPage> {
-  late final PageController _pc = PageController(initialPage: widget.initial);
+class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   late int _index = widget.initial;
 
-  /// 框选态（用户要求 ✓）：此态**不切图** ✗（`PageView` 置 `NeverScrollableScrollPhysics` ✓）
+  /// ★ 2026-10-05（照 sim 1:1 ✓）：切图**不用 `PageView`** ✗ —— sim 是"指针按下→抬起比位移"：
+  ///   `if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;` ✓（`sim:6968` 逐字 ✓）
+  ///   ⇒ 这里累计横向位移 ✓ 抬起时按 **≥40px** 判 ✓（竖着划不算 ✓）。
+  double _dragDx = 0;
+
+  /// 框选态（用户要求 ✓）：此态**不切图** ✗
   bool _crop = false;
   final TransformationController _tc = TransformationController();
 
   /// 当前框尺寸（逻辑像素 ✓）—— 由 `MediaQuery` **动态算** ✗（不写死 ✓）
   Size _frame = Size.zero;
+
+  /// ★ 2026-10-05（用户真机反馈"**设为背景后非常模糊/几乎马赛克**" ☠ 的根因修法）：
+  ///   `MediaQuery.of(context).size` 给的是**逻辑尺寸** ✗（393×852 这种 ✓），而物理屏是 393×852 **@3x** ✓
+  ///   ⇒ **出图必须乘上设备像素比** ✗ ⇒ 393×852 @3x ⇒ **1179×2556** ✓（= 用户要的"手机分辨率"✓）。
+  ///   ⚠️ 在 `build` 里现取 ✓（`_cropPng` 里没有 `context` ✗ 拿不到 —— 原来就是因此漏了这一步 ☠）。
+  double _dpr = 1;
 
   @override
   void initState() {
@@ -206,8 +306,29 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
   void dispose() {
     _tc.removeListener(_clampT);
     _tc.dispose();
-    _pc.dispose();
     super.dispose();
+  }
+
+  /// 切图（照 sim `albPreviewStep` ✓）：`d = +1` 下一张 / `-1` 上一张 ✓；
+  ///   **越界不动** ✓（sim `if (ni < 0 || ni > n - 1) return;` ✓）⇒ **第 1 张右滑不动** ✓
+  ///   **最后一张左滑不动** ✓ **不循环** ✗（不写任何取模 ✗）。
+  void _step(int d) {
+    final n = widget.urls.length;
+    final ni = _index + d;
+    if (ni < 0 || ni > n - 1) return; // 照 sim ✓
+    setState(() => _index = ni);
+  }
+
+  /// 关闭动作（X ✓ / 「设为背景」成功后 ✓）—— **只有这一处实现** ✓：
+  ///   浮层外壳 ⇒ 调它传进来的 [ArtPreviewBody.onClose]（= 关掉浮层 ✓ 不退详情页 ✗）；
+  ///   整页外壳 ⇒ `onClose` 为 `null` ⇒ 退回 `Navigator.pop` ✓。
+  void _close() {
+    final c = widget.onClose;
+    if (c != null) {
+      c();
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   /// ★「夹住」那一小块（唯一自己写的逻辑 ✓）：**图始终盖住框** ⇒ 平移锁在 `±框×(缩放-1)/2` 内 ✓
@@ -291,7 +412,7 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
       }
       await hook(png);
       if (!mounted) return;
-      Navigator.of(context).pop();
+      _close(); // 浮层 ⇒ 关浮层 ✓（**不退详情页** ✗）；整页 ⇒ pop ✓ —— 同一处实现 ✓
       msg.showSnackBar(const SnackBar(content: Text('已设为背景（一次性、不进图集）✓')));
     } catch (e) {
       msg.showSnackBar(SnackBar(content: Text('设为背景失败：$e')));
@@ -304,8 +425,8 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
   ///   ② 总缩放 `total` = cover 基础比 × s ✓（`base = max(框宽/图宽, 框高/图高)` ✓）
   ///   ③ 源矩形：宽 `框宽/total` ✓ 高 `框高/total` ✓，左上 = `(图宽-源宽)/2 - t.x/total` ✓
   ///      （居中量减去平移量、再换算回图坐标 ✓）
-  ///   ④ 输出边长系数 `k` = 长边上限 1440 ÷ 框宽 ✓（与 `AppBg.pickFromGallery` 的 `maxWidth: 1440`
-  ///      **同规格** ✓ —— 那条是既有代码 ✓ 只对齐数值 ✗ 不调它 ✓）
+  ///   ④ 输出边长系数 `k` = **设备像素比 `_dpr`** ✓（2026-10-05 用户报"糊"后定的口径 ✓：
+  ///      出图 = **物理像素** ⇒ 393×852 @3x ⇒ 1179×2556 ✓；**不再有 1440 上限** ✗ —— 见下面那段说明 ✓）
   ///   ⇒ 画布 1px = 图坐标 `1/total` ⇒ `drawImageRect` 一次画完 ✓（输出 **PNG** ✓ —— Flutter 只能编码 PNG ✗）
   Future<Uint8List?> _cropPng(Uint8List raw, Size frame) async {
     if (frame.isEmpty) return null;
@@ -320,8 +441,13 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
     final sh = frame.height / total;
     final sx = (img.width - sw) / 2 - t.x / total;
     final sy = (img.height - sh) / 2 - t.y / total;
-    const double kMax = 1440;
-    final k = math.min(1.0, kMax / frame.width);
+    // ★ 2026-10-05（用户真机反馈"设为背景后**糊**" ☠ 的修法）：画布尺寸 = **物理像素** ✗
+    //   根因（读数实测 ✓）：`frame` 是**逻辑尺寸**（`build` 里来自 `MediaQuery.size` ✓ 393×852 ✓），
+    //   而原来这里是 `k = math.min(1.0, 1440 / frame.width)` ⇒ 393 宽时**恒等于 1.0** ⇒
+    //   出图 = **393×852** ✗ ⇒ @3x 屏放大 3 倍显示 ⇒ **少 9 倍像素** ☠（用户看到的就是这个 ✓）。
+    //   现在 `k = _dpr` ✓（393×852 @3x ⇒ **1179×2556** ✓）；
+    //   ⚠️ **不加 1440 上限** ✗（那会把 iPad / 大屏又砍回小图 ✗ —— 用户口径 = "手机分辨率" ✓）。
+    final k = _dpr;
     final ow = (frame.width * k).round();
     final oh = (frame.height * k).round();
     final rec = ui.PictureRecorder();
@@ -347,6 +473,8 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
   @override
   Widget build(BuildContext context) {
     final m = MediaQuery.of(context).size;
+    // ★ 2026-10-05：设备像素比**必须现取** ✗（`_cropPng` 里没有 context ✓ 只能在 build 拿 ✓）
+    _dpr = MediaQuery.of(context).devicePixelRatio;
     // 框 = **设备屏幕比例** ✓（动态取 ✗ 不写死 ✓）+ 尽量大（上下给按钮留位 ✓）
     final aspect = m.width / m.height;
     final availW = m.width - 24;
@@ -361,104 +489,155 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
+      // ★ 2026-10-05（用户口径 ✓）：**下滑关** ✗ —— 生效范围 = **图片区之外**（黑色留白 / 页码行 ✓）：
+      //   `InteractiveViewer` 的手势同时声明两轴 ⇒ **会吃掉图片区里的竖向拖动** ☠（框架行为 ✓ 不是 bug ✓）；
+      //   ⚠️ **框选态一律禁止** ✗（那会儿竖向拖动是"拖图"✓ 打架 ☠）。
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragEnd: (d) {
+          if (_crop) return; // 框选态禁止下滑关 ✓
+          if ((d.primaryVelocity ?? 0) > 250) _close(); // 向下 = 正速度 ✓
+        },
+        child: Stack(
         fit: StackFit.expand,
         children: [
-          PageView.builder(
-            controller: _pc,
-            // ★ 2026-10-05 用户最终口径：左滑=下一张 · 右滑=上一张（框架默认 ✓ 故不加 reverse ✓）
-            //   ⇒ 第 1 张右滑不动 ✓ 最后一张左滑不动 ✓ 不循环 ✓ —— 全由 `PageView` 自身物理夹住 ✓
-            //     （不写边界代码 ✗；上一轮加过的 reverse 已按本次口径**删掉** ✓）
-            physics: _crop ? const NeverScrollableScrollPhysics() : null, // 框选态**不切图** ✗
-            itemCount: widget.urls.length,
-            onPageChanged: (i) => setState(() => _index = i),
-            itemBuilder: (_, i) => InteractiveViewer(
-              maxScale: 5,
-              child: Center(
-                child: FetchedImage(
-                  url: widget.urls[i],
-                  fit: BoxFit.contain,
-                  memWidth: 1600,
-                ),
-              ),
-            ),
-          ),
+          // ★ 2026-10-05（**照 sim 1:1** ✗）：预览态 = **一列居中**（图 → 页码 → 按钮排 ✓）
+          //   sim 原文（`sim/index.html:7000-7005` / `:7590-7595` 逐字 ✓）：
+          //     `<div width:100%;padding:0 12px>` → `<img width:100%;height:auto;border-radius:10px>`
+          //     → 页码 `<div text-align:center;color:#fff;opacity:.85;font-size:12px;margin:8px 0 0>`
+          //     → `.row2`（`gap:10px;margin-top:12px` ✓）两颗 `.ok`（橙底白字 ✓）
+          //   ⚠️ **没有关闭 X** ✗（sim 靠"点遮罩关" ✓ `:6928` ✓）；**也没有顶栏** ✗ —— 已按 sim 删掉 ✓
+          //   ⚠️ 切图 = **直接换图**（sim `:6956`"没有滑动动画 ✗" ✓）⇒ **不用 `PageView`** ✓
+          //      阈值 = sim 的 **绝对 40px** ✓（`:6967 Math.abs(dx) < 40 ⇒ 不切` ✓）
           if (!_crop)
-            SafeArea(
+            Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Row(
+                padding: const EdgeInsets.symmetric(horizontal: 12), // = sim `padding:0 12px` ✓
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () => Navigator.of(context).pop(),
+                    Flexible(
+                      child: GestureDetector(
+                        // ★ 2026-10-05（**用户要求 / sim 无** ✗ —— sim 侧已另派同步 ✓）：**单击图片 = 关预览** ✓
+                        //   ⚠️ 与左右滑**不打架**的依据（框架机制 ✓ 不是我"觉得"✓）：
+                        //     `onTap` 与 `onHorizontalDrag*` **挂在同一个 `GestureDetector`** ✓ ⇒
+                        //     框架把它们放进**同一个手势竞技场** ✓：按下后**没动**（< `kTouchSlop`）⇒ `Tap` 胜 ✓；
+                        //     一旦横向位移超过 slop ⇒ `Tap` 判负、Drag 接管 ✓ ⇒ **我没写任何"哪个优先"的代码** ✗
+                        //     （下滑那层是**外层** `GestureDetector` ✓ 只管竖轴 ✓ 三者在竞技场里各自判 ✓）
+                        //   ⚠️ 只在**预览态** ✓（外面就是 `if (!_crop)` ✓）；**框选态不挂** ✗（那里拖拽=移图 ✓）
+                        //   ⚠️ 只包**图片本身**（`Flexible` 内 ✓）⇒ 页码、两颗按钮在**兄弟节点**上 ✓ ⇒
+                        //     点它们**不会**关预览 ✓；"点空白关"由浮层遮罩负责 ✓（`barrierDismissible` ✓）
+                        onTap: _close,
+                        // 切图手势：横向位移 ≥40px 才算 ✓（照 sim ✓）；竖着划不算 ✓
+                        onHorizontalDragStart: (_) => _dragDx = 0,
+                        onHorizontalDragUpdate: (d) => _dragDx += d.delta.dx,
+                        onHorizontalDragEnd: (_) {
+                          if (_dragDx.abs() < 40) return; // = sim 的阈值 ✓
+                          _step(_dragDx < 0 ? 1 : -1); // 左滑 = 下一张 ✓ 右滑 = 上一张 ✓（sim :6969 ✓）
+                        },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10), // = sim 的 border-radius:10px ✓
+                          child: InteractiveViewer(
+                            maxScale: 5,
+                            child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
+                          ),
+                        ),
+                      ),
                     ),
-                    const Spacer(),
-                    Text('${_index + 1} / ${widget.urls.length}',
-                        style: const TextStyle(color: Colors.white70)),
-                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8), // = sim `margin:8px 0 0` ✓
+                      child: Text('${_index + 1} / ${widget.urls.length}',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.85), fontSize: 12)),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12), // = sim `.row2 margin-top:12px` ✓
+                      // ★ 照 sim ✓：`.ovl .row2 > div { flex:1 }`（`sim:707` 逐字 ✓）⇒ **两颗等宽铺满整排** ✓
+                      //   （`Row` 默认 `mainAxisSize.max` ⇒ 宽度 = 上面的内容盒宽 ✓ = sim 的 `width:100%` ✓）
+                      child: Row(
+                        children: [
+                          Expanded(child: _pill('设为背景', _enterCrop)),
+                          const SizedBox(width: 10), // = sim `.row2 gap:10px` ✓
+                          Expanded(child: _pill('保存相册', _save)),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
-          if (!_crop)
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _pill('设为背景', _enterCrop),
-                      const SizedBox(width: 14),
-                      _pill('保存相册', _save),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           if (_crop) ...[
-            const ColoredBox(color: Colors.black54), // 框外压暗 ✓（框叠在它上面 ✓ 不受影响 ✓）
+            // ★ 2026-10-05（照 sim 抄 ✓）：框外压暗 = sim 的 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)`
+            //   （`sim/index.html:7604` 逐字 ✓）⇒ Flutter **没有 .55 的具名常量** ✗（只有 black54/.45/.87 ✗）
+            //   ⇒ 用 `0x8C000000`：0x8C = 140，140/255 = **.549** ✓ ≈ sim 的 .55 ✓（差 0.001，肉眼无别 ✓）
+            const ColoredBox(color: Color(0x8C000000)),
+            // ★ 2026-10-05（照 sim 1:1 ✓）：框选态 = **一列居中**（框 → 页码 → 按钮排 ✓）
+            //   sim 原文 `:7019-7026` 逐字 ✓：`<div flex-direction:column;align-items:center;gap:16px>`
+            //     → `#albCropStage width:${fw}px;height:${fh}px;border-radius:12px`
+            //     → 页码 `<div text-align:center;color:#fff;opacity:.85;font-size:12px>` ✓（**框选态也显示** ✗）
+            //     → `.row2 width:100%;margin:0` 两颗 `.ok`：**确认 → 取消** ✓（`:7025-7026` 顺序 ✓）
             Center(
-              child: SizedBox(
-                width: fw,
-                height: fh,
-                child: ClipRect(
-                  child: InteractiveViewer(
-                    transformationController: _tc,
-                    minScale: 1,
-                    maxScale: 5,
-                    child: FetchedImage(
-                      url: widget.urls[_index],
-                      // 框选态才用 cover（**盖满框** ✓）；详情列表与预览态仍是 contain ✓
-                      fit: BoxFit.cover,
-                      memWidth: 1600,
+              // ★ 照 sim ✓：框选那列的**外盒也带 `padding:0 12px`**（`sim:7601` 逐字 ✓）
+              //   ⇒ 按钮排的 `width:100%` 才等于"屏幕宽 − 24" ✓（与框宽 `m.width - 24` 同一套口径 ✓）
+              child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12), // = sim 框的 `border-radius:12px` ✓
+                    child: SizedBox(
+                      width: fw,
+                      height: fh,
+                      child: ClipRect(
+                        child: InteractiveViewer(
+                          transformationController: _tc,
+                          minScale: 1,
+                          maxScale: 5,
+                          child: _artImage(
+                            widget.urls[_index],
+                            // 框选态才用 cover（**盖满框** ✓）；详情列表与预览态仍是 contain ✓
+                            BoxFit.cover,
+                            1600,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ),
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  const SizedBox(height: 16), // = sim `gap:16px` ✓
+                  Text('${_index + 1} / ${widget.urls.length}',
+                      style: TextStyle(
+                          color: Colors.white.withOpacity(0.85), fontSize: 12)),
+                  const SizedBox(height: 16), // = sim `gap:16px` ✓
+                  // ★ 照 sim ✓：框选态那排也是 `.ovl .row2 > div { flex:1 }`（`sim:707` ✓ + 内联
+                  //   `width:100%;margin:0` `sim:7606` ✓）⇒ 两颗**等宽铺满**；**确认在前、取消在后** ✓（`:7025-7026` ✓）
+                  Row(
                     children: [
-                      _pill('取消', () => setState(() => _crop = false)),
-                      const SizedBox(width: 14),
-                      _pill('确认', _confirmCrop),
+                      Expanded(child: _pill('确认', _confirmCrop)),
+                      const SizedBox(width: 10), // = sim `.row2 gap:10px` ✓（`:706`）
+                      Expanded(
+                          child: _pill('取消', () => setState(() => _crop = false))),
                     ],
                   ),
-                ),
+                ],
               ),
+              ), // ← Padding（框选那列的外盒 ✓）闭合
             ),
           ],
         ],
+        ), // ← Stack 闭合（上面包了 GestureDetector ✓ 多一层 ⇒ 多这一个括号 ✓）
       ),
     );
+  }
+
+  /// 一张图（预览态/框选态**共用这一处** ✓）：**有注入的已解字节就用它** ✓（`Image.memory` ✓ 零网络零解码 ✓）；
+  ///   **没有**（没传 `bytesFor` ✓ 或未命中缓存 ✓）⇒ **照旧** `FetchedImage` ✓（默认行为不变 ✓）。
+  Widget _artImage(String url, BoxFit fit, int memWidth) {
+    final b = widget.bytesFor?.call(url);
+    if (b != null) {
+      return Image.memory(b, fit: fit, cacheWidth: memWidth, gaplessPlayback: true);
+    }
+    return FetchedImage(url: url, fit: fit, memWidth: memWidth);
   }
 
   Widget _pill(String text, VoidCallback onTap) {
@@ -473,8 +652,17 @@ class _ArtPreviewPageState extends State<ArtPreviewPage> {
         //   ⚠️ 只动颜色 ✗：尺寸 / 圆角 / 间距 / 文案 / 顺序 / `onTap` 一律未动 ✓。
         backgroundColor: const Color(0xFFE8590C),
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        // ★ 2026-10-05（**照 sim 1:1** ✗）：sim 的按钮几何 = `.ovl .row2 > div {
+        //     flex:1; text-align:center; padding:11px 0; border-radius:9px;
+        //     font-size:14px; font-weight:600 }` ✓（`sim/index.html:707-708` **逐字** ✓）
+        //   ⇒ 竖向 padding **11** ✓ 圆角 **9** ✓ 字号 14 + w600 ✓（原样保留 ✓）
+        //   ⇒ 横向宽度**不在这里**给 ✗ —— 由"整排两等分"（`flex:1` ✓）给 ⇒ 两处调用点都用 `Expanded` ✓
+        //   ⚠️ 原来写的是 `padding:20/10` + 圆角 **20** ✗ 与 sim 不符 ⇒ 已改 ✓
+        //   ⚠️ 顺手压掉 TextButton 自带的 `minimumSize`/`padded` 触控外扩 ✗（否则高度不是 11+字+11 ✓）
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
       ),
       child: Text(text,
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),

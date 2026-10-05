@@ -6,21 +6,24 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'config.dart';
 import 'home_page.dart';
+import 'online_album2_avif.dart'; // ★ 本页专用：AVIF 兜底（封面/详情图 ✓ 别的页不碰 ✗）
 import 'online_album_common.dart';
 
 /// 「在线图集2」列表页（站点：photos18 ✓ **服务端渲染** ✓ 2026-10-05 探站实录 ✓）。
 ///
-/// 两轴**互相独立** ✗（用户上一轮报的 bug ✓ 的根因修法）：
-///   `_catId`（分类 ✓ 0 = 全部）与 `_sort`（排序 ✓ 默认 `created` = 最新 ✓）**各自保存** ✓；
-///   点排序**不动** tab ✓ 点 tab**不重置**排序 ✓ —— 每次都拿这两个字段**现拼 URL** ✓。
-///
-/// URL 三形态（2026-10-05 实站实测 ✓）：
-///   全部 + 最新 = `/`  ✓   全部 + 其它排序 = `/sort/<sort>`  ✓
-///   分类 + 最新 = `/cat/<id>/created`  ✓   分类 + 其它排序 = `/cat/<id>/<sort>`  ✓
-///   翻页 = `?page=N&per-page=100`  ✓（**100 条/页** ✓ 实测 ✓）
-///
-/// ⚠️ 与「在线图集1」**共用的只有** `online_album_common.dart` 那几件 ✓；**取数与解析各写各的** ✗
-///   （本站封面在 **`src`** 且是**相对路径** ⇒ 必须补绝对 ✗；图集1 在 **`data-src`** ✓ —— 两回事 ✓）。
+/// ★ 2026-10-05 用户口径：**App 照 sim 抄** ✗。本页对齐的 sim 依据（逐条 ✓）：
+///   · 21 条 tab（`全部` + 20 ✓ `sim/index.html:7239-7251` 的 `ALB2_TABS` 逐字 ✓ 繁体文案 ✓）
+///   · tab 行高 = **33.8** ✓（sim-dev **实测值** ✓：`padding:9px 2px` + 14px 字 + 下边框 **1.18906px** ✓；
+///     整行 ≈ **35.8** ✓）⇒ 逐项 `Tab(height: 33.8)` ✓（`Tab.height` 是 `double?` ⇒ **不取整** ✓）
+///     ⚠️ 我先前写的 37 是**估算** ✗ 已作废 ✓；⚠️ `TabBar` 默认 46 ✗；本机无 SDK ⇒ 最终高度**本机测不了** ✗
+///   · 5 个 chip（`#alb2Sorts .alb2chip` `sim:244-248` ✓）：`最新/最多/最火/推薦/最好` ✓ 默认 `最新` ✓
+///     —— chip 照 sim **自绘** ✓：`padding:5px 12px` ✓ 圆角 15 ✓ `1px rgba(60,60,60,.35)` ✓ 12px 字 ✓
+///     未选中透明底 + 自适应字色 ✓ 选中 `#e8590c` 底 + `#fff` 字 ✓（弃用 `ChoiceChip` ✗ 它做不出这套 ✓）
+///   · 两轴独立 ✓（`alb2TabSel` 与 `alb2SortSel` 两个独立变量 ✓ `sim:7257` ✓）
+///   · URL 三形态 ✓（`alb2PageUrl` `sim:7273-7282` ✓）：`/sort/<sort>` ✓ `/cat/<id>/<sort>` ✓ `/` ✓
+///     · 分类+最新 = `/cat/<id>/created` ✓ · 翻页 `?page=N&per-page=100` ✓
+///   · 卡片双列/3:4/无标题 ✓（`#alb2Cards` `:232-233` ✓）· 封面在 **`src`** 且**相对 ⇒ 补绝对** ✗
+///   · 详情图 = `href` 绝对（`img.photos18.com` ✓ `data-fancybox` ✓）+ 外层 `padding-bottom` 给比例 ✓
 class OnlineAlbum2Page extends StatefulWidget {
   const OnlineAlbum2Page({super.key});
 
@@ -131,7 +134,8 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
     _Cat(2, '夜店辣妹'),
   ];
 
-  /// 分类标签 chip（5 个 ✓ **形态必须与 tab 不同** ✗ ⇒ 用仓库既有的 `ChoiceChip` ✓ 先例 `detail_page.dart:800-812` ✓）
+  /// 分类标签 chip（5 个 ✓ **形态必须与 tab 不同** ✗ ⇒ 照 sim **自绘** ✓ 见下面 `_sortChip` ✓
+  /// —— ⚠️ 原来用的 `ChoiceChip` 已弃用 ✗（它做不出 sim 那套圆角/描边/选中底色 ✓））
   static const List<_Sort> _sorts = [
     _Sort('created', '最新'),
     _Sort('hits', '最多'),
@@ -143,9 +147,139 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
   late final TabController _tab =
       TabController(length: _cats.length + 1, vsync: this, initialIndex: 0);
 
-  int _catId = 0; // 0 = 全部 ✓
+  /// 排序（**全局共享** ✓ 与 tab **互相独立** ✗ —— 用户报过的 bug 就是这条 ✓）
   String _sort = 'created'; // 默认「最新」✓
 
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  /// 排序**胶囊**（**自绘** ✓ —— `ChoiceChip` 做不出 sim 那套形状 ✗；写法照仓库先例 `site_ui.dart:34 tagChip` ✓）。
+  /// sim 实测（`sim:246-248` 逐字 ✓）：
+  ///   · 未选中：`padding:5px 12px` ✓ `border-radius:15px` ✓ `font-size:12px` ✓
+  ///     `border:1px solid rgba(60,60,60,.35)` ✓ `color:#2c2c2c` ✓（浅色图）· 深色图由 `.darkbg .body *` 翻白 ✓
+  ///   · 选中：`background:#e8590c; color:#fff` ✓（sim 的 `.on` 只这两条 ✓）
+  ///   ⇒ 文字色 = **自适应** `kTxt`（深→白 / 浅→`0xFF1B1B1F` ✓ `app_background.dart:53` ✓）；
+  ///     未选中底色 `transparent` ✓（sim 原文 ✓）；描边 = `0x593C3C3C`（0x59 = 89 ⇒ 89/255 = **.349** ✓ = sim 的 .35 ✓）
+  Widget _sortChip(_Sort s) {
+    final bool on = s.key == _sort;
+    return InkWell(
+      borderRadius: BorderRadius.circular(15),
+      onTap: () => _onSort(s.key),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFFE8590C) : Colors.transparent,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: const Color(0x593C3C3C)),
+        ),
+        child: Text(s.name,
+            style: TextStyle(fontSize: 12, color: on ? Colors.white : kTxt)),
+      ),
+    );
+  }
+
+  /// 换排序 ⇒ **只动 `_sort`** ✓（**不动 tab** ✗）⇒ `setState` ⇒ 各子页按新排序重拉 ✓
+  void _onSort(String key) {
+    if (key == _sort) return;
+    setState(() => _sort = key);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) => Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          systemOverlayStyle: kStatusOverlay,
+          title: const Text('在线图集2'),
+          centerTitle: true,
+          foregroundColor: kTxt,
+          bottom: TabBar(
+            // ★ 照 sim 抄（`#alb2Tabs .alb2tab` `sim:234-237` ✓）：下划线式 ✓ 选中橙 + w600 ✓
+            //   未选中自适应 ✓（见图集1 同款注释 ✓）
+            //   ★ 2026-10-05（照 sim **实测值** ✓ 不是估算 ✗）：**单个 tab = 33.8** —— sim 的 tab =
+            //     `padding:9px 2px` + 14px 字 + 下边框 **1.18906** ⇒ 单 tab **33.8** ✓（整行 ≈ 35.8 ✓ `sim:235` ✓）；
+            //     `TabBar` 默认 **46** ✗
+            //     ⇒ 逐项 `Tab(height: 33.8)` ✓（**不是估算的 37** ✗ —— sim-dev 实测值 ✓；`Tab.height`
+            //       是 `double?` ⇒ 不取整 ✓；Flutter 3.13+ 的 `Tab.height` ✓；CI 钉 3.27.4 ✓）
+            //     ⚠️ 本机**无 Flutter SDK** ⇒ 最终渲染高度**无法在本机实测** ✗
+            controller: _tab,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 10),
+            indicatorColor: const Color(0xFFE8590C),
+            indicatorWeight: 2,
+            labelColor: AppBg.i.isDark
+                ? const Color(0xFFFFB07A)
+                : const Color(0xFFE8590C),
+            unselectedLabelColor: kTxt,
+            tabs: [
+              // ★ 2026-10-05（照 sim **实测值** ✓）：单个 tab = **33.8px**（sim-dev 实测：`padding:9px 2px`
+              //   + 字号 14px + 下边框 **1.18906px** ✓）；`Tab.height` 是 `double?` ⇒ **写 33.8、不取整** ✓
+              //   ⚠️ 先前的 37 是估算 ✗ 已改；⚠️ 本机无 SDK ⇒ 渲染高度测不了 ✗
+              const Tab(height: 33.8, text: '全部'),
+              for (final c in _cats) Tab(height: 33.8, text: c.name),
+            ],
+          ),
+        ),
+        body: Column(
+          children: [
+            // 分类标签 chip（与 tab **形态不同** ✓ 默认选中「最新」✓）
+            // ★ 2026-10-05（**照 sim 1:1** ✗）：容器 `gap:8px` + `padding:8px 2px 0` ✓（`sim:244` 逐字 ✓）
+            //   ⚠️ `ChoiceChip` **做不出 sim 那套形状** ✗ ⇒ 照仓库先例 `site_ui.dart:34 tagChip` **自绘** ✓
+            //   ⚠️ 不写死行高 ✗（sim 的行高由内容撑 ✓）⇒ 用 `SingleChildScrollView + Row`（不是 `ListView` ✓）
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(top: 8, left: 2, right: 2), // = sim `padding:8px 2px 0` ✓
+              child: Row(
+                children: [
+                  for (var i = 0; i < _sorts.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8), // = sim 容器 `gap:8px` ✓
+                    _sortChip(_sorts[i]),
+                  ],
+                ],
+              ),
+            ),
+            // ★ 内容区左右滑切 tab（用户批准 ✓）：**框架自带** `TabBarView` ✗（不自定阈值 ✓
+            //   —— ⚠️ sim 里没有这个手势 ✓ 没有阈值可抄 ⇒ 取框架默认 ⇒ 已如实报 ✓）
+            Expanded(
+              child: TabBarView(
+                controller: _tab,
+                children: [
+                  _CatFeed2(key: const ValueKey<String>('/'), catPath: '/', sort: _sort),
+                  for (final c in _cats)
+                    _CatFeed2(
+                      key: ValueKey<String>('/cat/${c.id}'),
+                      catPath: '/cat/${c.id}',
+                      sort: _sort,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 单个分类的列表（一个 tab 一个 ✓ 自带三态/下拉刷新/续拉 ✓ 与排序联动 ✓）。
+class _CatFeed2 extends StatefulWidget {
+  /// `'/'` = 全部 ✓；其余 = `/cat/<id>` ✓
+  final String catPath;
+  final String sort;
+
+  const _CatFeed2({super.key, required this.catPath, required this.sort});
+
+  @override
+  State<_CatFeed2> createState() => _CatFeed2State();
+}
+
+class _CatFeed2State extends State<_CatFeed2> {
   bool _loading = true;
   String? _err;
   List<_P18Item> _items = const <_P18Item>[];
@@ -156,39 +290,21 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
   @override
   void initState() {
     super.initState();
-    _tab.addListener(_onTab);
     _loadFirst();
   }
 
   @override
-  void dispose() {
-    _tab.removeListener(_onTab);
-    _tab.dispose();
-    super.dispose();
+  void didUpdateWidget(covariant _CatFeed2 old) {
+    super.didUpdateWidget(old);
+    // 换了排序 ⇒ 按新排序重拉第 1 页 ✓（**tab 不动** ✗ —— 用户报过的 bug 就是这条 ✓）
+    if (old.sort != widget.sort) _loadFirst();
   }
 
-  /// 换 tab ⇒ **只动 `_catId`** ✓（**不重置 `_sort`** ✗ —— 用户报的 bug 就是这条 ✓）
-  void _onTab() {
-    if (_tab.indexIsChanging) return; // 只在真正落定后取一次 ✓（避免动画中途重复拉 ✗）
-    final idx = _tab.index;
-    final id = idx == 0 ? 0 : _cats[idx - 1].id;
-    if (id == _catId) return;
-    _catId = id;
-    _loadFirst();
-  }
-
-  /// 换排序 ⇒ **只动 `_sort`** ✓（**不动 tab** ✗）
-  void _onSort(String key) {
-    if (key == _sort) return;
-    _sort = key;
-    _loadFirst();
-  }
-
-  /// URL 三形态 ✓（每次**现拼** ✓ 两个字段各自生效 ✓）
+  /// URL 三形态 ✓（照 sim `alb2PageUrl` `:7273-7282` ✓；每次**现拼** ✓ 分类与排序各自生效 ✓）
   String _url(int page) {
-    final base = _catId == 0
-        ? (_sort == 'created' ? '/' : '/sort/$_sort')
-        : '/cat/$_catId/$_sort';
+    final base = widget.catPath == '/'
+        ? (widget.sort == 'created' ? '/' : '/sort/${widget.sort}')
+        : '${widget.catPath}/${widget.sort}';
     return '$_p18Host$base?page=$page&per-page=100';
   }
 
@@ -258,59 +374,7 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: AppBg.i,
-      builder: (context, _) => Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          systemOverlayStyle: kStatusOverlay,
-          title: const Text('在线图集2'),
-          centerTitle: true,
-          foregroundColor: kTxt,
-          bottom: TabBar(
-            // 照 `xhamsterlive.dart:418-432` 那套 ✓（下划线式 ✓ 不是胶囊 ✗）
-            controller: _tab,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            labelPadding: const EdgeInsets.symmetric(horizontal: 10),
-            indicatorColor: const Color(0xFFE8590C),
-            tabs: [
-              const Tab(text: '全部'),
-              for (final c in _cats) Tab(text: c.name),
-            ],
-          ),
-        ),
-        body: Column(
-          children: [
-            // 分类标签 chip（与 tab **形态不同** ✓ 默认选中「最新」✓）
-            SizedBox(
-              height: 46,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                children: [
-                  for (final s in _sorts)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
-                      child: ChoiceChip(
-                        label: Text(s.name, style: const TextStyle(fontSize: 12)),
-                        selected: s.key == _sort,
-                        onSelected: (_) => _onSort(s.key),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: _loadFirst,
-                child: _body(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return RefreshIndicator(onRefresh: _loadFirst, child: _body());
   }
 
   Widget _body() {
@@ -319,7 +383,7 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
     if (e != null) return ArtMsg(text: e, onRetry: _loadFirst);
     if (_items.isEmpty) return const ArtMsg(text: '这一页是空的 ✗');
     return RowsGrid(
-      cols: 2, // 2 列 ✓
+      cols: 2, // 2 列 ✓（sim `#alb2Cards` 也是 `repeat(2, 1fr)` ✓）
       physics: const AlwaysScrollableScrollPhysics(),
       count: _items.length,
       tail: () {
@@ -340,11 +404,21 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
       },
       itemBuilder: (context, i) {
         final it = _items[i];
-        return ArtCard(
-          cover: it.cover,
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => P18DetailPage(detailPath: it.detail, title: it.title),
-          )),
+        // ★ 2026-10-05（B 方案 ✓ 用户拍板）：封面**全是 `.avif`** ⇒ 用本页专用的 `AvifImage` ✓
+        //   （结构照 `ArtCard` 同款：卡片 + `InkWell` + `AspectRatio(3/4)` ✓ —— **不改公共件** ✗）
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          color: Colors.white,
+          margin: EdgeInsets.zero,
+          child: InkWell(
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => P18DetailPage(detailPath: it.detail, title: it.title),
+            )),
+            child: AspectRatio(
+              aspectRatio: 3 / 4,
+              child: AvifImage(url: it.cover, memWidth: 480),
+            ),
+          ),
         );
       },
     );
@@ -429,18 +503,30 @@ class _P18DetailPageState extends State<P18DetailPage> {
     final e = _err;
     if (e != null) return ArtMsg(text: e, onRetry: _load);
     if (_imgs.isEmpty) return const ArtMsg(text: '这一页是空的 ✗');
-    return ArtImageList(
-      urls: _imgs,
-      ratios: _ratios, // 站点给的每张比例 ✓ ⇒ 满宽不裁 ✓
-      onTapImage: (i) => Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ArtPreviewPage(
-          urls: _imgs,
-          initial: i,
-          // ★ 2026-10-05（用户拍板 A2 ✓）：把**裁剪结果**交给「从相册选择」那套存储 ✓
-          //   （一次性 ✓ 不进图集 ✗）—— 与图集1 / 设置页那两处**同一个落地点** ✓
-          onApplyAsBg: (png) => AppBg.i.useDirectImage(png),
-        ),
-      )),
+    // ★ 2026-10-05（B 方案 ✓）：详情图也全是 `.avif` ⇒ 用本页专用件 ✓（**不改 `ArtImageList`** ✗）
+    //   口径与共用件一致：站点给了 `padding-bottom` 比例 ⇒ `AspectRatio(1 / 高宽比)` + `contain` ✓ 满宽不裁 ✓。
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      itemCount: _imgs.length,
+      itemBuilder: (context, i) {
+        // 该图的"高/宽"（站点原文 `padding-bottom: N%` ✓）；缺了按 4:3 兜底 ✓
+        final h = i < _ratios.length ? _ratios[i] : 4 / 3;
+        return GestureDetector(
+          onTap: () => showArtPreviewOverlay(
+            context,
+            urls: _imgs,
+            initial: i,
+            onApplyAsBg: (png) => AppBg.i.useDirectImage(png),
+            // ★ 2026-10-05（用户点破 ✓）：预览用**本页已解好的字节** ✓ ⇒ 零额外网络、零额外解码 ✓；
+            //   未命中（预览里还没被详情页解过的那些）⇒ 回调给 `null` ⇒ 预览**回落** `FetchedImage` ✓
+            bytesFor: AvifBytes.cached,
+          ),
+          child: AspectRatio(
+            aspectRatio: 1 / h, // 高/宽 ⇒ 宽/高 ✓（AspectRatio 要的是宽/高 ✓）
+            child: AvifImage(url: _imgs[i], fit: BoxFit.contain, memWidth: 1600),
+          ),
+        );
+      },
     );
   }
 }

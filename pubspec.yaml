@@ -58,6 +58,12 @@ dependencies:
   # （sdk >=3.0.0 / flutter >=3.7.0、podspec ios.deployment_target 11.0），
   # 3.24.5 可用；iOS 侧需要 Info.plist 两条权限（见 .github/workflows/ios.yml）
   gal: '>=2.3.0 <3.0.0'
+  # 2026-10-05（用户拍板 B）：图集2（photos18）的图**全是 AVIF**、系统里 Flutter 解不出 ⇒
+  #   自建**本地插件**：iOS 侧用系统自带 ImageIO（CGImageSource → CGImageDestination，PNG 无损）解 ✓
+  #   ⇒ 走 `path:` 引入 ✓ **不改 CI 生成步骤、不用改 pbxproj**（CocoaPods 自动编译+注册 ✓）
+  #   ⇒ 回退 = 删 `plugins/kp_avif/**` + 删这一行 + 删图集2 里那几处接线 ✓
+  kp_avif:
+    path: plugins/kp_avif
 
 dev_dependencies:
   flutter_lints: ^4.0.0
