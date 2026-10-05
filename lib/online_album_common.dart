@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
 
 import 'app_background.dart';
+import 'config.dart';
 import 'fetched_image.dart';
 
 /// 在线图集 1 / 2 **之间**共用的件（用户 2026-10-05 口径 ✓）。
