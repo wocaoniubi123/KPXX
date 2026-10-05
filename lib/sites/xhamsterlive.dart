@@ -1042,7 +1042,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                       //     ⇒ **暂保持右距 5 不动** ✓；真机若还差一点 ⇒ 用户给像素（方案 B）⇒ 一行改死 ✓。
                       padding: EdgeInsets.fromLTRB(12, math.max(0.0, kToolbarHeight / 2 - 38), 5, 12),
                       child: Material(
-                        color: Colors.black.withOpacity(0.45),
+                        // ★ 2026-10-05（用户拍板甲 ✓）：**看得见的圆缩到 36** ✗ —— 原来圆底是 Material 自己撑的：
+                        //   `shape: CircleBorder` 直接套在 `SizedBox(76×76)` 上 ⇒ **直径 = 76** ☠（就是"黑底太大"那个 ✓）
+                        //   ⇒ 现在 Material **透明** ✗，圆改由下面那个 36×36 的 `DecoratedBox` 画 ✓。
+                        color: Colors.transparent,
                         shape: const CircleBorder(),
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
@@ -1056,7 +1059,28 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                             //   算进"视觉距离"✗（看着离屏幕很远 ✓）；命中区仍是 76×76 不动 ✗
                             child: Align(
                               alignment: Alignment.centerRight,
-                              child: Icon(Icons.close, color: Colors.white, size: 32),
+                              // ★ 看得见的圆 = **36** ✓（选值依据：图标 32 ⇒ 每边留 **2** 的圆边 ✓ =
+                              //   一眼看出"包住了图标"✓ 又比 76 明显小 ✓；落在你给的 32~36 区间上沿 ✓）。
+                              //   ⚠️ **热区一个字没动**：圆只画在这一格里 ✓，真正吃点击的仍是上面那个
+                              //      `InkWell` + `SizedBox(76×76)` ✓（圆 36 只是它的**可见装饰** ✓ 不参与命中 ✓）。
+                              //   ⚠️ 透明底值 = `0x73000000`（0x73 = 115 ⇒ 115/255 = **0.451** ✓ 与原来
+                              //      `Colors.black.withOpacity(0.45)` 只差 0.001 ✓ 肉眼无别 ✓；用 const 色值
+                              //      是为了整段仍能保持 `const` ✓）。⚠️ 一处 **2px** 观感位移如实报 ✓：
+                              //      圆的**右边与垂直中心都没动** ✓，但图标为"在 36 圆里居中"左移了 (36−32)/2 = **2px** ✓
+                              //      （原来它右边缘贴着 76 方块右边 ✓）—— 要"一点不挪"就说一句，我改成贴右即可 ✓。
+                              child: SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Color(0x73000000),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Icon(Icons.close, color: Colors.white, size: 32),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
