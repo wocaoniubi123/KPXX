@@ -487,7 +487,22 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     //   ⇒ 现在 6 个 tab 一律走同一条路 ✓（_refresh 用的是**当前 tab** 的 feed ✓ 未改 ✗）
     if (!_diagFirstFrameDone) {
       _diagFirstFrameDone = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _diagLog('C8 列表首帧画完'));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _diagLog('C8 列表首帧画完');
+        // ②(b) 帧间隔采样：连排 '30 帧，只报间隔 ≥60ms 的（⇒ 直接看出"卡在第几帧"✓）；
+        //   零 API 风险 ✓（addPostFrameCallback 本项目已有先例 ✓）；纯读数、不改任何时机 ✗。
+        var k = 0;
+        var prev = DateTime.now();
+        void tick(Duration _) {
+          k++;
+          final now = DateTime.now();
+          final dt = now.difference(prev).inMilliseconds;
+          if (dt >= 60) _diagLog('C8+ 帧#$k 间隔 ${dt}ms（这一帧被卡住）');
+          prev = now;
+          if (k < 30) WidgetsBinding.instance.addPostFrameCallback(tick);
+        }
+        WidgetsBinding.instance.addPostFrameCallback(tick);
+      });
     }
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
@@ -940,20 +955,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // (a) 2026-10-05 用户报「左滑返回迟钝」✗ ⇒ 根因就是原来这层：GestureDetector 包住整个 Stack，
-            //   加上 HitTestBehavior.opaque ⇒ 屏幕**最左边缘**也被我们揽进 Flutter 手势竞技场 ✗，
-            //   iOS 原生侧滑返回得先等它判负 ⇒ 手感变钝 ✓ ⇒ 现在**只留左侧 24px 以外**的点击热区 ✓
-            Positioned.fill(
-              left: 24, // 让出左边缘 24px 给原生侧滑 ✓（代价：最左 24px 内点屏幕不再 toggle ✓ 已知 ✓）
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  _diagLog('B5 点屏幕');
-                  _showX.value = !_showX.value; // 只改 notifier ⇒ 不重建整页 ✓
-                },
-                child: const SizedBox.expand(),
-              ),
-            ),
+
               // 画面：AVPlayer（`video_player` **本身没有任何控件** ✓ 正合"只要画面 + X" ✓）
               //   等比铺满：`Center + AspectRatio` = contain ✓（不拉伸 ✓ 黑底补边 ✓）
               if (_c != null && _c!.value.isInitialized)
@@ -976,6 +978,20 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                     ),
                   ),
                 ),
+              // ★ 2026-10-05 用户真机报「只有黑边能点、有画面的区域点不了」✗ ⇒ 根因：本层原先在**画面层之下**，
+              //   画面（AVPlayer）**会吃触摸** ⇒ 画面矩形内的点击全被它拿走 ✓ ⇒ 现在挪到**画面层之上** ✓
+              //   （X 层仍在最上 ⇒ 它的 InkWell 先命中 ✓；本层仍是 Positioned.fill ⇒ 定位属性不变 ✓）
+              Positioned.fill(
+                left: 24, // 让出左边缘 24px 给原生侧滑 ✓（代价：最左 24px 内点屏幕不再 toggle ✓ 已知 ✓）
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    _diagLog('B5 点屏幕');
+                    _showX.value = !_showX.value; // 只改 notifier ⇒ 不重建整页 ✓
+                  },
+                  child: const SizedBox.expand(),
+                ),
+              ),
               // X 层：**positioned 化** ✓ —— Stack 的尺寸由【非定位子层】决定 ✗：
               //   1.0.38 事故：ValueListenableBuilder 是**非定位**子层，!show 时它返回 0×0 的 SizedBox.shrink()
               //   ⇒ 整个 Stack 被压成 0×0 ⇒ Positioned.fill 的画面"填"了 0×0 ⇒ **有声无画** ✓（真机实测 ✓）
