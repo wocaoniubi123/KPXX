@@ -991,7 +991,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   child: Center(
                     child: AspectRatio(
                       aspectRatio: _c!.value.aspectRatio == 0 ? 16 / 9 : _c!.value.aspectRatio,
-                      child: VideoPlayer(_c!),
+                      // E③b 2026-10-05 对照实验（临时 ✓ 拿到结论后删）：画面外包 IgnorePointer ⇒ 画面**不再参与命中测试** ✓
+                      //   目的：把"画面层拖住帧管线"拆成两个因素 —— **触摸仲裁** vs **合成/平台视图** ✓
+                      //   判据：帧空档数 = 0 且最长帧间隔 < 100ms ⇒ 触摸仲裁 ✓；若仍出现 ≥300ms 空档 ⇒ 合成/平台视图 ✓
+                      //   ⚠️ 日志口径（免下次误读）：`B5 X 生效` = **通知器改值**（≈0ms ✓）**不等于画面已更新** ✗（画面要等下一帧 ✓）
+                      child: IgnorePointer(child: VideoPlayer(_c!)),
                     ),
                   ),
                 )

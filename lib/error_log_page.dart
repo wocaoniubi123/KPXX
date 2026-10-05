@@ -75,7 +75,8 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
       builder: (context, _) => Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text('错误日志', style: TextStyle(color: kTxt)),
+        title: const Text('错误日志'),   // 与另两页一致（颜色由 foregroundColor: kTxt 给 ✓）
+        systemOverlayStyle: kStatusOverlay,   // 与另两页一致（play_history_page.dart:29 / bg_album_page.dart:35 ✓）
         // ③ 2026-10-05 用户报：**返回箭头也要黑白自适应** ✓ —— 原来只给标题/正文/右上 3 按钮上了 kTxt，
         //   leading 的返回箭头漏了 ✗ ⇒ 这里补 AppBar 的 foregroundColor（照 xhamsterlive.dart:382 既有写法 ✓）。
         // ④ 2026-10-05 用户报：进页时左上角会"闪一下 ‹ 设置"再只剩 ‹（框架自动返回按钮取上一页标题 ✗）
