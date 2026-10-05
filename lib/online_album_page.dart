@@ -454,7 +454,10 @@ class _CatFeedState extends State<_CatFeed> {
         return ArtCard(
           cover: it.cover,
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => ArtDetailPage(detailPath: it.detail, title: it.title),
+            // ★ 2026-10-05（用户报"转场时两页叠影"☠ 根因 `ac1d1b2`：全 App 底色透明 ⇒ 新页盖不住旧页）：
+            //   照 `365d6a4` 的原样写法包一层 `PageBg` ✓（在页面**最底层**铺不透明背景图 ⇒ 转场期间"实心" ✓
+            //   走 `ImageCache`/同一个 `ImageProvider` ⇒ **不重复解码** ✓）；⚠️ 只加这一层 ✗ 别的什么都不碰 ✓
+            builder: (_) => PageBg(child: ArtDetailPage(detailPath: it.detail, title: it.title)),
           )),
         );
       },

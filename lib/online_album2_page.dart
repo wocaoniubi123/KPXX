@@ -420,7 +420,9 @@ class _CatFeed2State extends State<_CatFeed2> {
           margin: EdgeInsets.zero,
           child: InkWell(
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => P18DetailPage(detailPath: it.detail, title: it.title),
+              // ★ 2026-10-05（同图集1 ✓ 用户报"转场叠影"根因 `ac1d1b2`）：包一层 `PageBg` ✓ 照 `365d6a4` 原样 ✓
+              //   只加这一层 ✗（转场类型 / 路由参数 / 页面内容一律不碰 ✓）
+              builder: (_) => PageBg(child: P18DetailPage(detailPath: it.detail, title: it.title)),
             )),
             child: AspectRatio(
               aspectRatio: 3 / 4,
