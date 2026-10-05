@@ -750,20 +750,16 @@ String liveMasterUrl(int id) =>
 final Map<int, String> _variantCache = <int, String>{};
 
 /// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
-/// ⚠️ **档位策略：2026-10-05 用户重新拍板** ✗（**推翻**此前"不许降分辨率、他要看画质"的旧拍板 ✓）——
-///   **先降档试**：上限 = **短边 ≤ 720** ✓（取上限内最好的一档）；**没有档满足 ⇒ 回退"第一档"** ✓（绝不返回空 ✗）。
-///   依据① 我们实测 6 台电脑推流房间的第一档：**2.35 ~ 9.40 Mbps**、分辨率 408x720 ~ 1920x1080p60 ✓（跨度 4 倍 × 4 档 ✓）；
-///   依据② 真机对照口径：**有画面就卡 / 黑屏就顺** ✓（E③b 已排除触摸仲裁；E③a 黑盒对照 ✓）；
-///   下一步（若本次无效 ✓）：升 Flutter ≥3.27 + video_player ≥2.10 ⇒ 用 `videoViewType`（CHANGELOG 原文 ✓）。
+/// ⚠️ **档位策略（2026-10-05 三次拍板）**：**撤销降档上限，恢复"取 master 第一档"= 最高画质** ✓。
+///   沿革：① 最初"不许降分辨率"（用户要画质 ✓）→ ② 为治卡顿临时降档（短边 ≤720 ✓）→ ③ **新框架已治好卡顿** ⇒ 撤上限 ✓。
+///   依据③：用户真机实测"**同一个直播间不卡了**" ✓（配套 = Flutter 3.27.4 + video_player 2.10.0 ✓，`ios.yml:25` / `pubspec.yaml:33` ✓）。
 /// ⚠️ 档位**不在 URL 里** ✗ —— 实测 master 原文（真页 curl，2026-10-05）：
 ///   `#EXT-X-STREAM-INF:BANDWIDTH=2427392,CODECS="avc1.4d0029,mp4a.40.2",RESOLUTION=720x960,FRAME-RATE=30.000,…,NAME="source"`
 ///   而**下一行**才是那条变体的 URL ✓ ⇒ 解析必须"读 `STREAM-INF` + 取下一行" ✓ 不能拿 URL 去匹配档位 ✗。
 /// 解析不到就返回空串 ✓（调用方按"没有可用清晰度"处理 ✓）。
 String pickVariantUrl(String master) {
-  // 规则（用户拍板 2026-10-05 ✓）：短边 ≤ 720 里取**最好**一档；无满足 ⇒ 回退第一档 ✓（不返回空 ✗）。
-  // 兜底口径：某档没有 RESOLUTION 时用 BANDWIDTH/1000 当分数 ✓（启发式 ✓ 仅用于排序 ✓ 与像素不同量纲 ✓）。
+  // 本函数只负责"**按 master 顺序取第一条**" ✓（= 最高档 ✓；档次差异见上一条注释的实测数据 ✓）。
   final lines = master.split('\n');
-  final cands = <MapEntry<String, int>>[]; // URL → 分数
   for (var i = 0; i < lines.length; i++) {
     final t = lines[i].trim();
     if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
@@ -772,28 +768,10 @@ String pickVariantUrl(String master) {
       final u = lines[j].trim();
       if (u.isEmpty) continue;
       if (u.startsWith('#')) break;
-      var score = 1 << 30;
-      final rm = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(t);
-      if (rm != null) {
-        final w = int.parse(rm.group(1)!);
-        final h = int.parse(rm.group(2)!);
-        score = w < h ? w : h; // 短边 ✓（竖屏取 h / 横屏取 w ✓）
-      } else {
-        final bm = RegExp(r'BANDWIDTH=(\d+)').firstMatch(t);
-        if (bm != null) score = int.parse(bm.group(1)!) ~/ 1000;
-      }
-      cands.add(MapEntry(u, score));
-      break;
+      return u;
     }
   }
-  if (cands.isEmpty) return '';
-  final ok = cands.where((e) => e.value <= 720).toList();
-  if (ok.isEmpty) return cands.first.key; // 兜底：没有满足上限的 ⇒ 回到"第一档" ✓
-  var best = ok.first;
-  for (final e in ok) {
-    if (e.value > best.value) best = e; // 上限内取最好 ✓
-  }
-  return best.key;
+  return '';
 }
 
 
