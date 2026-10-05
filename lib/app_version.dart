@@ -5,4 +5,4 @@
 /// 2. **CI 拿它给 ipa 改名** ✓ —— 出包叫 `kpxx-<版本>.ipa`，一眼区分哪次构建 ✓
 ///
 /// ⚠️ 每次构建前**改这一个常量**即可（CI 与 App 都读它，不用改两处 ✓）。
-const String kAppVersion = '1.0.55';
+const String kAppVersion = '1.0.56';

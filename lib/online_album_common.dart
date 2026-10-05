@@ -526,7 +526,16 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   void _onScaleUpdate(ScaleUpdateDetails d) {
     final s0 = _gS0 <= 0 ? 1.0 : _gS0;
     final s = (_gS0 * d.scale).clamp(1.0, 5.0).toDouble();
-    var t = d.localFocalPoint - (s / s0) * (_gF0 - _gT0);
+    // ★ CI 0.1.055 analyze 抓到的**唯一真错** ✓（我上一轮写的 ✓ 认错 ✗）：Dart **只有 `Offset * double`** ✓，
+    //   **没有 `double * Offset`** ☠ ⇒ 原来那句 `(s / s0) * (_gF0 - _gT0)` **编译不过** ✓（乘数写反 ✗）。
+    //   ⚠️ 你给的方向 `(_gF0 - _gT0) * (s / s0) + d.localFocalPoint` 我核过 ⇒ **不等价** ✗：
+    //      原意是 `t = f1 − k·(f0 − t0)` ✓（"起始焦点下的那个内容点在捏/拖后**仍在新焦点下**" ✓），
+    //      而 `k·(f0 − t0) + f1` 是**加号** ⇒ 位移方向反了 ☠（该减的变成加 ✓）。
+    //   ⇒ 正确形式 = 把 `Offset` 放左边 ✓ **同时括号内两项交换相减**（= 把外面的减号吃进括号 ✓）：
+    //      改前 `f1 − k·(f0 − t0)`  改后 `(t0 − f0)·k + f1` ✓（k = s / s0 ✓）
+    //      ★ 等价依据 ✓：`(t0 − f0) = −(f0 − t0)` ✓；`a − b ≡ a + (−b)` ✓；`x + y ≡ y + x`（IEEE 加法**可交换** ✓）
+    //      ⇒ 不只是数学等价 ✓ —— **浮点结果逐位相同** ✓（对 `Offset` 逐分量成立 ✓ 取负精确 ✓ 舍入对符号对称 ✓）。
+    var t = (_gT0 - _gF0) * (s / s0) + d.localFocalPoint;
     final L = _tLimits(s);
     t = Offset(
       t.dx.clamp(L[0], L[1]).toDouble(),
