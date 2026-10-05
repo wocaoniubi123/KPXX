@@ -34,31 +34,37 @@ class AvifBytes {
 
   /// 取字节 ⇒ （**是 AVIF** ⇒ 走本地插件解成 PNG ✓ / **不是** ⇒ 原字节照旧 ✓）。
   /// ⚠️ 失败 ⇒ `null` ✓（不抛 ✗）；`Site.httpClient` 是**仓库既有**的网络件 ✓ 不自造下载器 ✗。
+  /// ★ 2026-10-05（用户要求 ✓）：失败 ⇒ **立刻重试** ✗ —— 上限 **3 次** ✓ 间隔 **200 / 400ms** ✓（递进 ✓ 短 ✓）；
+  ///   覆盖两条 ✓：**取图**（非 200 / 抛异常 ✓）+ **AVIF 解码**（`png == null` ✓）；**静默** ✓ 不弹错 ✗；
+  ///   ⚠️ 仍失败 ⇒ `null` ⇒ 上层**现有占位** ✓（**不加"重试按钮"** ✗ —— 靠下拉刷新 / 重进 ✓ 用户口径 ✓）。
   static Future<Uint8List?> fetch(String url) async {
     final cached = _mem[url];
     if (cached != null) return cached;
-    try {
-      final r = await Site.httpClient
-          .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
-          .timeout(const Duration(seconds: 20));
-      if (r.statusCode != 200) return null;
-      final raw = r.bodyBytes;
-      var bytes = raw;
-      if (looksAvif(raw)) {
-        final png = await KpAvif.decodeToPng(raw);
-        if (png == null) {
-          // 解不出（老系统 / 插件没进包 / 非 AVIF 变体）⇒ 记一行 ✓ 返回 null ⇒ 显示占位 ✓ 不崩 ✗
-          debugPrint('kp_avif 解不出（${_short(url)}）：长度 ${raw.length} ✓');
-          return null;
-        }
-        bytes = png;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(
+            Duration(milliseconds: attempt == 1 ? 200 : 400));
       }
-      _mem[url] = bytes;
-      return bytes;
-    } catch (e) {
-      debugPrint('图集2 取图失败（${_short(url)}）：$e');
-      return null;
+      try {
+        final r = await Site.httpClient
+            .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
+            .timeout(const Duration(seconds: 20));
+        if (r.statusCode != 200) continue; // ① 取图失败 ⇒ 重试 ✓
+        final raw = r.bodyBytes;
+        var bytes = raw;
+        if (looksAvif(raw)) {
+          final png = await KpAvif.decodeToPng(raw);
+          if (png == null) continue; // ② AVIF 解码失败 ⇒ 重试 ✓（老系统 / 插件没进包 / 非 AVIF 变体 ✓）
+          bytes = png;
+        }
+        _mem[url] = bytes;
+        return bytes;
+      } catch (e) {
+        debugPrint('图集2 取图失败（第 ${attempt + 1} 次，${_short(url)}）：$e');
+      }
     }
+    debugPrint('图集2 取图最终失败（已重试 3 次，${_short(url)}）⇒ 显示占位 ✓');
+    return null;
   }
 
   static String _short(String u) => u.length <= 60 ? u : '${u.substring(0, 60)}…';

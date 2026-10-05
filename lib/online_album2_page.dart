@@ -445,7 +445,12 @@ class _P18DetailPageState extends State<P18DetailPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) {
+      // ★ 2026-10-05（用户要求 ✓）：**图一到手就开始全量解码** ✓（`_warmAll` 里逐张 await ✓ 串行 ✓）
+      //   放在 `_load` 之后 ⇒ 不挡首屏 ✓；`addPostFrameCallback` 保证首帧先画 ✓ 静默 ✓ 无进度 ✓
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _warmAll());
+    });
   }
 
   Future<void> _load() async {
@@ -478,6 +483,17 @@ class _P18DetailPageState extends State<P18DetailPage> {
           _loading = false;
         });
       }
+    }
+  }
+
+  /// ★ 2026-10-05（用户要求 ✓）：**进详情就全量加载/解码** ✗（含 AVIF ✓）——
+  ///   串行 ✓（不并发轰炸 ✓）· `addPostFrameCallback` 起手 ⇒ **不挡首屏** ✓ · **静默 ✓ 无进度** ✗
+  ///   ⇒ 解好的都进 `AvifBytes` **同一个缓存** ✓（同一张只解一次 ✓）⇒ 预览打开时**必然命中** ✓ **绝不给空白** ✗
+  ///   ⚠️ 失败静默 ✓（`fetch` 自己重试 3 次 ✓）；解不到的图由 `AvifImage` 显示**占位** ✓
+  Future<void> _warmAll() async {
+    for (final u in _imgs) {
+      if (!mounted) return; // 页面已退出 ⇒ 停 ✓
+      await AvifBytes.fetch(u);
     }
   }
 

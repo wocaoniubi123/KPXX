@@ -1,4 +1,6 @@
+import 'dart:async'; // unawaited（处理中提示 ✓）
 import 'dart:io';
+import 'dart:isolate'; // Isolate.run（③c 把裁剪挪后台 ✓ 现成机制 ✓）
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -155,6 +157,50 @@ class _ArtImageListState extends State<ArtImageList> {
   }
 }
 
+/// ★ 2026-10-05（③c 第二步 ✓）：**裁剪 + PNG 编码的整个算法**，写成**顶层函数** ✓
+///   —— 唯一目的：让 `Isolate.run` 能跑它 ✓（闭包只能捕获**可发送**数据 ✓：`Uint8List`/`Size`/`double` 都可以 ✓
+///   而 `ui.Image` **不行** ☠ ⇒ 所以口径是"**字节进 → 字节出**" ✓）。
+/// ⚠️ **算法与原来一字不差** ✓（只是从 `_ArtPreviewBodyState` 里搬出来 ✓）—— 5 条画质口径逐条在这里 ✓：
+///   · a 输出 = **屏幕物理像素** ✓（`k = dpr` ⇒ 393×852@3x ⇒ 1179×2556 ✓）
+///   · b **原图一次性缩放** ✓（`instantiateImageCodec` **不传 target** ⇒ 全尺寸解码 ✓ 只 `drawImageRect` 一次 ✓）
+///   · c `ui.FilterQuality.high` ✓ · d `ui.ImageByteFormat.png` ✓（无损 ✓ 不用 JPEG ✓）
+///   · e 源矩形 = **框内那块的图坐标** ✓（`sx/sy/sw/sh` 同原式 ✓）⇒ 不裁边 ✓ 不拉伸 ✓
+Future<Uint8List?> _cropPngBytes(
+  Uint8List raw,
+  Size frame,
+  double s,
+  double tx,
+  double ty,
+  double dpr,
+) async {
+  if (frame.isEmpty) return null;
+  final codec = await ui.instantiateImageCodec(raw);
+  final frameInfo = await codec.getNextFrame();
+  final img = frameInfo.image;
+  final base = math.max(frame.width / img.width, frame.height / img.height);
+  final total = base * s;
+  final sw = frame.width / total;
+  final sh = frame.height / total;
+  final sx = (img.width - sw) / 2 - tx / total;
+  final sy = (img.height - sh) / 2 - ty / total;
+  final k = dpr;
+  final ow = (frame.width * k).round();
+  final oh = (frame.height * k).round();
+  final rec = ui.PictureRecorder();
+  final cv = Canvas(rec, Rect.fromLTWH(0, 0, ow.toDouble(), oh.toDouble()));
+  cv.drawImageRect(
+    img,
+    Rect.fromLTWH(sx, sy, sw, sh),
+    Rect.fromLTWH(0, 0, ow.toDouble(), oh.toDouble()),
+    ui.Paint()..filterQuality = ui.FilterQuality.high,
+  );
+  final out = await rec.endRecording().toImage(ow, oh);
+  final bd = await out.toByteData(format: ui.ImageByteFormat.png);
+  img.dispose();
+  out.dispose();
+  return bd?.buffer.asUint8List();
+}
+
 /// 预览层的**内容**（两页同款 ✓ 用户拍板 ✓）：**左右滑切图 + 页码 `x / N` + 下方按钮** ✓。
 /// ⚠️ 结构照 `detail_page.dart:838-897` 的 `PhotoViewerPage` **写一份** ✗（**不改那个文件** ✗ ——
 ///   它的"点图退出"语义与本层要加的"按钮 + 框选"冲突 ✓）。
@@ -296,15 +342,20 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   ///   ⚠️ 在 `build` 里现取 ✓（`_cropPng` 里没有 `context` ✗ 拿不到 —— 原来就是因此漏了这一步 ☠）。
   double _dpr = 1;
 
+  /// ★ 2026-10-05（用户要求 ✓）：**重入保护** ✗ —— 「确认」在跑的时候再点 ⇒ **直接忽略** ✓
+  ///   （连点两次不许弹两个转圈对话框 ☠）。由 `_confirmCrop` 的 `try/finally` 负责复位 ✓。
+  bool _applying = false;
+
   @override
   void initState() {
     super.initState();
-    _tc.addListener(_clampT);
+    // ★ 2026-10-05（用户反馈"双指不灵敏" ✓ 真因）：**不再** `_tc.addListener(_clampT)` ✗ ——
+    //   监听在手势进行中回写 `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势打架 ☠
+    //   ⇒ 改为在 `InteractiveViewer(..., onInteractionUpdate/End)` 回调里夹 ✓ 跟手 ✓（见框选态那处）
   }
 
   @override
   void dispose() {
-    _tc.removeListener(_clampT);
     _tc.dispose();
     super.dispose();
   }
@@ -393,10 +444,23 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// ✅ 现状：两个图集都传了挂点 ✓ ⇒ 真的设为背景并关闭预览 ✓（失败有提示 ✓ 不静默死 ✗）；
   ///   ⚠️ 挂点为空的提示分支只在"将来别处复用本页却没传"时才会走到 ✓（保留着当兜底 ✓）
   Future<void> _confirmCrop() async {
+    if (_applying) return; // ★ 重入保护 ✓（连点两次 ⇒ 只跑一次 ✓ 不会弹两个对话框 ✓）
+    _applying = true;
     final msg = ScaffoldMessenger.of(context);
+    // ★ 2026-10-05（用户要求 ✓ "全程显示处理中"）：**选 `showDialog` + `CircularProgressIndicator`** ✓
+    //   依据 ✓：① `barrierDismissible: false` ⇒ 用户**不能误点关掉**它 ✓（常驻 SnackBar 容易被下一条顶掉 ✗）；
+    //          ② 两者都是**框架现成件** ✗ 不自造 ✓；③ 它盖在预览浮层之上 ✓ 语义正确 ✓
+    //   ⚠️ **三条路都必须能关掉** ✓（成功 / 失败 / 异常 ⇒ 全部走 `finally` ✓ 不许残留转圈 ☠）
+    NavigatorState? progressNav;
     try {
+      progressNav = Navigator.of(context, rootNavigator: true);
+      unawaited(showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      ));
       final raw = await _download(widget.urls[_index]);
-      final png = await _cropPng(raw, _frame);
+      final png = await _cropPngWithFallback(raw, _frame); // ★ 后台 isolate + 回落 ✓（见下面那支 ✓）
       if (png == null) {
         msg.showSnackBar(const SnackBar(content: Text('裁剪失败：拿不到图片数据 ✗')));
         return;
@@ -415,8 +479,40 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       _close(); // 浮层 ⇒ 关浮层 ✓（**不退详情页** ✗）；整页 ⇒ pop ✓ —— 同一处实现 ✓
       msg.showSnackBar(const SnackBar(content: Text('已设为背景（一次性、不进图集）✓')));
     } catch (e) {
+      // ★ 失败**要有提示** ✓（不静默死 ✗）
       msg.showSnackBar(SnackBar(content: Text('设为背景失败：$e')));
+    } finally {
+      // ★ 三条路统一在这里关掉转圈 ✓（成功 / return / 异常 ⇒ 都会走到 ✓）
+      if (mounted) {
+        try {
+          progressNav?.pop();
+        } catch (_) {
+          // 弹层已被系统弹掉之类 ⇒ 吞掉 ✓（绝不让"关不掉"把用户卡住 ✗）
+        }
+      }
+      _applying = false;
     }
+  }
+
+  /// ★ 2026-10-05（用户要求 ✓）：**裁剪 + PNG 编码挪到后台 isolate** ✗ —— 用**现成机制** `Isolate.run` ✓
+  ///   （不自造 isolate ✓）。⚠️ **必须配回落** ☠：后台 isolate 里 `dart:ui`（codec / `PictureRecorder`）的可用性
+  ///   我**本机验不了**（无 SDK/无设备 ✗）⇒ 任何异常 / 拿不到结果 ⇒ **回落到主 isolate 直算** ✓ 绝不让用户卡死 ✗。
+  ///   ⚠️ **算法一字不动** ✓：只是"换地方跑" ✓ —— 5 条画质口径全在下面 [_cropPngBytes] 里 ✓（dpr ✓ 一次性缩放 ✓
+  ///   `FilterQuality.high` ✓ PNG ✓ 裁框内 ✓）。⚠️ **不跨 isolate 传 `ui.Image`** ✓（`ui.Image` 非 sendable ☠）
+  ///   ⇒ 口径 = **字节进 → 字节出** ✓。
+  Future<Uint8List?> _cropPngWithFallback(Uint8List raw, Size frame) async {
+    final s = _tc.value.getMaxScaleOnAxis();
+    final t = _tc.value.getTranslation();
+    try {
+      final png = await Isolate.run(
+        () => _cropPngBytes(raw, frame, s, t.x, t.y, _dpr),
+      );
+      if (png != null) return png;
+      debugPrint('后台 isolate 裁剪返回空 ⇒ 回落主 isolate ✓');
+    } catch (e) {
+      debugPrint('后台 isolate 裁剪不可用 ⇒ 回落主 isolate：$e');
+    }
+    return _cropPng(raw, frame); // ★ 回落 ✓（老路 ✓ 一字未改 ✓）
   }
 
   /// ★ 框选产图（把**框里看到的那一块**按框比例画成新图 ✓）。判据说明（为什么这么算 ✓）：
@@ -488,7 +584,12 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     _frame = Size(fw, fh);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      // ★ 2026-10-05（用户反馈 ✓）：**浮层要半透明** ✗ —— 原先是 `Colors.black` ☠
+      //   真因（读数 ✓）：不透明的是**本组件自己的 `Scaffold` 底色** ✓（不是 dialog ✓ 不是遮罩 ✓
+      //   `pageBuilder` 里没有 Material/Container ✓；遮罩 `barrierColor: Colors.black45` = sim 的 .45 ✓ 保持 ✓）
+      //   ⇒ 改 `Colors.transparent` ✓ ⇒ **能透出下面的详情页** ✓
+      //   ⚠️ 整页外壳（`ArtPreviewPage`）那处**不动** ✗ —— 它本来就是"整页黑底"的语义 ✓
+      backgroundColor: Colors.transparent,
       // ★ 2026-10-05（用户口径 ✓）：**下滑关** ✗ —— 生效范围 = **图片区之外**（黑色留白 / 页码行 ✓）：
       //   `InteractiveViewer` 的手势同时声明两轴 ⇒ **会吃掉图片区里的竖向拖动** ☠（框架行为 ✓ 不是 bug ✓）；
       //   ⚠️ **框选态一律禁止** ✗（那会儿竖向拖动是"拖图"✓ 打架 ☠）。
@@ -594,6 +695,15 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                           transformationController: _tc,
                           minScale: 1,
                           maxScale: 5,
+                          // ★ 2026-10-05（用户反馈"**拖不动**" ✓ 真因读数）：原来**没有** `boundaryMargin` ⇒
+                          //   默认 `EdgeInsets.zero` ⇒ 子节点与视口同尺寸（`SizedBox(fw,fh)` ✓）⇒ 可位移量 = 0 ⇒ 拖不动 ☠
+                          //   ⇒ 给足边距 ✓ ⇒ **图可随心拖** ✓；"**图始终盖住框**"由下面的 `_clampT` 每帧夹住 ✓
+                          boundaryMargin: const EdgeInsets.all(4000),
+                          // ★ 2026-10-05（用户反馈"**双指不灵敏**" ✓ 真因读数）：`_clampT` 原来挂在 `_tc` 的**监听**上，
+                          //   手势进行中**回写** `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势**互相打架** ☠
+                          //   ⇒ 改成**在回调里夹** ✓（不再用监听 ✓ 见 `initState` 的那处删改 ✓）⇒ 手指一动就跟随 ✓
+                          onInteractionUpdate: (_) => _clampT(),
+                          onInteractionEnd: (_) => _clampT(),
                           child: _artImage(
                             widget.urls[_index],
                             // 框选态才用 cover（**盖满框** ✓）；详情列表与预览态仍是 contain ✓
