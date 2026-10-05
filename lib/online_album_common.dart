@@ -268,6 +268,17 @@ class ArtPreviewBody extends StatefulWidget {
   ///   ⚠️ **同步返回** ✓：命中缓存立即出图 ✓；未命中给 `null` ⇒ **回落到 `FetchedImage`** ✓（老路照旧 ✓）。
   final Uint8List? Function(String url)? bytesFor;
 
+  /// ★ ⑤（✓ 用户拍板）：**打开预览时顺带预取"相邻"几张** ✗ —— **可选挂点** ✓：
+  ///   ⚠️ **默认 `null` ⇒ 行为一字不变** ✓（**图集1 侧不传** ✓ ⇒ 仍全靠 `FetchedImage` 按需取 ✓
+  ///      依据 ✓：图集1 的详情列表/预览本来就是 `FetchedImage` 老路 ✓ 它**自带下载后的缓存** ✓
+  ///      这里再挂一层只会多一条与它并行的路 ✗ ⇒ 按"别加没用的挂点"不传 ✓）。
+  ///   ⚠️ 只传**"取某一张"的取法** ✓ —— "相邻 ±2 / 串行 / 跳过已就绪"都在调用侧排 ✓
+  ///      （依据 ✓：共用件**不许反向 import `online_album2_avif.dart`**（会成环 ☠）⇒ 回调是唯一干净的路 ✓）。
+  ///   ⚠️ **不挡首张显示** ✓、**不影响"绝不空白"** ✗：未就绪那张仍走 `FetchedImage` 自带占位 ✓。
+  ///   ⚠️ **串行**要的就是它能被 `await` ✓ ⇒ 类型是 `Future<void> Function(String)` ✗（不是 `void` ✗：
+  ///      那就只能靠间隔"错峰" ✗ 不等于串行 ☠）；调用侧逐个 `await` ⇒ **真串行** ✓。
+  final Future<void> Function(String url)? prefetch;
+
   const ArtPreviewBody({
     super.key,
     required this.urls,
@@ -275,6 +286,7 @@ class ArtPreviewBody extends StatefulWidget {
     this.onApplyAsBg,
     this.onClose,
     this.bytesFor,
+    this.prefetch,
   });
 
   @override
@@ -297,6 +309,7 @@ Future<void> showArtPreviewOverlay(
   int initial = 0,
   Future<void> Function(Uint8List png)? onApplyAsBg,
   Uint8List? Function(String url)? bytesFor,
+  Future<void> Function(String url)? prefetch, // ★ ⑤ 可选挂点 ✓（默认不传 ⇒ 一点行为变化都没有 ✓）
 }) {
   return showGeneralDialog<void>(
     context: context,
@@ -312,6 +325,7 @@ Future<void> showArtPreviewOverlay(
         initial: initial,
         onApplyAsBg: onApplyAsBg,
         bytesFor: bytesFor, // ★ 透传给内容 ✓（不传 ⇒ null ⇒ 老路 `FetchedImage` ✓）
+        prefetch: prefetch, // ★ ⑤ 透传 ✓（不传 ⇒ null ⇒ 一条都不会多跑 ✓ 图集1 侧走这条 ✓）
         onClose: () => Navigator.of(dialogCtx).pop(),
       ),
     ),
@@ -383,9 +397,31 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   @override
   void initState() {
     super.initState();
-    // ★ 2026-10-05（用户反馈"双指不灵敏" ✓ 真因）：**不再** `_tc.addListener(_clampT)` ✗ ——
-    //   监听在手势进行中回写 `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势打架 ☠
-    //   ⇒ 改为在 `InteractiveViewer(..., onInteractionUpdate/End)` 回调里夹 ✓ 跟手 ✓（见框选态那处）
+    // ★ 2026-10-05（用户反馈"双指不灵敏" ✓ 真因）：**不挂** `_tc.addListener(_clampT)` ✗ ——
+    //   监听在回写 `_tc.value` 会与手势打架 ☠。
+    // ★ 2026-10-05（**方案 A** ✓ 用户拍板）：框选态**已不用 `InteractiveViewer`** ✗ ⇒ 变换全由
+    //   `_onScaleUpdate` 自己算、**写前必夹** ✓（见框选态那处 ✓）⇒ 本处只剩"别挂监听"这一条 ✓。
+    // ★ ⑤（✓ 用户拍板）：**打开预览 ⇒ 顺带预取"相邻"几张** ✗ —— ① 这一步**不 await 任何东西** ✓
+    //   ⇒ **不挡首张显示** ✓；② 起手丢到**帧后** ✓ ⇒ 连首帧都不影响 ✓；③ 顺序 = 近的优先（±1 → ±2 ✓）。
+    final pf = widget.prefetch;
+    if (pf != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _prefetchNeighbors(pf);
+      });
+    }
+  }
+
+  /// ★ ⑤：相邻 **±1 / ±2**（近的优先 ✓）**逐个 `await` ⇒ 真串行** ✓（不并发轰炸 ✓）；
+  ///   ⚠️ 越界跳过 ✓；⚠️ 页面已退立刻停 ✓；⚠️ 失败静默 ✓（`prefetch` 自己兜 ✓ 不影响预览 ✗）。
+  Future<void> _prefetchNeighbors(Future<void> Function(String url) pf) async {
+    final us = widget.urls;
+    for (final d in const <int>[1, -1, 2, -2]) {
+      final i = _index + d;
+      if (i < 0 || i >= us.length) continue;
+      if (!mounted) return;
+      await pf(us[i]);
+    }
   }
 
   @override
@@ -466,6 +502,89 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     _tc.value = Matrix4.identity()
       ..translate((L[0] + L[1]) / 2, (L[2] + L[3]) / 2)
       ..scale(s);
+  }
+
+  /// ★ 方案 A 的手势态（见框选态那段 ✓）：起始缩放 / 起始平移 / 起始焦点 ✓
+  ///   —— **一套 `onScale*` 同时管拖 + 捏** ✓（单指时 `details.scale` 恒 1 ⇒ 就是纯平移 ✓）。
+  double _gS0 = 1;
+  Offset _gT0 = Offset.zero;
+  Offset _gF0 = Offset.zero;
+
+  void _onScaleStart(ScaleStartDetails d) {
+    final m = _tc.value;
+    _gS0 = m.getMaxScaleOnAxis();
+    final t = m.getTranslation();
+    _gT0 = Offset(t.x, t.y);
+    _gF0 = d.localFocalPoint;
+  }
+
+  /// ⚠️ **框选态唯一的写点**（另外两处：初始 `_centerT` ✓、尺寸到了那次 `_clampT` ✓）⇒ 写之前**一定先夹** ✓：
+  ///   ① 缩放：`s = clamp(_gS0 × details.scale, 1, 5)` ✓（= 原 `minScale/maxScale` 的口径 ✓ 一字未变 ✓）
+  ///   ② 平移：以**起始焦点**为不动点 ✓ —— 内容点 `p` 画到 `s·p + t` ✓ ⇒ 解 `s·p + t = 现焦点` ✓ 得
+  ///      `t = 现焦点 − (s / s0) × (起始焦点 − 起始平移)` ✓（纯拖 ⇒ `s=s0` ⇒ 退化成 `t0 + 焦点位移` ✓ 对 ✓）
+  ///   ③ **夹**：`t` 过 `_tLimits(s)` ✓ ⇒ 再写 ✓ ⇒ **任何快慢 / 任何方向都不可能露白** ✗（结构保证 ✓）。
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    final s0 = _gS0 <= 0 ? 1.0 : _gS0;
+    final s = (_gS0 * d.scale).clamp(1.0, 5.0).toDouble();
+    var t = d.localFocalPoint - (s / s0) * (_gF0 - _gT0);
+    final L = _tLimits(s);
+    t = Offset(
+      t.dx.clamp(L[0], L[1]).toDouble(),
+      t.dy.clamp(L[2], L[3]).toDouble(),
+    );
+    _tc.value = Matrix4.identity()
+      ..translate(t.dx, t.dy)
+      ..scale(s);
+  }
+
+  /// ★ 件二②（✓ 用户拍板）**快速轻扫**用的一小撮状态（raw `Listener` ✓ 无门槛 ✓）：
+  ///   按下点 / 按下时刻 / 最新点 / 最新时刻 / **本次指针是否已被快扫翻过** ✓。
+  Offset? _pvFrom;
+  int? _pvFromMs;
+  Offset? _pvTo;
+  int? _pvToMs;
+  bool _pvFlipped = false;
+
+  void _pvReset() {
+    _pvFrom = null;
+    _pvFromMs = null;
+    _pvTo = null;
+    _pvToMs = null;
+  }
+
+  void _pvDown(PointerDownEvent e) {
+    if (_crop) return; // 框选态一律不生效 ✓
+    _pvFrom = e.localPosition;
+    _pvFromMs = e.timeStamp.inMilliseconds;
+    _pvTo = e.localPosition;
+    _pvToMs = _pvFromMs;
+    // ☠ **每次按下都复位** ⇒ 上一次吞掉的点击绝不会影响下一次 ✓
+    _pvFlipped = false;
+  }
+
+  void _pvMove(PointerMoveEvent e) {
+    if (_crop) return;
+    _pvTo = e.localPosition;
+    _pvToMs = e.timeStamp.inMilliseconds;
+  }
+
+  /// 抬手判"快扫" ✓（三条**全中**才翻 ✗）：**位移 ≥ 8px** ✓ + **横向为主**（`|dx| > |dy|` ⇒ 不抢下滑关 ✓）
+  ///   + **横向速度够快**（`(末位−首位)/Δms` ⇒ px/s ✓ 初值 **400** ✓ 待真机调 ✓）。
+  ///   ⚠️ 翻之前**先置 `_pvFlipped`** ☠ ⇒ 随后那次点击会被吞掉 ✓ ⇒ **不会"又翻页又关闭"** ✓。
+  void _pvUp(PointerUpEvent e) {
+    if (_crop) return;
+    final d0 = _pvFrom, t0 = _pvFromMs, d1 = _pvTo, t1 = _pvToMs;
+    _pvReset();
+    if (d0 == null || t0 == null || d1 == null || t1 == null) return;
+    final dx = d1.dx - d0.dx;
+    final dy = d1.dy - d0.dy;
+    final ms = (t1 - t0) <= 0 ? 1 : (t1 - t0); // 防 0 / 负 ☠
+    final vx = dx * 1000 / ms; // px/s ✓（带符号 ✓ 判绝对值 ✓）
+    if (dx.abs() < 8) return; // ① 位移门槛 ✓
+    if (dx.abs() <= dy.abs()) return; // ② 横向为主 ⇒ 竖轴仍归"下滑关" ✓
+    if (vx.abs() < 400) return; // ③ 速度门槛 ✓（初值 ✓）
+    _pvFlipped = true; // ★ 先置标志（随后那次点击被吞 ✓）
+    _step(dx < 0 ? 1 : -1); // 左 = 下一张 ✓ 右 = 上一张 ✓（与 18px 那条同向 ✓）
   }
 
   /// 取**原图字节**（`FetchedImage` 的缓存不外露 ✗ ⇒ 自己下一次 ✓ —— 保存与裁剪都要原图 ✓）
@@ -737,19 +856,41 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Flexible(
-                      child: GestureDetector(
+                      // ★ 件二②（✓ 用户拍板）：**再叠一层 raw `Listener`** ✗ —— 框架的横向拖要 ~18px 才认
+                      //   （`kTouchSlop` ✓）⇒ **8~18px 的"快速轻扫"根本进不来** ☠ ⇒ `Listener` **无门槛** ✓
+                      //   自己估速度 ✓。⚠️ **只加这一层** ✓：它在 `GestureDetector` **外面**、
+                      //   在 `Flexible` 里面 ⇒ 上面那个 `Stack` 的**子层数与非定位属性集合都没变** ✓
+                      //   （非定位子层清单见报告 ✓）。
+                      child: Listener(
+                        onPointerDown: _pvDown,
+                        onPointerMove: _pvMove,
+                        onPointerUp: _pvUp,
+                        onPointerCancel: (_) => _pvReset(),
+                        child: GestureDetector(
                         // ★ 2026-10-05（用户报"只有快划才认" ✓ 真因）：**框选态必须把预览手势全摘掉** ☠
                         //   —— 摘之前：这层与内层 `InteractiveViewer` 抢同一个指针 ⇒ 慢拖被 tap 认走/被僵住 ✓
-                        //   ⇒ 三件全部 `_crop ? null : …` ✓ ⇒ 框选态只剩"拖 + 捏" ✓（**只看位移、不看快慢** ✓）
-                        onTap: _crop ? null : _close,
-                        // 切图手势：横向位移 ≥40px 才算 ✓（照 sim ✓）；竖着划不算 ✓
+                        //   ⇒ 三件全部 `_crop ? null : …` ✓ ⇒ 框选态只剩"拖 + 捏" ✓；`Listener` 里也先判 `_crop` ✓
+                        // ★ 件二②（✓）：**被"快扫"用掉的那一次点击要吞掉** ☠（否则 10px 快扫"又翻又关" ✗）
+                        onTap: _crop
+                            ? null
+                            : () {
+                                if (_pvFlipped) return;
+                                _close();
+                              },
+                        // 切图手势：横向位移 ≥ **18px** 才算 ✓（**不再是 40** ✗ —— 依据见下面 `onHorizontalDragEnd`）
                         onHorizontalDragStart: _crop ? null : (_) => _dragDx = 0,
                         onHorizontalDragUpdate:
                             _crop ? null : (d) => _dragDx += d.delta.dx,
                         onHorizontalDragEnd: _crop
                             ? null
                             : (_) {
-                                if (_dragDx.abs() < 40) return; // = sim 的阈值 ✓
+                                // ★ 2026-10-05（用户报"**划得轻了没反应**" ✓）：阈值 **40 → 18** ✗ —— 依据：
+                                //   框架的横向拖在 ~`kTouchSlop`（= **18**）就把指针判给我们 ✓（见上方那行注释 ✓）
+                                //   ⇒ 原来 **18~40 这一段"认了但不翻"** ☠（用户体感 ="得使劲划"✓）⇒ 现在 ≥18 ⇒ 翻 ✓。
+                                //   ⚠️ **保留**：位移 < 18 ⇒ 仍算**点击**（点图关 ✓ / 点空白关 ✓ 一字未动 ✗）；
+                                //     竖轴仍走"下滑关" ✓（本回调只在**横向为主**时才会跑 ✓ 不抢 ✓）；
+                                //     框选态 ⇒ 本层三个回调照旧 `_crop ? null : …` ⇒ **一律不生效** ✓。
+                                if (_dragDx.abs() < 18) return;
                                 _step(_dragDx < 0 ? 1 : -1); // 左滑 = 下一张 ✓ 右滑 = 上一张 ✓（sim :6969 ✓）
                               },
                         child: ClipRRect(
@@ -758,6 +899,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                             maxScale: 5,
                             child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
                           ),
+                        ),
                         ),
                       ),
                     ),
@@ -820,25 +962,27 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                       fit: StackFit.expand,
                       children: [
                         ClipRect(
-                          child: InteractiveViewer(
-                            transformationController: _tc,
-                            minScale: 1,
-                            maxScale: 5,
-                            // ★ 2026-10-05（用户反馈"**拖不动**" ✓ 真因读数）：原来**没有** `boundaryMargin` ⇒
-                            //   默认 `EdgeInsets.zero` ⇒ 可位移量 = 0 ⇒ 拖不动 ☠ ⇒ 给足边距 ✓ **图可随心拖** ✓；
-                            //   "**框始终被图盖住**"由 `_clampT` 每帧夹住 ✓（新式余量 = 显示盒 − 框 ✓ 见 `_clampT` ✓）
-                            boundaryMargin: const EdgeInsets.all(4000),
-                            // ★ 2026-10-05（用户反馈"**双指不灵敏**" ✓ 真因读数）：`_clampT` 原来挂在 `_tc` 的**监听**上，
-                            //   手势进行中**回写** `_tc.value` ⇒ 与 `InteractiveViewer` 内部手势**互相打架** ☠
-                            //   ⇒ 改成**在回调里夹** ✓（不再用监听 ✓ 见 `initState` 的那处删改 ✓）⇒ 手指一动就跟随 ✓
-                            // ★ 2026-10-05 修（用户报"露白" ✓）：**按下那一刻也先夹一次** ✗ ——
-                            //   免得"上一次遗留的越界值"在下一次手势的第一帧被画出来 ☠（update 里本来每帧也夹 ✓）
-                            onInteractionStart: (_) => _clampT(),
-                            onInteractionUpdate: (_) => _clampT(),
-                            onInteractionEnd: (_) => _clampT(),
-                            // ★ 2026-10-05（F ✓）：**框选态也是 contain** ✗ —— 原来是 cover ☠（图"正好盖住框"
-                            //   ⇒ 屏上像"已经裁好了" ⇒ 用户看不见整张原图 ✗）；详情列表与预览态本来就是 contain ✓
-                            child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
+                          // ★ 2026-10-05（**方案 A** ✓ 用户拍板）：**不用 `InteractiveViewer` 了** ✗ —— 真因读数：
+                          //   我们的写点只有两处（`_clampT` ✓ / `_centerT` ✓），而"夹"只发生在框架那三个回调里 ✓；
+                          //   可**快速**手势时框架会在回调**之外**继续写 `transformationController`（手势结束后的
+                          //   **惯性动画** ✓）⇒ 把刚夹好的值**覆盖** ☠ ⇒ 慢划没事、**快划一下**图边就被甩进框 ⇒
+                          //   框内露白 ✗（用户报的正是"快速"✓）。
+                          //   ⇒ 改成**自己算**：一套 `onScaleStart/Update` 同时管拖 + 捏 ✓，
+                          //      **先夹 `_tLimits` 再写 `_tc`** ✓ ⇒ **越界在结构上不可能** ✗（没有别人能写它 ✓）。
+                          //   ⚠️ 层级 = **1 换 1** ✓：`InteractiveViewer` → `ValueListenableBuilder` ✓
+                          //      ⇒ 上面那个 Stack 的**子层数与非定位属性都没变** ✓（新层在**这一格内部** ✓）。
+                          child: ValueListenableBuilder<Matrix4>(
+                            valueListenable: _tc,
+                            builder: (_, m, __) => GestureDetector(
+                              onScaleStart: _onScaleStart,
+                              onScaleUpdate: _onScaleUpdate,
+                              // ⚠️ **不挂 `onScaleEnd`**：**没有惯性** ✗ ⇒ 松手即定 ✓（也就没有"松手后越界" ☠）
+                              child: Transform(
+                                transform: m,
+                                // ★ 2026-10-05（F ✓ 保留）：**框选态是 contain** ✗（原来是 cover ☠ ⇒ 图"正好盖住框"⇒ 看不见整张 ✗）
+                                child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
+                              ),
+                            ),
                           ),
                         ),
                         // ★ 2026-10-05（F ✓）**框外压暗**：sim 用的是 `box-shadow: 0 0 0 9999px rgba(0,0,0,.55)`

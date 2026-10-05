@@ -116,6 +116,12 @@ List<_P18Item> parseP18List(String html) {
 
 const String _p18Host = 'https://www.photos18.com';
 
+/// ★ ③④（✓ 用户拍板）：**预热口径集中在这三行** ✓（不许散落 ☠）—— 依据 = 上一轮核查读数：
+///   两处预热都在 `addPostFrameCallback`（**首帧之后立刻跑** ✓）⇒ **正好压在转场那 ~300ms 上** ☠。
+const Duration kWarmStart = Duration(milliseconds: 400); // ③ 等页面完全进入再起手 ✓（避开转场 ✓）
+const Duration kWarmGap = Duration(milliseconds: 150); // ③ 每张间隔 ✓（分批 ✓）
+const int kWarmCount = 12; // ④ 只预热**前几屏**（约 12 张 ✓）；其余靠 `ListView.builder` 懒建 ✓
+
 class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
     with SingleTickerProviderStateMixin {
   /// 主分类 tab（**顺序与文案照 sim** ✓ 文案**不显示括号数字** ✗）
@@ -457,8 +463,23 @@ class _P18DetailPageState extends State<P18DetailPage> {
       // ★ 2026-10-05（用户要求 ✓）：**图一到手就开始全量解码** ✓（`_warmAll` 里逐张 await ✓ 串行 ✓）
       //   放在 `_load` 之后 ⇒ 不挡首屏 ✓；`addPostFrameCallback` 保证首帧先画 ✓ 静默 ✓ 无进度 ✓
       if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _warmAll());
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        // ★ ③（✓ 用户拍板）：**帧后再等 400ms** 才起手 ✓ —— 原来"首帧后立刻跑"正好压在转场那 ~300ms 上 ☠
+        await Future<void>.delayed(kWarmStart);
+        if (!mounted) return; // 这 400ms 里已退出 ⇒ 不再预热 ✓
+        _warmAll();
+      });
     });
+  }
+
+  /// ★ ②（✓ 用户拍板）：**离页把"这一本"从解码字节表里清掉** ✗ —— 依据（读数 ✓）：用户报的是
+  ///   "**48 张那本反复进出**就崩" ✓ = 典型**累积型** ⇒ 只靠 ① 的 LRU 也能封顶 ✓，但"离页清本"能让
+  ///   **反复进出同一本完全不涨** ✓（LRU 只保证 40MB 封顶 ✓ 不保证"退页就掉" ✗）⇒ 两个一起上 ✓。
+  ///   ⚠️ **只 forget 本页的 `_imgs`** ✓ —— 别的页 / 别的本 / 别的站点**一律不动** ☠。
+  @override
+  void dispose() {
+    AvifBytes.forget(_imgs);
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -499,9 +520,11 @@ class _P18DetailPageState extends State<P18DetailPage> {
   ///   ⇒ 解好的都进 `AvifBytes` **同一个缓存** ✓（同一张只解一次 ✓）⇒ 预览打开时**必然命中** ✓ **绝不给空白** ✗
   ///   ⚠️ 失败静默 ✓（`fetch` 自己重试 3 次 ✓）；解不到的图由 `AvifImage` 显示**占位** ✓
   Future<void> _warmAll() async {
-    for (final u in _imgs) {
+    for (final u in _imgs.take(kWarmCount)) { // ★ ④ 只预热前 12 张 ✓（其余靠懒建 ✓）
       if (!mounted) return; // 页面已退出 ⇒ 停 ✓
-      await AvifBytes.fetch(u);
+      // ★ ③（✓ 用户拍板）：分批 ⇒ **每张间隔 150ms** ✓（原来一张接一张 ✗ 与转场/滚动抢资源 ☠）
+        await Future<void>.delayed(kWarmGap);
+        await AvifBytes.fetch(u);
     }
   }
 
@@ -544,6 +567,9 @@ class _P18DetailPageState extends State<P18DetailPage> {
             // ★ 2026-10-05（用户点破 ✓）：预览用**本页已解好的字节** ✓ ⇒ 零额外网络、零额外解码 ✓；
             //   未命中（预览里还没被详情页解过的那些）⇒ 回调给 `null` ⇒ 预览**回落** `FetchedImage` ✓
             bytesFor: AvifBytes.cached,
+            // ★ ⑤（✓ 用户拍板）：预览打开 ⇒ **相邻 ±2 串行预取** ✓（已就绪的跳过 ✓ 见 `AvifBytes.prefetch` ✓）
+            //   ⚠️ **图集1 侧不传** ⇒ 默认 null ⇒ 行为一字不变 ✓（依据 = 它本来就全靠 `FetchedImage` 按需取 ✓）
+            prefetch: AvifBytes.prefetch,
           ),
           child: AspectRatio(
             aspectRatio: 1 / h, // 高/宽 ⇒ 宽/高 ✓（AspectRatio 要的是宽/高 ✓）
