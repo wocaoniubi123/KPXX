@@ -855,9 +855,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   }
 
   /// 校验/缓存逻辑**保留**（与播放器无关 ✓ 省的是**我们自己**的抓取 ✓）：
-  /// ① 缓存命中 → **跳过 master** 直接用上次那条变体 ✓（失败自动回退一次 ✓）；
-  /// ② 没缓存 → 抓 master（**判 `MOUFLON-ADVERT` 的底线保留** ✓）→ 取**第一条变体**（保画质 ✓ 不交 master 让播放器挑低档 ✗）
-  ///    → 缓存 → 交给 AVPlayer ✓。
+  /// ① 缓存命中 → **跳过 master 抓取** 直接用上次那条 URL（失败自动回退一次 ✓）；
+  /// ② 没缓存 → 抓 master（**判 `MOUFLON-ADVERT` 的底线保留** ✓）→ **把 master(auto) 交给 AVPlayer，让它自己按网络/解码自适应选档** ✓
+  ///    → 缓存 → 播放 ✓。
+  /// ⚠️ 2026-10-05 用户**四次拍板**：要的是**默认档=自动档** ✗ —— **不再由我们选单档**（`pickVariantUrl` 因此暂无调用点 ✓ 保留不删 ✗）。
   Future<void> _checkAndPlay() async {
     final id = widget.id;
     if (id <= 0) {
@@ -882,14 +883,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return;
       }
-      final vu = pickVariantUrl(r.body);
-      if (vu.isEmpty) {
-        if (mounted) setState(() => _err = '这条流的清单里没有可用的清晰度 ✗');
-        return;
-      }
-      _kpVariantUrl = vu;
-      _variantCache[id] = vu;
-      await _open(vu, id, allowFallback: false);
+      // ★ 自动档（用户四次拍板 ✓）：**把 master 原样交给播放器** ⇒ AVPlayer 自己按网络/解码选档 ✓
+      //   （上面已校验过：HTTP 200 ✓ 且不是广告清单 ✓ ⇒ 这条 URL 可直接播 ✓）
+      _kpVariantUrl = url;
+      _variantCache[id] = url;
+      await _open(url, id, allowFallback: false);
     } catch (e) {
       if (mounted) setState(() => _err = '打开直播失败：$e');
     }
