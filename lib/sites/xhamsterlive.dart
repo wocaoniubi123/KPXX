@@ -50,7 +50,7 @@ import '../config.dart' show Site;
 import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
-import '../site_error_log.dart';  // [诊断] 临时：全链路时间戳日志 ✓（拿到数据后随诊断代码一起删 ✓）
+
 import 'dart:math' as math; // ④ 2026-10-05：X 与 AppBar 对齐需要 math.max 夹取 ✓（同一步内加 ✓）
 
 // ===== 一、数据层 =====
@@ -99,63 +99,8 @@ class LiveTabDef {
 
 /// 6 个 tab（顺序 = 界面上的顺序 ✓；前 4 个是**主分类** ✓，后 2 个是**快捷叶子** ✓）
 // 2026-10-05 用户拍板：6 个 tab 的筛选入口全部删掉（渲染 + 两套弹窗 + 那批筛选数据都已移除）。
-// ============================================================================
-// [诊断] 2026-10-05 临时全链路时间戳 —— 用户报「直播返回列表后 0.5~1 秒不能滑动」✓
-//   用途：定位那 0.5~1 秒落在哪一段（点卡片 → 进房 → 出画面 → 点 X → dispose → 列表首帧 → 首次可滚动）。
-//   ⚠️ 纯日志、不改任何行为 ✓；拿到用户日志后**整段删除** ✓（含文件顶部那条 import ✓）。
-//   前缀固定 `[诊断] +<相对 t0 毫秒>  <阶段>` ✓，t0 = 点卡片那一刻 ✓。
-// ============================================================================
-final Stopwatch _diagWatch = Stopwatch();
-bool _diagFirstScrollDone = true;  // 同上 ✓
-void _diagLog(String stage) {
-  unawaited(SiteErrorLog.log('诊断', '[诊断] +${_diagWatch.elapsedMilliseconds}ms  $stage', StackTrace.empty));
-}
-// P1：与帧**无关**的 16ms 采样 —— 即使一帧都不出也能把卡顿量出来 ✓；约 5s / 300 tick 后自停 ✓
-void _diagStartTimerSampler() {
-  _diagLog('P1 采样开始（16ms × 300 ⇒ 约 5s ✓）');
-  var n = 0;
-  var prev = DateTime.now();
-  Timer.periodic(const Duration(milliseconds: 16), (timer) {
-    n++;
-    final now = DateTime.now();
-    final dt = now.difference(prev).inMilliseconds;
-    if (dt >= 60) _diagLog('P1 tick#$n 间隔 ${dt}ms（Timer 被卡住 ⇒ 与帧无关的卡顿）');
-    prev = now;
-    if (n >= 300) {
-      _diagLog('P1 采样结束（tick#$n）');
-      timer.cancel();
-    }
-  });
-}
 
-// P2：自续期的**帧**采样 —— 不依赖任何 build ✓；只报 ≥60ms 的帧 ✓；约 5s 后自停 ✓
-void _diagStartFrameSampler() {
-  _diagLog('P2 采样开始');
-  var n = 0;
-  var bad = 0;
-  final start = DateTime.now();
-  var prev = DateTime.now();
-  void tick(Duration _) {
-    n++;
-    final now = DateTime.now();
-    final dt = now.difference(prev).inMilliseconds;
-    if (dt >= 60) {
-      bad++;
-      if (bad == 1) {
-        _diagLog("C8' 第一帧被卡：帧#$n 间隔 ${dt}ms");
-      } else {
-        _diagLog('P2 帧#$n 间隔 ${dt}ms');
-      }
-    }
-    prev = now;
-    if (now.difference(start).inMilliseconds < 5000) {
-      WidgetsBinding.instance.addPostFrameCallback(tick);
-    } else {
-      _diagLog('P2 采样结束（帧#$n）');
-    }
-  }
-  WidgetsBinding.instance.addPostFrameCallback(tick);
-}
+
 
 const List<LiveTabDef> kLiveTabs = [
   // 4 个主 tab（女主播/情侣/男主播/跨性别 ✓）；后 2 个是快捷叶子（移动流/手机版最新 ✓）—— 各自的筛选数据已整体移除 ✓
@@ -564,11 +509,6 @@ class _LiveFeedViewState extends State<_LiveFeedView>
     //   ⇒ 现在 6 个 tab 一律走同一条路 ✓（_refresh 用的是**当前 tab** 的 feed ✓ 未改 ✗）
     return NotificationListener<ScrollNotification>(
       onNotification: (n) {
-        if (!_diagFirstScrollDone &&
-            (n is ScrollUpdateNotification || n is UserScrollNotification)) {
-          _diagFirstScrollDone = true;
-          _diagLog('C9 首次可滚动（用户能滑了）');
-        }
         return false;
       },
       child: RefreshIndicator(onRefresh: _refresh, child: body),
@@ -662,11 +602,6 @@ class _LiveFeedViewState extends State<_LiveFeedView>
             i + 8 < f.rooms.length ? f.rooms[i + 8].cover : null);
         final r = f.rooms[i];
         return LiveRoomCard(room: r, onTap: () {
-          _diagWatch..reset()..start();
-          _diagFirstScrollDone = false;
-          _diagStartTimerSampler();  // P1 ✓ 与帧无关、与路由无关
-          _diagStartFrameSampler();  // P2 ✓ 自续期、不依赖 build
-          _diagLog('A1 点卡片（t0）');
           _openRoom(r);
         });
       },
@@ -678,7 +613,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   void _openRoom(LiveRoom r) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username, id: r.id)),
-    ).then((_) => _diagLog('C10 已 pop 回列表（push future 完成）'));
+    );
   }
 
   Widget _hint(String s) => Padding(
@@ -815,15 +750,20 @@ String liveMasterUrl(int id) =>
 final Map<int, String> _variantCache = <int, String>{};
 
 /// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
-/// ⚠️ **档位偏好已撤掉** ✗（2026-10-05 用户拍板：**不许降分辨率、他要看画质** ✓）——
-///   曾短暂改成"优先 480p"✗，现已恢复"**取 master 里的第一档**"（多数房间就是 `NAME="source"` / 720p ✓）。
-///   ⇒ **本函数只负责"按 master 顺序取第一条"** ✓（省掉的是网络往返，与画质无关 ✓ 那两条改动仍在 ✓）。
+/// ⚠️ **档位策略：2026-10-05 用户重新拍板** ✗（**推翻**此前"不许降分辨率、他要看画质"的旧拍板 ✓）——
+///   **先降档试**：上限 = **短边 ≤ 720** ✓（取上限内最好的一档）；**没有档满足 ⇒ 回退"第一档"** ✓（绝不返回空 ✗）。
+///   依据① 我们实测 6 台电脑推流房间的第一档：**2.35 ~ 9.40 Mbps**、分辨率 408x720 ~ 1920x1080p60 ✓（跨度 4 倍 × 4 档 ✓）；
+///   依据② 真机对照口径：**有画面就卡 / 黑屏就顺** ✓（E③b 已排除触摸仲裁；E③a 黑盒对照 ✓）；
+///   下一步（若本次无效 ✓）：升 Flutter ≥3.27 + video_player ≥2.10 ⇒ 用 `videoViewType`（CHANGELOG 原文 ✓）。
 /// ⚠️ 档位**不在 URL 里** ✗ —— 实测 master 原文（真页 curl，2026-10-05）：
 ///   `#EXT-X-STREAM-INF:BANDWIDTH=2427392,CODECS="avc1.4d0029,mp4a.40.2",RESOLUTION=720x960,FRAME-RATE=30.000,…,NAME="source"`
 ///   而**下一行**才是那条变体的 URL ✓ ⇒ 解析必须"读 `STREAM-INF` + 取下一行" ✓ 不能拿 URL 去匹配档位 ✗。
 /// 解析不到就返回空串 ✓（调用方按"没有可用清晰度"处理 ✓）。
 String pickVariantUrl(String master) {
+  // 规则（用户拍板 2026-10-05 ✓）：短边 ≤ 720 里取**最好**一档；无满足 ⇒ 回退第一档 ✓（不返回空 ✗）。
+  // 兜底口径：某档没有 RESOLUTION 时用 BANDWIDTH/1000 当分数 ✓（启发式 ✓ 仅用于排序 ✓ 与像素不同量纲 ✓）。
   final lines = master.split('\n');
+  final cands = <MapEntry<String, int>>[]; // URL → 分数
   for (var i = 0; i < lines.length; i++) {
     final t = lines[i].trim();
     if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
@@ -832,10 +772,28 @@ String pickVariantUrl(String master) {
       final u = lines[j].trim();
       if (u.isEmpty) continue;
       if (u.startsWith('#')) break;
-      return u;
+      var score = 1 << 30;
+      final rm = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(t);
+      if (rm != null) {
+        final w = int.parse(rm.group(1)!);
+        final h = int.parse(rm.group(2)!);
+        score = w < h ? w : h; // 短边 ✓（竖屏取 h / 横屏取 w ✓）
+      } else {
+        final bm = RegExp(r'BANDWIDTH=(\d+)').firstMatch(t);
+        if (bm != null) score = int.parse(bm.group(1)!) ~/ 1000;
+      }
+      cands.add(MapEntry(u, score));
+      break;
     }
   }
-  return '';
+  if (cands.isEmpty) return '';
+  final ok = cands.where((e) => e.value <= 720).toList();
+  if (ok.isEmpty) return cands.first.key; // 兜底：没有满足上限的 ⇒ 回到"第一档" ✓
+  var best = ok.first;
+  for (final e in ok) {
+    if (e.value > best.value) best = e; // 上限内取最好 ✓
+  }
+  return best.key;
 }
 
 
@@ -883,15 +841,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   @override
   void initState() {
     super.initState();
-    _diagLog('A2 initState 进');
-    _showX.addListener(() => _diagLog('B5 X 生效 → show=${_showX.value}'));
     _checkAndPlay();
-    _diagLog('A2 initState 出');
   }
 
   @override
   void dispose() {
-    _diagLog('C7 dispose 进');
     _hideX?.cancel(); // ③ 自动隐藏的 Timer 必须一起收 ✓（不打破"Timer 全有 cancel"这条 ✓）
     _hideX = null;
     _showX.dispose(); // notifier 也要释放 ✓
@@ -903,7 +857,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       } catch (_) {}
       unawaited(c.dispose());
     }
-    _diagLog('C7 dispose 出');
     super.dispose();
   }
 
@@ -968,31 +921,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// ⚠️ `httpHeaders` 带我们的 UA（照 [Site.ua] ✓）—— HLS 请求会带上它 ✓。
   Future<void> _open(String url, int id, {required bool allowFallback}) async {
     if (!mounted) return;
-    _diagLog('A3 建控制器');
     final c = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: <String, String>{'User-Agent': Site.ua},
-      // M1（2026-10-05 A/B 实验）：显式指定**视图方式** —— 拿到判据后决定保留或回退 ✓
-      //   依据① 官方文档原文（pub.dev/packages/video_player 的 "Video view type" 段）：
-      //     "If set to VideoViewType.platformView, platform views will be used instead of texture view on supported platforms."
-      //     "The relative performance of the different view types may vary by platform…"
-      //   依据② 我们的真机实测：E③b 已证「画面层在**合成/平台视图**侧拖帧」（P1 全程健康、P2 空档 507~4593ms）
-      //   判据：P2 的 10s 段「最长帧间隔」**显著变小 ⇒ 视图方式就是主因**（那就是最终解法 ✓）；
-      //         一样巨大 ⇒ 不是它 ⇒ 下一步 M3（画面换静态盒子做独立确认）
-      //   ⚠️ 官方原文警告 platformView 在某些平台"可能有正确性问题"⇒ **若画面异常/黑屏，立刻回退这一行** ✓
       // M1 已撤销（2026-10-05）：CI 实测 video_player 2.9.5 无 videoViewType 参数 ⇒ 该行删除 ✓
     );
     _c = c;
     c.addListener(_onTick);
-    _diagLog('A3 已挂监听');
     try {
-      _diagLog('A3 initialize 发起');
       await c.initialize().timeout(const Duration(milliseconds: _kInitTimeoutMs + 2000));
-      _diagLog('A3 initialize 返回');
       await c.setVolume(1.0); // **不静音** ✓（给人看的 ✓ 音量走系统默认/满 ✓）
-      _diagLog('A3 setVolume 返回');
       await c.play();
-      _diagLog('A3 play 返回');
       if (!mounted) return;
       setState(() {});
     } catch (e) {
@@ -1039,7 +978,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     if (v.position > Duration.zero) {
       // 真出过画面 ⇒ 这条 URL 才算"缓存可用" ✓（下次进同房间直接拼 ✓ 跳过 master ✓）
       if (!_cacheConfirmed) {
-        _diagLog('A4 首帧出画面（position>0 ✓）');
         _cacheConfirmed = true;
         final u = _kpVariantUrl;
         if (u != null && u.isNotEmpty) _variantCache[widget.id] = u;
@@ -1070,16 +1008,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                   child: Center(
                     child: AspectRatio(
                       aspectRatio: _c!.value.aspectRatio == 0 ? 16 / 9 : _c!.value.aspectRatio,
-                      // E③b 2026-10-05 对照实验（临时 ✓ 拿到结论后删）：画面外包 IgnorePointer ⇒ 画面**不再参与命中测试** ✓
-                      //   目的：把"画面层拖住帧管线"拆成两个因素 —— **触摸仲裁** vs **合成/平台视图** ✓
-                      //   判据：帧空档数 = 0 且最长帧间隔 < 100ms ⇒ 触摸仲裁 ✓；若仍出现 ≥300ms 空档 ⇒ 合成/平台视图 ✓
-                      //   ⚠️ 日志口径（免下次误读）：`B5 X 生效` = **通知器改值**（≈0ms ✓）**不等于画面已更新** ✗（画面要等下一帧 ✓）
-                      // E③a（2026-10-05 对照实验，临时 ✓ 拿到判据后**一行回退** ✓）：把画面换成**静态黑盒** ——
-                      //   控制器照建 / 照 initialize / 照 play ✓ 只换"显示"这一个 widget ✓（不是关播放 ✗）。
-                      //   ⚠️ 用户在**电脑推流房间**里会看到**纯黑**（声音仍在 ✓）⇒ 这次是"只测不看" ✓ 已明确告知 ✓。
-                      //   判据：电脑房间 **P2 的 10s 段最长帧间隔** —— 归零 ⇒ **就是画面层**（解码/合成）✅；仍巨大 ⇒ 另有元凶 ✗。
-                      //   回退：把本行还原为 IgnorePointer(child: VideoPlayer(_c!)) ✓（一行 ✓）。
-                      child: const ColoredBox(color: Colors.black),
+                      child: IgnorePointer(child: VideoPlayer(_c!)),
                     ),
                   ),
                 )
@@ -1102,7 +1031,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
-                    _diagLog('B5 点屏幕');
                     _toggleX(); // ③ 显示后 3 秒自动隐藏 ✓（只隐 X ✗ 不退出房间 ✓）
                   },
                   child: const SizedBox.expand(),
@@ -1136,7 +1064,6 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           onTap: () {
-                            _diagLog('B6 点 X = pop 起点');
                             Navigator.of(context).pop(); // X = 关闭回列表 ✓
                           },
                           child: const SizedBox(

@@ -177,17 +177,6 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
           )
         else
           WebViewWidget(controller: _ctl),
-        // 进度条压在网页顶部 ✓（原 web_page.dart 是挂在 AppBar 底下 ✓ —— 挪进来两边共用 ✓）
-        if (_error == null && _progress < 1)
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: LinearProgressIndicator(
-              value: _progress == 0 ? null : _progress,
-              minHeight: 2,
-            ),
-          ),
       ],
     );
   }
