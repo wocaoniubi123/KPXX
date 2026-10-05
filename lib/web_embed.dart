@@ -177,6 +177,18 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
           )
         else
           WebViewWidget(controller: _ctl),
+        // 进度条压在网页顶部 ✓（原 web_page.dart 是挂在 AppBar 底下 ✓ —— 挪进来两边共用 ✓）
+        // 2026-10-05 曾因误判"状态栏细条"删除；查明细条来自**背景图顶边**（换图即消失 ✓ 非软件所画 ✓）后还原 ✓
+        if (_error == null && _progress < 1)
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: LinearProgressIndicator(
+              value: _progress == 0 ? null : _progress,
+              minHeight: 2,
+            ),
+          ),
       ],
     );
   }
