@@ -979,8 +979,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       //   依据② 我们的真机实测：E③b 已证「画面层在**合成/平台视图**侧拖帧」（P1 全程健康、P2 空档 507~4593ms）
       //   判据：P2 的 10s 段「最长帧间隔」**显著变小 ⇒ 视图方式就是主因**（那就是最终解法 ✓）；
       //         一样巨大 ⇒ 不是它 ⇒ 下一步 M3（画面换静态盒子做独立确认）
-      //   ⚠️ 官方原文警告 platformView 在某些平台"可能有正确性问题"⇒ **若画面异常/黑屏，立刻回退这一行** ✓
-      videoViewType: VideoViewType.platformView,
+      // M1 已撤销（2026-10-05）：CI 实测 video_player 2.9.5 无 videoViewType 参数 ⇒ 本行与相关注释一并删除 ✓
     );
     _c = c;
     c.addListener(_onTick);
