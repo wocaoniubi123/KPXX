@@ -2878,3 +2878,13 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **队员本身是子代理** ✓：`subagent depth 2 exceeds maxDepth 1` ⇒ **队员无法再派子代理** ✗；
   要一次性子代理只能 **Lead 自己拍** ✓（或派给职责对口的 `app-dev` ✓）。
 - **专项队员别当通用工用** ☠：让只读侦察/模拟器/构建的队员去改码，既越界又耗它们的额度 ⇒ 派活要**按职责书** ✓。
+
+### 六、1.1.5 首次构建：**CI 挂在 analyze → 已修**（2026-10-06 ✓）
+- run **`37450933352`**（headSha `4a55eca`，33 文件 `+2393/−1729`）失败在**「代码检查 (flutter analyze)」**⇒ 后面 `Flutter build IPA` / `上传 IPA 产物` / `发布到 Releases` **全 skipped** ⇒ **无 ipa、桌面未动** ✓
+- **唯一 error（原文）**：`A value of type 'List<dynamic>' can't be returned from the method 'category' because it has a return type of 'Future<List<Article>>' • lib/sites/madou.dart:102:14 • return_of_invalid_type`
+  - ⚠️ **日志里行号被 secret-masking 打成 `***`**（GitHub 把 `1` 抹成星号 ✓ 实测 `***02:***4` = `102:14` ✓）⇒ 靠"日志顺序 + 本地源码语义"两条证据解出 ✓
+- **根因**：本批把 `madou.dart` 的 `return page > 1 ? const [] : cards(…)` 拆成 `final _r = …; 打印; return _r;` ⇒ **表达式脱离了返回上下文** ⇒ 裸 `const []` 被定成 `List<dynamic>`，与 `cards(...)` 的 `List<Article>` 取 LUB ⇒ `_r` 变 `List<dynamic>` ☠
+- **修**（净 **3 ↔ 3** 行 ✓）：`:99` → **`const <Article>[]`** ✓；`:92`/`:107` **撤掉本批多加的外层 `await`** ✓（HEAD 是 `tags(await _f.text('/tags'))` / `cards(await _f.text(kk))` ✓ —— 外层 `await` 是本批引入的 ✗，引发 `await_only_futures` ✓）；`:86` 的 `await home!(...)` **保留** ✓（`home` 的类型是 `Future<List<Article>> Function({int page})?` ✓ 见 `site_ui.dart:111`）
+- **教训**：把 `return <表达式>;` 拆成 `final x = <表达式>; return x;` ⇒ **类型推断会变** ☠ ⇒ 空集合/条件表达式这类**必须显式标类型或写 `<T>[]`** ✓；另外**别在重构时顺手加 `await`** ✗（只准加计时/打印/`final x =` ✓）
+- **info 级不拦 CI** ✓：本批新增的 `no_leading_underscores_for_local_identifiers`（`_sw`/`_r`/`_del` 等局部名 ✓）与 `curly_braces_in_flow_control_structures`（单行 `if (guard) debugPrint(...)` ✓）**都不拦** ✓，且仓库里**既有**同类 info ✓（`base/fetch.dart:76-78` 的 `_qi/_dpath/_q` 在 1.1.4 就有 ✓）⇒ **不为 lint 大改** ✗
+- 仓库根**无 `analysis_options.yaml`** ✓ ⇒ `flutter_lints` 未启用 ✓；上述 info 是分析器默认规则 ✓

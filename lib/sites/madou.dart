@@ -89,14 +89,14 @@ class MadouSite extends SiteUi {
       return _r;
     }
     if (kk == '/tags') {
-      final _r = await tags(await _f.text('/tags'));
+      final _r = tags(await _f.text('/tags'));
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
       if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
       return _r;
     }
     if (kk.startsWith('/')) {
       // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
-      final _r = page > 1 ? const [] : cards(await _f.text(kk));
+      final _r = page > 1 ? const <Article>[] : cards(await _f.text(kk));
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
       if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
       return _r;
@@ -104,7 +104,7 @@ class MadouSite extends SiteUi {
     // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
     // （站点对未编码的中文路径实测 400，编码后 200）
     final md = RegExp(r'[^\x00-\x7F]').hasMatch(kk) ? Uri.encodeComponent(kk) : kk;
-    final _r = await cards(await _f.text(
+    final _r = cards(await _f.text(
         page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
     if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
