@@ -283,6 +283,9 @@ class LiveFeed extends ChangeNotifier {
       final r = await _api.list(tab, _offset);
       if (gen != _gen) return; // 列表被重置过一轮 ⇒ 这次请求作废 ✗
       rooms.addAll(r.rooms);
+      // ★ 2026-10-05【常驻诊断·直播⑧】列表刷新条数 ✓（字段真名 = `rooms` ✓ 出处：本文件 `:257 final List<LiveRoom> rooms = [];` ✓）
+      //   ⚠️ 不打印 tab 名 ✗：`LiveTabDef` 的字段名我**没读到** ⇒ 不猜（要加先读它的类定义 ✓）
+      debugPrint('[LIVE] ⑧列表 +${r.rooms.length} 总=${rooms.length} raw=${r.raw} done=$_done');
       _raw += r.raw;
       _offset += _kPage;
       error = false;
@@ -825,6 +828,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   @override
   void initState() {
     super.initState();
+    // ★ 2026-10-05【常驻诊断·直播①】进房（只打房间 id ✓ 开关关着零开销 ✓）
+    debugPrint('[LIVE] ①进房 id=${widget.id}');
     _checkAndPlay();
   }
 
@@ -878,22 +883,33 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
     try {
       final url = liveMasterUrl(id);
+      // ★ 2026-10-05【常驻诊断·直播②③④】只打 host+path 截 80 ✓ 不打完整 query（要 query 只记长度 ✓）
+      {
+        final u = Uri.tryParse(url);
+        final p = u == null ? url : '${u.scheme}://${u.host}${u.path}';
+        debugPrint('[LIVE] ②取流 host=${u?.host ?? '?'} path=${p.length <= 80 ? p : p.substring(0, 80)} '
+            'qlen=${u?.query.length ?? 0}');
+      }
       final r = await Site.httpClient
           .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) {
+        debugPrint('[LIVE] ③校验 HTTP=${r.statusCode} ✗（不是 200，未播）');
         if (mounted) setState(() => _err = '直播流打不开（HTTP ${r.statusCode}）✗');
         return;
       }
       if (r.body.contains('MOUFLON-ADVERT')) {
+        debugPrint('[LIVE] ③校验 命中 MOUFLON-ADVERT ⇒ 广告清单 ✗（已停止播放 ✓ 不播广告）');
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return;
       }
+      debugPrint('[LIVE] ③校验 正常流 ✓ len=${r.body.length}（非广告清单 ✓）');
       // ★ 自动档（用户四次拍板 ✓）：**把 master 原样交给播放器** ⇒ AVPlayer 自己按网络/解码选档 ✓
       //   （上面已校验过：HTTP 200 ✓ 且不是广告清单 ✓ ⇒ 这条 URL 可直接播 ✓）
       _kpVariantUrl = url;
       if (_variantCache.length >= _kLiveVariantCacheMax) _variantCache.clear(); // ★ #4：上限（同上 ✓ 仅写入前 ✓ 不碰命中路径 ✓）
       _variantCache[id] = url;
+      debugPrint('[LIVE] ④档=自动(master 原样交 AVPlayer ✓ 不由我们选单档 ✓) id=$id');
       await _open(url, id, allowFallback: false);
     } catch (e) {
       if (mounted) setState(() => _err = '打开直播失败：$e');
@@ -911,13 +927,19 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     );
     _c = c;
     c.addListener(_onTick);
+    // ★ 2026-10-05【常驻诊断·直播⑤⑥⑦】：⑤交播放器 / ⑥起播结果 / ⑦断流或失败 ✓（只打 host ✓）
+    debugPrint('[LIVE] ⑤交给播放器 host=${Uri.tryParse(url)?.host ?? '?'} id=$id fb=$allowFallback');
     try {
       await c.initialize().timeout(const Duration(milliseconds: _kInitTimeoutMs + 2000));
       await c.setVolume(1.0); // **不静音** ✓（给人看的 ✓ 音量走系统默认/满 ✓）
       await c.play();
+      debugPrint('[LIVE] ⑥起播 ok host=${Uri.tryParse(url)?.host ?? '?'} id=$id');
       if (!mounted) return;
       setState(() {});
     } catch (e) {
+      // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量取子串 ✗ 会越界 ☠）
+      final es = '$e';
+      debugPrint('[LIVE] ⑦起播失败/断流 id=$id ${es.length <= 120 ? es : es.substring(0, 120)}');
       // ⚠️⚠️ 2026-10-05 用户报"多刷几次、看一会儿再退出后整个 App 变迟钝" —— **这里是那个漏点** ✗：
       //   页面在 `await initialize()` 期间被 pop 时，`dispose()` 已经把 `_c` 拿走并释放了 ✓，
       //   而这里会继续往下走（回退分支会 **再建一个新 controller** ✗ ⇒ 僵尸播放器：网络+解码器都活着 ✗✗）

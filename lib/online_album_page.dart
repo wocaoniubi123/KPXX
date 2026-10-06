@@ -365,6 +365,23 @@ class _CatFeedState extends State<_CatFeed> {
       }
       // 站点的 `<meta charset="utf-8">` 在正文里 ✓，响应头不一定带 ⇒ **显式按 UTF-8 解** ✗（否则标题乱码 ✓）
       final list = parseArtList(utf8.decode(r.bodyBytes, allowMalformed: true));
+      // ★ 2026-10-05【常驻诊断·解析层】只拼字符串 ✓ 不碰解析/去重/分页/缓存 ☠（开关关着零开销 ✓ 走同名 debugPrint ✓）
+      //   ⚠️ 上限 400 字：首 3 条 + 末 1 条，标题截 40 / 详情截 80 ✓ 超长整体截断加 `…` ✓
+      //   ★ 2026-10-05 补：分类路径真名 = **`widget.catPath`** ✓（出处：本文件 `:310 final String catPath;` ✓ 传值处 `:300 _CatFeed(key: ValueKey<String>(c.path), catPath: c.path)` ✓）
+      String diag() {
+        String cut(String s, int n) => s.length <= n ? s : s.substring(0, n);
+        String one(ArtItem it) =>
+            '${cut(it.title, 40)} | ${Uri.tryParse(it.cover)?.host ?? '?'} | ${cut(it.detail, 80)}';
+        final b = StringBuffer('[LIST] cat=${widget.catPath} n=${list.length} ');
+        for (var i = 0; i < list.length && i < 3; i++) {
+          b.write(one(list[i]));
+          b.write(' || ');
+        }
+        if (list.length > 3) b.write(one(list.last));
+        final s = b.toString();
+        return s.length <= 400 ? s : '${s.substring(0, 400)}…';
+      }
+      debugPrint(diag());
       if (!mounted) return;
       setState(() {
         _items = list;

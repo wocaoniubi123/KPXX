@@ -1,4 +1,5 @@
 import 'dart:async'; // ★ unawaited ✓（接管里"异步写盘、不阻塞 UI"要用 ✓）
+import 'dart:ui' show PlatformDispatcher; // ★ 全局错误捕获要用 ✓（scoped ⇒ 不与 material 的符号冲突 ✓）
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
@@ -31,9 +32,37 @@ void main() {
     unawaited(SiteErrorLog.log(
         'console', msg.length > 300 ? '${msg.substring(0, 300)}…' : msg));
   };
+  // ★ 2026-10-05（用户要求 ✓）：**全局错误捕获** ✗ —— ① Flutter 框架错误（build/layout/paint ✓）
+  //   ② 未捕获的异步异常 ✓；两者都走 `SiteErrorLog.log` ⇒ **不受"控制台日志"开关影响** ✓（属"正常错误" ✓，
+  //   用户口径："有站点/程序出错时会记下" ✓）；⚠️ 实现里**不调 `debugPrint`** ☠（防自套 ✓）。
+  FlutterError.onError = (d) {
+    FlutterError.presentError(d);
+    unawaited(SiteErrorLog.log('flutter', d.exception, d.stack));
+  };
+  PlatformDispatcher.instance.onError = (e, st) {
+    unawaited(SiteErrorLog.log('async', e, st));
+    return true;
+  };
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   runApp(const KpxxApp());
+}
+
+/// ★ 2026-10-05（用户要求 ✓）：**导航轨迹**（进了/退出了哪个页面 ✓）——
+///   走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓（关了 = 零开销 ✓）；
+///   ⚠️ 页面**名字**为空 ⇒ `runtimeType` 兜底 ✓（**不硬编名字表** ✗）。
+class _NavLog extends NavigatorObserver {
+  const _NavLog();
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    debugPrint('[NAV] → ${route.settings.name ?? route.runtimeType}');
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    debugPrint('[NAV] ← ${route.settings.name ?? route.runtimeType}');
+  }
 }
 
 class KpxxApp extends StatelessWidget {
@@ -43,6 +72,8 @@ class KpxxApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'KPXX',
+      // ★ 2026-10-05（用户要求 ✓）：**导航轨迹** —— 走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓
+      navigatorObservers: const [_NavLog()],
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),

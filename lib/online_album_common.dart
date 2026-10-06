@@ -298,6 +298,7 @@ Future<void> showArtPreviewOverlay(
   Future<void> Function(Uint8List png)? onApplyAsBg,
   Uint8List? Function(String url)? bytesFor,
 }) {
+  debugPrint('[ACT] 开预览 idx=$initial n=${urls.length}'); // ★ 3/4 诊断（只加打印 ✓ 不改逻辑 ✓）
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -573,6 +574,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// 「保存相册」= **原图无损、不裁剪、直存** ✓
   /// （复用 `package:gal` ✓ —— 与 `bg_album_page.dart:144-159` 同一套权限/落库调用 ✓）
   Future<void> _save() async {
+    debugPrint('[ACT] 存相册 idx=$_index'); // ★ 2/4 诊断（只加打印 ✓ 不改逻辑 ✓）
     final msg = ScaffoldMessenger.of(context);
     try {
       final bytes = await _download(widget.urls[_index]);
@@ -613,6 +615,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// ✅ 现状：两个图集都传了挂点 ✓ ⇒ 真的设为背景并关闭预览 ✓（失败有提示 ✓ 不静默死 ✗）；
   ///   ⚠️ 挂点为空的提示分支只在"将来别处复用本页却没传"时才会走到 ✓（保留着当兜底 ✓）
   Future<void> _confirmCrop() async {
+    debugPrint('[ACT] 设背景 idx=$_index n=${widget.urls.length}'); // ★ 1/4 诊断（只加打印 ✓ 不改逻辑 ✓）
     if (_applying) return; // ★ 重入保护 ✓（连点两次 ⇒ 只跑一次 ✓ 不会弹两个对话框 ✓）
     _applying = true;
     final msg = ScaffoldMessenger.of(context);
@@ -648,6 +651,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
             content: Text('这个页面没有接「设为背景」的挂点 ✗')));
         return;
       }
+      debugPrint('[ACT] 框选确认 idx=$_index'); // ★ 4/4 诊断（只加打印 ✓ 不改逻辑 ✓；与 ① 同函数但不同位置 ✓）
       await hook(png);
       if (!mounted) return;
       _close(); // 浮层 ⇒ 关浮层 ✓（**不退详情页** ✗）；整页 ⇒ pop ✓ —— 同一处实现 ✓

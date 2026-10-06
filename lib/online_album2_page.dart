@@ -339,6 +339,26 @@ class _CatFeed2State extends State<_CatFeed2> {
         return;
       }
       final list = parseP18List(utf8.decode(r.bodyBytes, allowMalformed: true));
+      // ★ 2026-10-05【常驻诊断·解析层】只拼字符串 ✓ 不碰解析/去重/分页/缓存/预热 ☠（开关关着零开销 ✓ 走同名 debugPrint ✓）
+      //   与图集1 同款（见 `online_album_page.dart:368-384` ✓）；元素字段 = `title` / `cover` / `detail` ✓
+      //   依据（原文 ✓）：本文件 `:423 builder: (_) => P18DetailPage(detailPath: it.detail, title: it.title)` ✓
+      //                     本文件 `:429 child: AvifImage(url: it.cover, memWidth: 480)` ✓
+      //   ⚠️ 上限 400 字：首 3 条 + 末 1 条，标题截 40 / 详情截 80 ✓ 超长整体截断加 `…` ✓
+      //   ★ 2026-10-05 补：分类路径真名 = **`widget.catPath`** ✓（出处：本文件 `:284 final String catPath;` ✓ 传值处 `:264/:268 catPath: '/' / '/cat/${c.id}'` ✓）
+      String diag() {
+        String cut(String s, int n) => s.length <= n ? s : s.substring(0, n);
+        String one(_P18Item it) =>
+            '${cut(it.title, 40)} | ${Uri.tryParse(it.cover)?.host ?? '?'} | ${cut(it.detail, 80)}';
+        final b = StringBuffer('[LIST] cat=${widget.catPath} n=${list.length} ');
+        for (var i = 0; i < list.length && i < 3; i++) {
+          b.write(one(list[i]));
+          b.write(' || ');
+        }
+        if (list.length > 3) b.write(one(list.last));
+        final s = b.toString();
+        return s.length <= 400 ? s : '${s.substring(0, 400)}…';
+      }
+      debugPrint(diag());
       if (!mounted) return;
       setState(() {
         _items = list;

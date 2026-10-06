@@ -1092,6 +1092,14 @@ class PlayerWidgetState extends State<PlayerWidget>
     }
 
     final ref = _playReferer(url);
+    // ★ 2026-10-05【常驻诊断·播放层】只打 host+path 截 80 ✓ 不打完整 query（query 只记长度 ✓）；开关关着零开销 ✓
+    {
+      final du = Uri.tryParse(url);
+      final dpath = du == null ? url : '${du.scheme}://${du.host}${du.path}';
+      final qlen = du?.query.length ?? 0;
+      debugPrint('[PLAY] host=${du?.host ?? '?'} path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
+          'qlen=$qlen ref=${ref.length <= 40 ? ref : ref.substring(0, 40)}');
+    }
     kp.addListener(listener);
     try {
       await kp.open(url, httpHeaders: {
@@ -1104,9 +1112,14 @@ class PlayerWidgetState extends State<PlayerWidget>
       //    的 on_load 钩子 ✓，本机无构建产物、无法在真机验证它是否覆盖分片请求 ✗），
       //    这里再显式设一个 mpv 的 `referrer` 属性兜底（HLS 分片会带上它 ✓）→ 只影响这条源的 header ✓
       kp.setMpvOptionQuiet('referrer', ref);
-      return await done.future
+      final ok = await done.future
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
-    } catch (_) {
+      debugPrint('[PLAY] 起播=${ok ? 'ok' : 'fail(超时或报错)'} host=${Uri.tryParse(url)?.host ?? '?'}');
+      return ok;
+    } catch (e) {
+      // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量 `'$e'` 取子串 ✗ 会越界 ☠）
+      final es = '$e';
+      debugPrint('[PLAY] 起播失败 ${es.length <= 120 ? es : es.substring(0, 120)}');
       return false;
     } finally {
       kp.removeListener(listener);

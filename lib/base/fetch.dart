@@ -52,6 +52,7 @@ class SiteFetcher {
       // 5xx 是站点偶发（51fans1 实测会间歇性 500），同一个域名再试一次
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
+          final _sw = Stopwatch()..start(); // ★【常驻诊断·③④】只计时 ✓ 不动请求/重试/失败路径 ☠
           final r = await _client.get(
             Uri.parse('https://$h$path'),
             headers: {
@@ -64,6 +65,15 @@ class SiteFetcher {
           ).timeout(const Duration(seconds: 8));
           if (r.statusCode == 200) {
             host = h;
+            // ★【常驻诊断·成功路径】只打 host / path(截 80) / qlen / qhead(前 20) / 状态码 / 字节数 / ms ✓
+            //   ⚠️ **绝不打完整 URL** ☠（query 只留长度 + 头 20 字 ✓）；开关关着时零开销 ✓（受 debugPrint 接管控制 ✓）
+            final _qi = path.indexOf('?');
+            final _dpath = 'https://$h${_qi < 0 ? path : path.substring(0, _qi)}';
+            final _q = _qi < 0 ? '' : path.substring(_qi + 1);
+            debugPrint(
+                '[NET] 站=${site.name} code=${r.statusCode} len=${r.bodyBytes.length} ms=${_sw.elapsedMilliseconds} '
+                'host=$h path=${_dpath.length <= 80 ? _dpath : _dpath.substring(0, 80)} '
+                'qlen=${_q.length} qhead=${_q.length <= 20 ? _q : _q.substring(0, 20)}');
             return utf8.decode(r.bodyBytes);
           }
           if (r.statusCode < 500) break; // 4xx 重试没用，直接换域名
