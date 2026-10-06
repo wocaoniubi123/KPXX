@@ -242,7 +242,10 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
             //   ⚠️ 不写死行高 ✗（sim 的行高由内容撑 ✓）⇒ 用 `SingleChildScrollView + Row`（不是 `ListView` ✓）
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(top: 8, left: 2, right: 2), // = sim `padding:8px 2px 0` ✓
+              // ★ 2026-10-05（用户要求 ✓）：**整体上移 2px** ✗ —— `top: 8 → 6` ✓（只动这一个数 ✗
+              //   字号 / 圆角 / 描边 / 选中色 / chip 间距(8) 一律没碰 ✓）；⚠️ **sim 侧现在仍是 8** ✗
+              //   ⇒ 若要两边完全一致，**sim 那边要另派同步 `8px → 6px`** ✓（我**不动 sim** ✗）；父容器 = `Column` **无高度约束** ✓
+              padding: const EdgeInsets.only(top: 6, left: 2, right: 2), // 原 = sim `padding:8px 2px 0` ✓
               child: Row(
                 children: [
                   for (var i = 0; i < _sorts.length; i++) ...[

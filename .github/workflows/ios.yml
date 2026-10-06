@@ -156,7 +156,18 @@ jobs:
       - name: Flutter build IPA
         run: |
           flutter pub get
-          flutter build ipa --release --export-options-plist=ExportOptions.plist
+          # ★ 2026-10-05（用户拍板"**方案 2**"✓）：让**系统/签名看到的版本号 = `kAppVersion`** ✗
+          #   原来 iOS 工程吃的是 `pubspec.yaml:4` 的 `version: 1.0.0+1` ☠（全仓没有一处设过 CFBundleShortVersionString ✓ 已核 ✓）
+          #   ⚠️ 注意：**下面**"按版本号重命名 IPA"那步（:164-166）是**构建之后**才把 `APP_VERSION` 写进 `$GITHUB_ENV` 的 ✗
+          #      ⇒ 构建这一步**必须就地读一次** ✓（本步只加这几行 ✗ **没有改动任何步骤的顺序** ✓）
+          VER=$(sed -n "s/.*kAppVersion = '\([^']*\)'.*/\1/p" lib/app_version.dart | head -1)
+          if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
+          # `--build-number` **只能是数字** ✓（`CFBundleVersion` 不接受点号 ✗）
+          #   ⇒ 取"版本号**去掉点**"：1.1.0⇒110、1.1.9⇒119、1.2.0⇒120 ✓ —— **单调递增** ✓
+          #   （依据 ✓：新规则"每段 0~9、满 9 进位"（见 `lib/app_version.dart` ✓）⇒ 去点后按数字比较永远递增 ✓；
+          #     另一条路 = 直接用 `$GITHUB_RUN_NUMBER` ✓ 但那样与版本号无关 ✗ 故不取 ✓）
+          flutter build ipa --release --export-options-plist=ExportOptions.plist \
+            --build-name="$VER" --build-number="$(echo $VER | tr -d '.')"
 
       # ✅ 按 App 里的版本号给 ipa 改名（用户 2026-10-03 要求：方便区分每次构建 ✓）
       - name: 按版本号重命名 IPA

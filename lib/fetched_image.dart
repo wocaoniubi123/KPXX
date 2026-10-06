@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as im;
 
 import 'base/image_cache.dart';
+// ★ 2026-10-05（用户拍板"甲"✓）：本地插件（iOS 侧 ImageIO 解 AVIF ⇒ PNG ✓；非 iOS/解不出 ⇒ null ✓）
+import 'package:kp_avif/kp_avif.dart';
 import 'config.dart';
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
@@ -238,6 +240,20 @@ class _FetchedImageState extends State<FetchedImage> {
       // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
       // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
       img = await compute(_decryptInIsolate, raw);
+    }
+    // ★ 2026-10-05（用户拍板"**甲**"✓ 禁区已破 ✓）：**AVIF ⇒ 走本地插件解成 PNG** ✗ —— 判据极窄：
+    //   只看**头 12 字节**（偏移 4 起 `ftyp` ✓ 再往后 4 字节品牌 ∈ `avif`/`avis` ✓ —— 与图集2 那套**同一判据** ✓）；
+    //   **非 AVIF ⇒ 直接跳过** ✓（多读的就那 12 个字节 ✗ 不整段扫 ✓ 不额外解码 ✓）。
+    //   ⚠️ **解不出 / 返回 null / 抛异常 ⇒ 一律原样回落** ✓：`img` 不动 ⇒ 下面 `_looksLikeImage` 照旧判 ⇒
+    //      **绝不因为它报错或空白** ✗；原生解码（iOS `CGImageSource` ✓）本身是异步的 ✓ **不卡 UI** ✓。
+    if (img != null &&
+        img.length >= 12 &&
+        img[4] == 0x66 && img[5] == 0x74 && img[6] == 0x79 && img[7] == 0x70) {
+      final brand = String.fromCharCodes(img.sublist(8, 12));
+      if (brand == 'avif' || brand == 'avis') {
+        final png = await KpAvif.decodeToPng(img);
+        if (png != null) img = png; // 成功才顶替 ✓（失败 ⇒ 保持原字节 ✓）
+      }
     }
     if (img == null || !_looksLikeImage(img)) return null;
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
