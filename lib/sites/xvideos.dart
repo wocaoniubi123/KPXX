@@ -30,12 +30,24 @@ class XvSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 详情页标签 = /tags/{slug}（翻页规则同分类页 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+// 看：标签页解析出几条 —— 0 条就是该标签没有片子或 thumb-block 选择器变了。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) => list('/tags/$slug', page: page);
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/tags/$slug', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 首页 = Newest 列表（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（Newest）解析出几条 —— 0 条就是首页卡片选择器变了或 /new 被站点改址。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list('/new', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/new', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
@@ -50,16 +62,24 @@ class XvSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
-    final _r = await list(k ?? key, page: page);
+    final sw = Stopwatch()..start();
+    final res = await list(k ?? key, page: page);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// XVideos 的频道/演员卡（**不含** `/video.` 的真正视频页 ✓）→ 进"視頻"列表页 ✓
   @override
-  String? specialTap(String url) => url.contains('/video.') ? null : 'list';
+  String? specialTap(String url) {
+    // 看：点这张卡去哪 —— `list`=进该频道/演员的「視頻」列表页（本站只有这一种特殊去向）。
+    // ⚠️ 只在**非 null** 时打一条 —— 本函数是高频（每张卡都过）⇒ 返回 null（走详情页）那条**不打**，防刷屏 ☠
+    if (!url.contains('/video.')) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} specialTap=list path=${url.length <= 80 ? url : url.substring(0, 80)}');
+      return 'list';
+    }
+    return null;
+  }
   // XVideos（tube 站）：列表/搜索/标签共用 thumb-block 卡片；详情页内嵌
   // setVideoHLS / setVideoUrlLow/High 直链（xvideos-cdn，无防盗链；secure 签名
   // 约 5 小时有效——过期走现有"失败→刷新详情"兜底）；相关推荐在页面内
@@ -113,12 +133,16 @@ class XvSite extends SiteUi {
   }
 
   /// 搜索：/?k=kw（翻页 &p=N-1，站点 p 从 0 计）
+// 看：搜索解析出几条 —— 0 条就是 /?k= 的卡片选择器变了（或关键词被站点当成不存在）。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
     final path = '/?k=${Uri.encodeComponent(keyword)}'
         '${page > 1 ? '&p=${page - 1}' : ''}';
-    return cards(await _f.text(path, extraHeaders: _xvLang));
+    final res = cards(await _f.text(path, extraHeaders: _xvLang));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// thumb-block 卡片解析（分类 / 标签 / 搜索共用）
@@ -234,13 +258,18 @@ class XvSite extends SiteUi {
   /// GET /channels/<slug>/videos/best/{N-1}（0 计页、36/页）→ JSON。
   /// 频道 slug 直接接 /channels 下；演员 /models/xxx → /channels/xxx。
   Future<List<Article>> profileVideos(String base, {int page = 1}) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/改写路径 ☠
     final seg = base.startsWith('/models/')
         ? '/channels/${base.substring('/models/'.length)}'
         : '/channels$base';
     final j = jsonDecode(
         await _f.text('$seg/videos/best/${page - 1}', extraHeaders: _xvLang));
     final vids = (j is Map) ? j['videos'] : null;
-    if (vids is! List) return const [];
+    if (vids is! List) {
+      // 看：频道/演员视频列表 —— JSON 里没有 videos 数组（接口结构变了或该模型没有视频）。
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} profileVideos base=$seg 页=$page 无 videos 数组 解析出 0 条 ms=${sw.elapsedMilliseconds}');
+      return const [];
+    }
     final out = <Article>[];
     for (final v in vids) {
       if (v is! Map) continue;
@@ -267,13 +296,15 @@ class XvSite extends SiteUi {
         badge: (v['d'] ?? '').toString(),
       ));
     }
+    // 看：频道/演员视频列表抓出几条 —— 0 条就是 JSON 有数组但字段（u/tf/i）都解析空了。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} profileVideos base=$seg 页=$page 解析出 ${out.length} 条 ms=${sw.elapsedMilliseconds}');
     return out;
   }
 
 // 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 就是 setVideoHLS/setVideoUrl* 三个正则都没匹配上。
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url, extraHeaders: _xvLang);
     final doc = hp.parse(html);
     var title =
@@ -351,7 +382,7 @@ class XvSite extends SiteUi {
         // 解析不了当无相关推荐
       }
     }
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: const [],
@@ -364,8 +395,8 @@ class XvSite extends SiteUi {
       duration: dur,
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

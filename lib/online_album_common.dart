@@ -11,6 +11,7 @@ import 'package:gal/gal.dart';
 import 'app_background.dart';
 import 'config.dart';
 import 'fetched_image.dart';
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 
 /// 在线图集 1 / 2 **之间**共用的件（用户 2026-10-05 口径 ✓）。
 ///
@@ -298,7 +299,7 @@ Future<void> showArtPreviewOverlay(
   Future<void> Function(Uint8List png)? onApplyAsBg,
   Uint8List? Function(String url)? bytesFor,
 }) {
-  debugPrint('[ACT] 开预览 idx=$initial n=${urls.length}'); // ★ 3/4 诊断（只加打印 ✓ 不改逻辑 ✓）
+  if (AppSettings.i.logConsole) debugPrint('[ACT] 开预览 idx=$initial n=${urls.length}'); // ★ 3/4 诊断（只加打印 ✓ 不改逻辑 ✓）
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -441,8 +442,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     final y = t.y.clamp(L[2], L[3]).toDouble();
     if ((x - t.x).abs() > 0.01 || (y - t.y).abs() > 0.01) {
       _tc.value = Matrix4.identity()
-        ..translate(x, y)
-        ..scale(s);
+        ..translateByDouble(x, y, 0.0, 1.0)
+        ..scaleByDouble(s, s, s, 1.0);
     }
   }
 
@@ -466,8 +467,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   void _centerT(double s) {
     final L = _tLimits(s);
     _tc.value = Matrix4.identity()
-      ..translate((L[0] + L[1]) / 2, (L[2] + L[3]) / 2)
-      ..scale(s);
+      ..translateByDouble((L[0] + L[1]) / 2, (L[2] + L[3]) / 2, 0.0, 1.0)
+      ..scaleByDouble(s, s, s, 1.0);
   }
 
   /// ★ 方案 A 的手势态（见框选态那段 ✓）：起始缩放 / 起始平移 / 起始焦点 ✓
@@ -508,8 +509,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       t.dy.clamp(L[2], L[3]).toDouble(),
     );
     _tc.value = Matrix4.identity()
-      ..translate(t.dx, t.dy)
-      ..scale(s);
+      ..translateByDouble(t.dx, t.dy, 0.0, 1.0)
+      ..scaleByDouble(s, s, s, 1.0);
   }
 
   /// ★ 件二②（✓ 用户拍板）**快速轻扫**用的一小撮状态（raw `Listener` ✓ 无门槛 ✓）：
@@ -574,7 +575,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// 「保存相册」= **原图无损、不裁剪、直存** ✓
   /// （复用 `package:gal` ✓ —— 与 `bg_album_page.dart:144-159` 同一套权限/落库调用 ✓）
   Future<void> _save() async {
-    debugPrint('[ACT] 存相册 idx=$_index'); // ★ 2/4 诊断（只加打印 ✓ 不改逻辑 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[ACT] 存相册 idx=$_index'); // ★ 2/4 诊断（只加打印 ✓ 不改逻辑 ✓）
     final msg = ScaffoldMessenger.of(context);
     try {
       final bytes = await _download(widget.urls[_index]);
@@ -588,7 +589,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
           //   ⚠️ 但**绝不许"点了保存什么都不发生"** ☠ ⇒ 拒权也**必须有反馈** ✗ ⇒ 走失败提示同一套口径：
           //   **1 秒 + 短句**（不教去设置 ✗），与下面那条「保存失败」同一档 ✓；控制流照旧**不落库、直接收尾** ✓。
           msg.showSnackBar(const SnackBar(
-              duration: const Duration(seconds: 1),
+              duration: Duration(seconds: 1),
               content: Text('没有相册权限')));
           return;
         }
@@ -597,7 +598,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       // ★ 2026-10-05（用户要求 ✓）：完成提示 **1 秒后消失** ✗（原来走 `SnackBar` 默认 **4 秒** ☠）；
       //   同组这条"保存失败"为**一致性**同样设 1 秒 ✓（文案 / 触发时机 / 分支一律未动 ✗）
       msg.showSnackBar(const SnackBar(
-          duration: const Duration(seconds: 1),
+          duration: Duration(seconds: 1),
           content: Text('已保存到相册')));
       try {
         await f.delete();
@@ -615,7 +616,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// ✅ 现状：两个图集都传了挂点 ✓ ⇒ 真的设为背景并关闭预览 ✓（失败有提示 ✓ 不静默死 ✗）；
   ///   ⚠️ 挂点为空的提示分支只在"将来别处复用本页却没传"时才会走到 ✓（保留着当兜底 ✓）
   Future<void> _confirmCrop() async {
-    debugPrint('[ACT] 设背景 idx=$_index n=${widget.urls.length}'); // ★ 1/4 诊断（只加打印 ✓ 不改逻辑 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[ACT] 设背景 idx=$_index n=${widget.urls.length}'); // ★ 1/4 诊断（只加打印 ✓ 不改逻辑 ✓）
     if (_applying) return; // ★ 重入保护 ✓（连点两次 ⇒ 只跑一次 ✓ 不会弹两个对话框 ✓）
     _applying = true;
     final msg = ScaffoldMessenger.of(context);
@@ -637,7 +638,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         // ★ 2026-10-05（用户要求 ✓）：本组提示统一 **1 秒后消失** ✗（原来走 `SnackBar` 默认 **4 秒** ☠）；
         //   "裁剪失败 / 设为背景失败"这两条失败提示 ⇒ 为**一致性**也设 1 秒 ✓（文案与分支未动 ✗）
         msg.showSnackBar(const SnackBar(
-            duration: const Duration(seconds: 1),
+            duration: Duration(seconds: 1),
             content: Text('裁剪失败：拿不到图片数据 ✗')));
         return;
       }
@@ -647,16 +648,16 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         //   —— 两个图集**都已传入挂点** ✓（见本文件 `onApplyAsBg` 的说明 ✓）⇒ 正常路径走不到这里 ✓
         //   ⚠️ 别再写成"待定/待用户定"✗（那是接挂点之前的说法 ✓ 已经过期 ✓）
         msg.showSnackBar(const SnackBar(
-            duration: const Duration(seconds: 1),
+            duration: Duration(seconds: 1),
             content: Text('这个页面没有接「设为背景」的挂点 ✗')));
         return;
       }
-      debugPrint('[ACT] 框选确认 idx=$_index'); // ★ 4/4 诊断（只加打印 ✓ 不改逻辑 ✓；与 ① 同函数但不同位置 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[ACT] 框选确认 idx=$_index'); // ★ 4/4 诊断（只加打印 ✓ 不改逻辑 ✓；与 ① 同函数但不同位置 ✓）
       await hook(png);
       if (!mounted) return;
       _close(); // 浮层 ⇒ 关浮层 ✓（**不退详情页** ✗）；整页 ⇒ pop ✓ —— 同一处实现 ✓
       msg.showSnackBar(const SnackBar(
-          duration: const Duration(seconds: 1),
+          duration: Duration(seconds: 1),
           content: Text('已设为背景（一次性、不进图集）✓')));
     } catch (e) {
       // ★ 失败**要有提示** ✓（不静默死 ✗）
@@ -690,9 +691,9 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
         () => _cropPngBytes(raw, frame, s, t.x, t.y, _dpr),
       );
       if (png != null) return png;
-      debugPrint('后台 isolate 裁剪返回空 ⇒ 回落主 isolate ✓');
+      if (AppSettings.i.logConsole) debugPrint('后台 isolate 裁剪返回空 ⇒ 回落主 isolate ✓');
     } catch (e) {
-      debugPrint('后台 isolate 裁剪不可用 ⇒ 回落主 isolate：$e');
+      if (AppSettings.i.logConsole) debugPrint('后台 isolate 裁剪不可用 ⇒ 回落主 isolate：$e');
     }
     return _cropPng(raw, frame); // ★ 回落 ✓（老路 ✓ 一字未改 ✓）
   }
@@ -752,6 +753,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   ///   ⚠️ `_rawCache` 已**删掉** ✗（E 之后它恒为 null ⇒ 死代码 ☠）—— 「确认」那条现在**只剩** `await _download` ✓
   ///      （与"它恒为 null 时"**语义等价** ✓）；裁剪出图那 5 条画质口径**一个不碰** ☠。
   Future<void> _enterCrop() async {
+    // 看：进框选（哪一张 / 共几张）—— 框选慢就先看这条是不是点在很后面的索引上。
+    if (AppSettings.i.logConsole) debugPrint('[ALBUM] 进框选 idx=$_index n=${widget.urls.length}');
     _imgSize = AlbumImageSizes.of(widget.urls[_index]); // ★ E ✓：同步取（可能 null ✓ 有兜底 ✓）
     if (!mounted) return;
     // ★ 2026-10-05（G ✓）：初始 **s0 = 1.15** —— 依据：`InteractiveViewer` 的 `minScale: 1` ✓ 而"框（屏比）"
@@ -889,7 +892,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                         onTap: () {}, // 什么都不做 ⇒ 不外泄给外层（外层那个 tap 会关预览 ✗）
                         child: Text('${_index + 1} / ${widget.urls.length}',
                             style: TextStyle(
-                                color: Colors.white.withOpacity(0.85),
+                                color: Colors.white.withValues(alpha: 0.85),
                                 fontSize: 12)),
                       ),
                     ),
@@ -978,7 +981,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                   const SizedBox(height: 16), // = sim `gap:16px` ✓
                   Text('${_index + 1} / ${widget.urls.length}',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.85), fontSize: 12)),
+                          color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
                   const SizedBox(height: 16), // = sim `gap:16px` ✓
                   // ★ 照 sim ✓：框选态那排也是 `.ovl .row2 > div { flex:1 }`（`sim:707` ✓ + 内联
                   //   `width:100%;margin:0` `sim:7606` ✓）⇒ 两颗**等宽铺满**；**确认在前、取消在后** ✓（`:7025-7026` ✓）

@@ -133,7 +133,7 @@ class ImageDiskCache {
       }
       entries.sort((a, b) => b.value.compareTo(a.value)); // 新 → 旧 ✓
       var total = 0;
-      var _del = 0; // ★【常驻诊断·⑩】只计数 ✓ 淘汰规则/上下限一字未动 ☠
+      var deleted = 0; // ★【常驻诊断·⑩】只计数 ✓ 淘汰规则/上下限一字未动 ☠
       for (var n = 0; n < entries.length; n++) {
         final f = entries[n].key;
         var len = 0;
@@ -144,13 +144,15 @@ class ImageDiskCache {
         if (n >= maxFiles || total > maxTotalBytes) {
           try {
             await f.delete();
-            _del++; // ★ 只计数 ✓
+            deleted++; // ★ 只计数 ✓
           } catch (_) {}
         }
       }
       // ★【常驻诊断·⑩】清理结果（上限值见 `:30 maxFiles` / `:32 maxTotalBytes` ✓）
-      if (AppSettings.i.logConsole) debugPrint('[CACHE] 清理 文件=${entries.length} 删=$_del 剩=${entries.length - _del} '
-          '总字节=$total 上限文件=$maxFiles 上限字节=$maxTotalBytes');
+      if (AppSettings.i.logConsole) {
+        debugPrint('[CACHE] 清理 文件=${entries.length} 删=$deleted 剩=${entries.length - deleted} '
+        '总字节=$total 上限文件=$maxFiles 上限字节=$maxTotalBytes');
+      }
     } catch (_) {}
   }
 

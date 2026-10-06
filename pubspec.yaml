@@ -60,6 +60,11 @@ dependencies:
   # （sdk >=3.0.0 / flutter >=3.7.0、podspec ios.deployment_target 11.0），
   # 3.24.5 可用；iOS 侧需要 Info.plist 两条权限（见 .github/workflows/ios.yml）
   gal: '>=2.3.0 <3.0.0'
+  # 2026-10-05（用户拍板 方案A）：**错误日志页加「导出」** —— 把整份日志当文件交给系统分享面板 ✓
+  #   钉区间而**不是** `^`：`pubspec.lock` 被 gitignore ⇒ CI 每次按约束取"满足的最高版" ✓
+  #   ⇒ 上限 `<13.4.0` 防大版本漂移；13.3.1 的要求逐条满足（依据 recon 调研 ✓）：
+  #   Flutter ≥3.38.1（本仓 CI = 3.47.6 ✓）/ Dart ≥3.10（本仓 3.13.5 ✓）/ iOS ≥13.0（本仓部署目标 13.0 ✓）。
+  share_plus: '>=13.3.1 <13.4.0'
   # 2026-10-05（用户拍板 B）：图集2（photos18）的图**全是 AVIF**、系统里 Flutter 解不出 ⇒
   #   自建**本地插件**：iOS 侧用系统自带 ImageIO（CGImageSource → CGImageDestination，PNG 无损）解 ✓
   #   ⇒ 走 `path:` 引入 ✓ **不改 CI 生成步骤、不用改 pbxproj**（CocoaPods 自动编译+注册 ✓）

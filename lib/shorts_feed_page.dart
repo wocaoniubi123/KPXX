@@ -126,7 +126,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
   }
 
   /// ⚠️ `KpPlayer` 是 `ValueNotifier<KpState>`，**没有 `stream`** ✗ —— 只能 `addListener` ✓
-  /// （它内部把 mpv 的 `_p.stream.*` 收进 `value`，见 player_widget.dart:147-157）。
+  /// （它内部把 mpv 的 `pathOnly.stream.*` 收进 `value`，见 player_widget.dart:147-157）。
   void _onTick() {
     if (!mounted) return;
     final s = _kp?.value;
@@ -196,8 +196,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     return SourceCache.i.get('s|$url', () async {
       final d = await widget.api.detail(url);
       // 这条对着「短片起播慢 / 这条取不到源」看：这条的 path（截 80）+ 解析出几条源（仍走同一个 sourcesOfDetail ✓ 只多取个长度 ✓）
-      final _p = Uri.tryParse(url)?.path ?? url;
-      if (AppSettings.i.logConsole) debugPrint('[SHORT] 取源 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 源=${SourceCache.sourcesOfDetail(d).length} 条');
+      final pathOnly = Uri.tryParse(url)?.path ?? url;
+      if (AppSettings.i.logConsole) debugPrint('[SHORT] 取源 path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)} 源=${SourceCache.sourcesOfDetail(d).length} 条');
       return SourceCache.sourcesOfDetail(d);
     });
   }

@@ -57,8 +57,10 @@ class AvifBytes {
         if (looksAvif(raw)) {
           final png = await KpAvif.decodeToPng(raw);
           // ★【常驻诊断·⑧】AVIF 原生解码结果（null = 解不出 ⇒ 会重试 ✓；与 `fetched_image` 那条同口径 ✓）
-          if (AppSettings.i.logConsole) debugPrint('[AVIF] 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
-              '原图=${raw.length}B 第${attempt + 1}次');
+          if (AppSettings.i.logConsole) {
+            debugPrint('[AVIF] 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
+            '原图=${raw.length}B 第${attempt + 1}次');
+          }
           if (png == null) continue; // ② AVIF 解码失败 ⇒ 重试 ✓（老系统 / 插件没进包 / 非 AVIF 变体 ✓）
           bytes = png;
         }

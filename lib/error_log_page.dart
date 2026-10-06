@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'base/site_ui.dart';
 import 'app_bg.dart';
 import 'app_background.dart';
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 import 'site_error_log.dart';
 
 /// **错误日志页** ✓（用户 2026-10-03 要求：点开就能看、能清、能复制）
@@ -20,6 +25,9 @@ class ErrorLogPage extends StatefulWidget {
 class _ErrorLogPageState extends State<ErrorLogPage> {
   String _text = '';
   bool _loading = true;
+
+  /// 上一次导出的临时副本路径（下一次导出时顺手删掉 ✓ —— 分享面板是异步的，**分享后不能立刻删** ✓）
+  String? _exported;
 
   /// ⚠️ 2026-10-05 修（用户报"日志一大会卡"）✓：正文超过这个长度就**只渲染末尾一段** ✗ ——
   /// `SelectableText` 是**整篇一次性排版** ✗，而日志上限是 5MB ✗ ⇒ 一次排版 5MB 要等很久 ✓。
@@ -49,6 +57,8 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
 
   Future<void> _load() async {
     final t = await SiteErrorLog.read();
+    // 看：进页/刷新读到多少字符 —— 0 字符就是"还没写过日志"，读不出来就是另一回事（`read()` 会给提示串）。
+    if (AppSettings.i.logConsole) debugPrint('[UI] 错误日志 载入 字符=${t.length}');
     if (!mounted) return;
     setState(() {
       _text = t;
@@ -57,17 +67,77 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
   }
 
   Future<void> _clear() async {
+    // 看：清空前的字符数（复制/导出拿到的都是这一份的**当时**状态 ⇒ 对不上就是清过）。
+    if (AppSettings.i.logConsole) debugPrint('[UI] 错误日志 清空 原字符=${_text.length}');
     await SiteErrorLog.clear();
     await _load();
   }
 
   Future<void> _copy() async {
     final p = await SiteErrorLog.path();
+    // 看：复制全部 —— 复制的字符数 + 文件路径（**这是给用户看的路径**，不是 URL ⇒ 可打 ✓）。
+    if (AppSettings.i.logConsole) debugPrint('[UI] 错误日志 复制 字符=${_text.length} 文件=$p');
     await Clipboard.setData(ClipboardData(text: '文件：$p\n\n$_text'));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已复制到剪贴板')),
     );
+  }
+
+  /// **导出整份日志**（用户 2026-10-05 拍板 方案A：把日志当文件交给系统分享面板 ✓）
+  ///
+  /// 步骤与依据：
+  ///   ① `SiteErrorLog.path()` 拿不到时返回**字面量** `'(不可用)'`（`site_error_log.dart:129` ✓）
+  ///      ⇒ 先判这个哨兵值，**绝不拿它去构造 `XFile`** ☠。
+  ///   ② **复制**一份到临时目录（文件名带时间戳 ✓）—— **原日志一个字不动** ✓；
+  ///      复制前先删**同一前缀**的旧副本（`kpxx_error_*`）⇒ 面板交给对方是异步的 ✓，
+  ///      所以**分享后不删**、留到下次导出时顺手清 ✓。
+  ///   ③ 分享走 `SharePlus.instance.share(ShareParams(files: [XFile(路径)]))` —— 依据 = share_plus 13.3.1
+  ///      官方 API 文档 + README（`Share.shareXFiles()` 已废弃 ✗）；`sharePositionOrigin` 按 README
+  ///      的 iPad 写法给（`findRenderObject` 拿不到就**不传**，让它走"屏幕中心"兜底 ✓ 不崩 ✗）。
+  ///   ④ 全程 `try/catch` ⇒ 失败只弹 SnackBar（**绝不抛到界面** ☠）。
+  Future<void> _export(BuildContext context) async {
+    final m = ScaffoldMessenger.of(context);
+    try {
+      final p = await SiteErrorLog.path();
+      if (p == '(不可用)' || p.isEmpty) {
+        m.showSnackBar(const SnackBar(content: Text('日志文件不可用 ✗（拿不到 App 文档目录）')));
+        return;
+      }
+      final src = File(p);
+      if (!await src.exists()) {
+        m.showSnackBar(const SnackBar(content: Text('还没有日志文件 ✓（先复现一次再导出）')));
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      if (_exported != null) {
+        final old = File(_exported!);
+        if (await old.exists()) await old.delete();
+      }
+      final t = DateTime.now();
+      String two(int v) => v.toString().padLeft(2, '0');
+      final stamp = '${t.year}-${two(t.month)}-${two(t.day)}_${two(t.hour)}${two(t.minute)}';
+      final dst = '${dir.path}/kpxx_error_$stamp.log';
+      await src.copy(dst); // 复制（**不动原日志** ✓）
+      _exported = dst;
+      // 看：导出 —— **原日志**字节数 + 临时目录（临时文件可清 ✓；原始日志一个字没动 ✓）。
+      if (AppSettings.i.logConsole) {
+        final kb = await src.length(); // ← 取的是**原文件**长度（不是刚复制那份；两者数值相同 ✓ 措辞按代码写 ✓）
+        debugPrint('[UI] 错误日志 导出 原日志字节=$kb 副本=$dst');
+      }
+      if (!mounted) return; // ☠ 必须在取 `context.findRenderObject()` 之前判（跨 await 用 context ✓ release 不崩但该修 ✓）
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile(dst)],
+        title: '错误日志',
+        sharePositionOrigin:
+            box == null ? null : (box.localToGlobal(Offset.zero) & box.size),
+      ));
+      if (!mounted) return;
+      m.showSnackBar(const SnackBar(content: Text('已打开分享面板 ✓')));
+    } catch (e) {
+      m.showSnackBar(SnackBar(content: Text('导出失败：$e ✗')));
+    }
   }
 
   @override
@@ -104,6 +174,11 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             tooltip: '复制全部',
             icon: Icon(Icons.copy_all_outlined, color: kTxt),
             onPressed: _copy,
+          ),
+          IconButton(
+            tooltip: '导出文件',
+            icon: Icon(Icons.ios_share, color: kTxt),
+            onPressed: _text.isEmpty ? null : () => _export(context),
           ),
           IconButton(
             tooltip: '清空',

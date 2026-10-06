@@ -101,9 +101,13 @@ class SettingsPage extends StatelessWidget {
               icon: Icons.history,
               title: '播放记录',
               trailing: '${list.length} 条 ›',
-              onTapTrailing: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PageBg(child: PlayHistoryPage()), settings: const RouteSettings(name: '播放历史')),
-              ),
+              onTapTrailing: () {
+                // 看：设置页入口被点（配合 [NAV] 路由日志确认页面确实开了）。
+                if (AppSettings.i.logConsole) debugPrint('[UI] 进入 播放记录');
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PageBg(child: PlayHistoryPage()), settings: const RouteSettings(name: '播放历史')),
+                );
+              },
             ),
             // 预览只显示前 3 条；点「N 条 ›」进整页。
             // key 用记录去重键：列表内容变了也只做增量重建，封面不会被重挂载（闪一下的来源）
@@ -146,7 +150,7 @@ class SettingsPage extends StatelessWidget {
             sub: '一篇里有多个视频时，播完自动切下一个',
             trailing: Switch.adaptive(
               value: AppSettings.i.autoNext,
-              activeColor: _orange,
+              activeTrackColor: _orange,
               onChanged: (v) {
                 if (AppSettings.i.logConsole) debugPrint('[UI] 自动下一集=${v ? "on" : "off"}'); // ★ 诊断（出处 `settings_page.dart:147` ✓）
                 AppSettings.i.setAutoNext(v);
@@ -210,13 +214,17 @@ class SettingsPage extends StatelessWidget {
                   child: _button(
                     label: '在线图集1',
                     // ★ 2026-10-05：接线 ✓（推送时**必须包 PageBg** ✓ —— 本页其它 push 点同款 ✓）
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
-                        settings: const RouteSettings(name: '图集1'),
-                        builder: (_) => const PageBg(child: OnlineAlbumPage()),
-                      ),
-                    ),
+                    onTap: () {
+                      // 看：设置页入口被点（配合 [NAV] 路由日志确认页面确实开了）。
+                      if (AppSettings.i.logConsole) debugPrint('[UI] 进入 图集1');
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
+                          settings: const RouteSettings(name: '图集1'),
+                          builder: (_) => const PageBg(child: OnlineAlbumPage()),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -224,13 +232,17 @@ class SettingsPage extends StatelessWidget {
                   child: _button(
                     label: '在线图集2',
                     // ★ 2026-10-05：接线 ✓（照本页既有 push 写法 ✓ **必须包 PageBg** ✓）
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
-                        settings: const RouteSettings(name: '图集2'),
-                        builder: (_) => const PageBg(child: OnlineAlbum2Page()),
-                      ),
-                    ),
+                    onTap: () {
+                      // 看：设置页入口被点（配合 [NAV] 路由日志确认页面确实开了）。
+                      if (AppSettings.i.logConsole) debugPrint('[UI] 进入 图集2');
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
+                          settings: const RouteSettings(name: '图集2'),
+                          builder: (_) => const PageBg(child: OnlineAlbum2Page()),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -347,44 +359,49 @@ class SettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _head(icon: Icons.bug_report_outlined, title: '诊断'),
+          // ★ 2026-10-05（用户拍板"加个开关"✓）：**记录控制台日志（调试用）** —— 默认关 ✓
+          //   ⚠️ 位置（2026-10-05 用户口径）：**开关在「错误日志」按钮上方** ✓（先开关、再去看日志 ✓）
+          //   ⚠️ 形态（2026-10-05 用户口径）：**与上面「自动播放下一集」那行一模一样** ✓ —— 用本页的 `_row`
+          //      （`title` + `sub` + `trailing`，样式由 `_row` 自己给 ⇒ **这里不写 TextStyle** ✓）；
+          //      开关配色同款 `activeColor: _orange` ✓。原来那套系统标准件 `SwitchListTile`（自带缩进/系统默认色）已撤 ✓。
+          //   ⚠️ 状态 + 持久化都在 `AppSettings` 里（`logConsole` / `setLogConsole` ✓ 走 SharedPreferences ✓ 已在别处落好 ✓）；
+          //   本页能自动刷新 ✓ 依据 = `:34 Listenable.merge([AppSettings.i, …])` ✓ ⇒ 一拨开关这里就重建 ✓
+          _row(
+            title: '记录控制台日志（调试用）',
+            sub: '打开后控制台打印会记进错误日志页（默认关）',
+            trailing: Switch.adaptive(
+              value: AppSettings.i.logConsole,
+              activeTrackColor: _orange,
+              onChanged: (v) {
+                // ★ 2026-10-05（本次修 ✓）：**先落状态、再打日志** ✗ —— `setLogConsole` 的 `_logConsole = v` 是
+                //   **同步**赋值（`settings.dart:122` ✓，首次 `await` 在 `:125` 之后 ✓）⇒ 紧接着这行 debugPrint
+                //   看到的就是**新值** ✓：**打开那一下这行必定进日志** ✓（原来先打后设 ⇒ 打开时按旧值 `false` 被吞 ✗）。
+                //   ⚠️ 代价：**关闭那一下这行不会留下** ✗（关掉后 debugPrint 第一句就 return ✓）—— 这是开关语义本身 ✓，不是漏 ✓。
+                AppSettings.i.setLogConsole(v);
+                if (AppSettings.i.logConsole) debugPrint('[UI] 控制台日志=${v ? "on" : "off"}（本条只在打开那下可见 ✓）');
+              },
+            ),
+          ),
           // ★ 2026-10-05（用户口径 ✓）：**宽度 ≈ 现在的一半 + 居中** ✗ —— 原来这个按钮挂在
           //   `Column(crossAxisAlignment: CrossAxisAlignment.stretch)` 下 ⇒ 被**拉满整行** ☠（用户："太长"✓）；
           //   ⚠️ **只动宽度 + 对齐** ✓（高度 / 文案「错误日志」/ 点击行为 / 字号**一个字没动** ☠；
-          //      旁边那个 `SwitchListTile` 也没碰 ✓ 它仍整行 ✓）。用现成件 `FractionallySizedBox` ✓ 不自造 ✗。
+          //      上方那个开关行也没碰 ✓ 它仍整行 ✓）。用现成件 `FractionallySizedBox` ✓ 不自造 ✗。
+          //   （2026-10-05 用户口径：**按钮在开关下方** ✓）
           FractionallySizedBox(
             widthFactor: 0.5, // 宽度 = 现在的 50% ✓
             alignment: Alignment.center, // ★ 居中（**不是 centerLeft** ☠）
             child: _button(
               label: '错误日志',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage()), settings: const RouteSettings(name: '错误日志')),
-              ),
+              onTap: () {
+                // 看：设置页入口被点（配合 [NAV] 路由日志确认页面确实开了）。
+                if (AppSettings.i.logConsole) debugPrint('[UI] 进入 错误日志');
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage()), settings: const RouteSettings(name: '错误日志')),
+                );
+              },
             ),
           ),
-          // ★ 2026-10-05（用户拍板"加个开关"✓）：**记录控制台日志（调试用）** —— 默认关 ✓
-          //   ⚠️ 状态 + 持久化都在 `AppSettings` 里（`logConsole` / `setLogConsole` ✓ 走 SharedPreferences ✓ 已在别处落好 ✓）；
-          //   本页能自动刷新 ✓ 依据 = `:34 Listenable.merge([AppSettings.i, …])` ✓ ⇒ 一拨开关这里就重建 ✓
-          //   ⚠️ 用标准件 `SwitchListTile`（**不自造样式** ✗）—— 与上方 `_button` 观感略有差别，
-          //      若要与本页完全一致 ⇒ 换成本页既有那对写法（`settings_page.dart:144-147` 那对 ✓）即是一行级替换 ✓
-          SwitchListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text('记录控制台日志（调试用）', style: TextStyle(fontSize: 14, color: kTxt)),
-            subtitle: Text(
-              '打开后控制台打印会记进错误日志页（默认关）',
-              style: TextStyle(fontSize: 12, color: kTxtSub),
-            ),
-            value: AppSettings.i.logConsole,
-            onChanged: (v) {
-              // ★ 2026-10-05（本次修 ✓）：**先落状态、再打日志** ✗ —— `setLogConsole` 的 `_logConsole = v` 是
-              //   **同步**赋值（`settings.dart:122` ✓，首次 `await` 在 `:125` 之后 ✓）⇒ 紧接着这行 debugPrint
-              //   看到的就是**新值** ✓：**打开那一下这行必定进日志** ✓（原来先打后设 ⇒ 打开时按旧值 `false` 被吞 ✗）。
-              //   ⚠️ 代价：**关闭那一下这行不会留下** ✗（关掉后 debugPrint 第一句就 return ✓）—— 这是开关语义本身 ✓，不是漏 ✓。
-              AppSettings.i.setLogConsole(v);
-              debugPrint('[UI] 控制台日志=${v ? "on" : "off"}（本条只在打开那下可见 ✓）');
-            },
-          ),
-          _note('有站点出错时会记下「时间 + 站点名 + 错误信息」，方便定位是哪个站挂了'),
+          _note('出错时先打开上面的开关、再复现一次即可看到输出（关着时不记录）'),
         ],
       ),
     );

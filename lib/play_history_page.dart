@@ -97,6 +97,7 @@ class PlayHistoryPage extends StatelessWidget {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: '详情页'), // ★ 全仓唯一没起名的路由 ⇒ 补上（`[NAV]` 日志要显示页面名 ✓）
         builder: (_) => PageBg(child: DetailPage(
           site: site.first,
           baseUrl: record.url,

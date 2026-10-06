@@ -205,12 +205,12 @@ class DetailPageState extends State<DetailPage> {
       _detail = null;
       _error = null;
     });
-    final _sw = Stopwatch()..start(); // 只给下面那条日志计时 ✓（请求/错误路径一字不动 ☠）
+    final stopwatch = Stopwatch()..start(); // 只给下面那条日志计时 ✓（请求/错误路径一字不动 ☠）
     try {
       final d = await _api.detail(widget.baseUrl);
       // 这条对着「详情页一直转圈 / 打开后内容缺段」看：请求的 path（截 80）+ 视频/剧照/相关各几条 + 耗时
-      final _p = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
-      if (AppSettings.i.logConsole) debugPrint('[DETAIL] 载入 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 视频=${d.videos.length} 图=${d.images.length} 相关=${d.related.length} ms=${_sw.elapsedMilliseconds}');
+      final pathOnly = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] 载入 path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)} 视频=${d.videos.length} 图=${d.images.length} 相关=${d.related.length} ms=${stopwatch.elapsedMilliseconds}');
       if (!mounted) return;
       _switcher?.dispose();
       final sw = VideoSwitcher(d.videos.length)
@@ -259,11 +259,11 @@ class DetailPageState extends State<DetailPage> {
 
   /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
   Future<List<String>> _refreshSources() async {
-    final _sw = Stopwatch()..start(); // 只给下面那条日志计时 ✓
+    final stopwatch = Stopwatch()..start(); // 只给下面那条日志计时 ✓
     final fresh = await _api.detail(widget.baseUrl);
     // 这条对着「播着播着断了、重抓本页也救不回」看：path（截 80）+ 重抓回几集 + 首条几条源 + 耗时（首条源 0=这次没救回 ✓）
-    final _p = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 刷新源 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 视频=${fresh.videos.length} 首条源=${fresh.videos.isEmpty ? 0 : fresh.videos.first.sources.length} ms=${_sw.elapsedMilliseconds}');
+    final pathOnly = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 刷新源 path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)} 视频=${fresh.videos.length} 首条源=${fresh.videos.isEmpty ? 0 : fresh.videos.first.sources.length} ms=${stopwatch.elapsedMilliseconds}');
     if (!mounted || fresh.videos.isEmpty) return const [];
     final i = (_switcher?.index.value ?? 0)
         .clamp(0, fresh.videos.length - 1)
@@ -348,9 +348,9 @@ class DetailPageState extends State<DetailPage> {
     final lz = v.lazyUrl;
     if (lz == null) return;
     // 这条对着「点了某集要等好几秒才出画面」看：**发起预取**这一刻就打（只 host+path 截 80 ✓ 不带 query）
-    final _u = Uri.tryParse(lz);
-    final _pf = _u?.path ?? lz;
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 预取源 host=${_u?.host ?? '?'} path=${_pf.length <= 80 ? _pf : _pf.substring(0, 80)}');
+    final uri = Uri.tryParse(lz);
+    final pf = uri?.path ?? lz;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 预取源 host=${uri?.host ?? '?'} path=${pf.length <= 80 ? pf : pf.substring(0, 80)}');
     _api.videoSourcesAt(lz).then<void>((_) {}, onError: (_) {});
   }
 
@@ -655,15 +655,19 @@ class DetailPageState extends State<DetailPage> {
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(width: 6),
                                 itemBuilder: (_, i) => InkWell(
-                                  onTap: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      settings: const RouteSettings(name: '图片查看'),
-                                      builder: (_) => PageBg(child: PhotoViewerPage(
-                                        urls: d.images,
-                                        initial: i,
-                                      )),
-                                    ),
-                                  ),
+                                  onTap: () {
+                                    // 看：点开第几张剧照（共几张）—— 大图页空白/错位先看这条。
+                                    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 打开剧照 idx=$i n=${d.images.length}');
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        settings: const RouteSettings(name: '图片查看'),
+                                        builder: (_) => PageBg(child: PhotoViewerPage(
+                                          urls: d.images,
+                                          initial: i,
+                                        )),
+                                      ),
+                                    );
+                                  },
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(6),
                                     child: SizedBox(

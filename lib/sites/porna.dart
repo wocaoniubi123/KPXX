@@ -58,21 +58,37 @@ class PornaSite extends SiteUi {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
+// 看：搜索入口解析出几条 —— 0 条就是搜索结果页的卡片选择器变了（或关键词被站点当成不存在）。
 @override
   Future<List<Article>> search(String keyword,
-      {int page = 1, List<MapEntry<String, String>>? extra}) =>
-      list('search:$keyword', page: page);
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('search:$keyword', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 这站的"标签"分两种：以 / 开头的是站内分类页（黑料吃瓜的标签）✓，
   /// 其余是搜索关键词（视频页的 keywords ✓）
+// 看：标签入口解析出几条 —— 0 条就是该标签/分类页选择器变了（本入口按 slug 形态分流）。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) =>
-      list(slug.startsWith('/') ? slug : 'search:$slug', page: page);
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(slug.startsWith('/') ? slug : 'search:$slug', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（= 第一个分类）解析出几条 —— 0 条就是首页列表的卡片选择器变了。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(first, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
@@ -95,7 +111,7 @@ class PornaSite extends SiteUi {
   /// - 其余（/comic/index/*、/comic/av/*、搜索） → `div.video-item`
   /// [key]：站内路径或 "search:关键词"。
   Future<List<Article>> list(String key, {int page = 1}) async {
-    final _sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/分流路径 ☠
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/分流路径 ☠
     // 关键词里的空格站点用 + 分隔（encodeQueryComponent 正好把空格编成 +）
     final path = key.startsWith('search:')
         ? '/comic/index/search?keyword=${Uri.encodeQueryComponent(key.substring(7))}'
@@ -106,10 +122,10 @@ class PornaSite extends SiteUi {
     final html = await _f.text(url);
     final doc = hp.parse(html);
     if (path.startsWith('/melonshort')) {
-      final _r = melonCards(doc);
+      final res = melonCards(doc);
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 分支=melonshort/解析器=melonCards 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     // ⚠️ 只看路径部分：搜索关键词里也可能出现"黑料"（%E9%BB%91%E6%96%99），
     // 用整个 path 判断会把搜索结果页错认成黑料页（而且要用完整的"黑料吃瓜"编码）
@@ -119,29 +135,29 @@ class PornaSite extends SiteUi {
     if (p0.startsWith('/moviesets')) {
       final segs = p0.split('/').where((x) => x.isNotEmpty).toList();
       if (segs.length <= 2) {
-        final _r = _msCards(doc);
+        final res = _msCards(doc);
         // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-        if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-        return _r;
+        if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 分支=moviesets/解析器=msCards 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+        return res;
       }
     }
     // 色情小说列表（/novels、/novels/{分类}/new）
     if (p0 == '/novels' || p0.startsWith('/novels/')) {
-      final _r = novelCards(doc);
+      final res = novelCards(doc);
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 分支=novels/解析器=novelCards 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     if (p0.contains('heiliao') || p0.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) {
-      final _r = heiliaoCards(doc);
+      final res = heiliaoCards(doc);
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 分支=heiliao/解析器=heiliaoCards 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
-    final _r = _pornaCards(doc);
+    final res = _pornaCards(doc);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓（普通视频列表/搜索页）
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 分支=兜底/解析器=pornaCards 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 精选合集的"合集卡"（a.ms-card → /moviesets/{type}/{slug}）
@@ -165,10 +181,13 @@ class PornaSite extends SiteUi {
       ));
     }
     final seen = <String>{};
-    return [
+    final res = [
       for (final a in out)
         if (seen.add(a.url)) a
     ];
+    // 看：精选合集卡解析出几条 —— 只在 `list` 的 moviesets 分支之后到这里（那条分支日志只在"更浅一层"时打）。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 解析器=msCards 解析出 ${res.length} 条');
+    return res;
   }
 
   /// 色情小说的文字卡（没有封面，标题在 .dx-title，时间/作者在卡片文字里）
@@ -189,10 +208,13 @@ class PornaSite extends SiteUi {
       ));
     }
     final seen = <String>{};
-    return [
+    final res = [
       for (final a in out)
         if (seen.add(a.url)) a
     ];
+    // 看：小说卡解析出几条 —— 列表侧已由 `list` 的 novels 分支记一条（这条是**解析器自身**的口径，便于与上面那条对齐）。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 解析器=novelCards 解析出 ${res.length} 条');
+    return res;
   }
 
   /// 91短视频的卡片
@@ -214,10 +236,13 @@ class PornaSite extends SiteUi {
       ));
     }
     final seen = <String>{};
-    return [
+    final res = [
       for (final a in out)
         if (seen.add(a.url)) a
     ];
+    // 看：91短视频卡解析出几条 —— 列表侧 `list` 的 melonshort 分支**没有**单独打印 ⇒ 这条就是该分支唯一的口径。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 解析器=melonCards 解析出 ${res.length} 条');
+    return res;
   }
 
   /// 黑料吃瓜的图文卡（标题/封面/时间都在卡片里）
@@ -239,10 +264,14 @@ class PornaSite extends SiteUi {
       ));
     }
     final seen = <String>{};
-    return [
+    final res = [
       for (final a in out)
         if (seen.add(a.url)) a
     ];
+    // 看：黑料图文卡解析出几条 —— **详情页的相关推荐**也走这个函数（那边不经 `list` ⇒ 只能在这里打 ✓）。
+    //   ⚠️ 列表侧调用会与 `list` 的分支日志出现两条（`list` 那条另带 key/页/耗时 ✓）—— 这是有意的 ✓。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 解析器=heiliaoCards 解析出 ${res.length} 条');
+    return res;
   }
 
   List<Article> _pornaCards(Document doc) {
@@ -281,16 +310,19 @@ class PornaSite extends SiteUi {
       ));
     }
     final seen = <String>{};
-    return [
+    final res = [
       for (final a in out)
         if (seen.add(a.url)) a
     ];
+    // 看：普通视频卡解析出几条 —— **详情页的相关推荐**也走这个函数（那边不经 `list` ⇒ 只能在这里打 ✓）。
+    //   ⚠️ 列表侧调用会与 `list` 的分支日志出现两条（`list` 那条另带 key/页/耗时 ✓）—— 这是有意的 ✓。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 解析器=pornaCards 解析出 ${res.length} 条');
+    return res;
   }
-
-  /// 91短视频详情：页面里 `<script id="ms-bootstrap">` 的 `first_screen.list`
   /// 带全部字段（signed `video_url`、cover、video_duration 秒、publish_time），
   /// 当前视频按 URL 里的 id 找；同一数组里其余的就是"相关推荐"。
   Future<ArticleDetail> melonDetail(String url) async {
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
     Map<String, dynamic>? boot;
@@ -341,7 +373,7 @@ class PornaSite extends SiteUi {
       if (related.length >= 12) break;
     }
     final title = '${cur?['title'] ?? ''}'.trim();
-    return ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '${cur?['publish_time'] ?? ''}'.trim(),
       categories: const [],
@@ -353,10 +385,14 @@ class PornaSite extends SiteUi {
       seriesPrefix: seriesPrefix(title),
       duration: secClock('${cur?['video_duration'] ?? ''}'),
     );
+    // 看：91短视频子解析器解析出多少条（视频/相关）—— 0 条就是 ms-bootstrap 的 first_screen.list 没了。
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} 子解析=短视频 path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   /// 色情小说详情：标题（og:title 去掉站点后缀）+ 正文（article.markdown-body 全文）+ 插图
   Future<ArticleDetail> novelDetail(String url) async {
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
     var title =
@@ -374,7 +410,7 @@ class PornaSite extends SiteUi {
       final src = img.attributes['data-src'] ?? '';
       if (src.startsWith('http') && !images.contains(src)) images.add(src);
     }
-    return ArticleDetail(
+    final det = ArticleDetail(
       title: title,
       time: metaDate(doc.querySelector('.markdown-body')?.text ?? ''),
       categories: const [],
@@ -386,6 +422,9 @@ class PornaSite extends SiteUi {
       related: const [],
       seriesPrefix: seriesPrefix(title),
     );
+    // 看：小说子解析器解析出几条（图/正文字数）—— 正文空就是 article.markdown-body 选择器变了。
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} 子解析=小说 path=${url.length <= 80 ? url : url.substring(0, 80)} 图=${det.images.length} 正文字数=${det.intro.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   /// 黑料吃瓜详情：图文帖 + **正文里的视频**。
@@ -394,6 +433,7 @@ class PornaSite extends SiteUi {
   /// 且响应是**打包过的 JS**（把 m3u8 拆成字典碎片），所以要解包后再抠地址。
   /// 标签是元信息行里指向 `/黑料吃瓜/xxx` 的分类链接。
   Future<ArticleDetail> heiliaoDetail(String url) async {
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
     final title = (doc.querySelector('h1')?.text ?? '')
@@ -434,7 +474,7 @@ class PornaSite extends SiteUi {
       if (!href.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) continue;
       if (!tags.any((e) => e.key == href)) tags.add(MapEntry(href, name));
     }
-    return ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: time,
       categories: const [],
@@ -445,6 +485,9 @@ class PornaSite extends SiteUi {
       related: heiliaoCards(doc).where((a) => a.url != url).take(12).toList(),
       seriesPrefix: seriesPrefix(title),
     );
+    // 看：黑料图文子解析器解析出几条（视频/图/相关）—— 视频 0 条通常是 melon_detail_play 换源失败。
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} 子解析=黑料图文 path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   /// 详情：
@@ -454,7 +497,7 @@ class PornaSite extends SiteUi {
 // 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 就是 /index/detail_play 换源失败或 LD+JSON 缺 VideoObject。
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -514,7 +557,7 @@ class PornaSite extends SiteUi {
       videos.add(ArticleVideo(label: '视频 1', ordinal: 1, sources: [src]));
     }
 
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: time,
       categories: const [],
@@ -527,13 +570,14 @@ class PornaSite extends SiteUi {
       duration: duration,
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   /// 拿 91porna 的播放地址：请求 `/index/detail_play`（黑料帖是 `/index/melon_detail_play.js`），
   /// 响应是打包过的 JS，从中解出 m3u8。
   Future<String> _pornaPlayUrl(String html, String cover) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·换源】只计时 ✓ 不动参数拼装 ☠
     // img 参数 = 封面路径（去掉域名和查询串）
     var img = '';
     if (cover.isNotEmpty) {
@@ -563,7 +607,11 @@ class PornaSite extends SiteUi {
       final path =
           '/index/detail_play?img=${Uri.encodeComponent(img)}&ads=&u=$token&h=&t=$t';
       final src = await _playUrlFromScript(path);
-      if (src.isNotEmpty) return src;
+      if (src.isNotEmpty) {
+        // 看：第一段换源（页内 token → detail_play）拿到没有 —— 拿不到就要看下面第二段解包。
+        if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源①detail_play 拿到=${src.isNotEmpty} host=${Uri.tryParse(src)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
+        return src;
+      }
     }
     return '';
   }
@@ -572,6 +620,7 @@ class PornaSite extends SiteUi {
   /// 响应有两种形态：明文（k 数组里就是完整地址）和打包（地址被拆成字典碎片）——
   /// 后者要先 `_unpackJs` 解包（黑料帖的 melon_detail_play 就是这种）。
   Future<String> _playUrlFromScript(String path) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·换源】只计时 ✓ 不动请求/解包路径 ☠
     String js;
     try {
       js = await _f.text(path);
@@ -579,17 +628,31 @@ class PornaSite extends SiteUi {
       return '';
     }
     final m = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(js);
-    if (m != null) return m.group(0)!;
+    if (m != null) {
+      // 看：第二段换源（换源脚本 → m3u8）—— 明文直接命中。
+      if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 明文命中 host=${Uri.tryParse(m.group(0)!)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
+      return m.group(0)!;
+    }
     final plain = _unpackJs(js);
-    if (plain == null) return '';
+    if (plain == null) {
+      // 看：第二段换源失败 —— 脚本既不是明文也不像打包格式（脚本结构变了/被墙）。
+      if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 解包失败（非明文且非打包） ms=${sw.elapsedMilliseconds}');
+      return '';
+    }
     final m2 = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(plain);
+    // 看：第二段换源（打包 JS 解包后）—— 拿到没有。
+    if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 解包命中=${m2 != null} host=${Uri.tryParse(m2?.group(0) ?? '')?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
     return m2?.group(0) ?? '';
   }
 
   /// 黑料帖正文里的视频（`melon_detail_play` 换源，参数只有 token）
-  Future<String> _pornaPlayUrlByToken(String token, String script) {
+  Future<String> _pornaPlayUrlByToken(String token, String script) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·换源】只计时 ✓ 不动参数拼装 ☠
     final t = DateTime.now().millisecondsSinceEpoch ~/ 1000 ~/ 2100;
-    return _playUrlFromScript('/index/$script?img=&u=$token&t=$t');
+    final src = await _playUrlFromScript('/index/$script?img=&u=$token&t=$t');
+    // 看：第三段换源（黑料帖 token → melon_detail_play）—— 拿到没有 + 耗时。
+    if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源③$script 拿到=${src.isNotEmpty} host=${Uri.tryParse(src)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
+    return src;
   }
 
   /// 解开站点前端用的 JS 打包格式（Dean Edwards packer）：

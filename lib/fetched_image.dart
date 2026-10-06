@@ -162,6 +162,8 @@ class _FetchedImageState extends State<FetchedImage> {
     final hit = _cache.remove(url);
     if (hit != null) {
       _cache[url] = hit; // #1 LRU ✓：命中挪到队尾（Map 迭代按插入序 ✓）
+      // 看：这张图直接命内存缓存（没网、没解密）⇒ 卡顿时先看这里是不是全命中。
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 命内存 host=${Uri.tryParse(url)?.host ?? '?'}');
       setState(() => _bytes = hit);
       return;
     }
@@ -171,9 +173,17 @@ class _FetchedImageState extends State<FetchedImage> {
     final disk = ImageDiskCache.i.take(url);
     if (disk != null) {
       _cache[url] = disk; // 顺手进内存缓存 ✓
+      // 看：这张图命中磁盘缓存（冷启动第一张常走这里）⇒ 没有下载、没有解密。
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 命磁盘 字节=${disk.length} host=${Uri.tryParse(url)?.host ?? '?'}');
       if (!mounted) return;
       setState(() => _bytes = disk);
       return;
+    }
+    // 看：这张图要走网络（内存/磁盘都没命中）⇒ 卡图/限流都从这里开始。
+    if (AppSettings.i.logConsole) {
+      final uri = Uri.tryParse(url);
+      final pathOnly = uri == null ? url : '${uri.scheme}://${uri.host}${uri.path}';
+      debugPrint('[IMG] 取数 host=${uri?.host ?? '?'} path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)}');
     }
     final f = _inflight.putIfAbsent(url, () => _download(url));
     final bytes = await f;
@@ -189,6 +199,8 @@ class _FetchedImageState extends State<FetchedImage> {
   static void warm(String? url) {
     if (url == null || url.isEmpty) return;
     if (_cache.containsKey(url)) return;
+    // 看：预热发起了几张图（列表滚动时的预取量）—— 与"取数"那几条对着看就是预热命中率。
+    if (AppSettings.i.logConsole) debugPrint('[IMG] 预热 host=${Uri.tryParse(url)?.host ?? '?'}');
     _inflight.putIfAbsent(url, () => _download(url));
   }
 
@@ -277,21 +289,27 @@ class _FetchedImageState extends State<FetchedImage> {
           brand == 'msf1') {
         // ★【常驻诊断·★】AVIF 原生解码结果（**返回 null = 解不出** ⇒ 后面会被护栏拦下 ⇒ 走占位 ✓）
         final png = await KpAvif.decodeToPng(img);
-        if (AppSettings.i.logConsole) debugPrint('[IMG] AVIF品牌=$brand 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
-            'host=${Uri.tryParse(url)?.host ?? '?'}');
+        if (AppSettings.i.logConsole) {
+          debugPrint('[IMG] AVIF品牌=$brand 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
+          'host=${Uri.tryParse(url)?.host ?? '?'}');
+        }
         if (png != null) img = png; // 成功才顶替 ✓（失败 ⇒ 保持原字节 ✓）
       }
     }
     if (img == null || !_looksLikeImage(img)) {
-      if (AppSettings.i.logConsole) debugPrint('[IMG] 被护栏拦下（img=${img == null ? 'null' : '${img.length}B'} 非可解图）⇒ 走占位 '
-          'host=${Uri.tryParse(url)?.host ?? '?'}');
+      if (AppSettings.i.logConsole) {
+        debugPrint('[IMG] 被护栏拦下（img=${img == null ? 'null' : '${img.length}B'} 非可解图）⇒ 走占位 '
+        'host=${Uri.tryParse(url)?.host ?? '?'}');
+      }
       return null;
     }
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
     ImageDiskCache.i.put(url, img);
     // ★【常驻诊断】落盘 + 内存缓存（只打长度/条数 ✓ 不打 URL ✓）
-    if (AppSettings.i.logConsole) debugPrint('[IMG] 落盘+入内存缓存 len=${img.length} 缓存条数=${_cache.length + 1} '
-        'host=${Uri.tryParse(url)?.host ?? '?'}');
+    if (AppSettings.i.logConsole) {
+      debugPrint('[IMG] 落盘+入内存缓存 len=${img.length} 缓存条数=${_cache.length + 1} '
+      'host=${Uri.tryParse(url)?.host ?? '?'}');
+    }
     if (_cache.length >= _maxCache) {
       // #1+#2 ✓：LRU（命中已挪队尾 ✓）+ 字节封顶 → **只从头砍最久没用的**，砍到合规为止 ✗
       // （原来一次丢 100 张 ✗ → 屏幕上的图会被丢 → 立刻重下 + 重解密 ✗）

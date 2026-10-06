@@ -36,20 +36,35 @@ class XhSite extends SiteUi {
 
   /// ⚠️ 站点**有**搜索（'搜尋所有女優' 那个框 ✓），但**路径没实测过** ✗ →
   /// **明确抛错**，不猜一个地址糊上去 ✓（猜错了会静默变成空列表，更难查 ✓）。
+// 看：搜索入口 —— 本站搜索路径未实测，这里必定抛错（打一行，避免"点了搜索没反应"查不出来）。
 @override
   Future<List<Article>> search(String keyword,
-      {int page = 1, List<MapEntry<String, String>>? extra}) async =>
-      throw Exception('xHamster 搜索暂未接通（路径未实测）');
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} ⇒ 搜索未接通，抛错');
+    throw Exception('xHamster 搜索暂未接通（路径未实测）');
+  }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 演员卡传过来的是 '/pornstars/<slug>'（本人页 → 视频列表 ✓）；详情页标签也走这里 ✓。
   /// 全是站内路径，交给 list 分流（它会避开"把演员页当演员列表解析"的坑 ✓）
+// 看：标签页解析出几条 —— 0 条就是该演员/标签页没内容或卡片选择器变了。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(slug, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页解析出几条 —— 0 条就是首页卡片选择器变了或站点改址。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list('/', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// key / theme 都是**站内路径** ✓（「色情明星」tab 自己的选择器也走 theme ✓）：
@@ -67,11 +82,11 @@ class XhSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
-    final _r = await list(theme ?? key, page: page);
+    final sw = Stopwatch()..start();
+    final res = await list(theme ?? key, page: page);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// xHamster 只有 `/categories/*` tab 挂筛选行（且无子分类时 ✓）
@@ -90,8 +105,16 @@ class XhSite extends SiteUi {
   /// `/shorts/…` 进竖屏短片瀑布流 ✓；其余走详情页 ✓。
   @override
   String? specialTap(String url) {
-    if (url.contains('/pornstars/') || url.contains('/creators/')) return 'list';
-    if (url.startsWith('/shorts/')) return 'shorts';
+    // 看：点这张卡去哪（`list`=进他的视频列表 / `shorts`=进竖屏短片瀑布流）。
+    // ⚠️ 只在**非 null** 时打一条 —— 本函数是高频（每张卡都过）⇒ 返回 null（走详情页）那条**不打**，防刷屏 ☠
+    if (url.contains('/pornstars/') || url.contains('/creators/')) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} specialTap=list path=${url.length <= 80 ? url : url.substring(0, 80)}');
+      return 'list';
+    }
+    if (url.startsWith('/shorts/')) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} specialTap=shorts path=${url.length <= 80 ? url : url.substring(0, 80)}');
+      return 'shorts';
+    }
     return null;
   }
 
@@ -316,18 +339,25 @@ class XhSite extends SiteUi {
 
   /// 抓**一页**页面 JSON（第 1 页与第 N 页同一套 ✓）→ Article 列表
   Future<List<Article>> _xhMomentsPage(String path) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·短片】只计时 ✓ 不动取数/打乱路径 ☠
     final html = await _f.text(path, extraHeaders: _xhDesk);
     final out = _xhMomentsFromHtml(html);
     if (out.isEmpty) {
       // 第 1 页空 = 站点结构可能变了 ✗ → 抛错（界面当"可重试" ✓）
       if (path == _xhShortsPath) {
+        // 看：短片第 1 页解析出 0 条 ⇒ 会抛错（页面 JSON 结构变了 / 站点改址）。
+        if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 短片 path=${path.length <= 80 ? path : path.substring(0, 80)} 解析出 0 条 ⇒ 抛错 ms=${sw.elapsedMilliseconds}');
         // 不吞掉 ✓：界面会把原因显示出来（home_page 的三态渲染 ✓）
         throw Exception('短片页面解析出 0 条（页面结构可能变了）');
       }
       // 第 N 页空 = 站点这边没更多了 ✓ → 返回空（界面判"到底" ✓）
+      // 看：短片第 N 页解析出 0 条 ⇒ 判"到底"（属正常，不抛错）。
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 短片 path=${path.length <= 80 ? path : path.substring(0, 80)} 解析出 0 条 ⇒ 到底 ms=${sw.elapsedMilliseconds}');
       return const [];
     }
     out.shuffle(_rand); // 与 sim 一致：每批打乱 ✓
+    // 看：短片 JSON 解析出几条 —— 明显少于 45 就是 JSON 结构变了（或该页确实到尾）。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 短片 path=${path.length <= 80 ? path : path.substring(0, 80)} 解析出 ${out.length} 条 ms=${sw.elapsedMilliseconds}');
     return out;
   }
 
@@ -345,7 +375,7 @@ class XhSite extends SiteUi {
   /// **短片例外**：'/shorts/…' 只用站点默认那条（用户 2026-10-02："短片的话你就使用网站
   /// 默认给的分辨率就行"）→ 不展开档位、不做清晰度选择器。
   Future<ArticleDetail> _xhDetail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url, extraHeaders: _xhDesk);
     final doc = hp.parse(html);
 
@@ -420,7 +450,7 @@ class XhSite extends SiteUi {
     final related =
         _xhCards(html).where((a) => !a.url.startsWith('/shorts/')).toList();
 
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title,
       time: '',
       // ⚠️ categories 是必需参数（models.dart 里是 required this.categories）——
@@ -439,8 +469,8 @@ class XhSite extends SiteUi {
       seriesPrefix: '',
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

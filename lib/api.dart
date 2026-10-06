@@ -159,8 +159,8 @@ class Api {
     // 现在改成**问站点自己** ✓：各站的解析/URL 拼接早已在 lib/sites/*.dart 里 ✓。
     // ★ 分类列表诊断：看"点了哪个 tab / 子分类 / 筛选，实际落到哪个 k，站点回了多少条、花了多久"
     //   —— 列表空白、条数不对、切筛选没反应时先看这行 ✓（只读，不参与任何判断 ☠）
-    final _sw = Stopwatch()..start();
-    final _r = await _ui!.category(key,
+    final sw = Stopwatch()..start();
+    final res = await _ui!.category(key,
         page: page,
         k: k,
         theme: theme,
@@ -168,10 +168,12 @@ class Api {
         sort: sort,
         extra: extra,
         home: home);
-    if (AppSettings.i.logConsole) debugPrint('[LIST] 站=${site.name} key=$key k=$k 页=$page '
-        'sub=${sub ?? ''} sub2=${sub2 ?? ''} theme=${theme ?? ''} duration=${duration ?? ''} sort=${sort ?? ''} '
-        'n=${_r.length} ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) {
+      debugPrint('[LIST] 站=${site.name} key=$key k=$k 页=$page '
+      'sub=${sub ?? ''} sub2=${sub2 ?? ''} theme=${theme ?? ''} duration=${duration ?? ''} sort=${sort ?? ''} '
+      'n=${res.length} ms=${sw.elapsedMilliseconds}');
+    }
+    return res;
   }
 
   /// 首页最新列表（无分类 tab 的站点用；有 tab 的都直接进分类页）
@@ -179,21 +181,25 @@ class Api {
     // 只算好「第一个分类」（3 个站要用），其余交给站点自己 ✓
     final first = site.categories.isEmpty ? '' : site.categories.first.key;
     // ★ 首页取数诊断：哪个站、要的第几页、传给站点的 first 是什么、回来几条、多久 —— 首页空白时先看这行
-    final _sw = Stopwatch()..start();
-    final _r = await _ui!.home(page: page, first: first);
-    if (AppSettings.i.logConsole) debugPrint(
-        '[HOME] 站=${site.name} 页=$page first=$first n=${_r.length} ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    final sw = Stopwatch()..start();
+    final res = await _ui!.home(page: page, first: first);
+    if (AppSettings.i.logConsole) {
+      debugPrint(
+      '[HOME] 站=${site.name} 页=$page first=$first n=${res.length} ms=${sw.elapsedMilliseconds}');
+    }
+    return res;
   }
 
   /// 标签列表页。page 从 1 开始。
   Future<List<Article>> tag(String slug, {int page = 1}) async {
     // ★ 标签列表诊断：哪个 slug、要的第几页、回来几条、多久 —— "点标签进来空白 / 翻页不动"先看这行
-    final _sw = Stopwatch()..start();
-    final _r = await _ui!.tag(slug, page: page);
-    if (AppSettings.i.logConsole) debugPrint(
-        '[LIST] 站=${site.name} tag=$slug 页=$page n=${_r.length} ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    final sw = Stopwatch()..start();
+    final res = await _ui!.tag(slug, page: page);
+    if (AppSettings.i.logConsole) {
+      debugPrint(
+      '[LIST] 站=${site.name} tag=$slug 页=$page n=${res.length} ms=${sw.elapsedMilliseconds}');
+    }
+    return res;
   }
 
   /// 搜索（关键词需原始文本，内部编码）。
@@ -205,12 +211,14 @@ class Api {
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     // ★ 搜索诊断：关键词**只打长度 + 前 20 字**（不打全文 ☠）、要的第几页、回来几条、多久
     //   —— "搜不到 / 第 2 页和首页重复"先看这行
-    final _sw = Stopwatch()..start();
-    final _r = await _ui!.search(keyword, page: page, extra: extra);
-    if (AppSettings.i.logConsole) debugPrint('[LIST] 站=${site.name} 搜 页=$page n=${_r.length} '
-        'kwLen=${keyword.length} kwHead=${keyword.length <= 20 ? keyword : keyword.substring(0, 20)} '
-        'ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    final sw = Stopwatch()..start();
+    final res = await _ui!.search(keyword, page: page, extra: extra);
+    if (AppSettings.i.logConsole) {
+      debugPrint('[LIST] 站=${site.name} 搜 页=$page n=${res.length} '
+      'kwLen=${keyword.length} kwHead=${keyword.length <= 20 ? keyword : keyword.substring(0, 20)} '
+      'ms=${sw.elapsedMilliseconds}');
+    }
+    return res;
   }
 
   // ---------------------------------------------------------------------------
@@ -225,14 +233,16 @@ class Api {
   Future<ArticleDetail> detail(String url) async {
     // ★ 详情诊断：只打 **host + path（截 80）**（不打完整 URL ☠），再看解析出几条视频/图/相关推荐、多久
     //   —— "详情页空白 / 没有播放源 / 相关推荐不出现"先看这行
-    final _sw = Stopwatch()..start();
-    final _d = await _ui!.detailOf(url);
-    final _u = Uri.tryParse(url);
-    final _p = _u?.path ?? url;
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 站=${site.name} host=${_u?.host ?? ''} '
-        'path=${_p.length <= 80 ? _p : _p.substring(0, 80)} videos=${_d.videos.length} '
-        'images=${_d.images.length} related=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    final sw = Stopwatch()..start();
+    final det = await _ui!.detailOf(url);
+    final uri = Uri.tryParse(url);
+    final pathOnly = uri?.path ?? url;
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DETAIL] 站=${site.name} host=${uri?.host ?? ''} '
+      'path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)} videos=${det.videos.length} '
+      'images=${det.images.length} related=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    }
+    return det;
   }
 
   // ---------------------------------------------------------------------------
@@ -262,7 +272,7 @@ class Api {
 
   /// 真去抓某一集的源（去重与缓存入口见 [videoSourcesAt]）
   Future<List<String>> _fetchSourcesAt(String url) async {
-    final _sw = Stopwatch()..start(); // ★ 取源诊断：只计时 ✓（不动请求/解析路径 ☠）
+    final sw = Stopwatch()..start(); // ★ 取源诊断：只计时 ✓（不动请求/解析路径 ☠）
     final html = await _fetchText(url);
     final out = <String>[];
     // ⚠️ 站点专属的解析已**下放各站** ✓（见 SiteUi.sourcesFromHtml ✓）——
@@ -278,9 +288,11 @@ class Api {
     }
     // ★ 取源诊断：走了哪条分支（站点自有 ✓ / 通用 .dplayer ✓）+ 拿到几条源 + 耗时
     //   —— "点了某一集没有播放源"时先看这行（这一集的 host/path 在 [NET] 行里 ✓）
-    if (AppSettings.i.logConsole) debugPrint(
-        '[SRC] 站=${site.name} 分支=${own != null ? '站点自有' : '通用 .dplayer'} '
-        'n=${out.length} ms=${_sw.elapsedMilliseconds}');
+    if (AppSettings.i.logConsole) {
+      debugPrint(
+      '[SRC] 站=${site.name} 分支=${own != null ? '站点自有' : '通用 .dplayer'} '
+      'n=${out.length} ms=${sw.elapsedMilliseconds}');
+    }
     // ⚠️ #9：缓存已统一交给 `SourceCache`（在 `videoSourcesAt` 里 ✓）—— 这里**只管抓** ✓
     return out;
   }

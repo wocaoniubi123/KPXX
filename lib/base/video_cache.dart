@@ -297,7 +297,7 @@ class VideoCache {
       }
       entries.sort((a, b) => b.value.compareTo(a.value)); // 新 → 旧 ✓
       var total = 0;
-      var deleted = 0; // ★ 只计数（照 image_cache 的 `_del` 同款 ✓）
+      var deleted = 0; // ★ 只计数（照 image_cache 的 `deleted` 同款 ✓）
       var deletedBytes = 0; // ★ 只计数：被删掉的那些字节（`total` 含它们 ⇒ 相减才是"留下"的 ✓）
       for (var n = 0; n < entries.length; n++) {
         final f = entries[n].key;
@@ -339,8 +339,10 @@ class VideoCache {
         }
       }
       // 一次清理的结果：处理了几个文件、删了几个、剩几个、留下多少字节、上限是多少
-      if (AppSettings.i.logConsole) debugPrint('[CACHE] video 清理 文件=${entries.length} 删=$deleted '
-          '剩=${entries.length - deleted} 总字节=${total - deletedBytes} 上限文件=$maxFiles 上限字节=$maxTotalBytes');
+      if (AppSettings.i.logConsole) {
+        debugPrint('[CACHE] video 清理 文件=${entries.length} 删=$deleted '
+        '剩=${entries.length - deleted} 总字节=${total - deletedBytes} 上限文件=$maxFiles 上限字节=$maxTotalBytes');
+      }
     } catch (_) {}
   }
 

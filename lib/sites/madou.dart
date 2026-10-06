@@ -40,29 +40,41 @@ class MadouSite extends SiteUi {
   }
 
   /// 搜索 = /?s={kw} ✓；翻页参数是 **paged**（不是 page ✓），照站点原样 ✓
+// 看：搜索解析出几条 —— 0 条就是 /?s= 的卡片选择器变了（或关键词被站点当成不存在）。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
     final kw = Uri.encodeComponent(keyword);
-    return cards(await _f.text(
+    final res = cards(await _f.text(
         page <= 1 ? '/?s=$kw' : '/?paged=$page&s=$kw'));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是裸 slug（/tag/{slug} ✓）；以 / 开头的是卡片上的分类路径 ✓
+// 看：标签页解析出几条 —— 0 条就是该标签没有内容或卡片选择器变了（裸 slug 与站内路径两种走法）。
 @override
   Future<List<Article>> tag(String slug, {required int page}) async {
-    if (slug.startsWith('/')) {
-      return cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'));
-    }
-    return cards(await _f.text(
-        page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+    final sw = Stopwatch()..start();
+    final res = slug.startsWith('/')
+        ? await cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'))
+        : await cards(await _f.text(
+            page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 首页第 N 页 = /page/N（没有 /page/1 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页解析出几条 —— 0 条就是首页卡片选择器（article.excerpt）变了或 /page/N 被站点改址。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) async =>
-      cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
@@ -76,39 +88,39 @@ class MadouSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动分流/取数路径 ☠
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动分流/取数路径 ☠
     // 并集里 kk 可空、home 可空 ✗ → 绑定回原语义 ✓（原来两者都必填）
     final kk = k ?? key;
     // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
     // （/likes /week /month 三个榜单 + /tags 标签云）
     // ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
     if (kk.isEmpty) {
-      final _r = await home!(page: page);
+      final res = await home!(page: page);
       // ★【常驻诊断】「首页」tab 兜底：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     if (kk == '/tags') {
-      final _r = tags(await _f.text('/tags'));
+      final res = tags(await _f.text('/tags'));
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     if (kk.startsWith('/')) {
       // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
-      final _r = page > 1 ? const <Article>[] : cards(await _f.text(kk));
+      final res = page > 1 ? const <Article>[] : cards(await _f.text(kk));
       // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-      return _r;
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
     // （站点对未编码的中文路径实测 400，编码后 200）
     final md = RegExp(r'[^\x00-\x7F]').hasMatch(kk) ? Uri.encodeComponent(kk) : kk;
-    final _r = cards(await _f.text(
+    final res = cards(await _f.text(
         page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
   /// 卡片解析（首页/分类/搜索/标签/榜单共用）
   List<Article> cards(String html) {
@@ -147,7 +159,7 @@ class MadouSite extends SiteUi {
   /// 详情：标题/分类/标签/相关推荐/播放源（站点没有时长、系列、简介、发布时间）
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final doc = hp.parse(await _f.text(url));
     final title = (doc.querySelector('.article-title')?.text ?? '').trim();
     final catName = (doc.querySelector('.item-3 a')?.text ?? '').trim();
@@ -178,7 +190,7 @@ class MadouSite extends SiteUi {
       if (related.length >= 12) break;
     }
     final play = await playUrl(doc);
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: [if (catName.isNotEmpty) catName],
@@ -193,8 +205,8 @@ class MadouSite extends SiteUi {
       seriesPrefix: '',
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   /// URL 最后一段（标签 slug 用；空链接返回空串）
@@ -233,19 +245,34 @@ class MadouSite extends SiteUi {
   /// 任何一步拿不到就返回空串（videos 留空，不抛异常、不编假地址）；
   /// token 只有 100 秒时效，过期靠上层「起播失败 → 重新抓详情页」兜底。
   Future<String> playUrl(Document doc) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/正则路径 ☠
     final share = (doc.querySelector('.article-content iframe')
                 ?.attributes['src'] ??
             '')
         .trim();
-    if (share.isEmpty) return '';
+    if (share.isEmpty) {
+      // 看：正文里没有 iframe ⇒ 拿不到分享页（正文结构变了 / 该篇本来就没视频）。
+      if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} playUrl 无 iframe ⇒ 无源 ms=${sw.elapsedMilliseconds}');
+      return '';
+    }
     final html = await _f.abs(share);
-    if (html.isEmpty) return '';
+    if (html.isEmpty) {
+      // 看：分享页（dash.madou.club）取不到 ⇒ 无源（跨域取数失败 / 域名挂了）。
+      if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} playUrl 分享页取不到 host=${Uri.tryParse(share)?.host ?? '?'} ⇒ 无源 ms=${sw.elapsedMilliseconds}');
+      return '';
+    }
     final tok =
         RegExp(r'var\s+token\s*=\s*"([^"]*)"').firstMatch(html)?.group(1) ?? '';
     final path =
         RegExp(r"var\s+m3u8\s*=\s*'([^']*)'").firstMatch(html)?.group(1) ?? '';
-    if (tok.isEmpty || path.isEmpty) return '';
+    if (tok.isEmpty || path.isEmpty) {
+      // 看：分享页里的 token/m3u8 两行 JS 抠不出来 ⇒ 无源（站点换了变量名/换了页面结构）。
+      if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} playUrl token或m3u8缺失 tok=${tok.isNotEmpty} m3u8=${path.isNotEmpty} ⇒ 无源 ms=${sw.elapsedMilliseconds}');
+      return '';
+    }
     final abs = path.startsWith('http') ? path : 'https://dash.madou.club$path';
+    // 看：token 换取成功 —— 只打**首个媒体 host**（token 原串/query 一律不打 ☠）。
+    if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} playUrl 拿到源=true 首个host=${Uri.tryParse(abs)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
     return '$abs?token=$tok';
   }
 }

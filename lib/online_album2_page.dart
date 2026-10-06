@@ -8,6 +8,7 @@ import 'config.dart';
 import 'home_page.dart';
 import 'online_album2_avif.dart'; // ★ 本页专用：AVIF 兜底（封面/详情图 ✓ 别的页不碰 ✗）
 import 'online_album_common.dart';
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 
 /// 「在线图集2」列表页（站点：photos18 ✓ **服务端渲染** ✓ 2026-10-05 探站实录 ✓）。
 ///
@@ -65,7 +66,7 @@ class _P18Item {
 ///   `<img src="/images/node/96/965180.avif?1791129814" … loading="lazy">`
 ///   `<a class="visited" href="/v/ZQygA" …>` + `<a href="/v/ZQygA">Cosplayer御子miko普拉娜萬聖節</a>`
 /// ⚠️ 卡片外层 `padding-top: 133.1667%`（= 高/宽 ✓ 每张可能不同 ✓ 实测另一张是 150% ✓）。
-List<_P18Item> parseP18List(String html) {
+List<_P18Item> _parseP18List(String html) {
   final out = <_P18Item>[];
   final cards = RegExp(r'<div class="card">').allMatches(html).toList();
   for (var i = 0; i < cards.length; i++) {
@@ -340,7 +341,7 @@ class _CatFeed2State extends State<_CatFeed2> {
         }
         return;
       }
-      final list = parseP18List(utf8.decode(r.bodyBytes, allowMalformed: true));
+      final list = _parseP18List(utf8.decode(r.bodyBytes, allowMalformed: true));
       // ★ 2026-10-05【常驻诊断·解析层】只拼字符串 ✓ 不碰解析/去重/分页/缓存/预热 ☠（开关关着零开销 ✓ 走同名 debugPrint ✓）
       //   与图集1 同款（见 `online_album_page.dart:368-384` ✓）；元素字段 = `title` / `cover` / `detail` ✓
       //   依据（原文 ✓）：本文件 `:423 builder: (_) => P18DetailPage(detailPath: it.detail, title: it.title)` ✓
@@ -360,7 +361,7 @@ class _CatFeed2State extends State<_CatFeed2> {
         final s = b.toString();
         return s.length <= 400 ? s : '${s.substring(0, 400)}…';
       }
-      debugPrint(diag());
+      if (AppSettings.i.logConsole) debugPrint(diag());
       if (!mounted) return;
       setState(() {
         _items = list;
@@ -382,13 +383,14 @@ class _CatFeed2State extends State<_CatFeed2> {
   Future<void> _loadMore() async {
     if (_more || _done || _loading) return;
     _more = true;
+    final sw = Stopwatch()..start(); // ★【常驻诊断·图集2】只计时 ✓ 不动取数/追加路径 ☠
     try {
       final r = await Site.httpClient
           .get(Uri.parse(_url(_page + 1)),
               headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 20));
       if (r.statusCode != 200 || !mounted) return;
-      final list = parseP18List(utf8.decode(r.bodyBytes, allowMalformed: true));
+      final list = _parseP18List(utf8.decode(r.bodyBytes, allowMalformed: true));
       if (!mounted) return;
       setState(() {
         if (list.isEmpty) {
@@ -397,6 +399,8 @@ class _CatFeed2State extends State<_CatFeed2> {
           _items = [..._items, ...list];
           _page += 1;
         }
+        // 看：图集2 翻页 —— 本页解析出几条 / 累计多少（本页=0 即判到底）。
+        if (AppSettings.i.logConsole) debugPrint('[ALBUM] 翻页 页=${_page + 1} 本页=${list.length} 累计=${_items.length} ms=${sw.elapsedMilliseconds}');
       });
     } catch (_) {
       // 续拉失败静默 ✓（下拉刷新仍可救 ✓）
@@ -491,6 +495,7 @@ class _P18DetailPageState extends State<P18DetailPage> {
   }
 
   Future<void> _load() async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·图集2】只计时 ✓ 不动取数/解析路径 ☠
     try {
       final r = await Site.httpClient
           .get(Uri.parse('$_p18Host${widget.detailPath}'),
@@ -507,6 +512,8 @@ class _P18DetailPageState extends State<P18DetailPage> {
       }
       final d = parseP18Detail(utf8.decode(r.bodyBytes, allowMalformed: true));
       if (!mounted) return;
+      // 看：图集2 详情页载入 —— 解析出多少张 + 耗时（0 张就是站点结构变了）。
+      if (AppSettings.i.logConsole) debugPrint('[ALBUM] 详情 张数=${d.urls.length} ms=${sw.elapsedMilliseconds}');
       setState(() {
         _imgs = d.urls;
         _ratios = d.ratios;

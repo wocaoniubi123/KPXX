@@ -27,18 +27,35 @@ class PektinoSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条 ✓；原 `Api.search` 原样搬来 ✓）
+// 看：搜索解析出几条 —— 0 条就是 /api/media 把分类名当关键词没结果（或接口字段变了）。
 @override
   Future<List<Article>> search(String keyword,
-      {int page = 1, List<MapEntry<String, String>>? extra}) =>
-      list('all', keyword, page: page);
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('all', keyword, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// "标签" = 主题筛选（走同一个接口，全时段 ✓；原 `Api.tag` 的 case body 原样搬来 ✓）
+// 看：标签（主题筛选）解析出几条 —— 0 条就是该主题在 /api/media 下没有内容。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) => list('all', slug, page: page);
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('all', slug, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 首页 = 每日榜（和站点首页一致 ✓；原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（每日榜）解析出几条 —— 0 条就是 /api/media?range=timely 没数据或字段改名。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list('timely', '', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('timely', '', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 主分类 4 个都是路径型（/zh-CN/、/zh-CN/weekly…）→ 从路径解出 range ✓；
@@ -52,7 +69,7 @@ class PektinoSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final r = key.endsWith('/weekly')
         ? 'weekly'
         : key.endsWith('/monthly')
@@ -60,10 +77,10 @@ class PektinoSite extends SiteUi {
             : key.endsWith('/all')
                 ? 'all'
                 : 'timely';
-    final _list = await list(r, theme ?? '', page: page, duration: duration, sort: sort);
+    final rows = await list(r, theme ?? '', page: page, duration: duration, sort: sort);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_list.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _list;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${rows.length} 条 ms=${sw.elapsedMilliseconds}');
+    return rows;
   }
 
   /// 列表走瀑布流（逐条按分辨率混排，不留空档 ✓）
@@ -144,7 +161,7 @@ class PektinoSite extends SiteUi {
   /// 把 `\"` 反转义后按 `"url_cd"` 切块、正则抽字段（整段 JSON 解析不划算）。
   /// 相关推荐 = payload 里的其它视频（各条都带 url_cd/thumbnail/time/url）。
   Future<ArticleDetail> _pektinoDetail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final urlCd = url.split('/movie/').last.replaceAll('/', '');
     final plain = html.replaceAll(r'\"', '"').replaceAll(r'\\', r'\');
@@ -194,7 +211,7 @@ class PektinoSite extends SiteUi {
     final pv = main?['pv'] ?? '';
     final fav = main?['favorite'] ?? '';
     final acc = main?['tweet_account'] ?? '';
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: urlCd.isEmpty ? url : urlCd,
       time: '',
       categories: const [],
@@ -225,8 +242,8 @@ class PektinoSite extends SiteUi {
       seriesPrefix: '',
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

@@ -13,7 +13,6 @@
 // ⚠️ **不要往这里加任何"某站怎么办"的分支** ✗ —— 那些一律写进 `lib/sites/<站点>.dart` ✓。
 
 import 'dart:convert';
-import '../site_error_log.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -58,7 +57,7 @@ class SiteFetcher {
           if (AppSettings.i.logConsole) debugPrint('[NET] 轮换 host=$h 第${attempt + 1}次（共 ${order.length} 个域名）站=${site.name}');
         }
         try {
-          final _sw = Stopwatch()..start(); // ★【常驻诊断·③④】只计时 ✓ 不动请求/重试/失败路径 ☠
+          final sw = Stopwatch()..start(); // ★【常驻诊断·③④】只计时 ✓ 不动请求/重试/失败路径 ☠
           final r = await _client.get(
             Uri.parse('https://$h$path'),
             headers: {
@@ -73,21 +72,19 @@ class SiteFetcher {
             host = h;
             // ★【常驻诊断·成功路径】只打 host / path(截 80) / qlen / qhead(前 20) / 状态码 / 字节数 / ms ✓
             //   ⚠️ **绝不打完整 URL** ☠（query 只留长度 + 头 20 字 ✓）；开关关着时零开销 ✓（受 debugPrint 接管控制 ✓）
-            final _qi = path.indexOf('?');
-            final _dpath = 'https://$h${_qi < 0 ? path : path.substring(0, _qi)}';
-            final _q = _qi < 0 ? '' : path.substring(_qi + 1);
-            if (AppSettings.i.logConsole) debugPrint(
-                '[NET] 站=${site.name} code=${r.statusCode} len=${r.bodyBytes.length} ms=${_sw.elapsedMilliseconds} '
-                'host=$h path=${_dpath.length <= 80 ? _dpath : _dpath.substring(0, 80)} '
-                'qlen=${_q.length} qhead=${_q.length <= 20 ? _q : _q.substring(0, 20)}');
+            final qi = path.indexOf('?');
+            final dpath = 'https://$h${qi < 0 ? path : path.substring(0, qi)}';
+            final qs = qi < 0 ? '' : path.substring(qi + 1);
+            if (AppSettings.i.logConsole) {
+              debugPrint(
+              '[NET] 站=${site.name} code=${r.statusCode} len=${r.bodyBytes.length} ms=${sw.elapsedMilliseconds} '
+              'host=$h path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
+              'qlen=${qs.length} qhead=${qs.length <= 20 ? qs : qs.substring(0, 20)}');
+            }
             return utf8.decode(r.bodyBytes);
           }
           if (r.statusCode < 500) break; // 4xx 重试没用，直接换域名
-        } catch (e, st) {
-
-          // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
-
-          await SiteErrorLog.log(site.name, e, st);
+        } catch (_) {
           // 超时/连接失败：不再重试同域名，换下一个
           break;
         }
@@ -109,15 +106,13 @@ class SiteFetcher {
       }).timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) return '';
       // ★【常驻诊断·④】abs() 成功一行 ✓（path 截 80 ✓ 不带 query ✓）
-      final _ap = '${u.scheme}://${u.host}${u.path}';
-      if (AppSettings.i.logConsole) debugPrint('[NET-abs] code=${r.statusCode} len=${r.bodyBytes.length} '
-          'path=${_ap.length <= 80 ? _ap : _ap.substring(0, 80)}');
+      final absPath = '${u.scheme}://${u.host}${u.path}';
+      if (AppSettings.i.logConsole) {
+        debugPrint('[NET-abs] code=${r.statusCode} len=${r.bodyBytes.length} '
+        'path=${absPath.length <= 80 ? absPath : absPath.substring(0, 80)}');
+      }
       return utf8.decode(r.bodyBytes);
-    } catch (e, st) {
-
-      // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
-
-      await SiteErrorLog.log(site.name, e, st);
+    } catch (_) {
       return '';
     }
   }
@@ -168,11 +163,7 @@ class SiteFetcher {
       // ★【常驻诊断·★④】master 解析出的档位数（≥2 ⇒ 多档 ✓；这条对着"一片一片"看 ✓）
       if (AppSettings.i.logConsole) debugPrint('[HLS] master 变体数=${found.length} host=${mu.host}（高→低 ✓ 默认取第一条 ✓）');
       return [for (final f in found) f.value];
-    } catch (e, st) {
-
-      // ✅ 公共错误日志：时间 + 站点名 + 错误 ✓（用户 2026-10-03 要求）
-
-      await SiteErrorLog.log(site.name, e, st);
+    } catch (_) {
       return null;
     }
   }

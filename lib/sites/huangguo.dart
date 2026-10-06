@@ -66,28 +66,51 @@ class HuangguoSite extends SiteUi {
   }
 
   /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+// 看：搜索解析出几条 —— 0 条就是 /search/?keyword= 的卡片选择器变了（本站搜索只有单页）。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    if (page > 1) return [];
+    final sw = Stopwatch()..start();
+    if (page > 1) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page ⇒ 本站搜索无翻页，返回 0 条');
+      return [];
+    }
     final kw = Uri.encodeComponent(keyword);
     final html = await _f.text('/search/?keyword=$kw');
-    return parseCards(hp.parse(html));
+    final res = parseCards(hp.parse(html));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 专题等路径型（点"专题"卡片进来）走页面列表 ✓；标签页是普通列表页（没有分页 ✓）
+// 看：标签页解析出几条 —— 0 条就是该标签没内容或卡片选择器变了（路径型走 pageList、其余是单页）。
 @override
   Future<List<Article>> tag(String slug, {required int page}) async {
-    if (slug.startsWith('/')) return pageList(slug, page: page);
-    if (page > 1) return [];
-    return parseCards(hp.parse(await _f.text('/tag/$slug/')));
+    final sw = Stopwatch()..start();
+    if (slug.startsWith('/')) {
+      final res = await pageList(slug, page: page);
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
+    }
+    if (page > 1) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page ⇒ 标签页无翻页，返回 0 条');
+      return [];
+    }
+    final res = parseCards(hp.parse(await _f.text('/tag/$slug/')));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 首页 = 第一个频道的「最新」（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（第一个频道的最新）解析出几条 —— 0 条就是 /api/videos/category 的 items 空了。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) =>
-      list(first, sort: 'latest', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(first, sort: 'latest', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
 // 看：分类页解析出几条 —— 0 条就是 JSON 接口的 items 空了，或路径型列表的卡片选择器变了。
@@ -100,17 +123,17 @@ class HuangguoSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓
     final kk = k ?? key;
     // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
     // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
-    final _r = kk.startsWith('/')
+    final res = kk.startsWith('/')
         ? await pageList(kk, page: page)
         : await list(key, sort: kk == key ? 'latest' : kk, page: page);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
   // 黄果短剧（huangguoai）
 
@@ -121,6 +144,7 @@ class HuangguoSite extends SiteUi {
   ///   （横版大图、列表 2 列）；翻页两形态：全部 → `/chigua/page/2/`、
   ///   子分类 → `/chigua/remen/2/`（都按页面实际链接，别猜）
   Future<List<Article>> pageList(String path, {int page = 1}) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动分流/取数路径 ☠
     final p = path.endsWith('/') ? path : '$path/';
     // ⚠️ 精选推荐 / 最近上新 要走 **JSON 接口**：页面 HTML 里那份是站点没更新的静态版
     // （抓 HTML 会拿到另一个顺序，跟用户在站点上看到的对不上）。
@@ -134,10 +158,13 @@ class HuangguoSite extends SiteUi {
               ? (j['data']['items'] ?? const [])
               : const [])
           : const [];
-      return [
+      final res = [
         for (final it in items)
           if (it is Map<String, dynamic>) _hgArticle(it),
       ];
+      // 看：路径型列表（精选推荐/最近上新走 JSON 接口）解析出几条 —— 0 条就是 data.items 空了。
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} pageList path=$p 页=$page 源码=json 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+      return res;
     }
     // 翻页形态按站点实际链接来（不猜）：
     //   "全部"（/chigua/）→ /chigua/page/2/；子分类（/chigua/remen/ 等）→ /chigua/remen/2/；
@@ -148,11 +175,20 @@ class HuangguoSite extends SiteUi {
             ? '${p}page/$page/'
             : '$p$page/');
     final doc = hp.parse(await _f.text(url));
-    if (p.startsWith('/chigua')) return _hgPostCards(doc);
-    if (p.startsWith('/ranks')) return _hgRankCards(doc);
-    // 专题列表页（/topics/）上是"专题卡"，专题自己的页面（/topics/xxx/）才是视频网格
-    if (p == '/topics/') return _hgTopicCards(doc);
-    return parseCards(doc);
+    final List<Article> res;
+    if (p.startsWith('/chigua')) {
+      res = _hgPostCards(doc);
+    } else if (p.startsWith('/ranks')) {
+      res = _hgRankCards(doc);
+    } else if (p == '/topics/') {
+      // 专题列表页（/topics/）上是"专题卡"，专题自己的页面（/topics/xxx/）才是视频网格
+      res = _hgTopicCards(doc);
+    } else {
+      res = parseCards(doc);
+    }
+    // 看：路径型列表（HTML 那套）解析出几条 —— 0 条就是该路径的卡片选择器变了。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} pageList path=$p 页=$page 源码=html 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 专题卡（a.hg-topic-card → /topics/xxx/）：点开是该专题下的视频列表
@@ -240,6 +276,7 @@ class HuangguoSite extends SiteUi {
   /// ⚠️ 2026-09-30 修正：之前写死"吃瓜帖是图文、无视频"是**探测不到位**
   /// （只扫了几篇就下结论）——实测 606/605/604/602 都有视频，612/611/610 是纯图文。
   Future<ArticleDetail> postDetail(String url) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动解析路径 ☠
     final doc = hp.parse(await _f.text(url));
     final title = (doc.querySelector('h1')?.text ?? '').trim();
     final intro =
@@ -285,7 +322,7 @@ class HuangguoSite extends SiteUi {
       if (slug.isEmpty) continue;
       if (!tags.any((e) => e.key == slug)) tags.add(MapEntry(slug, t));
     }
-    return ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: time,
       categories: const [],
@@ -296,6 +333,9 @@ class HuangguoSite extends SiteUi {
       related: parseCards(doc).where((x) => x.url != url).take(12).toList(),
       seriesPrefix: seriesPrefix(title),
     );
+    // 看：吃瓜帖子（图文）解析出几条 —— 视频/图 全 0 就是帖子正文结构变了。
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} 子解析=吃瓜帖子 path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 
   // ---------------------------------------------------------------------------
@@ -304,6 +344,7 @@ class HuangguoSite extends SiteUi {
   /// [sort]：latest / hot / original / random（对应页面上的 4 个子 tab）
   Future<List<Article>> list(String channel,
       {required String sort, int page = 1}) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/解析路径 ☠
     final sortParam = switch (sort) {
       'hot' => 'hot_window',
       'original' => 'hot_window&is_original=1',
@@ -313,13 +354,20 @@ class HuangguoSite extends SiteUi {
         '/api/videos/category/$channel?sort=$sortParam&page=$page&size=20';
     final body = await _f.text(path);
     final data = jsonDecode(body);
-    if (data is! Map<String, dynamic>) return [];
+    if (data is! Map<String, dynamic>) {
+      // 看：频道列表 JSON 顶层不是对象（接口报错/换了壳）—— 0 条。
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 频道=$channel sort=$sort 页=$page JSON 顶层非对象 解析出 0 条 ms=${sw.elapsedMilliseconds}');
+      return [];
+    }
     final d = data['data'];
     final items = (d is Map<String, dynamic> ? d['items'] : null) ?? const [];
-    return [
+    final res = [
       for (final it in items)
         if (it is Map<String, dynamic>) _hgArticle(it),
     ];
+    // 看：频道列表（JSON 接口）解析出几条 —— 0 条就是 data.items 空了。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 频道=$channel sort=$sort 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   Article _hgArticle(Map<String, dynamic> v) {
@@ -410,7 +458,7 @@ class HuangguoSite extends SiteUi {
   /// epPlaySrcs = {"1": m3u8, "2": m3u8, ...}（整部剧所有集，一次拿全，不用逐集抓）。
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -491,7 +539,7 @@ class HuangguoSite extends SiteUi {
       title = (doc.querySelector('h1')?.text ?? '').trim();
     }
 
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title,
       time: time,
       categories: const [],
@@ -503,8 +551,8 @@ class HuangguoSite extends SiteUi {
       seriesPrefix: seriesPrefix(title),
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

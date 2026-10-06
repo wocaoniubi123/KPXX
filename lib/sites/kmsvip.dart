@@ -30,19 +30,31 @@ class KmSite extends SiteUi {
   final SiteFetcher _f;
 
   /// 本站**没有搜索功能**（照站点实况 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
+// 看：搜索入口 —— 本站没有搜索功能，这里必定抛错（打一行，避免"点了搜索没反应"查不出来）。
 @override
   Future<List<Article>> search(String keyword,
-      {int page = 1, List<MapEntry<String, String>>? extra}) async =>
-      throw Exception('该站点没有搜索功能');
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} ⇒ 本站无搜索，抛错');
+    throw Exception('该站点没有搜索功能');
+  }
 
   /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）
+// 看：标签入口 —— 本站没有标签功能，恒返回空（打一行，避免与"标签页解析失败"混淆）。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) async => const [];
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page ⇒ 本站无标签，返回 0 条');
+    return const [];
+  }
 
   /// 首页 = listHot（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（listHot）解析出几条 —— 0 条就是加密接口挂了或列表字段变了。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) =>
-      list('/api/videos/listHot', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/api/videos/listHot', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
@@ -56,13 +68,13 @@ class KmSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
-    final _r = await list(
+    final sw = Stopwatch()..start();
+    final res = await list(
         key == '1' ? '/api/videos/listAll' : '/api/videos/listHot',
         page: page);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
   static final _kmAes =
       Encrypter(AES(Key(utf8.encode('625202f9149maomi')), mode: AESMode.cbc));
@@ -87,6 +99,7 @@ class KmSite extends SiteUi {
   /// 解密成 JSON。站点有访客态接口（不用登录），md5 用 crypto 包。
   Future<Map<String, dynamic>> _kmPost(
       String path, Map<String, dynamic> body) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·加密 API】只计时 ✓ 不动加解密/换域名路径 ☠
     final hex = _kmHex(
         _kmAes.encryptBytes(utf8.encode(jsonEncode(body)), iv: _kmIv).bytes);
     final sig =
@@ -111,14 +124,22 @@ class KmSite extends SiteUi {
               body: 'data=$hex&sig=$sig',
             )
             .timeout(const Duration(seconds: 10));
-        if (r.statusCode != 200) continue;
+        if (r.statusCode != 200) {
+          // 看：加密 API 这个域名没成 —— code 非 200 会换下一个域名（一直换不完就是域名全挂/被墙）。
+          if (AppSettings.i.logConsole) debugPrint('[NET] ${_f.site.name} 加密API host=$h code=${r.statusCode} 换域名 ms=${sw.elapsedMilliseconds}');
+          continue;
+        }
         _f.host = h;
         final plain = _kmAes.decryptBytes(
             Encrypted(_kmBytes(utf8.decode(r.bodyBytes).trim())),
             iv: _kmIv);
+        // 看：加密 API 成功一条 —— code/密文长度/解密成功 + 耗时（**不打 body 原文与签名** ☠）。
+        if (AppSettings.i.logConsole) debugPrint('[NET] ${_f.site.name} 加密API host=$h code=${r.statusCode} len=${r.bodyBytes.length} 解密成功=true ms=${sw.elapsedMilliseconds}');
         return jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
       } catch (_) {
         // 换下一个域名
+        // 看：这个域名的密文解不开/JSON 坏 —— 会静默换下一个域名（全挂时才抛"请求失败"）。
+        if (AppSettings.i.logConsole) debugPrint('[NET] ${_f.site.name} 加密API host=$h 解密或解析失败 ⇒ 换域名 ms=${sw.elapsedMilliseconds}');
       }
     }
     throw Exception('请求失败');
@@ -157,14 +178,14 @@ class KmSite extends SiteUi {
   /// 形式，iOS ATS 不允许 http，且从开发机实测不可达）。
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final j =
         await _kmPost('/api/videos/detail', {'mvId': url, 'uId': '60364099'});
     final data = j['data'];
     final d = data is Map ? data : const <dynamic, dynamic>{};
     final play = (d['mv_play_url'] ?? '').toString();
     final cover = (d['mv_img_url'] ?? '').toString();
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: (d['mv_title'] ?? '').toString(),
       time: (d['mv_created'] ?? '').toString(),
       categories: const [],
@@ -179,8 +200,8 @@ class KmSite extends SiteUi {
       seriesPrefix: '',
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

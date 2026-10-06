@@ -32,20 +32,37 @@ class PhSite extends SiteUi {
 
 
   /// 搜索 = /video/search?search=<kw>（站点自己的搜索页形态 ✓；kw 是原始文本，自己编码 ✓）
+// 看：搜索解析出几条 —— 0 条就是搜索页卡片选择器变了（或关键词被站点当成不存在）。
 @override
   Future<List<Article>> search(String keyword,
-      {int page = 1, List<MapEntry<String, String>>? extra}) =>
-      list('/video/search?search=${Uri.encodeComponent(keyword)}', page: page);
+      {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/video/search?search=${Uri.encodeComponent(keyword)}', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页的标签是 `/video/search?search=<编码词>` ✓；演员卡传来的是 `/pornstar/xxx` ✓。
   /// 两者对本站都只是"一个站内路径"→ 直接当列表抓 ✓（演员路径回来的是视频卡 ✓）
+// 看：标签/演员页解析出几条 —— 0 条就是该路径没内容或卡片选择器变了。
 @override
-  Future<List<Article>> tag(String slug, {required int page}) => list(slug, page: page);
+  Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(slug, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 首页 = '/'（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页解析出几条 —— 0 条就是首页卡片选择器变了或站点改址。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list('/', page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list('/', page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 列表 key 本身就是站内路径 ✓；「分类」tab 选中的分类是 theme（/video?c=27 ✓）。
@@ -83,8 +100,15 @@ class PhSite extends SiteUi {
 
   /// Pornhub 的演员卡/演员标签（`/pornstar/…`、`/model/…`）→ 进他的视频列表 ✓
   @override
-  String? specialTap(String url) =>
-      (url.startsWith('/pornstar/') || url.startsWith('/model/')) ? 'list' : null;
+  String? specialTap(String url) {
+    // 看：点这张卡去哪 —— `list`=进该演员的视频列表页（本站只有这一种特殊去向）。
+    // ⚠️ 只在**非 null** 时打一条 —— 本函数是高频（每张卡都过）⇒ 返回 null（走详情页）那条**不打**，防刷屏 ☠
+    if (url.startsWith('/pornstar/') || url.startsWith('/model/')) {
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} specialTap=list path=${url.length <= 80 ? url : url.substring(0, 80)}');
+      return 'list';
+    }
+    return null;
+  }
 
   /// 「色情明星」tab 用 Pornhub 那套筛选行 ✓
   @override
@@ -113,14 +137,20 @@ class PhSite extends SiteUi {
 
   /// 列表（视频卡；'/pornstars' 是演员卡）。翻页 = `?page=N`。
   Future<List<Article>> _phList(String path, {int page = 1}) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动翻页/解析路径 ☠
     var p = path.isEmpty ? '/' : path;
     // 首页第 2 页起站点自己指向 /video（实测），照它换
     if (page > 1 && p.split('?').first == '/') p = '/video';
     if (page > 1) p += '${p.contains('?') ? '&' : '?'}page=$page';
     final doc = hp.parse(await _f.text(p));
-    return p.split('?').first == '/pornstars'
+    final star = p.split('?').first == '/pornstars'; // ★ 诊断用：**真实**走哪个解析器（与下面三元的条件同源 ✓ 不改判定 ☠）
+    final res = star
         ? _phStarCards(doc)
         : _phCards(doc);
+    // 看：列表解析出几条（含演员卡）—— 0 条就是卡片选择器变了或该路径给了空壳页。
+    // ⚠️ 只打**路径**、去掉 query ☠：搜索时 `path` 形如 `/video/search?search=<关键词>` ⇒ 打全会把用户的搜索词写进日志。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=${path.split('?').first} 页=$page 解析器=${star ? 'phStarCards' : 'phCards'} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// Dart 没有 JS 那种「`a || b` 取第一个非空」——这就是它的替身（两边都空回 ''）。
@@ -249,6 +279,7 @@ class PhSite extends SiteUi {
   /// （播放器按 sources 顺序逐个试，所以"顺序"就是"默认档 + 降级顺序"；见 player_widget
   /// 的 `_openAndWait` 循环）。页面里 `mediaDefinitions` 的原始顺序是乱的（实测 1080/240/480/720）。
   Future<ArticleDetail> _phDetail(String url) async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动换源/解析路径 ☠
     final pairs = <MapEntry<int, String>>[];
     var defIdx = -1; // `"defaultQuality":true` 那条的下标（站点自己的默认档）
     var html = '';
@@ -303,7 +334,7 @@ class PhSite extends SiteUi {
     }
     // 相关推荐：页面里是**静态的** `#relatedVideos`（实测，不用额外请求）
     final relBox = doc.querySelector('#relatedVideos');
-    return ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: const [],
@@ -317,6 +348,9 @@ class PhSite extends SiteUi {
       duration: doc.querySelector('div.duration')?.text.trim() ?? '',
       seriesPrefix: '',
     );
+    // 看：详情解析出几条（视频/图/相关）—— 视频 0 条就是播放器/换源那套选择器变了（本站此前**完全没有**详情日志）。
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
   // ---------------------------------------------------------------------------
 }

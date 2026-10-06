@@ -182,7 +182,7 @@ class KpPlayer extends ValueNotifier<KpState> {
       //    **仍未就绪**才算这条源失败 ✓（见看门狗里那段 ✓）—— 单次偶发不再换源 ✓。
       _p.stream.error.listen((e) {
         // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量取子串 ✗ 会越界 ☠）
-        final es = '$e';
+        final es = e;
         if (AppSettings.i.logConsole) debugPrint('[PLAY] 错误流 首帧前=$_everStarted ${es.length <= 120 ? es : es.substring(0, 120)}');
         _lastFatal = e;
         if (!_everStarted) _startupErrPending = true;
@@ -446,11 +446,15 @@ class KpPlayer extends ValueNotifier<KpState> {
   bool _userPaused = false;
 
   Future<void> play() {
+    // 看：谁在什么时机调了播放（配合"自动重试/看门狗"几条看是不是被反复拉起）。
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放');
     _userPaused = false;
     return _p.play();
   }
 
   Future<void> pause() {
+    // 看：谁在什么时机调了暂停（用户操作还是流程自己暂停 ⇒ 与"看门狗"对着看）。
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停');
     _userPaused = true;
     return _p.pause();
   }
@@ -461,6 +465,8 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   Future<void> seek(Duration d) {
     final t = _clampDur(d, value.duration);
+    // 看：seek 的实际去向（从当前播到的位置 → 裁剪后的目标）—— "跳完从头/跳不动"对这条看。
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 从=${value.position.inMilliseconds}ms 到=${t.inMilliseconds}ms');
     return _p.seek(t);
   }
 
@@ -468,6 +474,8 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// 位置"，而 `seek()` 会按 `value.duration` 裁剪，万一时长还没报上来
   /// （或报了个半截值）就会被裁小 —— 表现同样是"从头发"。
   Future<void> seekExact(Duration d) {
+    // 看：不裁剪的精确 seek（续播/换档用）—— 目标是多少 ms。
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek(精确) 从=${value.position.inMilliseconds}ms 到=${d.inMilliseconds}ms');
     return _p.seek(d);
   }
 
@@ -914,8 +922,10 @@ class PlayerWidgetState extends State<PlayerWidget>
     _autoRetries = 0;
     _autoRetrying = false;
     // ★【常驻诊断·③】换源/换档（用户点清晰度或换集走这里 ✓ 只看不改 ☠）
-    if (AppSettings.i.logConsole) debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
-        '首源host=${Uri.tryParse(srcs.isEmpty ? '' : srcs.first)?.host ?? '?'}');
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
+      '首源host=${Uri.tryParse(srcs.isEmpty ? '' : srcs.first)?.host ?? '?'}');
+    }
     _kp?.pause(); // 换档：先把旧源停住，别和新源抢声音
     _fetchingLazy = false;
     if (resumeTo != null && resumeTo > Duration.zero) _restoreTo = resumeTo;
@@ -1133,8 +1143,10 @@ class PlayerWidgetState extends State<PlayerWidget>
       final du = Uri.tryParse(url);
       final dpath = du == null ? url : '${du.scheme}://${du.host}${du.path}';
       final qlen = du?.query.length ?? 0;
-      if (AppSettings.i.logConsole) debugPrint('[PLAY] host=${du?.host ?? '?'} path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
-          'qlen=$qlen ref=${ref.length <= 40 ? ref : ref.substring(0, 40)}');
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] host=${du?.host ?? '?'} path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
+        'qlen=$qlen ref=${ref.length <= 40 ? ref : ref.substring(0, 40)}');
+      }
     }
     kp.addListener(listener);
     try {
@@ -1477,7 +1489,7 @@ class PlayerWidgetState extends State<PlayerWidget>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black.withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: const Text('2× 快进中',
@@ -1531,7 +1543,7 @@ class PlayerWidgetState extends State<PlayerWidget>
                               end: Alignment.bottomCenter,
                               colors: [
                                 Colors.transparent,
-                                Colors.black.withOpacity(0.6),
+                                Colors.black.withValues(alpha: 0.6),
                               ],
                             ),
                           ),
@@ -1598,7 +1610,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -1627,7 +1639,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.6),
+          color: Colors.black.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(16),
         ),
         child: const Row(
@@ -2047,7 +2059,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Text('2× 快进中',

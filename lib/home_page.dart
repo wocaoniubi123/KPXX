@@ -782,6 +782,8 @@ class _CategoryFeed extends ChangeNotifier {
     if (this.theme == theme && this.duration == duration && this.sort == sort) {
       return;
     }
+    // 看：用户切了筛选（主题/时长/排序各有没有值）—— 列表突然空了/重拉先看这条。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] 切筛选 项数=${[theme, duration, sort].where((v) => v != null && v.isNotEmpty).length} theme=${theme ?? ''} duration=$duration sort=$sort');
     this.theme = theme;
     this.duration = duration;
     this.sort = sort;
@@ -795,6 +797,8 @@ class _CategoryFeed extends ChangeNotifier {
 
   /// 切 Hanime1 筛选：清了重拉（同 applyFilters 的懒加载逻辑）
   void applyExtra(List<MapEntry<String, String>>? e) {
+    // 看：用户切了子分类/标签（传进来几个 key）—— 列表突然空了先看这条。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] 切子分类 k=${e == null ? '（清空）' : e.map((x) => x.key).join('&')} 项数=${e?.length ?? 0}');
     extra = e;
     items.clear();
     _page = 1;
@@ -808,7 +812,7 @@ class _CategoryFeed extends ChangeNotifier {
     if (_loading || _done) return;
     _loading = true;
     _started = true;
-    final _p = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
+    final reqPage = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
     try {
       final next = await _api.category(slug,
           page: _page,
@@ -828,8 +832,10 @@ class _CategoryFeed extends ChangeNotifier {
       }
       // ★ 列表翻页诊断：哪个分类/子分类、请求的第几页、回来几条、累计几条、是否已到底
       //   —— "tab 一直转圈 / 翻页条数不涨 / 列表重复"时先看这行（累计=items.length ✓）
-      if (AppSettings.i.logConsole) debugPrint('[LIST] 站=${_api.site.name} slug=$slug 页=$_p '
-          'sub=${sub ?? ''} sub2=${sub2 ?? ''} n=${next.length} 累计=${items.length} done=$_done');
+      if (AppSettings.i.logConsole) {
+        debugPrint('[LIST] 站=${_api.site.name} slug=$slug 页=$reqPage '
+        'sub=${sub ?? ''} sub2=${sub2 ?? ''} n=${next.length} 累计=${items.length} done=$_done');
+      }
       error = false;
     } catch (e) {
       // ⚠️ 把**原文**留下来（不只是 bool ✗）—— 用户 2026-10-03："短片一直转圈圈"，
@@ -1220,7 +1226,7 @@ class ArticleCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 5, vertical: 1),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black.withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
@@ -1399,12 +1405,14 @@ class _SearchPageState extends State<SearchPage> {
     _kw = kw;
     setState(() => _searched = true);
     _loading = true;
-    final _p = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
+    final reqPage = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
     try {
       final next = await _api.search(kw, page: _page, extra: _hnCtl.filters.toParams());
       // ★ 搜索诊断：关键词**只打长度**（不打全文 ☠）、请求的第几页、回来几条 —— "搜不到 / 翻页重复"先看这行
-      if (AppSettings.i.logConsole) debugPrint(
-          '[LIST] 站=${widget.site.name} 搜 页=$_p n=${next.length} kwLen=${kw.length}');
+      if (AppSettings.i.logConsole) {
+        debugPrint(
+        '[LIST] 站=${widget.site.name} 搜 页=$reqPage n=${next.length} kwLen=${kw.length}');
+      }
       if (next.isEmpty) {
         _done = true;
       } else {

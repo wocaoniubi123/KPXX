@@ -29,15 +29,26 @@ class HanimeSite extends SiteUi {
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
   /// 详情页标签：站内 /search? 路径直接请求（?query= / ?tags[]= 两种链接 ✓）；其余当搜索词 ✓
+// 看：标签入口解析出几条 —— 0 条就是标签页没有内容或横排卡选择器变了（站内 /search 路径与关键词两种走法）。
 @override
   Future<List<Article>> tag(String slug, {required int page}) async {
-    if (slug.startsWith('/search')) return searchAt(slug, page: page);
-    return search(slug, page: page);
+    final sw = Stopwatch()..start();
+    final res = slug.startsWith('/search')
+        ? await searchAt(slug, page: page)
+        : await search(slug, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 首页 = 第一个分类（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页（= 第一个分类）解析出几条 —— 0 条就是 /search?genre= 的卡片选择器变了。
 @override
-  Future<List<Article>> home({required int page, String first = ''}) => list(first, page: page);
+  Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
+    final res = await list(first, page: page);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
+  }
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre= ✓；
@@ -52,11 +63,11 @@ class HanimeSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
-    final _r = await list(key, page: page, extra: extra);
+    final sw = Stopwatch()..start();
+    final res = await list(key, page: page, extra: extra);
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 列表页挂本站筛选行（照站点的下拉 ✓）
@@ -155,8 +166,12 @@ class HanimeSite extends SiteUi {
   /// 搜索 / 站内标签（?query= 与 ?tags[]= 两种路径）共用的横排卡解析
   Future<List<Article>> searchAt(String basePath,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
     final path = _hnQuery(basePath, page, extra);
-    return _hnRowCards(hp.parse(await _f.text(path)));
+    final res = _hnRowCards(hp.parse(await _f.text(path)));
+    // 看：搜索/站内标签（`search` 入口与 tag 的 /search 走法都落这里）解析出几条 —— 0 条就是横排卡选择器变了。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 搜索：关键词走 /search?query=
@@ -180,13 +195,15 @@ class HanimeSite extends SiteUi {
       if (v.isNotEmpty && !out.contains(v)) out.add(v);
     }
     _hnTagCache = out;
+    // 看：标签清单抓出多少个 —— 0 个就是 /search 页里 input[name="tags[]"] 选择器变了（标签弹窗会空）。
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} hanimeTags 抓出 ${out.length} 个标签');
     return out;
   }
 
   /// 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低）
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
     final title = doc.querySelector('h3#shareBtn-title')?.text.trim() ?? url;
@@ -240,7 +257,7 @@ class HanimeSite extends SiteUi {
       if (t.isEmpty) continue;
       tags.add(MapEntry(_hnRel(href), t));
     }
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: const [],
@@ -253,8 +270,8 @@ class HanimeSite extends SiteUi {
       duration: duration,
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 
@@ -425,6 +442,9 @@ class HnTagDialogState extends State<HnTagDialog> {
       final t = await widget.api.ui!.hanimeTags();
       if (mounted) setState(() => _all = t);
     } catch (_) {
+      // 看：标签弹窗的标签清单载入失败（原来这条**完全无痕** ⇒ 界面只显示"标签加载失败"，查不出为什么）。
+      //   ⚠️ catch 形态是 `catch (_)`（**没有**异常对象可比 ⇒ 按你自己定的规矩不动 catch 子句 ✗）⇒ 只打这一句。
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${widget.api.site.name} 标签弹窗载入失败');
       if (mounted) setState(() => _error = true);
     }
   }

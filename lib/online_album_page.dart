@@ -7,6 +7,7 @@ import 'app_bg.dart';
 import 'config.dart';
 import 'home_page.dart';
 import 'online_album_common.dart';
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 
 /// 「在线图集1」列表页（站点：xofulitu / MacCMS ✓ **服务端渲染** ✓ 2026-10-05 探站实录 ✓）。
 ///
@@ -169,6 +170,7 @@ class _ArtDetailPageState extends State<ArtDetailPage> {
   }
 
   Future<void> _load() async {
+    final sw = Stopwatch()..start(); // ★【常驻诊断·图集1】只计时 ✓ 不动取数/解析路径 ☠
     try {
       final r = await Site.httpClient
           .get(Uri.parse('$kOnlineAlbumHost${widget.detailPath}'),
@@ -185,6 +187,8 @@ class _ArtDetailPageState extends State<ArtDetailPage> {
       }
       final list = parseArtImages(utf8.decode(r.bodyBytes, allowMalformed: true));
       if (!mounted) return;
+      // 看：图集1 详情页载入 —— 解析出多少张 + 耗时（0 张就是站点结构变了）。
+      if (AppSettings.i.logConsole) debugPrint('[ALBUM] 详情 张数=${list.length} ms=${sw.elapsedMilliseconds}');
       setState(() {
         _imgs = list;
         _err = list.isEmpty ? '这一页没解析到图片 ✗（站点结构可能变了）' : null;
@@ -381,7 +385,7 @@ class _CatFeedState extends State<_CatFeed> {
         final s = b.toString();
         return s.length <= 400 ? s : '${s.substring(0, 400)}…';
       }
-      debugPrint(diag());
+      if (AppSettings.i.logConsole) debugPrint(diag());
       if (!mounted) return;
       setState(() {
         _items = list;
@@ -410,6 +414,7 @@ class _CatFeedState extends State<_CatFeed> {
   Future<void> _loadMore() async {
     if (_more || _done || _loading) return;
     _more = true;
+    final sw = Stopwatch()..start(); // ★【常驻诊断·图集1】只计时 ✓ 不动取数/去重路径 ☠
     try {
       final r = await Site.httpClient
           .get(Uri.parse(_url(_page + 1)),
@@ -427,6 +432,8 @@ class _CatFeedState extends State<_CatFeed> {
           _items = [..._items, ...fresh];
           _page += 1;
         }
+        // 看：图集1 翻页 —— 本页解析出几条 / 新增几条 / 累计多少（本页=0 或新增=0 都会判到底）。
+        if (AppSettings.i.logConsole) debugPrint('[ALBUM] 翻页 页=${_page + 1} 本页=${list.length} 新增=${fresh.length} 累计=${_items.length} ms=${sw.elapsedMilliseconds}');
       });
     } catch (_) {
       // 续拉失败静默 ✓（下拉刷新仍可救 ✓）

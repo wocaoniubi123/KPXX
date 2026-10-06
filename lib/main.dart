@@ -1,5 +1,4 @@
 import 'dart:async'; // ★ unawaited ✓（接管里"异步写盘、不阻塞 UI"要用 ✓）
-import 'dart:ui' show PlatformDispatcher; // ★ 全局错误捕获要用 ✓（scoped ⇒ 不与 material 的符号冲突 ✓）
 
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
@@ -33,18 +32,21 @@ void main() {
     unawaited(SiteErrorLog.log(
         'console', msg.length > 300 ? '${msg.substring(0, 300)}…' : msg));
   };
-  // ★ 2026-10-05（用户要求 ✓）：**全局错误捕获** ✗ —— ① Flutter 框架错误（build/layout/paint ✓）
-  //   ② 未捕获的异步异常 ✓；两者都走 `SiteErrorLog.log` ⇒ **不受"控制台日志"开关影响** ✓（属"正常错误" ✓，
-  //   用户口径："有站点/程序出错时会记下" ✓）；⚠️ 实现里**不调 `debugPrint`** ☠（防自套 ✓）。
+  // ★【常驻诊断·启动】五点在**接管之后**逐个补打 ✓（这样开关打开时这五条才进得了日志页 ✓）
+  //   ⚠️ 前三步（ensureInitialized / MediaKit.ensureInitialized / AppSettings.i.load）本身在 `:19-22` 执行 ✓
+  //      —— 这里只补"打点"，**不改它们的顺序、也不改任何初始化逻辑** ☠。
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 绑定初始化（ensureInitialized）✓');
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 播放引擎（MediaKit）✓');
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 设置加载（AppSettings）✓');
+  // ★ 2026-10-05（用户口径变更 ✓）：**不再把框架错误写进错误日志** ✗ —— 只保留框架默认的控制台呈现
+  //   （`presentError` ✓）；要查输出时用设置页的「控制台日志」开关 + 复现一次 ✓。
+  //   ⚠️ 下面这块与 `:30-35` 的 `debugPrint` 接管**互不相干** ☠（那是开关生效的唯一通路，动不得 ✓）。
   FlutterError.onError = (d) {
     FlutterError.presentError(d);
-    unawaited(SiteErrorLog.log('flutter', d.exception, d.stack));
   };
-  PlatformDispatcher.instance.onError = (e, st) {
-    unawaited(SiteErrorLog.log('async', e, st));
-    return true;
-  };
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 播放记录加载（PlayHistory）开始');
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 背景图加载（AppBg）开始');
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   runApp(const KpxxApp());
 }

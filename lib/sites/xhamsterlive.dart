@@ -673,7 +673,7 @@ class LiveRoomCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: room.isLive
                             ? const Color(0xFFE03131)
-                            : Colors.black.withOpacity(0.5),
+                            : Colors.black.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -695,7 +695,7 @@ class LiveRoomCard extends StatelessWidget {
                       padding:
                           const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.55),
+                        color: Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -832,6 +832,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   ///   —— **纯日志用** ✗：不参与任何判定、不读进任何分支 ✓（不然恢复那行每次 tick 都打 ⇒ 刷屏 ☠）
   bool _stalledForLog = false;
 
+  /// ★【常驻诊断·直播·真首帧】进房 → 首次出画的间隔（**纯计时** ✗：不参与任何判定 ✓）
+  final Stopwatch _sinceEnter = Stopwatch();
+
   /// `initialize()` 的硬超时（毫秒）= **8000**：
   /// 网络那一段本机实测 ≈2.5 秒 ✓ ⇒ 8 秒 ≈3 倍余量 ✓；超时就当"这条不通"→ 直拼那条会回退 ✓（master 那条只报错 ✓）。
   static const int _kInitTimeoutMs = 8000;
@@ -840,6 +843,9 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   void initState() {
     super.initState();
     // ★ 2026-10-05【常驻诊断·直播①】进房（只打房间 id ✓ 开关关着零开销 ✓）
+    _sinceEnter
+      ..reset()
+      ..start(); // ★【常驻诊断·真首帧】起点 = 进房那一刻 ✓（只计时，不参与判定 ✓）
     if (AppSettings.i.logConsole) debugPrint('[LIVE] ①进房 id=${widget.id}');
     _checkAndPlay();
   }
@@ -898,8 +904,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       {
         final u = Uri.tryParse(url);
         final p = u == null ? url : '${u.scheme}://${u.host}${u.path}';
-        if (AppSettings.i.logConsole) debugPrint('[LIVE] ②取流 host=${u?.host ?? '?'} path=${p.length <= 80 ? p : p.substring(0, 80)} '
-            'qlen=${u?.query.length ?? 0}');
+        if (AppSettings.i.logConsole) {
+          debugPrint('[LIVE] ②取流 host=${u?.host ?? '?'} path=${p.length <= 80 ? p : p.substring(0, 80)} '
+          'qlen=${u?.query.length ?? 0}');
+        }
       }
       final r = await Site.httpClient
           .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
@@ -999,6 +1007,8 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       }
       // 真出过画面 ⇒ 这条 URL 才算"缓存可用" ✓（下次进同房间直接拼 ✓ 跳过 master ✓）
       if (!_cacheConfirmed) {
+        // 看：**真首帧**（用户点名）—— 从①进房到这一刻的间隔；这就是"直播间出画慢"要看的数 ✓
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] 真首帧 pos=${v.position.inMilliseconds}ms 距进房=${_sinceEnter.elapsedMilliseconds}ms');
         _cacheConfirmed = true;
         final u = _kpVariantUrl;
         if (u != null && u.isNotEmpty) _variantCache[widget.id] = u;

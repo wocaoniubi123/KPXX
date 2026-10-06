@@ -46,6 +46,8 @@ class WpSite extends SiteUi {
     } catch (_) {
       // 配置坏：视为无源
     }
+    // 看：一块 dplayer 的 data-config 解析出几条源（0 条 = 配置坏/字段改名 ⇒ 详情页会出现没源的视频）。
+    if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} dplayer 解析出 ${sources.length} 条源');
     return sources;
 
   }
@@ -69,26 +71,38 @@ class WpSite extends SiteUi {
   }
 
   /// 搜索（原 `Api.search` 的 case body 原样搬来 ✓）
+// 看：站点搜索解析出几条 —— 0 条就是搜索结果的卡片选择器变了（或关键词被站点当成不存在）。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
+    final sw = Stopwatch()..start();
     final kw = Uri.encodeComponent(keyword);
     final path = page <= 1 ? '/search/$kw/' : '/search/$kw/$page/';
-    return parseArticles(await _f.text(path));
+    final res = parseArticles(await _f.text(path));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
+// 看：标签页解析出几条 —— 0 条就是该标签没有内容或卡片选择器变了。
 @override
   Future<List<Article>> tag(String slug, {required int page}) async {
+    final sw = Stopwatch()..start();
     final path = page <= 1 ? '/tag/$slug/' : '/tag/$slug/page/$page/';
-    return parseArticles(await _f.text(path));
+    final res = parseArticles(await _f.text(path));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 首页最新列表（原 `Api.home` 的 case body 原样搬来 ✓）
+// 看：首页最新列表解析出几条 —— 0 条就是首页结构变了或域名给的是空壳页。
 @override
   Future<List<Article>> home({required int page, String first = ''}) async {
+    final sw = Stopwatch()..start();
     final path = page <= 1 ? '/' : '/page/$page/';
-    return parseArticles(await _f.text(path));
+    final res = parseArticles(await _f.text(path));
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
@@ -103,17 +117,17 @@ class WpSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓（原位置参数 = 子分类 key）
     final kk = k ?? key;
     final path = kk.startsWith('/')
         // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
         ? (page <= 1 ? kk : '$k$page/')
         : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
-    final _r = parseArticles(await _f.text(path));
+    final res = parseArticles(await _f.text(path));
     // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
-    return _r;
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    return res;
   }
   /// 列表页 / 搜索页通用的文章卡片解析。
   /// 先按 WordPress 模板（article[itemscope]）找，找不到再按 51fans1（.xqbj-list-rows）。
@@ -202,7 +216,7 @@ class WpSite extends SiteUi {
 // 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 是播放器选择器或 data-config 变了。
 @override
   Future<ArticleDetail> detail(String url) async {
-    final _sw = Stopwatch()..start();
+    final sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -376,7 +390,7 @@ class WpSite extends SiteUi {
       if (related.length >= 12) break;
     }
 
-    final _d = ArticleDetail(
+    final det = ArticleDetail(
       title: title,
       time: time,
       categories: categories,
@@ -388,8 +402,8 @@ class WpSite extends SiteUi {
       seriesPrefix: seriesPrefix(title),
     );
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
-    return _d;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
+    return det;
   }
 }
 

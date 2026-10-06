@@ -2960,3 +2960,111 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 ### 六、教训（本轮真实发生 ✓）
 **"现在能跑"不是理由 ⇒ 版本欠账要在"还没卡住"时就还** ☠ —— 这次代价是：一个能省好几秒的播放器修复，被压了整整一个 Flutter 大版本周期 ✓。
 ⇒ 今后遇到"升级 vs 不折腾"的取舍，**把"将来会被什么卡住"先写出来**再决定 ✓，别只算眼前 ✓。
+
+---
+
+## 十七、2026-10-06 · **1.1.7（待构建）** · 全量日志补齐 + 日常错误取消 + 错误日志导出
+
+> 用户口径（要点 ✓）：「**全量就是让你任何一步都要输出**」「**所有站点都需要**」「**全量输出就是要日志完整，这样才好分析**」；
+> 以及「**日常错误输出压根就不需要了**，有错误直接开控制台日志按钮再去查」✓。
+
+### 一、全量打印落地（**只加打印，不动逻辑** ✓）
+- **规模**：`+` 侧含 `debugPrint` 的行 **96** 行 ✓；改动 **24** 个文件（其中站点文件 **11** 个 ✓）；全仓现有 `debugPrint` **236** 处 ✓、`logConsole` 守卫 **256** 处 ✓（实测 ✓）。
+- **覆盖（按用户动作顺序 ✓）**：站点**入口三件套**（`home`/`tag`/`search` —— 14 个站，`wordpress` 一类 = 5 站共用 ✓）·
+  **Pornhub 整站**（列表 + 详情，此前全站仅"换域名复核"一处有输出 ✓）· **中间网络步骤**（91porna 签名换源三段 + 3 子解析器 / madou 分享页 token / kmsvip 加密 API / xHamster 短片 JSON / 黄果 `pageList`·`postDetail` / 51系 `_dplayerSources` / xvideos `profileVideos` / hanime1 `hanimeTags` ✓）·
+  **图片四路径**（命内存 / 命磁盘 / 走网络 / 预热 ✓）· **播放器**（播放/暂停/seek/seekExact + 起播/首帧/缓冲/结束/错误流/换源/重试 ✓）·
+  **直播真首帧**（`_sinceEnter` 计时 + `_cacheConfirmed` 首帧打点 ✓）· **图集1/2**（翻页/详情/进框选 ✓）· **列表**（首屏/翻页/下拉/上拉 + 切筛选/切子分类 ✓）·
+  **设置页**（7 开关 + 4 入口 ✓）· **启动 5 点**（`[BOOT]` ✓ ⚠️ 前 3 条是**接管后补打** —— 只有开关上次就开着才看得到 ✓）·
+  **导航**（全仓 23 处路由 **100% 起名** ✓ 补上 `play_history_page.dart` 那处 ✓）· **详情页剧照查看器** ✓。
+- **分支级**（第二轮，`recon` 盘出 18 条后按需取 ✓）：给**既有行加字段**（不新增行 ⇒ 零额外刷屏 ✓）——
+  `pornhub._phList` 加 `解析器=phStarCards|phCards` ✓（条件提成局部变量 `star`，**判定与打印同源** ✓）、
+  `porna.list` **5 个出口**各加 `分支=`/`解析器=`（原来 5 条文案完全相同、分不清走哪 ☠ ✓）、`huangguo.pageList` 加 `源码=json|html` ✓；
+  另补两处无痕：`xhamster.specialTap`（**只在非 null 时打** ✓ 高频防刷屏）、`hanime1` 标签弹窗失败分支 ✓；
+  调用点 `home_page` 的两处 `specialTap=` **先加、后按"每站单份"撤掉** ✓（与 `xhamster` 站内那条**重复** ✗）⇒ 最终口径 =
+  **覆写 `specialTap` 的 3 个站各自在站内打**（`xhamster:107-119` ✓、`xvideos` ✓、`pornhub` ✓；其余 7 站走基类 `site_ui.dart:154` 的 `=> null`、恒不走特殊去向 ⇒ **无覆盖损失** ✓）。
+  ⚠️ **这条回退是"先删重复、再发现另两站只有那一份"造成的** ☠（`recon` 点验时自己揪出并认了遗漏 ✓）⇒ **教训：删"重复"前，先确认每个生产者都还有别的出口** ✓。
+  **16 个"纯静默解析器"有意不加** ✓（其唯一调用方已有"N 条"日志 ⇒ 加了只会刷重复行 ✓）。
+- **口径**：全部 `if (AppSettings.i.logConsole) debugPrint(...)` ✓；**只打 host/path(截 80)/条数/耗时** ✓，**不打完整 URL、不打 query、不打签名串** ✓；
+  站点文件**不引 material**（用 `foundation` 的 `debugPrint` ✓）；每处上方一行中文注释说明"对着什么问题看" ✓。
+
+### 二、**取消"日常错误输出"**（用户决定 ✓）
+- 删掉 **5 处**"不受开关影响、永远记录"的调用 ✓：`main.dart` 的 `SiteErrorLog.log('flutter'…)`、`PlatformDispatcher.instance.onError` **整块**（**不留 `return true`** —— 那等于静默吞异常 ☠）；
+  `base/fetch.dart` 三处站点取数失败日志 ✓（连带：三个 `catch (e, st)` → `catch (_)` ✓、删掉变成未使用的 `import '../site_error_log.dart'` ✓、删 `dart:ui show PlatformDispatcher` ✓）。
+- **现状**：**只剩 `console` 一类**进错误日志页 ✓（= 开关打开时的全部输出 ✓）—— 这正是用户要的 ✓。
+- ⚠️ **代价（已与用户确认 ✓）**：站点取数失败、Dart 层框架报错、未捕获异步异常，**开关关着时手机上无痕** ⇒ 以后排查**先开开关再复现一次** ✓。
+  （注：**"App 崩溃"不算理由** ✗ —— 真崩溃本来就没机会写日志 ✓ 用户当场点破 ✓。）
+
+### 三、设置页两处（用户点名 ✓）
+1. **顺序**：控制台日志开关挪到「错误日志」按钮**上方** ✓（`_head('诊断')` → 开关 → 按钮 → `_note` ✓）。
+2. **形态**：开关由系统标准件 `SwitchListTile`（缩进 / 字号 14 / 系统默认色）换成 **与「自动播放下一集」一模一样**的 `_row` + `Switch.adaptive(activeColor: _orange)` ✓（用户："怎么不一样？改成一模一样" ✓）。
+   `value`/回调**语义未变** ✓（**先 `setLogConsole(v)`、后打印**的顺序保留 ✓ —— 保证"打开那一下"这条日志能留下 ✓）；说明文案改成与新行为一致（"出错时先打开上面的开关、再复现一次" ✓）。
+
+### 四、错误日志页「导出」按钮（**方案 A：引 `share_plus`** ✓ 用户拍板 ✓）
+- 依赖：**`share_plus: '>=13.3.1 <13.4.0'`** ✓（`recon` 联网核实：要求 Flutter ≥3.38.1 / Dart ≥3.10 / iOS ≥13.0，我们 **3.47.6 / 3.13.5 / iOS 13.0** 逐条满足 ✓；`pubspec.lock` 被 gitignore ⇒ **钉上界**才稳 ✓）。
+- 位置：AppBar **「复制全部」与「清空」之间** ✓；空日志**置灰** ✓。
+- 行为：`SiteErrorLog.path()` ⇒ **先判哨兵值 `'(不可用)'`** ✓（`site_error_log.dart:129` ✓ 拿不到时会返回这串字面量 ☠）⇒ 复制**带时间戳的副本**到临时目录 ⇒ `SharePlus.instance.share(ShareParams(files: [XFile(dst)], title:, sharePositionOrigin:))` ✓（**新 API** ✓ 旧的 `Share.shareXFiles` 已废弃 ✗）；
+  **原日志一字不动** ✓；**分享后不立刻删副本**（面板交给对方是异步的 ✓）⇒ **下次导出先清旧副本** ✓；失败 `try/catch` 兜住、不抛界面 ✓。
+- ⭐ 关键坑（`recon` 从官方源码排掉 ✓）：**`XFile` 由 `share_plus` 自己导出**（`export … show … XFile …` ✓）⇒ **不需要** `import 'package:cross_file/cross_file.dart';`（README 示例那行是冗余 ✓ 照抄反而多余 ✓）。
+
+### 五、核查与验收（全部只读 ✓ 六轮）
+- `recon`：**覆盖率盘点 35 条**（发现"首页/标签/搜索全站静默""Pornhub 整站无输出""中间网络步骤大面积静默"✓）→ 逐批验收 → **分支级盘点 18 条** → **导出 API 逐条核实**（含上面那个 `XFile` 关键点 ✓）。
+- 逐批结论：站点侧 10 文件**无越界**（删除行全是 4 类等价改写：`=>`→`async`、`if-return`→块体、`if-return`→三元、`return X`→`final v = X` ✓）；括号余额与 HEAD **逐项相同** ✓；**95 处打印 0 缺守卫** ✓。
+- 点名修掉的真问题：**`pornhub.dart` 把搜索关键词打进日志** ☠（`k=$path` ⇒ 含 `?search=…`）⇒ 改成只打路径 ✓（与 `search()` 入口的 `kwLen` 口径统一 ✓）。
+
+### 六、教训（本轮真实发生 ✓）
+- **"全量"≠"挑关键节点"** ☠：前几轮我做的是"关键步打点"，用户当场点破「**东落西落**」 ⇒ 全量 = **任何一步都要有输出** ✓（这才是可分析的前提 ✓）。
+- **我误判一次、被证据纠正** ✓：我说 `main.dart:2` 的空行是"删 import 留下的、该删" ✗，`app-dev` 用**字节级对照**证明那行本来就在 HEAD（是 `dart:` 组与 `package:` 组的分隔行 ✓）⇒ 指令撤回 ✓。**结论要有实锤，别拿推断当事实** ✓。
+- **别用"崩溃"当论据** ✗（用户点破：真崩溃本来就来不及记录 ✓）。
+
+---
+
+## 十八、2026-10-06 · **1.1.7 续**：清掉 analyze 的 **114 条 info** + 行尾**治本**（`.gitattributes`）
+
+> 用户口径：「**我的意见是，全做了。省得下次麻烦。**」✓（那 114 条他自己问过"是什么玩意" ⇒ 我把分布逐条数实 ✓）
+
+### 一、114 条的构成（**那次构建日志里的实测值** ✓）
+| 条数 | 规则 | 是什么 |
+|---|---|---|
+| **71** | `no_leading_underscores_for_local_identifiers` | **局部变量名以下划线开头**（我们加诊断时起的 `_sw`/`_r`/`_d`/`_u`/`_p`/`_qi`/`_dpath`/`_q`/`_ap`/`_del` ✓）——Dart 里下划线只对**成员**有意义 ✓ |
+| **19** | `curly_braces_in_flow_control_structures` | ⚠️ **只在"body 与条件不同行"时报** ✓（同行写完整语句 `if (c) stmt;` 是**允许**的 ✓ 见下"教训"✓） |
+| **17** | `deprecated_member_use` | 升级暴露的**真·废弃 API**：`withOpacity` / `Matrix4.translate`·`scale` / `Switch.activeColor` ✓ |
+| 5 | `unnecessary_const` | 多余 `const`（父级已是 `const SnackBar(` ✓） |
+| 1 | `unnecessary_string_interpolations` | `'$e'` 里 `e` 本就是 `String` ✓ |
+| 1 | `library_private_types_in_public_api` | `_P18Item` 出现在公开函数签名里 ✓ |
+
+### 二、逐类怎么改（**只改必要处** ✓）
+1. **改名 52 组 / 20 文件** ✓：`_sw→sw`、`_r→res`、`_d→det`、`_u→uri`、`_p→pathOnly`、`_qi→qi`、`_dpath→dpath`、`_q→qs`、`_ap→absPath`、`_del→deleted` ✓
+   ⚠️ **两处真冲突，按语义另起** ✓：`detail_page` 里 `sw` 已被 `VideoSwitcher` 占用 ⇒ 用 **`stopwatch`** ✓；`home_page` 的 `_p` 语义是**页码**（不是路径）⇒ 用 **`reqPage`** ✓。
+   核对：候选新名先做 `\b新名\b` 全文计数、**必须为 0 才用** ✓；改后**旧名残留 = 0** ✓（`recon` 复核 ✓，并把 `player_widget` 的**成员字段** `_p`、`site_error_log`/`bg_album_page` 里的同名字段**甄别为"非残留"** ✓）。
+2. **花括号：先横扫 240 处 → 裁定回退 221 处** ✓（**只留 19**）
+   - 起因：`app-dev` 认定"所有单行 `if` 都违规"⇒ 把全仓 240 处守卫**全加括号** ✗；
+   - **我否掉**的判据（实测 ✓）：拿 analyze 报的两处去核**被分析的那个提交** `1660c40` 的原文 ——
+     `base/fetch.dart:79` 与 `base/video_cache.dart:342` 都是 **`if (…) debugPrint(` 调用跨到下一行** ⇒ **该 lint 只在 body 不同行时报** ✓
+     ⇒ 真报点 **19 处**、其余 **221 处是过度改动**（约 500 行无谓 churn、且破坏全仓单行守卫风格 ✓）；
+   - 逆变换按**形态**判定 ✓：调用**跨行**的保留花括号（19 ✓）、**单行完整闭合**的合并回一行（221 ✓），字符串与缩进一字未动 ✓；改后全仓扫"`if (…) {` + 单行 + `}`"三行形态 = **0** ✓。
+3. **废弃 API**（每条都钉在 **3.47.6 源码**上 ✓ 不是 main 分支）：
+   - `withOpacity(x)` → **`withValues(alpha: x)`** **10 处** ✓（数值原样；色值差 ≤0.4/255、视觉不可见 ✓）
+   - **`Matrix4`**（⚠️ **不是 `Canvas`** —— `recon` 纠了我的定位错 ✓）的 `..translate(x,y)` → **`..translateByDouble(x, y, 0.0, 1.0)`**、`..scale(s)` → **`..scaleByDouble(s, s, s, 1.0)`** **6 处** ✓
+     ⚠️ **不许用 `translationValues`**（它是**覆盖**平移分量、`translate` 是**左乘** ⇒ 语义不同 ✓）
+   - `Switch.activeColor` → **`activeTrackColor`** **2 处** ✓（⚠️ **不是** `activeThumbColor`：本页是 `Switch.adaptive` + iOS ⇒ 原色染的是**轨道** ✓ 换错颜色会跑到拇指上、外观就变了 ✓）
+   - `player_widget` 的 `'$e'` → **`final es = e;`** **1 处** ✓（依据：`:313 String _lastFatal = '';` 且 `:187 _lastFatal = e;` ⇒ **`e` 必为 `String`** ✓）；⚠️ 另一处 `catch (e)`（`e` 是 `Object`）**保持 `'$e'`** ✓（改了会让 `es.length` 编译失败 ☠）
+   - `parseP18List` → **`_parseP18List`** **3 处** ✓（比"公开 `_P18Item`"那条路改得少：3 vs 7 ✓）
+   - 多余 `const`：**删 5 处**（父级 `const SnackBar(` ✓）**保留 2 处**（父级 `SnackBar(` 无 const ⇒ 删了破坏常量性 ☠）
+
+### 三、行尾**治本**：`.gitattributes`（用户要求"改" ✓）
+- 新建仓库根 **`.gitattributes`** ✓，规则 **`*.dart text eol=lf`** + 一段说明注释 ✓
+- 背景：`sites/hanime1|xvideos|madou|pektino.dart` 的索引条目标记是 **`i/-text`** ⇒ git 逐字节比 ⇒ 本地 `git diff` **整篇虚高**（548/536 那种 ☠）；`app-dev` 实验证明"把工作区改成 LF"**改不动**它 ✗
+- 代价（**已与用户确认** ✓）：归一化会产生**一次性**整篇行尾变更（4 个文件 ≈1600 行 ✓）
+- **收益**：之后 `git diff --numstat` 读数**不再虚高** ⇒ 一直用的 `git diff --ignore-cr-at-eol` **可以退役** ✓
+
+### 四、验收（`recon` 只读终验：**能进包** ✅）
+- 改名：旧名残留全仓 **0** ✓（并甄别成员字段 ✓）；新名不冲突 ✓
+- 花括号：保留 19 处 **19/19** 是"条件行 + 跨行 body" ✓；全仓"三行形态" **0** ✓
+- 六项替换逐条核过 ✓（含"没手滑成 `activeThumbColor`"、"`Object` 那处 `'$e'` 未动" ✓）
+- 括号余额 **29/29 与 HEAD 一致** ✓；`numstat -- lib/` = **29 文件 +851/−373** ✓（两边数字对得上 ✓）
+- ⭐ **`Matrix4` 新 API 的 3.47.6 实锤** ✓：`flutter@3.47.6` 的 `pubspec.yaml` = `vector_math: ^2.4.0` ✓；且 analyze 报的**废弃注解里替代名由上游写死**（`'or translateByDouble instead'` ✓）⇒ 同版本里替代 API **必然存在** ✓（不再是 ❓ ✓）
+
+### 五、教训（本轮真实发生 ✓）
+- **"lint 报几处"要看规则语义，别凭直觉放大** ☠：240 vs 19 的差，是靠"拿一个**真被报的样点**去核**被分析的那个提交**的原文"判出来的 ✓ ⇒ **判据必须来自证据** ✓；过度清扫不止浪费时间，还会**破坏既有风格**、把 diff 撑大 ✓。
+- **冲突名要按语义起** ✓：`_r→r` 会撞响应变量、`_p` 在 `home_page` 其实是页码 ⇒ **改名也是"读懂再改"** ✓。
+- **批量机械改动必须可逆、可核** ✓：这次的逆变换（花括号）用"形态规则"批量判定，改后两边的**数字一致**（19/221 ✓），才敢收 ✓。
