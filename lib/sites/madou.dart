@@ -59,8 +59,8 @@ class MadouSite extends SiteUi {
   Future<List<Article>> tag(String slug, {required int page}) async {
     final sw = Stopwatch()..start();
     final res = slug.startsWith('/')
-        ? await cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'))
-        : await cards(await _f.text(
+        ? cards(await _f.text(page <= 1 ? slug : '$slug/page/$page'))
+        : cards(await _f.text(
             page <= 1 ? '/tag/$slug' : '/tag/$slug/page/$page'));
     if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=tag slug=$slug 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
     return res;
@@ -71,7 +71,7 @@ class MadouSite extends SiteUi {
 @override
   Future<List<Article>> home({required int page, String first = ''}) async {
     final sw = Stopwatch()..start();
-    final res = await cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
+    final res = cards(await _f.text(page <= 1 ? '/' : '/page/$page'));
     if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=home 页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
     return res;
   }

@@ -3052,10 +3052,11 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
    - 多余 `const`：**删 5 处**（父级 `const SnackBar(` ✓）**保留 2 处**（父级 `SnackBar(` 无 const ⇒ 删了破坏常量性 ☠）
 
 ### 三、行尾**治本**：`.gitattributes`（用户要求"改" ✓）
-- 新建仓库根 **`.gitattributes`** ✓，规则 **`*.dart text eol=lf`** + 一段说明注释 ✓
-- 背景：`sites/hanime1|xvideos|madou|pektino.dart` 的索引条目标记是 **`i/-text`** ⇒ git 逐字节比 ⇒ 本地 `git diff` **整篇虚高**（548/536 那种 ☠）；`app-dev` 实验证明"把工作区改成 LF"**改不动**它 ✗
-- 代价（**已与用户确认** ✓）：归一化会产生**一次性**整篇行尾变更（4 个文件 ≈1600 行 ✓）
-- **收益**：之后 `git diff --numstat` 读数**不再虚高** ⇒ 一直用的 `git diff --ignore-cr-at-eol` **可以退役** ✓
+- 新建仓库根 **`.gitattributes`** ✓；规则**最终形态** = **`* text=auto eol=lf`** ✓ + 一段说明注释 ✓
+  （先写的 `*.dart text eol=lf` ☠ —— `recon` 实测**漏了 4 个非 .dart 文件**（`DEVLOG_archive.md`、`sim/index.html`、`sim/server.mjs`、`启动模拟器.bat` ✓）⇒ 逐条列后缀必然漏 ⇒ 改全量 ✓；`text=auto` 对**二进制自动跳过** ✓（实测 8 个 jpg/png 仍为 `-text` ✓））
+- 背景：`sites/hanime1|xvideos|madou|pektino.dart` 的索引条目标记是 **`i/-text`** ⇒ git 逐字节比 ⇒ 本地 `git diff` **整篇虚高**（548/536 那种 ☠）
+- ⚠️ **我先前"代价 ≈1600 行一次性行尾变更"的预判——实测错了** ✓：提交后**字节级复核**（`git cat-file blob 1660c40:…` 与 `918a1ec:…`）显示那两个 blob **CR=0**（**本来就是 LF** ✓）⇒ 虚高纯粹来自"索引标 `-text`（逐字节比）+ 工作区是 CRLF"这两件事凑一起 ✓；`.gitattributes` 一生效，git 立刻按归一化口径比较 ⇒ **虚高当场消失、零 churn** ✓（比预期更好 ✓）
+- **收益**：`git diff --numstat` 读数**不再虚高** ⇒ 一直用的 `git diff --ignore-cr-at-eol` **退役** ✓（实测：**裸 diff 与带该参数的结果完全相同** ✓）
 
 ### 四、验收（`recon` 只读终验：**能进包** ✅）
 - 改名：旧名残留全仓 **0** ✓（并甄别成员字段 ✓）；新名不冲突 ✓
@@ -3068,3 +3069,31 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - **"lint 报几处"要看规则语义，别凭直觉放大** ☠：240 vs 19 的差，是靠"拿一个**真被报的样点**去核**被分析的那个提交**的原文"判出来的 ✓ ⇒ **判据必须来自证据** ✓；过度清扫不止浪费时间，还会**破坏既有风格**、把 diff 撑大 ✓。
 - **冲突名要按语义起** ✓：`_r→r` 会撞响应变量、`_p` 在 `home_page` 其实是页码 ⇒ **改名也是"读懂再改"** ✓。
 - **批量机械改动必须可逆、可核** ✓：这次的逆变换（花括号）用"形态规则"批量判定，改后两边的**数字一致**（19/221 ✓），才敢收 ✓。
+
+---
+
+## 十九、2026-10-06 · **1.1.8（先提交、未构建）**：把"关着 = 零开销"补成真的 + 清掉最后 4 条 info
+
+> 用户追问：「**开关未打开的时候，所有输出前的行为都不执行**」✓；随后指令："**1.补上 2.一起清掉**" ✓、"**先提交，不要构建！**" ✓
+
+### 一、"零开销"的**最后一处漏网**（如实承认 ✓）
+- 实情：`lib/main.dart` 的 `_NavLog` 两条 `[NAV] →` / `[NAV] ←` **没有显式守卫** ✗ —— 靠 `:30-35` 的全局 `debugPrint` 接管门控 ⇒ 输出确实没了，但**关着时仍会先拼一次字符串**（再被丢掉）☠ ⇒ 对"输出前的行为都不执行"**不成立** ✓
+- 修：两条**前置** `if (AppSettings.i.logConsole)` ✓（**打印内容一字不改** ✓）+ 注释订正成"守卫写在前 ⇒ 连字符串都不拼 ⇒ 真正零开销" ✓
+- `app-dev` 顺手扫全仓 ⇒ **又揪出 `lib/app_bg.dart` 5 处同类漏网** ✓：`:134` 暗像素占比、`:138` 判定失败、`:210` 老图迁移成功、`:213` 迁移失败、`:304` 本次加入 N 张（两条是**跨行调用** ⇒ 守卫加在语句最前、续行不动 ✓）—— 这批原是我更早"**先不加**"的既有打印 ✓ ⇒ 按新口径一并补齐 ✓
+  - ⚠️ 该文件**原本没有** `settings.dart` import（**我记错了 ⇒ 队员实测纠正** ✓）⇒ 补 `import 'settings.dart';` ✓（`debugPrint` 由 `widgets.dart` 带入 ✓）
+- ⇒ 全仓 **250 处 `debugPrint`，"缺显式守卫" = 0** ✓（判据含**复合条件**如 `if (logConsole && name == 'hwdec')` ✓ —— 早先那处"误报"就是这么来的 ✓）
+
+### 二、清掉 analyze 最后 **4 条 info**
+1. **`madou.dart` 3 处 `await_only_futures`**：`cards()` 是**同步**函数（定义 `:126 List<Article> cards(String html)` ✓）⇒ 撤掉**外层**多余 `await` ✓（**内层 `await _f.text(...)` 保留** ✓）；语义不变（`await` 作用于非 Future 值只多一次微任务跳转 ✓）。（注：这 3 条**不在** 1.1.6 那 114 条里 ⇒ 是后来几批引入的 ✓）
+2. **`error_log_page.dart` 1 条 `use_build_context_synchronously`**：**把"取渲染盒"挪到所有 `await` 之前** ✓（`box` 只是读渲染盒位置、**不依赖任何 await 结果** ⇒ 提前取零副作用 ✓）⇒ `context` 只在**同步段**被用 ⇒ lint 判据不成立 ⇒ 消除 ✓
+   - `recon` 又提示"它落到了 `try` **之外** ⇒ 兜底范围缩小" ✓ ⇒ 再挪进 **`try {` 的第一行** ✓（**仍在所有 `await` 之前** ✓ 两全 ✓）
+   - 顺带：原那一句因挪动而成无用的 `if (!mounted) return;` 删掉 ✓；**分享后**那条（页面已被 pop 就别弹 SnackBar ✓）**保留** ✓
+
+### 三、验收（`recon` 只读终验 + 我抽核 ✓）
+- 4 组全过 ✓：`main`（内容一字未改）/ `madou`（`cards()` 同步出处给到 `:126` ✓）/ `error_log_page`（实测 `try :101` → `box :106` → 首个 `await :107` ✓）/ `app_bg`（5 处字符串一字未改、import 无重复 ✓）
+- 括号余额 **4/4 与 HEAD 一致** ✓；`numstat` 与 `app-dev` 报的**完全一致** ✓（`app_bg 7/5`、`main 4/3`、`madou 3/3`、`error_log_page 5/2` ✓）
+- ⭐ **行尾治本实测确认**：**裸 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 结果完全相同** ✓ ⇒ 旧参数**退役** ✓
+
+### 四、教训（本轮真实发生 ✓）
+- **"零开销"要按"字符串也会被拼"来验** ☠：只靠"全局接管"拦，输出是没了、**构造还在** ⇒ 判据必须是"**显式守卫写在调用之前**" ✓。
+- **我凭记忆出错一次**（以为 `app_bg` 已有 `settings` import）⇒ **队员实测纠正** ✓ ⇒ 再次印证"**先读再改，别凭记忆**" ✓。

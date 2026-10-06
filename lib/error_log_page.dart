@@ -99,6 +99,11 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
   Future<void> _export(BuildContext context) async {
     final m = ScaffoldMessenger.of(context);
     try {
+      // ★ 渲染盒必须放在**所有 await 之前**取 ✓：它只是"读一下本页渲染盒的位置"，**不依赖后面任何 await 的结果** ✓；
+      //   放在 await 之后就成了"跨 await 用 BuildContext" ⇒ 触发 `use_build_context_synchronously` ☠（改前就是这样 ✓）。
+      //   ⚠️ 位置放在 `try` **里面**、且仍在任何 await 之前 ⇒ 既消掉那条 lint、又**保住 catch 兜底**
+      //   （`as RenderBox?` 的类型转换万一失败会被下面的 `catch` 接住，而不是抛到界面 ☠）。
+      final box = context.findRenderObject() as RenderBox?;
       final p = await SiteErrorLog.path();
       if (p == '(不可用)' || p.isEmpty) {
         m.showSnackBar(const SnackBar(content: Text('日志文件不可用 ✗（拿不到 App 文档目录）')));
@@ -125,8 +130,6 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
         final kb = await src.length(); // ← 取的是**原文件**长度（不是刚复制那份；两者数值相同 ✓ 措辞按代码写 ✓）
         debugPrint('[UI] 错误日志 导出 原日志字节=$kb 副本=$dst');
       }
-      if (!mounted) return; // ☠ 必须在取 `context.findRenderObject()` 之前判（跨 await 用 context ✓ release 不崩但该修 ✓）
-      final box = context.findRenderObject() as RenderBox?;
       await SharePlus.instance.share(ShareParams(
         files: [XFile(dst)],
         title: '错误日志',

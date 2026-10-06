@@ -52,19 +52,20 @@ void main() {
 }
 
 /// ★ 2026-10-05（用户要求 ✓）：**导航轨迹**（进了/退出了哪个页面 ✓）——
-///   走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓（关了 = 零开销 ✓）；
+///   走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓；
+///   ⚠️ **守卫写在前**（`if (AppSettings.i.logConsole)`）⇒ 关了时**连字符串都不拼** ⇒ 真正零开销 ✓；
 ///   ⚠️ 页面**名字**为空 ⇒ `runtimeType` 兜底 ✓（**不硬编名字表** ✗）。
 class _NavLog extends NavigatorObserver {
   _NavLog(); // ★ CI error 2 修：`NavigatorObserver` 的构造器**不是 const** ⇒ 这里不能是 const ✗
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    debugPrint('[NAV] → ${route.settings.name ?? route.runtimeType}');
+    if (AppSettings.i.logConsole) debugPrint('[NAV] → ${route.settings.name ?? route.runtimeType}');
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
-    debugPrint('[NAV] ← ${route.settings.name ?? route.runtimeType}');
+    if (AppSettings.i.logConsole) debugPrint('[NAV] ← ${route.settings.name ?? route.runtimeType}');
   }
 }
 

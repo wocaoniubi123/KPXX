@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 widgets.dart 带入 ✓
+
 /// 图集里的一张背景（索引里存的就是这两样：文件 + 加入时间）。
 ///
 /// ⚠️ **绝不能存绝对路径**（2026-10-01 实锤事故）：iOS 沙盒路径带容器 UUID
@@ -129,11 +131,11 @@ class AppBg extends ChangeNotifier {
         final total = rgba.length ~/ 4;
         final ratio = total == 0 ? 0.0 : darkPx / total;
         dark = ratio > 0.5;
-        debugPrint('背景明暗：暗像素占比 ${(ratio * 100).toStringAsFixed(1)}% '
+        if (AppSettings.i.logConsole) debugPrint('背景明暗：暗像素占比 ${(ratio * 100).toStringAsFixed(1)}% '
             '→ ${dark ? '深色' : '浅色'}');
       }
     } catch (e) {
-      debugPrint('背景明暗：判定失败，按浅色处理（$e）');
+      if (AppSettings.i.logConsole) debugPrint('背景明暗：判定失败，按浅色处理（$e）');
       dark = false;
     }
     if (key != _current) return; // 判定期间又换了图 → 丢弃这次结果
@@ -205,10 +207,10 @@ class AppBg extends ChangeNotifier {
       await _persistAlbum();
       await _persistCurrent();
       await sp.remove(_kLegacy);
-      debugPrint('背景图集：已把升级前的老图迁进图集（$t）');
+      if (AppSettings.i.logConsole) debugPrint('背景图集：已把升级前的老图迁进图集（$t）');
     } catch (e) {
       _current = _toRel(old); // 迁不动：本次会话照旧用它（老键还在，下次再试）
-      debugPrint('背景图集：老图迁移失败，先照旧使用（$e）');
+      if (AppSettings.i.logConsole) debugPrint('背景图集：老图迁移失败，先照旧使用（$e）');
     }
   }
 
@@ -299,7 +301,7 @@ class AppBg extends ChangeNotifier {
       await _persistAlbum();
       notifyListeners();
     }
-    debugPrint('背景图集：本次加入 $added 张（到上限跳过 $skipped 张）'
+    if (AppSettings.i.logConsole) debugPrint('背景图集：本次加入 $added 张（到上限跳过 $skipped 张）'
         '→ 共 ${_album.length}/$maxAlbum');
     return (added: added, full: skipped);
   }
