@@ -1,0 +1,16 @@
+# 统一行尾（2026-10-06 · 用户要求"行尾治本" ✓）
+#
+# 背景（实锤 ✓）：`lib/sites/hanime1.dart` / `xvideos.dart` / `madou.dart` / `pektino.dart` 这 4 个文件
+#   在 git 索引里的条目标记是 **`i/-text`**（非文本）⇒ git 对它们**逐字节比较、不做行尾归一化** ✗
+#   ⇒ 本地 `git diff --numstat` 会把**整篇**都算成改动（548/536 这种虚高 ☠），真实改动其实只有十几行。
+#
+# 规则（2026-10-06 修订 ✓）：**所有文件**按文本处理、仓库内统一按 **LF** 存：
+#   `text=auto` ⇒ git **自动判断**：图片等**二进制自动跳过** ✓（实测 `assets/*.jpg`、`sim/*.jpg|png`
+#   仍为 `-text` ✓ 不会被误当文本 ✓）；文本一律归一化到 LF ✓。
+#   ⚠️ 为什么不是只写 `*.dart`：实测漏了 4 个非 .dart 的 CRLF 文件
+#      （`DEVLOG_archive.md`、`sim/index.html`、`sim/server.mjs`、`启动模拟器.bat` ✓ 依据 = `git ls-files --eol` ✓）
+#      ⇒ 逐条列后缀必然漏（将来加 `.yaml`/`.json`/`Podfile` 又要再改）⇒ 改全量 ✓。
+#
+# 代价（**已与用户确认** ✓）：归一化会产生**一次性**的"整篇行尾变更"（4 个站文件 ≈1600 行 ✓）。
+# 收益：此后 `git diff --numstat` 读数**不再虚高** ⇒ 一直用的 `git diff --ignore-cr-at-eol` **退役** ✓。
+* text=auto eol=lf
