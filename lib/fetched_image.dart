@@ -10,6 +10,10 @@ import 'base/image_cache.dart';
 // ★ 2026-10-05（用户拍板"甲"✓）：本地插件（iOS 侧 ImageIO 解 AVIF ⇒ PNG ✓；非 iOS/解不出 ⇒ null ✓）
 import 'package:kp_avif/kp_avif.dart';
 import 'config.dart';
+// ★ 2026-10-05【临时诊断】日志要进 **App 自带的错误日志页** ✗ —— 读死了：那页的数据源是 `SiteErrorLog.read()`
+//   （`lib/error_log_page.dart:46` ✓），而 `debugPrint` 全仓**没有任何覆盖**（`debugPrint =` 0 命中 ✓）
+//   ⇒ 只进控制台 ✗ ⇒ 手机上**看不到** ☠ ⇒ 所以这几行走 `SiteErrorLog.log(...)`（`lib/site_error_log.dart:81` ✓）
+import 'site_error_log.dart';
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
 bool _isIco(Uint8List b) =>
@@ -246,16 +250,38 @@ class _FetchedImageState extends State<FetchedImage> {
     //   **非 AVIF ⇒ 直接跳过** ✓（多读的就那 12 个字节 ✗ 不整段扫 ✓ 不额外解码 ✓）。
     //   ⚠️ **解不出 / 返回 null / 抛异常 ⇒ 一律原样回落** ✓：`img` 不动 ⇒ 下面 `_looksLikeImage` 照旧判 ⇒
     //      **绝不因为它报错或空白** ✗；原生解码（iOS `CGImageSource` ✓）本身是异步的 ✓ **不卡 UI** ✓。
+    // ⚠️⚠️ 【临时诊断日志】（2026-10-05 用户要求出诊断包 ✓）—— **只记日志 ✓ 逻辑一字未改** ✗
+    //   出口 = **App 自带的错误日志页** ✓（走 `SiteErrorLog.log` ✓ 那页读的就是它 ✓）；用 `await` ✓（少一处 import ✓）
+    //   ⚠️ 定位完**搜 `[DIAG-avif]`** ⇒ 把这 4 条 `await SiteErrorLog.log(...)` + 上面这几行注释 + `_diagHost` 那行**一并删** ✓
+    final _diagHost = Uri.tryParse(url)?.host ?? '(解析不出)';
+    await SiteErrorLog.log('avif-diag', '[DIAG-avif] 取到图：host=$_diagHost len=${img?.length ?? -1}');
     if (img != null &&
         img.length >= 12 &&
         img[4] == 0x66 && img[5] == 0x74 && img[6] == 0x79 && img[7] == 0x70) {
       final brand = String.fromCharCodes(img.sublist(8, 12));
-      if (brand == 'avif' || brand == 'avis') {
+      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 品牌=$brand');
+      if (brand == 'avif' ||
+          brand == 'avis' ||
+          brand == 'heic' ||
+          brand == 'heix' ||
+          brand == 'mif1' ||
+          brand == 'msf1') {
         final png = await KpAvif.decodeToPng(img);
+        await SiteErrorLog.log(
+            'avif-diag', '[DIAG-avif] 解码返回=${png == null ? 'null ✗' : '${png.length}B ✓'}');
         if (png != null) img = png; // 成功才顶替 ✓（失败 ⇒ 保持原字节 ✓）
       }
+    } else {
+      // 没进分支时也要留一行 ✓（防"其实没进分支"✗）—— 只记头 8 字节 hex ✓ 不记整段 ☠
+      final head = (img == null || img.isEmpty)
+          ? '（img 为空 ✗）'
+          : img.take(8).map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ');
+      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 按非 AVIF 处理：host=$_diagHost head=$head');
     }
-    if (img == null || !_looksLikeImage(img)) return null;
+    if (img == null || !_looksLikeImage(img)) {
+      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 被 _looksLikeImage 拦下 ⇒ 返回 null（会走占位）host=$_diagHost');
+      return null;
+    }
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
     ImageDiskCache.i.put(url, img);
     if (_cache.length >= _maxCache) {
