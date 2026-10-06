@@ -52,7 +52,7 @@ void main() {
 ///   走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓（关了 = 零开销 ✓）；
 ///   ⚠️ 页面**名字**为空 ⇒ `runtimeType` 兜底 ✓（**不硬编名字表** ✗）。
 class _NavLog extends NavigatorObserver {
-  const _NavLog();
+  _NavLog(); // ★ CI error 2 修：`NavigatorObserver` 的构造器**不是 const** ⇒ 这里不能是 const ✗
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
@@ -73,7 +73,7 @@ class KpxxApp extends StatelessWidget {
     return MaterialApp(
       title: 'KPXX',
       // ★ 2026-10-05（用户要求 ✓）：**导航轨迹** —— 走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓
-      navigatorObservers: const [_NavLog()],
+      navigatorObservers: [_NavLog()], // ★ CI error 2 修：去掉 `const`（const 列表要求 const 构造器 ✗）
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),

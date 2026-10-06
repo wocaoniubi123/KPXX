@@ -19,6 +19,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import '../sites.dart';
+import 'package:flutter/foundation.dart'; // ★ CI error 1 修：`debugPrint` 在 foundation 里 ✓（本文件原先只有 5 条 import ✗ 没有 Flutter 件）
 
 class SiteFetcher {
   SiteFetcher(this.site)
