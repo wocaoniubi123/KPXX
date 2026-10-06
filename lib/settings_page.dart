@@ -323,10 +323,18 @@ class SettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _head(icon: Icons.bug_report_outlined, title: '诊断'),
-          _button(
-            label: '错误日志',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage())),
+          // ★ 2026-10-05（用户口径 ✓）：**宽度 ≈ 现在的一半 + 居中** ✗ —— 原来这个按钮挂在
+          //   `Column(crossAxisAlignment: CrossAxisAlignment.stretch)` 下 ⇒ 被**拉满整行** ☠（用户："太长"✓）；
+          //   ⚠️ **只动宽度 + 对齐** ✓（高度 / 文案「错误日志」/ 点击行为 / 字号**一个字没动** ☠；
+          //      旁边那个 `SwitchListTile` 也没碰 ✓ 它仍整行 ✓）。用现成件 `FractionallySizedBox` ✓ 不自造 ✗。
+          FractionallySizedBox(
+            widthFactor: 0.5, // 宽度 = 现在的 50% ✓
+            alignment: Alignment.center, // ★ 居中（**不是 centerLeft** ☠）
+            child: _button(
+              label: '错误日志',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage())),
+              ),
             ),
           ),
           // ★ 2026-10-05（用户拍板"加个开关"✓）：**记录控制台日志（调试用）** —— 默认关 ✓

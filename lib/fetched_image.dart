@@ -10,10 +10,6 @@ import 'base/image_cache.dart';
 // ★ 2026-10-05（用户拍板"甲"✓）：本地插件（iOS 侧 ImageIO 解 AVIF ⇒ PNG ✓；非 iOS/解不出 ⇒ null ✓）
 import 'package:kp_avif/kp_avif.dart';
 import 'config.dart';
-// ★ 2026-10-05【临时诊断】日志要进 **App 自带的错误日志页** ✗ —— 读死了：那页的数据源是 `SiteErrorLog.read()`
-//   （`lib/error_log_page.dart:46` ✓），而 `debugPrint` 全仓**没有任何覆盖**（`debugPrint =` 0 命中 ✓）
-//   ⇒ 只进控制台 ✗ ⇒ 手机上**看不到** ☠ ⇒ 所以这几行走 `SiteErrorLog.log(...)`（`lib/site_error_log.dart:81` ✓）
-import 'site_error_log.dart';
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
 bool _isIco(Uint8List b) =>
@@ -233,12 +229,28 @@ class _FetchedImageState extends State<FetchedImage> {
         })
         .timeout(const Duration(seconds: 15));
     // ★ 2026-10-05【临时 1 行】取数结果（开关那套做好前先落这一行 ✓ 只加不删 ✓ 定位后删本行即可 ✓）
-    debugPrint('[IMG] code=${r.statusCode} host=${u.host} len=${r.bodyBytes.length}');
-    if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
+    // ★ 2026-10-05【治刷屏】：只在**取数异常**时打一行 ✓（原来每张都打 ☠）—— 定位取数失败就够用了
+    if (r.statusCode != 200 || r.bodyBytes.isEmpty) {
+      debugPrint('[IMG] 取数异常 code=${r.statusCode} host=${u.host} len=${r.bodyBytes.length}');
+      return null;
+    }
     final raw = r.bodyBytes;
+    // ★ 2026-10-05【真凶修复】：**AVIF/HEIF 头必须在解密之前判** ✗ —— 原来 `_looksLikeImage(raw)` 不认 AVIF
+    //   ⇒ AVIF 被当"密文"送去 AES 解密 ⇒ 解出来是垃圾 ⇒ 品牌判断永远拿不到 `ftyp` ⇒ 图空白 ☠（`lib/online_album2_avif.dart:32-33` 同一判据 ✓）
+    //   ⚠️ 非 AVIF ⇒ `rawIsAvif` 为假 ⇒ `||` 短路 ⇒ 下面原路**零变化** ✓
+    final rawBrand = (raw.length >= 12 &&
+            raw[4] == 0x66 && raw[5] == 0x74 && raw[6] == 0x79 && raw[7] == 0x70)
+        ? String.fromCharCodes(raw.sublist(8, 12))
+        : '';
+    final rawIsAvif = rawBrand == 'avif' ||
+        rawBrand == 'avis' ||
+        rawBrand == 'heic' ||
+        rawBrand == 'heix' ||
+        rawBrand == 'mif1' ||
+        rawBrand == 'msf1';
     Uint8List? img;
-    if (_looksLikeImage(raw)) {
-      img = raw; // 未加密（不是 AES 密文 ✓）
+    if (rawIsAvif || _looksLikeImage(raw)) {
+      img = raw; // AVIF/HEIF 头 ✓、或未加密的真图（不是 AES 密文）✓
     } else if (_isIco(raw)) {
       img = _icoToPng(raw); // 站点 favicon：ICO 解成 PNG
     } else {
@@ -247,21 +259,12 @@ class _FetchedImageState extends State<FetchedImage> {
       // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
       img = await compute(_decryptInIsolate, raw);
     }
-    // ★ 2026-10-05（用户拍板"**甲**"✓ 禁区已破 ✓）：**AVIF ⇒ 走本地插件解成 PNG** ✗ —— 判据极窄：
-    //   只看**头 12 字节**（偏移 4 起 `ftyp` ✓ 再往后 4 字节品牌 ∈ `avif`/`avis` ✓ —— 与图集2 那套**同一判据** ✓）；
-    //   **非 AVIF ⇒ 直接跳过** ✓（多读的就那 12 个字节 ✗ 不整段扫 ✓ 不额外解码 ✓）。
-    //   ⚠️ **解不出 / 返回 null / 抛异常 ⇒ 一律原样回落** ✓：`img` 不动 ⇒ 下面 `_looksLikeImage` 照旧判 ⇒
-    //      **绝不因为它报错或空白** ✗；原生解码（iOS `CGImageSource` ✓）本身是异步的 ✓ **不卡 UI** ✓。
-    // ⚠️⚠️ 【临时诊断日志】（2026-10-05 用户要求出诊断包 ✓）—— **只记日志 ✓ 逻辑一字未改** ✗
-    //   出口 = **App 自带的错误日志页** ✓（走 `SiteErrorLog.log` ✓ 那页读的就是它 ✓）；用 `await` ✓（少一处 import ✓）
-    //   ⚠️ 定位完**搜 `[DIAG-avif]`** ⇒ 把这 4 条 `await SiteErrorLog.log(...)` + 上面这几行注释 + `_diagHost` 那行**一并删** ✓
-    final _diagHost = Uri.tryParse(url)?.host ?? '(解析不出)';
-    await SiteErrorLog.log('avif-diag', '[DIAG-avif] 取到图：host=$_diagHost len=${img?.length ?? -1}');
+    // ★ 2026-10-05（用户拍板"**甲**"✓）：**AVIF ⇒ 走本地插件解成 PNG** ✗ —— 判据极窄（只看头 12 字节 ✓）；
+    //   ⚠️ **解不出 / 返回 null / 抛异常 ⇒ 一律原样回落** ✓：`img` 不动 ⇒ 下面护栏照旧判 ⇒ **绝不报错或空白** ☠
     if (img != null &&
         img.length >= 12 &&
         img[4] == 0x66 && img[5] == 0x74 && img[6] == 0x79 && img[7] == 0x70) {
       final brand = String.fromCharCodes(img.sublist(8, 12));
-      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 品牌=$brand');
       if (brand == 'avif' ||
           brand == 'avis' ||
           brand == 'heic' ||
@@ -269,21 +272,10 @@ class _FetchedImageState extends State<FetchedImage> {
           brand == 'mif1' ||
           brand == 'msf1') {
         final png = await KpAvif.decodeToPng(img);
-        await SiteErrorLog.log(
-            'avif-diag', '[DIAG-avif] 解码返回=${png == null ? 'null ✗' : '${png.length}B ✓'}');
         if (png != null) img = png; // 成功才顶替 ✓（失败 ⇒ 保持原字节 ✓）
       }
-    } else {
-      // 没进分支时也要留一行 ✓（防"其实没进分支"✗）—— 只记头 8 字节 hex ✓ 不记整段 ☠
-      final head = (img == null || img.isEmpty)
-          ? '（img 为空 ✗）'
-          : img.take(8).map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ');
-      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 按非 AVIF 处理：host=$_diagHost head=$head');
     }
-    if (img == null || !_looksLikeImage(img)) {
-      await SiteErrorLog.log('avif-diag', '[DIAG-avif] 被 _looksLikeImage 拦下 ⇒ 返回 null（会走占位）host=$_diagHost');
-      return null;
-    }
+    if (img == null || !_looksLikeImage(img)) return null;
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
     ImageDiskCache.i.put(url, img);
     if (_cache.length >= _maxCache) {
