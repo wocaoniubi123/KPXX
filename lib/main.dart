@@ -144,8 +144,8 @@ class KpxxLogo extends StatelessWidget {
   }
 }
 
-/// 根页：底部三个 tab —— 模块（站点宫格）/ **直播**（直播站点宫格）/ 设置。
-/// ⚠️ 顺序是用户 2026-10-03 拍板的：**模块 → 直播 → 设置**（与模拟器同序 ✓）—— 别改顺序 ✗。
+/// 根页：底部三个 tab —— 点播（站点宫格）/ **直播**（直播站点宫格）/ 设置。
+/// ⚠️ 顺序是用户 2026-10-03 拍板的：**点播 → 直播 → 设置**（与模拟器同序 ✓）—— 别改顺序 ✗。
 class RootPage extends StatefulWidget {
   const RootPage({super.key});
 
@@ -189,7 +189,7 @@ class _RootPageState extends State<RootPage> {
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.grid_view_rounded),
-            label: '模块',
+            label: '点播',
           ),
           // 直播语义图标（模拟器里画的是"电视框 + 天线" ✓ → Material 的 live_tv 同义 ✓；
           // 描边风格与「设置」那项一致 ✓）
@@ -263,7 +263,7 @@ class ModuleGridPage extends StatelessWidget {
   }
 }
 
-/// **直播**宫格页（底栏第二项）：直播站点的按钮宫格 —— 与「模块」页**同一套样式** ✓
+/// **直播**宫格页（底栏第二项）：直播站点的按钮宫格 —— 与「点播」页**同一套样式** ✓
 /// （同一个 `_SiteTile` ✓、同样 4 列 ✓），只是清单换成 `group == SiteGroup.live` 的站点 ✓。
 /// ⚠️ 共用 UI 里**不判站名/模板名** ✗ —— 只看 `SiteEntry.group` ✓（见 sites.dart 的 SiteGroup ✓）。
 /// 点一个 → push 那个直播站的**全屏页** ✓（App 里 push 天然不带底栏 ✓）。
@@ -278,7 +278,7 @@ class LiveGridPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 同「模块」页：宫格图标名读 kTxt，整页跟着背景明暗重建 ✓
+    // 同「点播」页：宫格图标名读 kTxt，整页跟着背景明暗重建 ✓
     return ListenableBuilder(
       listenable: AppBg.i,
       builder: (context, _) => _grid(context),
@@ -291,7 +291,7 @@ class LiveGridPage extends StatelessWidget {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         systemOverlayStyle: kStatusOverlay,
-        title: const Text('直播'), // 占位、不返回 ✓（与「模块 / 设置」一致 ✓）
+        title: const Text('直播'), // 占位、不返回 ✓（与「点播 / 设置」一致 ✓）
         centerTitle: true,
         elevation: 0,
         foregroundColor: kTxt,

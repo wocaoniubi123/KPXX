@@ -20,13 +20,13 @@ enum SiteKind {
   native,
 }
 
-/// 站点**属于哪个宫格**（2026-10-04 加 ✓）：模块页 / 直播页各是一个清单 ✓。
+/// 站点**属于哪个宫格**（2026-10-04 加 ✓）：点播页 / 直播页各是一个清单 ✓。
 ///
 /// ⚠️ 为什么用**字段**而不是"在共用 UI 里判模板" ✗：共用 UI 里不该出现任何站名/站点模板名 ✗
 /// （`ModuleGridPage` 只看 `group` ✓、直播宫格也只看 `group` ✓）→ 以后加第二个直播站
 /// **一行 UI 都不用改** ✓（站点文件里写 `group: SiteGroup.live` 就行 ✓）。
 enum SiteGroup {
-  /// 底栏「模块」宫格里的内容站（默认 ✓）
+  /// 底栏「点播」宫格里的内容站（默认 ✓）
   module,
 
   /// 底栏「直播」宫格里的站点
@@ -168,7 +168,7 @@ class SiteEntry {
   /// 首字色块底色（有 iconUrl 时不用）
   final Color color;
 
-  /// 这个站进**哪个宫格**（默认「模块」✓；直播站写 `SiteGroup.live` ✓）。
+  /// 这个站进**哪个宫格**（默认「点播」✓；直播站写 `SiteGroup.live` ✓）。
   /// 共用 UI 只按它过滤 ✓，不认站名/模板名 ✗（见 [SiteGroup] 的注释 ✓）
   final SiteGroup group;
 
@@ -298,7 +298,7 @@ const List<SiteEntry> kSites = [
   kSite12,
   kSite13,
   kSite14,
-  // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「模块」✗。
+  // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,
 ];

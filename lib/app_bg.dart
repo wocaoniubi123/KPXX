@@ -131,8 +131,12 @@ class AppBg extends ChangeNotifier {
         final total = rgba.length ~/ 4;
         final ratio = total == 0 ? 0.0 : darkPx / total;
         dark = ratio > 0.5;
-        if (AppSettings.i.logConsole) debugPrint('背景明暗：暗像素占比 ${(ratio * 100).toStringAsFixed(1)}% '
-            '→ ${dark ? '深色' : '浅色'}');
+        // ⚠️ body 跨行（`debugPrint` 的字符串续到下一行）⇒ 按 `curly_braces_in_flow_control_structures` 必须加花括号 ✓
+        //   （同行写完整语句的那几条不用加 ✗ 别顺手都改 ✓）
+        if (AppSettings.i.logConsole) {
+          debugPrint('背景明暗：暗像素占比 ${(ratio * 100).toStringAsFixed(1)}% '
+              '→ ${dark ? '深色' : '浅色'}');
+        }
       }
     } catch (e) {
       if (AppSettings.i.logConsole) debugPrint('背景明暗：判定失败，按浅色处理（$e）');
@@ -301,8 +305,11 @@ class AppBg extends ChangeNotifier {
       await _persistAlbum();
       notifyListeners();
     }
-    if (AppSettings.i.logConsole) debugPrint('背景图集：本次加入 $added 张（到上限跳过 $skipped 张）'
-        '→ 共 ${_album.length}/$maxAlbum');
+    // ⚠️ 同 `:134`：body 跨行 ⇒ 必须加花括号 ✓（字符串/参数一字未改 ✓）
+    if (AppSettings.i.logConsole) {
+      debugPrint('背景图集：本次加入 $added 张（到上限跳过 $skipped 张）'
+          '→ 共 ${_album.length}/$maxAlbum');
+    }
     return (added: added, full: skipped);
   }
 

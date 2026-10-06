@@ -1231,14 +1231,14 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 // ===== 本站档案（2026-10-03 起站点档案都在自己的文件里 ✓）=====
 
 /// 本站档案：xHamsterLive。
-/// ⚠️ `group: SiteGroup.live` = 只在底栏「直播」那个宫格出现 ✓，**不进「模块」宫格** ✗
-/// （模块宫格 = 14 个内容站 ✓；与模拟器一致 ✓ —— 那边直播区也是**另一个**清单 ✓）。
+/// ⚠️ `group: SiteGroup.live` = 只在底栏「直播」那个宫格出现 ✓，**不进「点播」宫格** ✗
+/// （点播宫格 = 14 个内容站 ✓；与模拟器一致 ✓ —— 那边直播区也是**另一个**清单 ✓）。
 /// 房间列表/房间页都在本文件里 ✓（站点逻辑不往共用文件里放 ✓）。
 ///
 /// ⚠️ 常量名**故意不叫 `kSite15`** ✓：模拟器（`sim/server.mjs:115`）是拿 `\b(kSite\d+)\b`
 /// 从 `kSites` 里取站点名、再去合并源码里找 `const SiteEntry kSiteNN =` ✓ —— 名字里不带数字
-/// → 它**认不出本站** ✓ → 模拟器的「模块」宫格仍是 **14 格** ✓（与 App 一致 ✓；那边直播本来
-/// 就是另一个清单 ✓）。要是叫 `kSite15`，模拟器的模块宫格会**白多一格「xHamster直播」** ✗。
+/// → 它**认不出本站** ✓ → 模拟器的「点播」宫格仍是 **14 格** ✓（与 App 一致 ✓；那边直播本来
+/// 就是另一个清单 ✓）。要是叫 `kSite15`，模拟器的点播宫格会**白多一格「xHamster直播」** ✗。
 const SiteEntry kSiteLive = SiteEntry(
   name: 'xHamster直播',
   template: SiteTemplate.xhamsterlive,
