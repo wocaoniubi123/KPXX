@@ -369,7 +369,7 @@ class SettingsPage extends StatelessWidget {
           SwitchListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            title: const Text('记录控制台日志（调试用）', style: TextStyle(fontSize: 14)),
+            title: Text('记录控制台日志（调试用）', style: TextStyle(fontSize: 14, color: kTxt)),
             subtitle: Text(
               '打开后控制台打印会记进错误日志页（默认关）',
               style: TextStyle(fontSize: 12, color: kTxtSub),
