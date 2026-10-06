@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:kp_avif/kp_avif.dart';
 
 import 'config.dart';
+import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 import 'online_album_common.dart'; // ★ C ✓：尺寸表 `AlbumImageSizes`（只记 Size ✗ 不留字节 ✓）
 
 /// 「在线图集2」**专用的 AVIF 兜底层**（photos18 的封面与详情图**全是 `.avif`** ✓ 实测 ✓）。
@@ -55,6 +56,9 @@ class AvifBytes {
         var bytes = raw;
         if (looksAvif(raw)) {
           final png = await KpAvif.decodeToPng(raw);
+          // ★【常驻诊断·⑧】AVIF 原生解码结果（null = 解不出 ⇒ 会重试 ✓；与 `fetched_image` 那条同口径 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[AVIF] 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
+              '原图=${raw.length}B 第${attempt + 1}次');
           if (png == null) continue; // ② AVIF 解码失败 ⇒ 重试 ✓（老系统 / 插件没进包 / 非 AVIF 变体 ✓）
           bytes = png;
         }
@@ -63,10 +67,10 @@ class AvifBytes {
         _rememberSize(url, bytes);
         return bytes;
       } catch (e) {
-        debugPrint('图集2 取图失败（第 ${attempt + 1} 次，${_short(url)}）：$e');
+        if (AppSettings.i.logConsole) debugPrint('图集2 取图失败（第 ${attempt + 1} 次，${_short(url)}）：$e');
       }
     }
-    debugPrint('图集2 取图最终失败（已重试 3 次，${_short(url)}）⇒ 显示占位 ✓');
+    if (AppSettings.i.logConsole) debugPrint('图集2 取图最终失败（已重试 3 次，${_short(url)}）⇒ 显示占位 ✓');
     return null;
   }
 
@@ -87,7 +91,7 @@ class AvifBytes {
       });
       stream.addListener(l);
     } catch (e) {
-      debugPrint('图集2 记尺寸失败（不影响显示 ✓）：$e');
+      if (AppSettings.i.logConsole) debugPrint('图集2 记尺寸失败（不影响显示 ✓）：$e');
     }
   }
 

@@ -19,6 +19,7 @@ import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../config.dart';
 import '../models.dart';
+import '../settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 import '../sites.dart';
 
 /// Pornhub 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
@@ -223,6 +224,8 @@ class PhSite extends SiteUi {
       final g = await _f.client
           .get(uri, headers: headers)
           .timeout(const Duration(seconds: 8));
+      // ★【常驻诊断·⑤】换源复核（HEAD 不支持时那一次 GET ✓ 只打 host + 结果的 host 名 ✓ 不带完整 URL ☠）
+      if (AppSettings.i.logConsole) debugPrint('[PH] 换源复核 code=${g.statusCode} len=${g.bodyBytes.length} host=$host');
       if (g.statusCode == 410 || g.statusCode == 404 || g.statusCode == 403) {
         _phMarkBad(host, u);
         return false;

@@ -41,7 +41,9 @@ class SiteErrorLog {
   /// 1. 按**字节**读末尾 `keepBytes`（`RandomAccessFile` ✓ 不整篇读进内存 ✗）；
   /// 2. 从这段字节的**头往后**扫到**第一个换行**（`0x0A`）✓ —— UTF-8 里 `0x0A` **只可能是换行本身**
   ///    （多字节序列的每个字节都 ≥ `0x80` ⇒ **绝不会出现在一个汉字的中间** ✓）⇒ 从换行**之后**开始取 ✓
-  ///    ⇒ 只要不是"整段一个换行都没有"（256KB 不可能 ✗），结果一定**从完整的一行开头**起 ✓ 不会切到半个字 ✓；
+  ///    ⇒ 只要不是"整段一个换行都没有"（**现在读的是 `keepBytes`，即 `maxBytes ~/ 2` ≈ 2.5MB**
+  ///    ✓ 见 `:24` `maxBytes = 5 * 1024 * 1024` 与 `:27 keepBytes = maxBytes ~/ 2` ⇒ 这么大的段里不可能没有换行 ✗
+  ///    —— 保留段越大越安全 ✓），结果一定**从完整的一行开头**起 ✓ 不会切到半个字 ✓；
   /// 3. 再 `utf8.decode(..., allowMalformed: true)` ✓（多一层保险：万一有残字节也只是替换成 � ✗ 不会抛 ✓）；
   /// 4. `writeAsString(tail, flush: true)` **覆写** ✓ ⇒ 之后 `log()` 继续用 `FileMode.append` 追加 ✓ 逻辑不变 ✓。
   ///
@@ -58,7 +60,7 @@ class SiteErrorLog {
         while (start < bytes.length && bytes[start] != 0x0A) {
           start++;
         }
-        if (start >= bytes.length) return; // 这段里没有换行（不可能发生在 256KB 上 ✗）→ 这次不裁 ✓
+        if (start >= bytes.length) return; // 这段里没有换行（**≈2.5MB 的 `keepBytes` 上不可能** ✗ 见 `:44`）→ 这次不裁 ✓
         final tail = utf8.decode(bytes.sublist(start + 1), allowMalformed: true);
         await f.writeAsString(tail, flush: true);
       } finally {
@@ -89,7 +91,7 @@ class SiteErrorLog {
       final f = await _file();
       if (f == null) return;
       if (await f.exists() && await f.length() > maxBytes) {
-        await _trimTail(f); // ★ 2026-10-05：超限 → **保留末尾 256KB** ✓（原来这里是 `writeAsString('')` 整篇清空 ✗）
+        await _trimTail(f); // ★ 2026-10-05：超限 → **保留末尾 `keepBytes`（当前 ≈2.5MB ✓ 见 `:27`）** ✓（原来这里是 `writeAsString('')` 整篇清空 ✗）
       }
       final t = DateTime.now();
       final ts = '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} '

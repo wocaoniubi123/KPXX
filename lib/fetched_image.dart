@@ -10,6 +10,7 @@ import 'base/image_cache.dart';
 // ★ 2026-10-05（用户拍板"甲"✓）：本地插件（iOS 侧 ImageIO 解 AVIF ⇒ PNG ✓；非 iOS/解不出 ⇒ null ✓）
 import 'package:kp_avif/kp_avif.dart';
 import 'config.dart';
+import 'settings.dart'; // ★ 热点守卫用 ✓（`AppSettings.i.logConsole` ✓）
 
 /// 是不是 ICO（站点 favicon 都是 ICO：头 00 00 01 00）
 bool _isIco(Uint8List b) =>
@@ -231,7 +232,7 @@ class _FetchedImageState extends State<FetchedImage> {
     // ★ 2026-10-05【临时 1 行】取数结果（开关那套做好前先落这一行 ✓ 只加不删 ✓ 定位后删本行即可 ✓）
     // ★ 2026-10-05【治刷屏】：只在**取数异常**时打一行 ✓（原来每张都打 ☠）—— 定位取数失败就够用了
     if (r.statusCode != 200 || r.bodyBytes.isEmpty) {
-      debugPrint('[IMG] 取数异常 code=${r.statusCode} host=${u.host} len=${r.bodyBytes.length}');
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 取数异常 code=${r.statusCode} host=${u.host} len=${r.bodyBytes.length}');
       return null;
     }
     final raw = r.bodyBytes;
@@ -257,7 +258,10 @@ class _FetchedImageState extends State<FetchedImage> {
       // AES-CBC 解密是纯 Dart 计算，一张图几百 KB~几 MB。
       // 直接在 UI isolate 里做：详情页十几张图同时下完时会整页卡住
       // （视频是平台层在播所以还在动，界面却点不动）→ 丢到后台 isolate。
+      // ★【常驻诊断】解密前后各一行 ✓ 只打长度/host ✓（进出都是同一函数 ⇒ isolate 里失败也能从"解出长度"看出来 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 解密前 len=${raw.length} host=${Uri.tryParse(url)?.host ?? '?'}');
       img = await compute(_decryptInIsolate, raw);
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 解密后 len=${img?.length ?? -1} host=${Uri.tryParse(url)?.host ?? '?'}');
     }
     // ★ 2026-10-05（用户拍板"**甲**"✓）：**AVIF ⇒ 走本地插件解成 PNG** ✗ —— 判据极窄（只看头 12 字节 ✓）；
     //   ⚠️ **解不出 / 返回 null / 抛异常 ⇒ 一律原样回落** ✓：`img` 不动 ⇒ 下面护栏照旧判 ⇒ **绝不报错或空白** ☠
@@ -271,13 +275,23 @@ class _FetchedImageState extends State<FetchedImage> {
           brand == 'heix' ||
           brand == 'mif1' ||
           brand == 'msf1') {
+        // ★【常驻诊断·★】AVIF 原生解码结果（**返回 null = 解不出** ⇒ 后面会被护栏拦下 ⇒ 走占位 ✓）
         final png = await KpAvif.decodeToPng(img);
+        if (AppSettings.i.logConsole) debugPrint('[IMG] AVIF品牌=$brand 解码=${png == null ? 'null ✗（原生解不出）' : '${png.length}B ✓'} '
+            'host=${Uri.tryParse(url)?.host ?? '?'}');
         if (png != null) img = png; // 成功才顶替 ✓（失败 ⇒ 保持原字节 ✓）
       }
     }
-    if (img == null || !_looksLikeImage(img)) return null;
+    if (img == null || !_looksLikeImage(img)) {
+      if (AppSettings.i.logConsole) debugPrint('[IMG] 被护栏拦下（img=${img == null ? 'null' : '${img.length}B'} 非可解图）⇒ 走占位 '
+          'host=${Uri.tryParse(url)?.host ?? '?'}');
+      return null;
+    }
     // ⭐ 落盘（只存**真图** ✓：明文 ✓、原子改名 ✓、失败静默 ✓）
     ImageDiskCache.i.put(url, img);
+    // ★【常驻诊断】落盘 + 内存缓存（只打长度/条数 ✓ 不打 URL ✓）
+    if (AppSettings.i.logConsole) debugPrint('[IMG] 落盘+入内存缓存 len=${img.length} 缓存条数=${_cache.length + 1} '
+        'host=${Uri.tryParse(url)?.host ?? '?'}');
     if (_cache.length >= _maxCache) {
       // #1+#2 ✓：LRU（命中已挪队尾 ✓）+ 字节封顶 → **只从头砍最久没用的**，砍到合规为止 ✗
       // （原来一次丢 100 张 ✗ → 屏幕上的图会被丢 → 立刻重下 + 重解密 ✗）
@@ -285,10 +299,14 @@ class _FetchedImageState extends State<FetchedImage> {
       for (final v in _cache.values) {
         totalBytes += v.length;
       }
+      var evicted = 0; // ★【常驻诊断】只计数 ✓ 不改淘汰规则 ☠
       while (_cache.isNotEmpty &&
           (_cache.length > _maxCache || totalBytes > _maxBytes)) {
         totalBytes -= _cache.remove(_cache.keys.first)?.length ?? 0;
+        evicted++;
       }
+      // ★【常驻诊断】淘汰了几个/剩多少（条数上限 $_maxCache / 字节上限 $_maxBytes ✓）
+      if (AppSettings.i.logConsole) debugPrint('[IMG] LRU 淘汰 $evicted 张 ⇒ 剩=${_cache.length} 张 剩字节=$totalBytes');
     }
     _cache[url] = img;
     return img;

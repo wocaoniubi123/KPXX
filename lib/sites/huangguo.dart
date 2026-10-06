@@ -22,6 +22,9 @@ import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/fmt.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// 黄果短剧本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class HuangguoSite extends SiteUi {
@@ -41,6 +44,9 @@ class HuangguoSite extends SiteUi {
       final v = '${eps['$ep'] ?? ''}';
       if (v.isNotEmpty) out.add(v);
     }
+    // ★【常驻诊断】本站自有取源结果：集号 ep + 条数 —— 0 条就是页面没给 epPlaySrcs[ep] ✓
+    // （⚠️ 本方法是纯函数、拿不到 `_f.site.name`，站名写字面量 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[SRC] 黄果短剧 ep=$ep 解析出 ${out.length} 条源');
     return out;
   }
 
@@ -48,9 +54,14 @@ class HuangguoSite extends SiteUi {
   /// 吃瓜社区的帖子是图文帖（/archives/N/ ✓），跟视频详情不是一套 ✓
   /// ⚠️ 2026-10-05：原来是**死代码** ✗（`Api.detail` 直接调 `detail` ✗）→ 吃瓜帖子取不到视频 ✗；
   ///    现在 `Api.detail` 改调 `detailOf` ✓，这条分流才真正生效 ✓（见 `site_ui.dart` 的 `detailOf` ✓）
+// 看：详情入口按路径分给了哪套解析器 —— 吃瓜帖子被当视频解析时一眼可见。
 @override
   Future<ArticleDetail> detailOf(String url) {
-    if (url.startsWith('/archives/')) return postDetail(url);
+    if (url.startsWith('/archives/')) {
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒图文帖子解析器');
+      return postDetail(url);
+    }
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒视频解析器');
     return detail(url);
   }
 
@@ -79,6 +90,7 @@ class HuangguoSite extends SiteUi {
       list(first, sort: 'latest', page: page);
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
+// 看：分类页解析出几条 —— 0 条就是 JSON 接口的 items 空了，或路径型列表的卡片选择器变了。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -88,12 +100,17 @@ class HuangguoSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
     // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓
     final kk = k ?? key;
     // 以 / 开头 = 站内路径型列表（精选推荐/最近上新/专题/排行榜/吃瓜黑料）
-    if (kk.startsWith('/')) return pageList(kk, page: page);
     // 否则是频道 slug；只有一层排序：子分类 key 就是 sort 值，没选就按最新
-    return list(key, sort: kk == key ? 'latest' : kk, page: page);
+    final _r = kk.startsWith('/')
+        ? await pageList(kk, page: page)
+        : await list(key, sort: kk == key ? 'latest' : kk, page: page);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
   }
   // 黄果短剧（huangguoai）
 
@@ -393,6 +410,7 @@ class HuangguoSite extends SiteUi {
   /// epPlaySrcs = {"1": m3u8, "2": m3u8, ...}（整部剧所有集，一次拿全，不用逐集抓）。
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -473,7 +491,7 @@ class HuangguoSite extends SiteUi {
       title = (doc.querySelector('h1')?.text ?? '').trim();
     }
 
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title,
       time: time,
       categories: const [],
@@ -484,6 +502,9 @@ class HuangguoSite extends SiteUi {
       related: related.where((a) => a.url != url).take(12).toList(),
       seriesPrefix: seriesPrefix(title),
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 }
 

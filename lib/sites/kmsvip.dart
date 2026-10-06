@@ -19,6 +19,9 @@ import 'package:encrypt/encrypt.dart';
 import '../base/fetch.dart';
 import '../config.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// kmsvip 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class KmSite extends SiteUi {
@@ -43,6 +46,7 @@ class KmSite extends SiteUi {
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key = 站点 type：'0' 热门视频（listHot）/ '1' 视频广场（listAll）✓
+// 看：分类页解析出几条 —— 0 条就是加密接口返回 code≠0，或列表字段（data.list）变了。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -51,8 +55,15 @@ class KmSite extends SiteUi {
           String? duration,
           String? sort,
           List<MapEntry<String, String>>? extra,
-          Future<List<Article>> Function({int page})? home}) =>
-      list(key == '1' ? '/api/videos/listAll' : '/api/videos/listHot', page: page);
+          Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
+    final _r = await list(
+        key == '1' ? '/api/videos/listAll' : '/api/videos/listHot',
+        page: page);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
+  }
   static final _kmAes =
       Encrypter(AES(Key(utf8.encode('625202f9149maomi')), mode: AESMode.cbc));
   static final _kmIv = IV(utf8.encode('5efd3f6060emaomi'));
@@ -146,13 +157,14 @@ class KmSite extends SiteUi {
   /// 形式，iOS ATS 不允许 http，且从开发机实测不可达）。
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final j =
         await _kmPost('/api/videos/detail', {'mvId': url, 'uId': '60364099'});
     final data = j['data'];
     final d = data is Map ? data : const <dynamic, dynamic>{};
     final play = (d['mv_play_url'] ?? '').toString();
     final cover = (d['mv_img_url'] ?? '').toString();
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: (d['mv_title'] ?? '').toString(),
       time: (d['mv_created'] ?? '').toString(),
       categories: const [],
@@ -166,6 +178,9 @@ class KmSite extends SiteUi {
       related: const [],
       seriesPrefix: '',
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 }
 

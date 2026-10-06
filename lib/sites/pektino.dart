@@ -16,6 +16,9 @@ import '../sites.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// Pektino 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class PektinoSite extends SiteUi {
@@ -49,6 +52,7 @@ class PektinoSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
     final r = key.endsWith('/weekly')
         ? 'weekly'
         : key.endsWith('/monthly')
@@ -56,7 +60,10 @@ class PektinoSite extends SiteUi {
             : key.endsWith('/all')
                 ? 'all'
                 : 'timely';
-    return list(r, theme ?? '', page: page, duration: duration, sort: sort);
+    final _list = await list(r, theme ?? '', page: page, duration: duration, sort: sort);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_list.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _list;
   }
 
   /// 列表走瀑布流（逐条按分辨率混排，不留空档 ✓）
@@ -137,6 +144,7 @@ class PektinoSite extends SiteUi {
   /// 把 `\"` 反转义后按 `"url_cd"` 切块、正则抽字段（整段 JSON 解析不划算）。
   /// 相关推荐 = payload 里的其它视频（各条都带 url_cd/thumbnail/time/url）。
   Future<ArticleDetail> _pektinoDetail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url);
     final urlCd = url.split('/movie/').last.replaceAll('/', '');
     final plain = html.replaceAll(r'\"', '"').replaceAll(r'\\', r'\');
@@ -186,7 +194,7 @@ class PektinoSite extends SiteUi {
     final pv = main?['pv'] ?? '';
     final fav = main?['favorite'] ?? '';
     final acc = main?['tweet_account'] ?? '';
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: urlCd.isEmpty ? url : urlCd,
       time: '',
       categories: const [],
@@ -216,7 +224,10 @@ class PektinoSite extends SiteUi {
       ],
       seriesPrefix: '',
     );
-  }
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
+  }
 }
 
 // ===== 本站专属清单（2026-10-03 从 lib/sites.dart 下放 ✓；循环 import 允许 ✓）=====

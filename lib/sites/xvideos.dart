@@ -19,6 +19,9 @@ import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// XVideos 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class XvSite extends SiteUi {
@@ -37,6 +40,7 @@ class XvSite extends SiteUi {
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// 「分类」tab 的子分类 key（/c/xxx、/tags/xxx、/trans、/lang/…）优先 ✓；
   /// 主分类 key = /best、/new、/channels-index、/pornstars-index（见 list ✓）
+// 看：分类页解析出几条 —— 0 条就是 thumb-block 卡片选择器变了或该 key 走到了空页面。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -45,8 +49,13 @@ class XvSite extends SiteUi {
           String? duration,
           String? sort,
           List<MapEntry<String, String>>? extra,
-          Future<List<Article>> Function({int page})? home}) =>
-      list(k ?? key, page: page);
+          Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
+    final _r = await list(k ?? key, page: page);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
+  }
 
   /// XVideos 的频道/演员卡（**不含** `/video.` 的真正视频页 ✓）→ 进"視頻"列表页 ✓
   @override
@@ -261,8 +270,10 @@ class XvSite extends SiteUi {
     return out;
   }
 
+// 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 就是 setVideoHLS/setVideoUrl* 三个正则都没匹配上。
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url, extraHeaders: _xvLang);
     final doc = hp.parse(html);
     var title =
@@ -340,7 +351,7 @@ class XvSite extends SiteUi {
         // 解析不了当无相关推荐
       }
     }
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: const [],
@@ -352,7 +363,10 @@ class XvSite extends SiteUi {
       seriesPrefix: '',
       duration: dur,
     );
-  }
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
+  }
 }
 
 // ===== 本站档案（2026-10-03 从 lib/sites.dart 的 kSites 下放 ✓）=====

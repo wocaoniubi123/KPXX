@@ -141,14 +141,37 @@ class KpPlayer extends ValueNotifier<KpState> {
     _subs = [
       _p.stream.position.listen((v) {
         value = value.copyWith(position: v);
+        // ★【常驻诊断】只打**首次** position>0（首帧 ✓）⇒ 防刷屏 ☠；`_everStarted` 是既有字段 ✓ 不改它的用法 ✓
+        if (v > Duration.zero && !_everStarted) {
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 首帧 position=${v.inMilliseconds}ms');
+        }
         if (v > Duration.zero) _everStarted = true;
       }),
-      _p.stream.duration.listen((v) => value = value.copyWith(duration: v)),
+      // ★【常驻诊断·★】时长拿到那一刻（**"总进度只有几秒"就看这一条** ✓ 只打一次 ✓ 不改逻辑 ☠）
+      //   ⚠️ 这里**不打 host** ✗：本 State 里没有"当前源 URL"的字段（读不到 ⇒ 不猜 ✓）—— 要 host 得看 `[PLAY] host=` 那条 ✓
+      _p.stream.duration.listen((v) {
+        if (v > Duration.zero && value.duration <= Duration.zero) {
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 时长=${v.inSeconds}s（首次拿到 ✓）');
+        }
+        value = value.copyWith(duration: v);
+      }),
       _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
-      _p.stream.buffering.listen((v) => value = value.copyWith(buffering: v)),
+      // ★【常驻诊断·★】缓冲起/止（卡顿判据 ✓ 只在变化时打 ✓ 防刷屏 ☠）
+      _p.stream.buffering.listen((v) {
+        if (v != value.buffering) {
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 缓冲 ${v ? '起' : '止'}');
+        }
+        value = value.copyWith(buffering: v);
+      }),
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
       _p.stream.buffer.listen((v) => value = value.copyWith(buffer: v)),
-      _p.stream.completed.listen((v) => value = value.copyWith(completed: v)),
+      // ★【常驻诊断】播放结束（一条流跑完 ✓ 只打一次 ✓）
+      _p.stream.completed.listen((v) {
+        if (v && !value.completed) {
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放结束 position=${value.position.inSeconds}s duration=${value.duration.inSeconds}s');
+        }
+        value = value.copyWith(completed: v);
+      }),
       // 引擎的 error 流里也会混入 FFmpeg 的偶发网络错误
       // （如 tcp: ffurl_read returned ...，此时视频往往还在正常播）。
       // 所以：已经在播就不弹提示（真卡住由看门狗负责判断）；**首帧前也不立刻当失败** ✓
@@ -158,6 +181,9 @@ class KpPlayer extends ValueNotifier<KpState> {
       //    现在只挂"待定"（`_startupErrPending` ✓），由看门狗宽限 [_kStartupErrHoldMs] 后
       //    **仍未就绪**才算这条源失败 ✓（见看门狗里那段 ✓）—— 单次偶发不再换源 ✓。
       _p.stream.error.listen((e) {
+        // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量取子串 ✗ 会越界 ☠）
+        final es = '$e';
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 错误流 首帧前=$_everStarted ${es.length <= 120 ? es : es.substring(0, 120)}');
         _lastFatal = e;
         if (!_everStarted) _startupErrPending = true;
       }),
@@ -395,6 +421,8 @@ class KpPlayer extends ValueNotifier<KpState> {
       } else if (hw == 2) {
         kp.setMpvOptionQuiet('hwdec', 'no');
       }
+      // ★【常驻诊断·③】我们**下发**的硬解档（0=不下发 ✓ 保持上游默认 ⇒ 与设置页那三档配对看 ✓；只看不改 ☠）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 硬解下发=${hw == 0 ? '不设(上游默认)' : (hw == 1 ? 'hwdec=auto' : 'hwdec=no')}');
     } catch (_) {}
   }
 
@@ -403,6 +431,11 @@ class KpPlayer extends ValueNotifier<KpState> {
       final plat = _p.platform; // media_kit 的 `Player.platform` ✓（iOS 上是 NativePlayer ✓）
       if (plat is NativePlayer) {
         plat.setProperty(name, value).catchError((Object _) {});
+        // ★【常驻诊断·③】实际**生效**的通道 = 只有 `NativePlayer` 时才会下发 ✓（是原生 ✓）
+        if (AppSettings.i.logConsole && name == 'hwdec') debugPrint('[PLAY] 硬解生效通道=NativePlayer setProperty("hwdec","$value") ✓');
+      } else if (AppSettings.i.logConsole && name == 'hwdec') {
+        // ⚠️ 如实报：平台不是 `NativePlayer`（如 Web/Stub）⇒ **这一档下发不出去** ✗（不改逻辑，只留痕 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 硬解生效通道=非 NativePlayer（${plat.runtimeType}）⇒ 未下发 ✗');
       }
     } catch (_) {}
   }
@@ -880,6 +913,9 @@ class PlayerWidgetState extends State<PlayerWidget>
     _autoRetryTimer = null;
     _autoRetries = 0;
     _autoRetrying = false;
+    // ★【常驻诊断·③】换源/换档（用户点清晰度或换集走这里 ✓ 只看不改 ☠）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
+        '首源host=${Uri.tryParse(srcs.isEmpty ? '' : srcs.first)?.host ?? '?'}');
     _kp?.pause(); // 换档：先把旧源停住，别和新源抢声音
     _fetchingLazy = false;
     if (resumeTo != null && resumeTo > Duration.zero) _restoreTo = resumeTo;
@@ -1097,7 +1133,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       final du = Uri.tryParse(url);
       final dpath = du == null ? url : '${du.scheme}://${du.host}${du.path}';
       final qlen = du?.query.length ?? 0;
-      debugPrint('[PLAY] host=${du?.host ?? '?'} path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] host=${du?.host ?? '?'} path=${dpath.length <= 80 ? dpath : dpath.substring(0, 80)} '
           'qlen=$qlen ref=${ref.length <= 40 ? ref : ref.substring(0, 40)}');
     }
     kp.addListener(listener);
@@ -1114,12 +1150,12 @@ class PlayerWidgetState extends State<PlayerWidget>
       kp.setMpvOptionQuiet('referrer', ref);
       final ok = await done.future
           .timeout(const Duration(seconds: 15), onTimeout: () => false);
-      debugPrint('[PLAY] 起播=${ok ? 'ok' : 'fail(超时或报错)'} host=${Uri.tryParse(url)?.host ?? '?'}');
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播=${ok ? 'ok' : 'fail(超时或报错)'} host=${Uri.tryParse(url)?.host ?? '?'}');
       return ok;
     } catch (e) {
       // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量 `'$e'` 取子串 ✗ 会越界 ☠）
       final es = '$e';
-      debugPrint('[PLAY] 起播失败 ${es.length <= 120 ? es : es.substring(0, 120)}');
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播失败 ${es.length <= 120 ? es : es.substring(0, 120)}');
       return false;
     } finally {
       kp.removeListener(listener);
@@ -1276,6 +1312,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     //    用户实测"播几秒 → 从头再来"就是这么来的 ✓；改走"刷新源 + 原地续播" ✓
     final midStall = _kp?.value.started ?? false;
     setState(() => _autoRetrying = true);
+    // ★【常驻诊断·★】自动重试排上（**"经常重新加载"看这一条** ✓ `_autoRetries` = 既有额度字段 ✓ 只看不改 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 准备重试 midStall=$midStall 已用额度=$_autoRetries');
     _autoRetryTimer = Timer(const Duration(milliseconds: 1200), () {
       _autoRetryTimer = null;
       if (!mounted) return;
@@ -1302,6 +1340,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       const Duration(seconds: 6),
       onTimeout: () => const <String>[],
     );
+    // ★【常驻诊断】恢复：刷新前位置 + 这次拿到几条新源（只看 ✓ 下面判据一字未动 ☠）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 恢复 刷新前 position=${posBefore.inMilliseconds}ms 拿到新源=${fresh.length} 条');
     if (!mounted) return;
     if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
     // ① 别的加载已经在跑了（换档/手动重试/流程自身 ✓）→ 让它去，别并发开第二次 ✓

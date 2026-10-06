@@ -3,6 +3,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import 'app_bg.dart';
 import 'app_background.dart';
+import 'settings.dart';
 import 'web_embed.dart';
 
 /// 应用内浏览器（**整页**版 ✓）：宫格里 kind=web 的站点用它打开，不跳出 App。
@@ -54,7 +55,14 @@ class _WebPageState extends State<WebPage> {
           foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         ),
         // 进度条 / 错误重试 / 静音都在 WebEmbed 里 ✓（两边共用同一套 ✓）
-        body: WebEmbed(url: widget.url, onCreated: (c) => _ctl = c),
+        body: WebEmbed(
+          url: widget.url,
+          onCreated: (c) {
+            // 控制器创建（宿主拿到 WebView 控制器，用于网页历史后退）
+            if (AppSettings.i.logConsole) debugPrint('[WEB] 控制器创建 ${webLoc(widget.url)}');
+            _ctl = c;
+          },
+        ),
       ),
     );
   }

@@ -24,6 +24,9 @@ import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/fmt.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// 上述几站的专属实现（取数走公用底座 [SiteFetcher] ✓）
 class PornaSite extends SiteUi {
@@ -35,11 +38,22 @@ class PornaSite extends SiteUi {
   /// 四种详情页：短视频 / 黑料图文 / 小说 / 普通视频 ✓
   /// ⚠️ 2026-10-05：原来是**死代码** ✗（`Api.detail` 直接调 `detail` ✗）→ 小说/黑料图文/短视频
   ///    全被当普通视频解析 ✗；现在 `Api.detail` 改调 `detailOf` ✓（见 `site_ui.dart` ✓）
+// 看：详情入口按路径分给了哪套解析器 —— 小说/黑料图文/短视频被当普通视频解析时一眼可见。
 @override
   Future<ArticleDetail> detailOf(String url) {
-    if (url.startsWith('/melonshort/video/')) return melonDetail(url);
-    if (url.startsWith('/heiliao-chigua/')) return heiliaoDetail(url);
-    if (url.startsWith('/novels/')) return novelDetail(url);
+    if (url.startsWith('/melonshort/video/')) {
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒短视频解析器');
+      return melonDetail(url);
+    }
+    if (url.startsWith('/heiliao-chigua/')) {
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒黑料图文解析器');
+      return heiliaoDetail(url);
+    }
+    if (url.startsWith('/novels/')) {
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒小说解析器');
+      return novelDetail(url);
+    }
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 分流⇒普通视频解析器');
     return detail(url);
   }
 
@@ -62,6 +76,7 @@ class PornaSite extends SiteUi {
 
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// key 可能是站内路径（/section 之类）也可能是分类 slug，站点内部自己分流 ✓
+// 看：分类页解析出几条 —— 0 条就是卡片选择器变了（本站 category 直接转发 `list`，日志打在 list 里 ✓）。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -80,6 +95,7 @@ class PornaSite extends SiteUi {
   /// - 其余（/comic/index/*、/comic/av/*、搜索） → `div.video-item`
   /// [key]：站内路径或 "search:关键词"。
   Future<List<Article>> list(String key, {int page = 1}) async {
+    final _sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动取数/分流路径 ☠
     // 关键词里的空格站点用 + 分隔（encodeQueryComponent 正好把空格编成 +）
     final path = key.startsWith('search:')
         ? '/comic/index/search?keyword=${Uri.encodeQueryComponent(key.substring(7))}'
@@ -89,7 +105,12 @@ class PornaSite extends SiteUi {
         : '$path${path.contains('?') ? '&' : '?'}page=$page';
     final html = await _f.text(url);
     final doc = hp.parse(html);
-    if (path.startsWith('/melonshort')) return melonCards(doc);
+    if (path.startsWith('/melonshort')) {
+      final _r = melonCards(doc);
+      // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
+    }
     // ⚠️ 只看路径部分：搜索关键词里也可能出现"黑料"（%E9%BB%91%E6%96%99），
     // 用整个 path 判断会把搜索结果页错认成黑料页（而且要用完整的"黑料吃瓜"编码）
     final p0 = path.split('?').first;
@@ -97,14 +118,30 @@ class PornaSite extends SiteUi {
     // 再深一层（/moviesets/xxx/yyy）才是该合集的视频列表（走下面的 video-item）
     if (p0.startsWith('/moviesets')) {
       final segs = p0.split('/').where((x) => x.isNotEmpty).toList();
-      if (segs.length <= 2) return _msCards(doc);
+      if (segs.length <= 2) {
+        final _r = _msCards(doc);
+        // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+        if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+        return _r;
+      }
     }
     // 色情小说列表（/novels、/novels/{分类}/new）
-    if (p0 == '/novels' || p0.startsWith('/novels/')) return novelCards(doc);
-    if (p0.contains('heiliao') || p0.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) {
-      return heiliaoCards(doc);
+    if (p0 == '/novels' || p0.startsWith('/novels/')) {
+      final _r = novelCards(doc);
+      // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
     }
-    return _pornaCards(doc);
+    if (p0.contains('heiliao') || p0.contains('%E9%BB%91%E6%96%99%E5%90%83%E7%93%9C')) {
+      final _r = heiliaoCards(doc);
+      // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
+    }
+    final _r = _pornaCards(doc);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓（普通视频列表/搜索页）
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
   }
 
   /// 精选合集的"合集卡"（a.ms-card → /moviesets/{type}/{slug}）
@@ -414,8 +451,10 @@ class PornaSite extends SiteUi {
   /// - 标题/简介/时长/时间/标签 来自页面内嵌的 LD+JSON（VideoObject）
   /// - 播放地址要再请求 `/index/detail_play`：参数 img=封面路径、u=页面里内嵌的
   ///   160 位 hex token、t=时间戳/2100（照抄前端 JS 的算法），响应里就是 m3u8。
+// 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 就是 /index/detail_play 换源失败或 LD+JSON 缺 VideoObject。
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -475,7 +514,7 @@ class PornaSite extends SiteUi {
       videos.add(ArticleVideo(label: '视频 1', ordinal: 1, sources: [src]));
     }
 
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: time,
       categories: const [],
@@ -487,6 +526,9 @@ class PornaSite extends SiteUi {
       seriesPrefix: seriesPrefix(title),
       duration: duration,
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 
   /// 拿 91porna 的播放地址：请求 `/index/detail_play`（黑料帖是 `/index/melon_detail_play.js`），

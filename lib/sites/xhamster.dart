@@ -24,6 +24,9 @@ import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// xHamster 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class XhSite extends SiteUi {
@@ -54,6 +57,7 @@ class XhSite extends SiteUi {
   ///   · 「分类」tab：默认 '/categories/18-year-old'；选中标签后 theme = '/categories/<slug>'
   ///   · 「色情明星」tab：默认 '/pornstars'；选中后 '/pornstars/top/us' 等
   ///   · 「短片」tab：'/shorts' → 内部走 JSON 接口（与路径无关 ✓）
+// 看：分类页解析出几条 —— 0 条就是卡片选择器变了（本站真数据多在页面 JSON 里，不在静态 HTML）。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -62,8 +66,13 @@ class XhSite extends SiteUi {
           String? duration,
           String? sort,
           List<MapEntry<String, String>>? extra,
-          Future<List<Article>> Function({int page})? home}) =>
-      list(theme ?? key, page: page);
+          Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
+    final _r = await list(theme ?? key, page: page);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
+  }
 
   /// xHamster 只有 `/categories/*` tab 挂筛选行（且无子分类时 ✓）
   @override
@@ -336,6 +345,7 @@ class XhSite extends SiteUi {
   /// **短片例外**：'/shorts/…' 只用站点默认那条（用户 2026-10-02："短片的话你就使用网站
   /// 默认给的分辨率就行"）→ 不展开档位、不做清晰度选择器。
   Future<ArticleDetail> _xhDetail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url, extraHeaders: _xhDesk);
     final doc = hp.parse(html);
 
@@ -410,7 +420,7 @@ class XhSite extends SiteUi {
     final related =
         _xhCards(html).where((a) => !a.url.startsWith('/shorts/')).toList();
 
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title,
       time: '',
       // ⚠️ categories 是必需参数（models.dart 里是 required this.categories）——
@@ -428,6 +438,9 @@ class XhSite extends SiteUi {
       duration: _xhClock(durSec),
       seriesPrefix: '',
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 }
 

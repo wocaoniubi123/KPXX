@@ -78,7 +78,11 @@ class PlayHistoryPage extends StatelessWidget {
                       context: context,
                       title: '清空播放记录？',
                       content: '所有记录会删掉，不能恢复。');
-    if (ok == true) await PlayHistory.i.clear();
+    if (ok == true) {
+      // ★ 2026-10-05【常驻诊断·④】清空播放记录（只看不改逻辑 ☠ 清空本身仍走同一句 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[UI] 清空播放记录（原 ${PlayHistory.i.records.length} 条）');
+      await PlayHistory.i.clear();
+    }
   }
 
   /// 点一条记录 → 该篇详情续播

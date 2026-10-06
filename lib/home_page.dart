@@ -10,6 +10,7 @@ import 'base/video_cache.dart';
 import 'detail_page.dart';
 import 'fetched_image.dart';
 import 'models.dart';
+import 'settings.dart'; // ★ 诊断开关 `AppSettings.i.logConsole` ✓（main.dart:31 接管了 debugPrint ✓）
 import 'shorts_feed_page.dart';
 import 'sites/hanime1.dart';
 import 'sites/pornhub.dart';
@@ -733,7 +734,11 @@ class _HomePageState extends State<HomePage>
 
   void _openSearch(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PageBg(child: SearchPage(site: widget.site))),
+      // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '搜索'),
+        builder: (_) => PageBg(child: SearchPage(site: widget.site)),
+      ),
     );
   }
 }
@@ -803,6 +808,7 @@ class _CategoryFeed extends ChangeNotifier {
     if (_loading || _done) return;
     _loading = true;
     _started = true;
+    final _p = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
     try {
       final next = await _api.category(slug,
           page: _page,
@@ -820,6 +826,10 @@ class _CategoryFeed extends ChangeNotifier {
         // 不足一屏可继续拉
         if (next.length < 8) _done = true;
       }
+      // ★ 列表翻页诊断：哪个分类/子分类、请求的第几页、回来几条、累计几条、是否已到底
+      //   —— "tab 一直转圈 / 翻页条数不涨 / 列表重复"时先看这行（累计=items.length ✓）
+      if (AppSettings.i.logConsole) debugPrint('[LIST] 站=${_api.site.name} slug=$slug 页=$_p '
+          'sub=${sub ?? ''} sub2=${sub2 ?? ''} n=${next.length} 累计=${items.length} done=$_done');
       error = false;
     } catch (e) {
       // ⚠️ 把**原文**留下来（不只是 bool ✗）—— 用户 2026-10-03："短片一直转圈圈"，
@@ -1092,6 +1102,7 @@ class ArticleCard extends StatelessWidget {
               article.url.startsWith('/moviesets/')) {
             Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: '标签页'),
                 builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
@@ -1107,6 +1118,7 @@ class ArticleCard extends StatelessWidget {
           if (article.url.startsWith('/tag/')) {
             Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: '标签页'),
                 builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
@@ -1125,6 +1137,7 @@ class ArticleCard extends StatelessWidget {
           if ((ui?.specialTap(article.url) ?? '') == 'list') {
             Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: '标签页'),
                 builder: (_) => PageBg(child: TagListPage(
                   site: site,
                   title: article.title,
@@ -1155,6 +1168,7 @@ class ArticleCard extends StatelessWidget {
             });
             Navigator.of(context).push(
               MaterialPageRoute(
+                settings: const RouteSettings(name: '短片'),
                 builder: (_) => PageBg(
                   child: ShortsFeedPage(
                     api: Api(site: site),
@@ -1169,6 +1183,7 @@ class ArticleCard extends StatelessWidget {
           }
           Navigator.of(context).push(
             MaterialPageRoute(
+              settings: const RouteSettings(name: '详情页'),
               builder: (_) => PageBg(child: DetailPage(
                 site: site,
                 baseUrl: article.url,
@@ -1262,6 +1277,7 @@ class ArticleCard extends StatelessWidget {
                                 ? null
                                 : () => Navigator.of(context).push(
                                       MaterialPageRoute(
+                                        settings: const RouteSettings(name: '标签页'),
                                         builder: (_) => PageBg(child: TagListPage(
                                           site: site,
                                           title: t.value,
@@ -1383,8 +1399,12 @@ class _SearchPageState extends State<SearchPage> {
     _kw = kw;
     setState(() => _searched = true);
     _loading = true;
+    final _p = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
     try {
       final next = await _api.search(kw, page: _page, extra: _hnCtl.filters.toParams());
+      // ★ 搜索诊断：关键词**只打长度**（不打全文 ☠）、请求的第几页、回来几条 —— "搜不到 / 翻页重复"先看这行
+      if (AppSettings.i.logConsole) debugPrint(
+          '[LIST] 站=${widget.site.name} 搜 页=$_p n=${next.length} kwLen=${kw.length}');
       if (next.isEmpty) {
         _done = true;
       } else {

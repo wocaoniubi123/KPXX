@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint; // ★ 诊断行要用 ✓（本文件原先没有 Flutter 件 ⇒ analyze 会报 undefined ☠ 出处 `:150`）
 import 'package:path_provider/path_provider.dart';
+import '../settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）
 
 /// **图片的磁盘缓存**（`FetchedImage` 用 ✓）—— 与 `video_cache` 同一套写法 ✓：
 /// `.part` 写完再改名 ✓、LRU 按"最后修改时间"清 ✓、**全程静默** ✗（失败=照旧走网络 ✓）。
@@ -131,6 +133,7 @@ class ImageDiskCache {
       }
       entries.sort((a, b) => b.value.compareTo(a.value)); // 新 → 旧 ✓
       var total = 0;
+      var _del = 0; // ★【常驻诊断·⑩】只计数 ✓ 淘汰规则/上下限一字未动 ☠
       for (var n = 0; n < entries.length; n++) {
         final f = entries[n].key;
         var len = 0;
@@ -141,9 +144,13 @@ class ImageDiskCache {
         if (n >= maxFiles || total > maxTotalBytes) {
           try {
             await f.delete();
+            _del++; // ★ 只计数 ✓
           } catch (_) {}
         }
       }
+      // ★【常驻诊断·⑩】清理结果（上限值见 `:30 maxFiles` / `:32 maxTotalBytes` ✓）
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] 清理 文件=${entries.length} 删=$_del 剩=${entries.length - _del} '
+          '总字节=$total 上限文件=$maxFiles 上限字节=$maxTotalBytes');
     } catch (_) {}
   }
 

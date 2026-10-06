@@ -33,6 +33,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'api.dart';
 import 'models.dart';
 import 'player_widget.dart';
+import 'settings.dart';
 import 'sites.dart';
 
 class ShortsFeedPage extends StatefulWidget {
@@ -194,12 +195,17 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     // ⚠️ #9：key 带命名空间 `s|` ✓（详情页的合集取源用 `d|` ✓ —— 两条策略不同，**不能共用 key** ✗）
     return SourceCache.i.get('s|$url', () async {
       final d = await widget.api.detail(url);
+      // 这条对着「短片起播慢 / 这条取不到源」看：这条的 path（截 80）+ 解析出几条源（仍走同一个 sourcesOfDetail ✓ 只多取个长度 ✓）
+      final _p = Uri.tryParse(url)?.path ?? url;
+      if (AppSettings.i.logConsole) debugPrint('[SHORT] 取源 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 源=${SourceCache.sourcesOfDetail(d).length} 条');
       return SourceCache.sourcesOfDetail(d);
     });
   }
 
   Future<void> _open(int i) async {
     if (i < 0 || i >= _items.length) return;
+    // 这条对着「划到某条一直转圈 / 起播失败」看：打开的是第几条（下标 i + 1）+ 列表里一共几条
+    if (AppSettings.i.logConsole) debugPrint('[SHORT] 打开 第 ${i + 1}/${_items.length} 条');
     // ⚠️ 2026-10-05：换条 / 重试时**先把上一条留下的错误态撤掉** ✓（否则新条还在取源、屏上却挂着
     //    "取不到片源" ✗）；只在**当前条**上做 ✓（预取那几条压根不走这里 ✓）。
     if (i == _cur && _srcFailed) setState(() => _srcFailed = false);
@@ -209,6 +215,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
         .timeout(const Duration(seconds: 20), onTimeout: () => const <String>[]);
     if (!mounted) return;
     if (srcs.isEmpty) {
+      // 这条对着「屏上一直转圈 / 只有一行错误提示」看：哪一条取不到源（20 秒超时和"站点返回空表"落在同一支 ⇒ 一起记 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[SHORT] 取不到源 第 ${i + 1}/${_items.length} 条（20s 超时或空表 ⇒ 同一支 ✓）');
       // ⚠️ 2026-10-05 修：原来这里**直接 return** ✗ → 屏上只有封面 + 转圈、**永远转**，既没提示也没重试 ✗。
       //    现在只给**当前条**置错误态 ✓ → 屏上出现一行错误 + ↻ 重试 ✓（重试 = 再跑一次本方法 ✓）。
       // ⚠️ 取不到源**不会永久粘在共享缓存里** ✓（失败时它自己把 key 删掉 ✓，见 base/source_cache.dart:48-52 ✓）
@@ -275,6 +283,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       if (!mounted) return;
       if (srcs.isNotEmpty) urls.add(srcs.first);
     }
+    // 这条对着「预下载没生效 / 划到下一条还要转圈」看：这次交给 VideoCache 的条数（窗口起点 _cur + 请求 count）
+    if (AppSettings.i.logConsole) debugPrint('[SHORT] 预热 窗口=${urls.length} 条（cur=$_cur 请求=$count）');
     await VideoCache.i.window(urls);
   }
 
@@ -296,6 +306,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       _tailFailed = false;
       final have = _items.map((a) => a.url).toSet();
       final fresh = more.where((a) => a.url.isNotEmpty && !have.contains(a.url)).toList();
+      // 这条对着「划到底就划不动 / 列表漏条」看：刚请求的页号 + 本页拿到几条 + 去重后新增几条 + 累计将变成几条
+      if (AppSettings.i.logConsole) debugPrint('[SHORT] 续拉 页=$_page 本页=${more.length} 新增=${fresh.length} 累计=${_items.length + fresh.length} 条');
       if (fresh.isEmpty) {
         _done = true; // 站点给不出新内容了（**空批次**）→ 真到底 ✓
       } else {
@@ -303,6 +315,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       }
     } catch (_) {
       // ⚠️ 抛错 ≠ 到底 ✗（原因站点层已写进**公共错误日志** ✓，这里不重复记 ✗）
+      // 这条对着「划不动」看：续拉失败落在这一支（不置 done ✓ 再滑一次会自动重试 ✓；异常没绑名字 ⇒ 本条只记页号 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[SHORT] 续拉失败 页=${_page + 1} ⇒ tailFailed ✓ 可重试 ✓');
       if (mounted) setState(() => _tailFailed = true);
     } finally {
       _loadingMore = false;

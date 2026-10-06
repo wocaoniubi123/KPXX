@@ -17,6 +17,8 @@ import '../api.dart';
 import '../base/fetch.dart';
 import '../base/site_ui.dart';
 import '../models.dart';
+// ★ 诊断打印开关（`AppSettings.i.logConsole` ✓）；`debugPrint` 由上面 material 已带入 ✓
+import '../settings.dart';
 
 /// Hanime1 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class HanimeSite extends SiteUi {
@@ -40,6 +42,7 @@ class HanimeSite extends SiteUi {
   /// 「分类」tab 的列表（本站专属 ✓ —— 原 `Api.category` 里的 case body 原样搬来 ✓）
   /// 分类 tab = 站点的 genre（裏番/泡麵番/…）；列表走 /search?genre= ✓；
   /// extra = 筛选行（sort/date/duration/tags[]）✓
+// 看：分类页解析出几条 —— 0 条就是 /search?genre= 的卡片选择器变了或筛选参数把结果筛空了。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -48,8 +51,13 @@ class HanimeSite extends SiteUi {
           String? duration,
           String? sort,
           List<MapEntry<String, String>>? extra,
-          Future<List<Article>> Function({int page})? home}) =>
-      list(key, page: page, extra: extra);
+          Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
+    final _r = await list(key, page: page, extra: extra);
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
+  }
 
   /// 列表页挂本站筛选行（照站点的下拉 ✓）
   @override
@@ -178,6 +186,7 @@ class HanimeSite extends SiteUi {
   /// 详情：watch?v=N → 标题 / 观看数+日期 / 标签 / 多档直链 mp4（清晰度从高到低）
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
     final title = doc.querySelector('h3#shareBtn-title')?.text.trim() ?? url;
@@ -231,7 +240,7 @@ class HanimeSite extends SiteUi {
       if (t.isEmpty) continue;
       tags.add(MapEntry(_hnRel(href), t));
     }
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: const [],
@@ -243,7 +252,10 @@ class HanimeSite extends SiteUi {
       seriesPrefix: '',
       duration: duration,
     );
-  }
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
+  }
 }
 
 /// 单选弹窗（**本站自带副本** ✓；原与 Pektino 共用，2026-10-03 站点独立改造时各站一份 ✓）：选项 key → 显示名，当前项橙色 + ✓，

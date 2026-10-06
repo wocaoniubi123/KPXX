@@ -18,6 +18,7 @@ import '../site_error_log.dart';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import '../settings.dart';
 import '../sites.dart';
 import 'package:flutter/foundation.dart'; // ★ CI error 1 修：`debugPrint` 在 foundation 里 ✓（本文件原先只有 5 条 import ✗ 没有 Flutter 件）
 
@@ -52,6 +53,10 @@ class SiteFetcher {
     for (final h in order) {
       // 5xx 是站点偶发（51fans1 实测会间歇性 500），同一个域名再试一次
       for (var attempt = 0; attempt < 2; attempt++) {
+        // ★【常驻诊断·④】只在**换域名 / 重试**时打一行 ✓（第一次、第一个域名不打 ⇒ 防刷屏 ☠）
+        if (h != order.first || attempt > 0) {
+          if (AppSettings.i.logConsole) debugPrint('[NET] 轮换 host=$h 第${attempt + 1}次（共 ${order.length} 个域名）站=${site.name}');
+        }
         try {
           final _sw = Stopwatch()..start(); // ★【常驻诊断·③④】只计时 ✓ 不动请求/重试/失败路径 ☠
           final r = await _client.get(
@@ -71,7 +76,7 @@ class SiteFetcher {
             final _qi = path.indexOf('?');
             final _dpath = 'https://$h${_qi < 0 ? path : path.substring(0, _qi)}';
             final _q = _qi < 0 ? '' : path.substring(_qi + 1);
-            debugPrint(
+            if (AppSettings.i.logConsole) debugPrint(
                 '[NET] 站=${site.name} code=${r.statusCode} len=${r.bodyBytes.length} ms=${_sw.elapsedMilliseconds} '
                 'host=$h path=${_dpath.length <= 80 ? _dpath : _dpath.substring(0, 80)} '
                 'qlen=${_q.length} qhead=${_q.length <= 20 ? _q : _q.substring(0, 20)}');
@@ -103,6 +108,10 @@ class SiteFetcher {
         'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
       }).timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) return '';
+      // ★【常驻诊断·④】abs() 成功一行 ✓（path 截 80 ✓ 不带 query ✓）
+      final _ap = '${u.scheme}://${u.host}${u.path}';
+      if (AppSettings.i.logConsole) debugPrint('[NET-abs] code=${r.statusCode} len=${r.bodyBytes.length} '
+          'path=${_ap.length <= 80 ? _ap : _ap.substring(0, 80)}');
       return utf8.decode(r.bodyBytes);
     } catch (e, st) {
 
@@ -131,7 +140,11 @@ class SiteFetcher {
           .timeout(const Duration(seconds: 6));
       if (r.statusCode != 200) return null;
       final text = utf8.decode(r.bodyBytes);
-      if (!text.contains('#EXT-X-STREAM-INF')) return null; // 单档列表
+      if (!text.contains('#EXT-X-STREAM-INF')) {
+        // ★【常驻诊断·★④】单档 ⇒ 调用方会直接用它（对着"一片一片 / 只取到几秒"那条看 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[HLS] 单档 ⇒ 直用 host=${mu.host} len=${r.bodyBytes.length}');
+        return null; // 单档列表
+      }
       final lines = const LineSplitter().convert(text);
       final found = <MapEntry<int, String>>[]; // 分 → 子列表地址
       for (var i = 0; i + 1 < lines.length; i++) {
@@ -152,6 +165,8 @@ class SiteFetcher {
       }
       if (found.isEmpty) return null;
       found.sort((a, b) => b.key.compareTo(a.key)); // 高 → 低
+      // ★【常驻诊断·★④】master 解析出的档位数（≥2 ⇒ 多档 ✓；这条对着"一片一片"看 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[HLS] master 变体数=${found.length} host=${mu.host}（高→低 ✓ 默认取第一条 ✓）');
       return [for (final f in found) f.value];
     } catch (e, st) {
 

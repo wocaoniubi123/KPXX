@@ -2799,3 +2799,82 @@ await kp.open(vu, httpHeaders: <String, String>{'User-Agent': Site.ua});
 - 同批还有一次自查抓到的真 bug：播放层失败分支里把 `$e` 写成了**字符串字面量**再取子串 ⇒ **会越界** ☠
   （已按"先 `final es = '$e';` 再按 120 截"修正 ✓，见 `lib/player_widget.dart` 的 `[PLAY] 起播失败` 那处 ✓）。
 ⇒ 结论：**先核查、再动手；名字必须有出处；查不到就写"未查到"** ✓ —— 这条高于"赶进度" ✗。
+
+---
+
+## 十四、2026-10-05 · **回答前必须先核查**（用户原话，逐字引用 ✓）
+
+> 「**回答之前请先核查代码或者需要联网查找。再回答我。要有事实依据。**」
+
+### 执行方式
+- 凡涉及**事实 / 数值 / 字段 / 行为**的回答 ⇒ **先核查**（读代码 ✓ `git grep` 出**行号出处** ✓ 或联网查证 ✓）**再答** ✓。
+- **不许凭记忆、凭注释、凭推断当事实** ✗ —— **注释会过期**（反例见下 ✓）。
+- 查不到 ⇒ **如实写「未核实 / 查不到」** ✗ 或反问 ✓ —— **不许猜** ✗。
+
+### 反例记账（实锤 ✓ 队长本人踩的）
+- 队长答「日志上限保留 **256KB**」✗ —— 依据是 `lib/site_error_log.dart:92` 的**过期注释**（那句"保留末尾 256KB"✓ 是旧值 ✗）。
+- **实地核查后的真相**（本次已复核 ✓）：
+  · `lib/site_error_log.dart:24` `static const int maxBytes = 5 * 1024 * 1024;` ⇒ **上限 5MB** ✓
+  · `lib/site_error_log.dart:27` `static const int keepBytes = maxBytes ~/ 2;` ⇒ **超限保留末尾 ≈2.5MB** ✓
+  · （`:23` 注释也印证"原是 512 KB ✗"的沿革 ✓）
+- **教训**：**引用了注释、没看常量** ⇒ 答前必须先核查 ✓；`site_error_log.dart:92` 那句注释**已过期** ⚠️
+  （**修正它要等用户点头** ✗ —— 本次只记账，不动代码 ✓）。
+  ✅ **本批已订正**（见下一节 ✓）：`git show HEAD:lib/site_error_log.dart` 实测"256KB"出现在 **`:44` / `:61` / `:92`** 三处 ✓ ⇒ 十四 引用的 `:92` **没错** ✓。
+
+---
+
+## 十五、2026-10-06 · **1.1.5（未构建）** · 全量诊断日志补齐 + 三项修复
+
+> 用户口径：「**那就把没加的都加上。争取完美**」+「必须核查，修改要有事实依据，不许胡编乱造」。
+
+### 一、本批性质与规模（**只加打印，不改逻辑** ✓）
+`+` 侧含 `debugPrint` 的行共 **133** 行 ✓（`git diff --ignore-cr-at-eol -U0 | Select-String '^\+.*debugPrint\('` 实测 ✓）；
+其中 **39 行**是给**既有**打印补 `if (AppSettings.i.logConsole)` 守卫 ✓（不是新打点 ✗）。
+逐文件（新增含打印行数 ✓）：`base/video_cache.dart 22` · `sites/xhamsterlive.dart 15` · `player_widget.dart 14` ·
+`sites/porna.dart 10` · `fetched_image.dart 7` · `settings_page.dart 7` · `api.dart 6` · `shorts_feed_page.dart 6` ·
+`base/fetch.dart 5` · `detail_page.dart 5` · `sites/huangguo.dart 5` · `sites/madou.dart 5` · `online_album2_avif.dart 4` ·
+`web_embed.dart 4` · `home_page.dart 2` · `sites/hanime1|kmsvip|pektino|wordpress|xhamster|xvideos` **各 2** ·
+`base/image_cache.dart` · `play_history_page.dart` · `sites/pornhub.dart` · `web_page.dart` **各 1**
+
+**新补的链路**（原来 0 条日志的都在本批补上 ✓）：清单层（`api.dart` 6 处：category/home/tag/search/detail/取源）·
+首页续拉与搜索 · 详情页（载入/刷新源/预取/选集/列表翻页）· 短片（取源/打开/取不到源/预热/续拉/续拉失败）·
+视频磁盘缓存（清理/窗口/下载完成·失败）· 内嵌网页（加载开始/完成/失败/注入保底 JS/控制器创建）·
+**9 个站点文件的解析层**（`[LIST]`/`[DETAIL]`/`[SRC]`；站点名统一取 `_f.site.name` ✓ —— 依据 `base/fetch.dart:26/30`、`sites.dart:129/137` ✓）
+
+### 二、三项**真实行为改动**（不是打印 —— 逐条已被只读审计确认 ✓）
+1. `lib/error_log_page.dart:33`：`_maxRender` **200K → 500K 字符** ✓（只影响日志页渲染末尾多少字符 ✗ 不影响文件上限/复制 ✓）
+2. `lib/online_album2_page.dart:250`：排序行 padding 补 **`bottom: 3`** ✓（修"标签行与卡片贴脸"；top/left/right 与 chip 间距 8 未动 ✓）
+3. **路由起名 `RouteSettings(name:)` 共 21 处** ✓：`home_page 7` · `detail_page 5` · `settings_page 4` · `main.dart 2` ·
+   `online_album_page 1` · `online_album2_page 1` · `sites/xhamsterlive 1` —— 只喂 `main.dart` 的 `[NAV]` 轨迹 ✓，不参与路由匹配 ✓
+4. `lib/site_error_log.dart` 三处过期注释订正 ✓（HEAD `:44/:61/:92` 的"256KB" → `keepBytes` ≈2.5MB ✓ 见 `:24`/`:27`）；
+   `lib/main.dart` 同款注释订正 ✓
+5. `lib/base/image_cache.dart:5` 补 `import 'package:flutter/foundation.dart' show debugPrint;` ✓
+   —— **这是硬伤**：该文件原先只有 `dart:convert/dart:io/dart:typed_data/path_provider` ✗ ⇒ `debugPrint` 无定义 ⇒ **analyze 必挂** ☠
+
+### 三、核查与验收（全部只读、三轮 ✓）
+- `base/video_cache.dart` 的 **−16 行逐条对账** ✓：13 条"单行 `if` 展开成块体"（条件表达式一字未改 ✓）、3 条 `catch (_)`→`catch (e)`（只为打印 `$e`；捕获范围/吞异常/无 rethrow 全部照旧 ✓）；`_prune()` 调用点 HEAD `81/206/396/228` → 现 `93/234/476/259` **一一对应** ✓
+- 守卫批 **字符串级比对** ✓：剥掉守卫前缀后与 `-` 侧逐字符相同（`xhamsterlive` 10/10 ✓ `player_widget` 3/3 ✓ `settings_page` 6/6 ✓ …）
+- `player_widget.dart:435` 的 `if (AppSettings.i.logConsole && name == 'hwdec')` 合并 **语义等价** ✓（原条件仍在 ✓；块体只有一条打印 ✓；`plat.setProperty(...)` 位置未动 ✓）
+- 全仓 **27 处 `settings.dart` 引用严格二分** ✓：`lib/` 直下 `'settings.dart'` **13 处** / `lib/base|sites/` 下 `'../settings.dart'` **14 处**
+- 括号配平：全部改动文件与 HEAD **余额一致** ✓（`sites/pornhub.dart` 的差是 **HEAD 既有** ✗ 不是本批 ✓）
+- 仓库根**无 `analysis_options.yaml`** ⇒ `pubspec.yaml:69` 的 `flutter_lints: ^4.0.0` **实际未启用** ✅ ⇒ 本项目 lint 不拦 CI ✓（**只有 error 拦** ✓）
+
+### 四、已知遗留（**本批故意不动** ✗，等用户定夺 ✓）
+1. **13 处既有打印仍未守卫**：`app_bg.dart` 5 · `main.dart:60/65` · `online_album_common.dart` 6 ·
+   `online_album_page.dart:384` · `online_album2_page.dart:363` · `settings_page.dart:384` —— 它们**不是本批新增** ✓，
+   行为上仍被 `main.dart:30-31` 的全局接管兜住 ✓；按"只改必要部分"**不扩大范围** ✓
+2. **4 个站文件 numstat 虚高** ⚠️：`sites/hanime1|xvideos|madou|pektino` 的索引条目是 **`i/-text`** 而 blob 是 **CRLF** ✓
+   （字节级取证 ✓：`hanime1` blob 21376B CR=537/LF=536 ✓；对照 `porna` blob 31243B CR=0 ✓）
+   ⇒ `core.autocrlf=true` 只归一化**工作区**侧 ⇒ 本地 `git diff` 逐字节比、**整篇算改动** ☠。
+   ✅ `app-dev` 实验证明：**把工作区改成 LF 也改不动 numstat** ✗（548/536 一点没变 ✓）
+   ⇒ **治本**要 `.gitattributes`（`*.dart text eol=lf`）+ `git add --renormalize`（= 一次整篇行尾提交 ☠）——
+   **用户未拍板 ⇒ 本批不动** ✗；**对账口径改用 `git diff --ignore-cr-at-eol --numstat`** ✓
+3. **sim 与 App 一处数值不同步**（只登记 ✗ 用户说过 sim 不管 ✓）：`sim/index.html:255` 的 `#alb2Sorts` 仍 `padding: 8px 2px 0` ✓，App 侧 `online_album2_page.dart:250` 已是 `top6 + bottom3` ✓
+
+### 五、教训（本批真实发生 ✓）
+- **拿推断当事实又踩一次** ☠：我按字节差**推断**"HEAD 是 LF"，被 `app-dev` 的实验推翻 ✗；
+  改用**字节级取证**（`cmd /c "git cat-file blob HEAD:<f> > 临时文件"` 再数 CR ✓，绕开 PowerShell 的文本转换 ✓）才定论 ✓。
+  ⇒ 复核"行尾/字节"这类事：**必须量原始字节，不许靠管道后的字符串判断** ✓。
+- **队员本身是子代理** ✓：`subagent depth 2 exceeds maxDepth 1` ⇒ **队员无法再派子代理** ✗；
+  要一次性子代理只能 **Lead 自己拍** ✓（或派给职责对口的 `app-dev` ✓）。
+- **专项队员别当通用工用** ☠：让只读侦察/模拟器/构建的队员去改码，既越界又耗它们的额度 ⇒ 派活要**按职责书** ✓。

@@ -14,12 +14,23 @@
     color: #1b1b1f;
   }
   /* ---------- 手机外壳 ---------- */
+  /* ⚠️⚠️ **设备逻辑尺寸 = 真机逻辑尺寸**（用户 2026-10-05 定案 ✓ —— 目的：sim 量出来的 px
+     就是能直接写进 App 的**逻辑 px** ✓ 不用再"翻译" ☠ 翻译必走样 ✓）
+     · 默认 **393×852**（iPhone 15/16/17 那一类 ✓）· 可在右侧面板切 **430×932**（Pro Max 类）/**375×667**（SE 类）✓
+     · ⚠️ **@3x 的物理像素【不用】模拟** ✗ —— 真机 1179×2556 是 393×852 的 3 倍**物理**像素 ✓
+       但写进 Flutter 的都是**逻辑 px** ✓ 所以这里就按逻辑 px 画、按逻辑 px 量 ✓（别以为要 ×3 ☠）
+     · 量尺寸时一律用**布局 px**（`offsetHeight` / `getComputedStyle` ✓）—— 窗口放不下时 `fitPhone()`
+       会给 `.phone` 加 `zoom` ✗（那是**显示缩放**，`getBoundingClientRect()` 会跟着缩 ✗
+       ⇒ 用 rect 当"逻辑 px"会得到 370.1 这种假数 ☠ 要 rect 的话得 **rect ÷ zoom** ✓）
+     · 历史：2026-10-02 曾按 iPhone 16 Pro Max 的 440×956 画（他截图 1320×2868 ÷ 3x ✓）；
+       2026-10-05 改成"默认 393×852 + 可切" ✓ —— 外壳 12px 边框仍**加在外面** ✓（早先写成
+       `width: 440` + padding ⇒ 屏幕只剩 416 宽 ⇒ 状态栏整体偏 12pt ☠ 别退回那个写法 ✗） */
+  :root { --dev-w: 393px; --dev-h: 852px; }
+  body[data-dev="430"] { --dev-w: 430px; --dev-h: 932px; }
+  body[data-dev="375"] { --dev-w: 375px; --dev-h: 667px; }
   .phone {
-    /* ⚠️ 2026-10-02 用户要求照 **iPhone 16 Pro Max** 改：**屏幕** 440×956（= 他截图
-       1320×2868 ÷ 3x）。外壳把这 12px 的边框**加在外面**（464×980）—— 早先写成
-       `width: 440` + padding，结果屏幕只有 416 宽，状态栏所有水平位置整体偏 12pt。
-       窗口放不下时由 fitPhone() 把 .phone 整体 zoom 缩小（zoom 真改布局尺寸，不留滚动条）。 */
-    width: 464px; height: 980px; background: #000; border-radius: 64px;
+    width: calc(var(--dev-w) + 24px); height: calc(var(--dev-h) + 24px);
+    background: #000; border-radius: 64px;
     padding: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex: 0 0 auto;
     position: relative;
   }
@@ -6929,7 +6940,7 @@ function albPreviewOpen(i) {
   $('screen').appendChild(o);
   albPv = { mode: 'view', i: idx, src: albDSt.items[idx] || '' };
   albPreviewPaint();
-  log(`图片预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓ 点遮罩关 ✓）`, 'dim');
+  log(`图片预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓ 单击/下滑=关 ✓ 点遮罩=关 ✓）`, 'dim');
 }
 
 /** ★ 换上一张/下一张（`d` = +1 下一张 / -1 上一张）——
@@ -6951,22 +6962,55 @@ function albPreviewStep(d) {
   log(`预览：${ni + 1} / ${n} ✓`, 'dim');
 }
 
-/** ★ 预览图的左右滑（pointer ✓ 鼠标/触屏同一套 ✓；横位移 > 40px 且比竖位移大才算 ✓ 免得跟"点遮罩关"打架 ✗）
- *  ★ 2026-10-05 **用户最终口径** ✓：**左滑 = 下一张** ✓ **右滑 = 上一张** ✗（框选态不切图 ✗）
- *     判定一行：`dx < 0`（往左划）给 `+1`（下一张）✓；`dx > 0` 给 `-1`（上一张）✓
+/** ★★ 预览滑动手势的**唯一参数表**（图集1 / 图集2 **共用这一处** ☠ —— 别处不许再写第二套/第三套数值 ✗）
+ *  ⚠️ 2026-10-05 用户口径：原来横滑门槛 40px ✗ ⇒ 用户实报"**划得轻了没反应，得使劲划**" ✗
+ *     ⇒ 降到 **18** ✓ 并叠加"**快速轻扫**"这条捷径 ✓（App 侧同步同一口径 ✓）
+ *  · `T`     = 横滑切图门槛 **18px**（≈ 浏览器/框架滑阈的量级 ✓ 位移够就得切 ✓）
+ *  · `FLING` = 快速轻扫的**最小位移** **8px**（再小就当点击 ✓）
+ *  · `V`     = 快速轻扫的**最小横向速度** **0.25 px/ms**（= 250 px/s ✓）—— 依据：
+ *              ① 轻弹一下通常 10px/30ms ≈ 0.33 px/ms ✓ 能过 ✓
+ *              ② 慢划 5px 用 400ms = 0.0125 px/ms ✗ ⇒ 判点击 ✓（正是用户要区分的那两种 ✓）
+ *              ③ 浏览器 fling 量级大致 0.1~1 px/ms ✓ 取偏保守的 0.25 ⇒ 不误切 ✗
+ *  ⇒ 判定顺序（两本逐字相同 ✓）：位移 < 8px ⇒ **点击**（关 ✓）· 竖轴占优 ⇒ 只看"下滑关"（上滑不关 ✗，
+ *     且**绝不被横滑抢** ☠）· 横轴：位移 ≥ 18px **或**（≥ 8px 且速度 ≥ 0.25）⇒ 切图 ✓ ·
+ *     8~18px 的**慢**划 ⇒ **什么都不做** ✓（不关不切 ✓ 免得误关）
+ *  ⚠️ 竖轴"下滑关"仍用 `T`（18px ✓）· 框选态一律不生效（那两段不调这些函数 ✓） */
+const PREV_GEST = { T: 18, FLING: 8, V: 0.25 };
+
+/** ★ 预览图上的手势（pointer ✓ 鼠标/触屏同一套 ✓）—— **一套参数管三种手势** ✗ 不新造第二套 ☠
+ *  参数全在上面 `PREV_GEST`（两本共用 ✓ 这里一个数都不写 ✓）：
+ *    ① **单击**（|dx| < FLING 且 |dy| < FLING）⇒ **关预览** ✓（2026-10-05 新增 ✓）
+ *    ② **下滑**（竖占优 且 dy > 0 且 |dy| ≥ T）⇒ **关预览** ✓（我这边原来**没有**这条 ✗ 2026-10-05 补上 ✓）
+ *    ③ **横滑**（横占优）⇒ 切图 ✓：|dx| ≥ T **或**（|dx| ≥ FLING 且够快 ✓）
+ *       **左滑 = 下一张** ✓ **右滑 = 上一张** ✗（首尾锁死 ✓ 不循环 ✗）
+ *    ④ 其余（上滑 / 8~18px 的慢划）⇒ **什么都不做** ✓
  *  ⚠️ **不跟动画打架** ☠：这边**没有滑动动画** ✗（换图 = 直接换 `src` ✓ 无位移过渡 ✓）⇒ 方向只决定"换哪张" ✓
+ *  ⚠️ **只在预览态** ✗：这段只挂在**预览态那张图**上 ✓ —— 框选态铺的是另一张图（在 `#albCropStage` 里 ✓）
+ *     且**根本不调这个函数** ✓ ⇒ 框选态点图/下滑**都不会关** ✓（那里手势归拖图/缩放 ✓）
+ *  ⚠️ **不误伤**：两颗按钮 / 页码 / 遮罩都不是这张 `<img>` ✗（都是它的兄弟节点 ✓）⇒ 点它们不会走到这儿 ✓
+ *     （按钮自己的 `onclick` 照常 ✓ 点遮罩关走的是弹层那条 `e.target === o` ✓ 互不干扰 ✓）
  *  ⚠️ 图集2 那条是**另一份**同款代码（`alb2PreviewSwipe` ✓）⇒ 两处必须一起改 ✓ 别只改一处 ☠（漏过一次 ✗）
- *  ⚠️ 历史 ☠：这条口径换过三次（最初左=下 → 2026-10-05 改成左=上 → 同日**用户拍板翻回左=下** ✓ 以本次为准 ✗） */
+ *     —— 但**参数不用抄两遍** ✓：两边都从 `PREV_GEST` 取 ✓（这就是"集中定义"的意义 ✓）
+ *  ⚠️ 历史 ☠：方向口径换过三次（最初左=下 → 2026-10-05 改成左=上 → 同日**用户拍板翻回左=下** ✓ 以本次为准 ✗） */
 function albPreviewSwipe() {
   const o = document.querySelector('.ovl'); if (!o) return;
   const im = o.querySelector('img'); if (!im) return;
-  let down = false, sx = 0, sy = 0;
-  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; });
+  const { T, FLING, V } = PREV_GEST;                  // ★ 数值只在 `PREV_GEST` 那一处 ✗
+  let down = false, sx = 0, sy = 0, t0 = 0;
+  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; t0 = e.timeStamp; });
   const end = (e) => {
     if (!down) return; down = false;
     const dx = e.clientX - sx, dy = e.clientY - sy;
-    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;   // 太小 / 竖着划 ⇒ 不切图 ✓
-    albPreviewStep(dx < 0 ? 1 : -1);                                 // ★ 左滑=下一张 ✓ 右滑=上一张 ✓
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    const vx = adx / Math.max(1, e.timeStamp - t0);   // 横向速度（px/ms ✓）
+    if (adx < FLING && ady < FLING) { albPreviewClose(); return; }   // ★ ① 点击（< 8px）⇒ 关 ✓
+    if (ady > adx) {                                                 // ★ ② 竖轴占优 ⇒ 横滑**不抢** ☠
+      if (ady >= T && dy > 0) albPreviewClose();                     //    下滑 ⇒ 关 ✓（上滑不关 ✗）
+      return;
+    }
+    if (adx >= T || (adx >= FLING && vx >= V)) {                     // ★ ③ 够远 / 快速轻扫 ⇒ 切图 ✓
+      albPreviewStep(dx < 0 ? 1 : -1);                               //    左滑=下一张 ✓ 右滑=上一张 ✓
+    }                                                                // ★ ④ 8~18px 的慢划 ⇒ 什么都不做 ✓
   };
   im.addEventListener('pointerup', end);
   im.addEventListener('pointercancel', () => { down = false; });
@@ -7546,7 +7590,7 @@ function alb2PreviewOpen(i) {
   $('screen').appendChild(o);
   alb2Pv = { mode: 'view', i: idx, src: alb2DSt.items[idx] || '' };
   alb2PreviewPaint();
-  log(`图集2预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓）`, 'dim');
+  log(`图集2预览：第 ${idx + 1} / ${n} 张 ✓（左滑=下一张 ✓ 右滑=上一张 ✓ 单击/下滑=关 ✓ 点遮罩=关 ✓）`, 'dim');
 }
 
 function alb2PreviewClose() {
@@ -7564,18 +7608,33 @@ function alb2PreviewStep(d) {
   log(`图集2预览：${ni + 1} / ${n} ✓`, 'dim');
 }
 
-/** ★ 预览图的左右滑（图集2 版 ✓ 与图集1 的 `albPreviewSwipe` 是**两份同款代码** ☠ 改一处必改另一处 ✗）
- *  ★ 2026-10-05 **用户最终口径** ✓：**左滑 = 下一张** ✓ **右滑 = 上一张** ✗（框选态不切图 ✗） */
+/** ★ 预览图上的手势（图集2 版 ✓ 与图集1 的 `albPreviewSwipe` 是**两份同款代码** ☠ 改一处必改另一处 ✗）
+ *  ★ **参数不在这儿** ✗ —— 全在 `PREV_GEST`（那一处集中定义 ✓ 两本共用 ✓ 别抄数 ☠）：
+ *    `T = 18px`（横滑切图门槛 ✓ 原来 40 划着"得使劲" ✗ 用户实报 ✓ 已降 ✓）
+ *    `FLING = 8px` + `V = 0.25 px/ms`（**快速轻扫**：够快也切 ✓ —— 依据见 `PREV_GEST` 头上那段 ✓）
+ *    ① 位移 < 8px ⇒ **点击关** ✓  ② 竖轴占优 ⇒ 只看"下滑关"（上滑不关 ✗ 横滑不抢 ☠）
+ *    ③ 横滑：≥18px **或**（≥8px 且够快）⇒ 切图（**左=下一张** ✓ **右=上一张** ✗ 首尾锁死不循环 ✗）
+ *    ④ 8~18px 的慢划 ⇒ 什么都不做 ✓ · **只在预览态** ✗（框选态根本不调这个函数 ✓ 点/划都不关 ✓）
+ *  ⚠️ 两颗按钮 / 页码 / 遮罩都不是这张 `<img>` ✗ ⇒ 不会误判成"点图" ✓ */
 function alb2PreviewSwipe() {
   const o = document.querySelector('.ovl'); if (!o) return;
   const im = o.querySelector('img'); if (!im) return;
-  let down = false, sx = 0, sy = 0;
-  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; });
+  const { T, FLING, V } = PREV_GEST;                  // ★ 数值只在 `PREV_GEST` 那一处 ✗
+  let down = false, sx = 0, sy = 0, t0 = 0;
+  im.addEventListener('pointerdown', (e) => { down = true; sx = e.clientX; sy = e.clientY; t0 = e.timeStamp; });
   const end = (e) => {
     if (!down) return; down = false;
     const dx = e.clientX - sx, dy = e.clientY - sy;
-    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
-    alb2PreviewStep(dx < 0 ? 1 : -1);        // ★ 2026-10-05 用户最终口径：左滑=下一张 · 右滑=上一张（框选态不切图 ✗）
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    const vx = adx / Math.max(1, e.timeStamp - t0);   // 横向速度（px/ms ✓）
+    if (adx < FLING && ady < FLING) { alb2PreviewClose(); return; }  // ★ ① 点击（< 8px）⇒ 关 ✓
+    if (ady > adx) {                                                 // ★ ② 竖轴占优 ⇒ 横滑不抢 ☠
+      if (ady >= T && dy > 0) alb2PreviewClose();                     //    下滑 ⇒ 关 ✓（上滑不关 ✗）
+      return;
+    }
+    if (adx >= T || (adx >= FLING && vx >= V)) {                     // ★ ③ 够远 / 快速轻扫 ⇒ 切图 ✓
+      alb2PreviewStep(dx < 0 ? 1 : -1);                               //    左滑=下一张 · 右滑=上一张 ✓
+    }                                                                // ★ ④ 8~18px 的慢划 ⇒ 什么都不做 ✓
   };
   im.addEventListener('pointerup', end);
   im.addEventListener('pointercancel', () => { down = false; });

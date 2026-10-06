@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint; // 诊断行要用 ✓（本文件原先没有 Flutter 依赖 ✗ 不加 analyze 会报 undefined ☠）
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../config.dart';
+import '../settings.dart'; // ★ 诊断开关 `AppSettings.i.logConsole` ✓（`main.dart` 已接管 debugPrint ✓）
 
 /// **预下载缓存**（用户 2026-10-03 定："**单实例 + 缓冲五条**" ✓）
 ///
@@ -66,6 +68,14 @@ class VideoCache {
   /// C ✓：播放器在缓冲时**让路**（停止消费响应流 ✓、进度保留 ✓）
   bool _paused = false;
 
+  /// 诊断打印用：只给 `host=` + `path=`（path 截 80 ✓）—— **不打完整 URL** ✗（签名票据又长又没用 ✓）
+  static String _tag(String url) {
+    final u = Uri.tryParse(url);
+    final host = u?.host ?? '';
+    final p = u?.path ?? url;
+    return 'host=$host path=${p.length > 80 ? '${p.substring(0, 80)}…' : p}';
+  }
+
   /// 建目录 + 清一次 LRU ✓（进短片页时调一次即可；重复调只会再清一次 ✓）
   Future<void> init() async {
     if (_dir == null) {
@@ -78,6 +88,8 @@ class VideoCache {
         _dir = null; // 拿不到目录 → 整个缓存功能静默失效 ✓
       }
     }
+    // 缓存目录到底拿没拿到（拿不到 = 整套预下载静默失效，现象就是"啥都没缓存"
+    if (AppSettings.i.logConsole) debugPrint('[CACHE] video 目录=${_dir?.path ?? 'null ✗（拿不到临时目录）'}');
     await _prune();
   }
 
@@ -114,6 +126,8 @@ class VideoCache {
       if (!_isDirectMp4(u) && !_isM3u8(u)) continue; // 只接 **mp4 直链** 与 **m3u8**（其余跳过 ✗）
       _queue.add(u);
     }
+    // 窗口要了几条 / 其中几条已经躺在缓存里（命中 0 = 后面全得现下，预缓冲根本来不及）
+    if (AppSettings.i.logConsole) debugPrint('[CACHE] video 窗口 要=${urls.length} 命中缓存=${_want.where(_ready.containsKey).length}');
     _pump();
   }
 
@@ -168,14 +182,24 @@ class VideoCache {
     try {
       if (await done.exists()) {
         _ready[url] = done;
+        // 这条早就下好了（窗口重复要同一条时会走到这儿 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 已有 ${_tag(url)}');
         return;
       }
       final resp = await Site.httpClient
           .send(http.Request('GET', Uri.parse(url)))
           .timeout(const Duration(seconds: 15));
-      if (resp.statusCode != 200) return;
+      if (resp.statusCode != 200) {
+        // 源站没给 200（403/404/跳转都会落这儿 ✓）—— 这条就别想预缓冲了
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 失败 status=${resp.statusCode} ${_tag(url)}');
+        return;
+      }
       final len = resp.contentLength ?? 0;
-      if (len > maxFileBytes) return; // 太大 → 不预下 ✓（B 项待实测后调 ✓）
+      if (len > maxFileBytes) {
+        // 单文件超上限（没 Content-Length 时是 0，不会误判 ✓）—— 太大 → 不预下 ✓（B 项待实测后调 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 失败 超单文件上限 len=$len 上限=$maxFileBytes ${_tag(url)}');
+        return;
+      }
       final out = part.openWrite();
       var got = 0;
       var aborted = false;
@@ -196,6 +220,8 @@ class VideoCache {
         await out.close();
       }
       if (aborted) {
+        // 半路被划走 / 被 drop / 中途超上限 —— 都算没下成（下一段日志会写明是哪一种）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 中止 已收=$got ${_tag(url)}');
         try {
           await part.delete();
         } catch (_) {}
@@ -203,9 +229,12 @@ class VideoCache {
       }
       await part.rename(done.path); // 整份下完才"变成"可播文件 ✓
       _ready[url] = done;
+      // 整段下完（这是"成功"那一条 ✓ 分片级不单独打 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 成功 字节=$got ${_tag(url)}');
       await _prune();
-    } catch (_) {
-      // 静默 ✓：失败=没有预缓冲，播放照旧走在线 ✓
+    } catch (e) {
+      // 异常失败（超时 / 连接断 / 写盘失败 …）—— 只打一句原因摘要，不打堆栈
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] video mp4 失败 异常=$e ${_tag(url)}');
       try {
         await part.delete();
       } catch (_) {}
@@ -224,6 +253,8 @@ class VideoCache {
     if (_pruneAt != null && now.difference(_pruneAt!) < const Duration(seconds: 5)) return;
     _pruning = true;
     _pruneAt = now;
+    // 真跑一次清理才会打这行（上面两道闸跳过时不打 ⇒ 不刷屏）
+    if (AppSettings.i.logConsole) debugPrint('[CACHE] video 清理开始（过期 .part + LRU）');
     try {
       await _pruneNow();
     } finally {
@@ -266,6 +297,8 @@ class VideoCache {
       }
       entries.sort((a, b) => b.value.compareTo(a.value)); // 新 → 旧 ✓
       var total = 0;
+      var deleted = 0; // ★ 只计数（照 image_cache 的 `_del` 同款 ✓）
+      var deletedBytes = 0; // ★ 只计数：被删掉的那些字节（`total` 含它们 ⇒ 相减才是"留下"的 ✓）
       for (var n = 0; n < entries.length; n++) {
         final f = entries[n].key;
         var len = 0;
@@ -292,6 +325,8 @@ class VideoCache {
         if (n >= maxFiles || total > maxTotalBytes) {
           try {
             await f.delete();
+            deleted++; // ★ 只计数 ✓
+            deletedBytes += len; // ★ 只计数 ✓
           } catch (_) {}
           // ⚠️ #1：删到 HLS 清单时，**连它的分段目录一起删** ✓（否则 `*.hls` 永远清不掉 ✗）
           if (f.path.endsWith('.m3u8')) {
@@ -303,6 +338,9 @@ class VideoCache {
           _ready.removeWhere((_, v) => v.path == f.path);
         }
       }
+      // 一次清理的结果：处理了几个文件、删了几个、剩几个、留下多少字节、上限是多少
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] video 清理 文件=${entries.length} 删=$deleted '
+          '剩=${entries.length - deleted} 总字节=${total - deletedBytes} 上限文件=$maxFiles 上限字节=$maxTotalBytes');
     } catch (_) {}
   }
 
@@ -340,26 +378,54 @@ class VideoCache {
     final partPl = File('${dir.path}/$key.m3u8.part');
     final donePl = File('${dir.path}/$key.m3u8');
     try {
-      if (await donePl.exists()) return;
+      if (await donePl.exists()) {
+        // 这条 HLS 早就转好了（窗口重复要同一条时会走到这儿 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 已有 ${_tag(url)}');
+        return;
+      }
       final master = await _hlsText(url);
-      if (master == null) return;
+      if (master == null) {
+        // master 清单都没拿到（网络失败 / 非 200 / 空体 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 master 取不到 ${_tag(url)}');
+        return;
+      }
       var mediaUrl = url;
       var media = master;
       if (master.contains('#EXT-X-STREAM-INF')) {
         final v = _hlsFirstUri(master);
-        if (v == null) return;
+        if (v == null) {
+          // 是 master 但里面找不到变体行（格式不符 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 master 里没有变体行 ${_tag(url)}');
+          return;
+        }
         mediaUrl = Uri.parse(url).resolve(v).toString();
         final t = await _hlsText(mediaUrl);
-        if (t == null) return;
+        if (t == null) {
+          // 变体清单取不到（跟一层失败 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 变体清单取不到 ${_tag(mediaUrl)}');
+          return;
+        }
         media = t;
       }
-      if (media.contains('#EXT-X-KEY') || media.contains('#EXT-X-BYTERANGE')) return; // 放弃 ✗
+      if (media.contains('#EXT-X-KEY') || media.contains('#EXT-X-BYTERANGE')) {
+        // 加密 / byterange 的清单我们不解（探测结论：样本里没遇到过 ✓ 真遇到就放弃 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 加密或 byterange ${_tag(url)}');
+        return; // 放弃 ✗
+      }
       // ⚠️ 真实每段时长要一起解析（照抄源清单 ✓；原来写死 10.0 → 清单时长虚高 ✗）：
       //    实测 Pornhub 每段 2.25~4.267s、329 段实长 1431.7s，写死 10 就报成 3290s ✗
       final segs = _hlsSegmentUris(media);
       final segDurs = _hlsSegmentDurs(media);
-      if (segs.isEmpty) return; // 嵌套 master / 解析不出 → 放弃 ✗
-      if (segDurs.length != segs.length) return; // 只认"每段都有真实时长"的清单 ✓
+      if (segs.isEmpty) {
+        // 解析不出分段（比如变体里还是 master ✓）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 解析不出分段 ${_tag(url)}');
+        return; // 嵌套 master / 解析不出 → 放弃 ✗
+      }
+      if (segDurs.length != segs.length) {
+        // 只认"每段都有真实时长"的清单（否则本地清单时长会虚高 ✗）
+        if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 分段数与时长数不符 segs=${segs.length} durs=${segDurs.length} ${_tag(url)}');
+        return; // 只认"每段都有真实时长"的清单 ✓
+      }
       if (await partDir.exists()) await partDir.delete(recursive: true);
       await partDir.create(recursive: true);
       var total = 0;
@@ -369,14 +435,26 @@ class VideoCache {
         while (_paused && _want.contains(url)) {
           await Future.delayed(const Duration(milliseconds: 400));
         }
-        if (!_want.contains(url)) return;
+        if (!_want.contains(url)) {
+          // 已经被划走 / drop 了（用户翻太快 ✓）—— 这条不下了
+          if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 中止 已被划走 已收=$total ${_tag(url)}');
+          return;
+        }
         final segUrl = Uri.parse(mediaUrl).resolve(segs[i]).toString();
         final r = await Site.httpClient
             .get(Uri.parse(segUrl))
             .timeout(const Duration(seconds: 20));
-        if (r.statusCode != 200 || r.bodyBytes.isEmpty) return;
+        if (r.statusCode != 200 || r.bodyBytes.isEmpty) {
+          // 某一段没拿到（非 200 / 空体 ✓）—— 整条放弃（分片级只打这一条 ✓ 不刷屏 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 分段 status=${r.statusCode} 第=${i + 1}/${segs.length} ${_tag(segUrl)}');
+          return;
+        }
         total += r.bodyBytes.length;
-        if (total > maxFileBytes) return; // 超单文件上限 → 放弃 ✓（与 mp4 同款口径 ✓）
+        if (total > maxFileBytes) {
+          // 累计超单文件上限 → 放弃 ✓（与 mp4 同款口径 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 放弃 超单文件上限 已收=$total 上限=$maxFileBytes ${_tag(url)}');
+          return; // 超单文件上限 → 放弃 ✓（与 mp4 同款口径 ✓）
+        }
         final name = 'seg_${i.toString().padLeft(4, '0')}.ts';
         await File('${partDir.path}/$name').writeAsBytes(r.bodyBytes, flush: true);
         names.add(name);
@@ -393,9 +471,12 @@ class VideoCache {
       await partDir.rename(doneDir.path); // ① 先搬分段 ✓
       await partPl.rename(donePl.path); // ② 清单最后 → 此刻起 `ready()` 才认 ✓
       _ready[url] = donePl;
+      // 整条转完（这是"成功"那一条 ✓ 分片级不单独打 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 成功 分段=${names.length} 字节=$total ${_tag(url)}');
       await _prune();
-    } catch (_) {
-      // 静默 ✓：没预下成 = 回落在线播 ✓（与今天行为一致 ✓）
+    } catch (e) {
+      // 异常失败（超时 / 连接断 / 写盘失败 …）—— 只打一句原因摘要，不打堆栈
+      if (AppSettings.i.logConsole) debugPrint('[CACHE] video hls 失败 异常=$e ${_tag(url)}');
     } finally {
       try {
         if (await partDir.exists()) await partDir.delete(recursive: true);

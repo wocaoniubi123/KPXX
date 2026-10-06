@@ -245,7 +245,9 @@ class _OnlineAlbum2PageState extends State<OnlineAlbum2Page>
               // ★ 2026-10-05（用户要求 ✓）：**整体上移 2px** ✗ —— `top: 8 → 6` ✓（只动这一个数 ✗
               //   字号 / 圆角 / 描边 / 选中色 / chip 间距(8) 一律没碰 ✓）；⚠️ **sim 侧现在仍是 8** ✗
               //   ⇒ 若要两边完全一致，**sim 那边要另派同步 `8px → 6px`** ✓（我**不动 sim** ✗）；父容器 = `Column` **无高度约束** ✓
-              padding: const EdgeInsets.only(top: 6, left: 2, right: 2), // 原 = sim `padding:8px 2px 0` ✓
+              // ★ 2026-10-05【Ⓐ 修"标签行与卡片贴脸"】：**底部补 6px** ✗ —— 原来 `only(top:6,…)` ⇒ **bottom=0**
+              //   ⇒ chip 底边紧挨下面 `TabBarView`（= 卡片区）⇒ 视觉上"贴到一起"正出在这 ✓（只动间距 ✗ 字号/圆角/描边/选中色/间距 8 一律没碰 ✓）
+              padding: const EdgeInsets.only(top: 6, left: 2, right: 2, bottom: 3), // 原 = sim `padding:8px 2px 0` ✓
               child: Row(
                 children: [
                   for (var i = 0; i < _sorts.length; i++) ...[
@@ -443,6 +445,8 @@ class _CatFeed2State extends State<_CatFeed2> {
           margin: EdgeInsets.zero,
           child: InkWell(
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              // ★ 2026-10-05【⑥ 页面起名】：只加 `settings:` 一个参数 ✓（`builder`/`PageBg` 一字未动 ☠）
+              settings: const RouteSettings(name: '图集2 详情'),
               // ★ 2026-10-05（同图集1 ✓ 用户报"转场叠影"根因 `ac1d1b2`）：包一层 `PageBg` ✓ 照 `365d6a4` 原样 ✓
               //   只加这一层 ✗（转场类型 / 路由参数 / 页面内容一律不碰 ✓）
               builder: (_) => PageBg(child: P18DetailPage(detailPath: it.detail, title: it.title)),

@@ -205,8 +205,12 @@ class DetailPageState extends State<DetailPage> {
       _detail = null;
       _error = null;
     });
+    final _sw = Stopwatch()..start(); // 只给下面那条日志计时 ✓（请求/错误路径一字不动 ☠）
     try {
       final d = await _api.detail(widget.baseUrl);
+      // 这条对着「详情页一直转圈 / 打开后内容缺段」看：请求的 path（截 80）+ 视频/剧照/相关各几条 + 耗时
+      final _p = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] 载入 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 视频=${d.videos.length} 图=${d.images.length} 相关=${d.related.length} ms=${_sw.elapsedMilliseconds}');
       if (!mounted) return;
       _switcher?.dispose();
       final sw = VideoSwitcher(d.videos.length)
@@ -244,6 +248,7 @@ class DetailPageState extends State<DetailPage> {
     _switcher?.pause(); // 跳走前先停一下，别两边同时出声
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: 'Web 页'),
         builder: (_) => PageBg(child: WebPage(
           title: widget.site.name,
           url: 'https://${widget.site.hosts.first}${widget.baseUrl}',
@@ -254,7 +259,11 @@ class DetailPageState extends State<DetailPage> {
 
   /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
   Future<List<String>> _refreshSources() async {
+    final _sw = Stopwatch()..start(); // 只给下面那条日志计时 ✓
     final fresh = await _api.detail(widget.baseUrl);
+    // 这条对着「播着播着断了、重抓本页也救不回」看：path（截 80）+ 重抓回几集 + 首条几条源 + 耗时（首条源 0=这次没救回 ✓）
+    final _p = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 刷新源 path=${_p.length <= 80 ? _p : _p.substring(0, 80)} 视频=${fresh.videos.length} 首条源=${fresh.videos.isEmpty ? 0 : fresh.videos.first.sources.length} ms=${_sw.elapsedMilliseconds}');
     if (!mounted || fresh.videos.isEmpty) return const [];
     final i = (_switcher?.index.value ?? 0)
         .clamp(0, fresh.videos.length - 1)
@@ -338,6 +347,10 @@ class DetailPageState extends State<DetailPage> {
   void _prefetchLazy(ArticleVideo v) {
     final lz = v.lazyUrl;
     if (lz == null) return;
+    // 这条对着「点了某集要等好几秒才出画面」看：**发起预取**这一刻就打（只 host+path 截 80 ✓ 不带 query）
+    final _u = Uri.tryParse(lz);
+    final _pf = _u?.path ?? lz;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 预取源 host=${_u?.host ?? '?'} path=${_pf.length <= 80 ? _pf : _pf.substring(0, 80)}');
     _api.videoSourcesAt(lz).then<void>((_) {}, onError: (_) {});
   }
 
@@ -371,6 +384,8 @@ class DetailPageState extends State<DetailPage> {
       }
     }
     matched.sort((x, y) => x.$1.compareTo(y.$1));
+    // 这条对着「选集那一段是空的 / 少了几集」看：系列前缀 + 请求了几页 + 页里原始共几条 + 按集号匹配到几条
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 选集 prefix=$prefix slug=$slug 页=2 原始=${pages.expand((l) => l).length} 匹配=${matched.length} 条');
     return [for (final e in matched) e.$2];
   }
 
@@ -642,6 +657,7 @@ class DetailPageState extends State<DetailPage> {
                                 itemBuilder: (_, i) => InkWell(
                                   onTap: () => Navigator.of(context).push(
                                     MaterialPageRoute(
+                                      settings: const RouteSettings(name: '图片查看'),
                                       builder: (_) => PageBg(child: PhotoViewerPage(
                                         urls: d.images,
                                         initial: i,
@@ -683,6 +699,7 @@ class DetailPageState extends State<DetailPage> {
                                   // （不然本页压栈继续放 + 新页也在放 = 两个声音）
                                   _switcher?.pause();
                                   Navigator.of(context).push(MaterialPageRoute(
+                                    settings: const RouteSettings(name: '详情页'),
                                     builder: (_) => PageBg(child: DetailPage(
                                         site: widget.site, baseUrl: a.url)),
                                   ));
@@ -775,6 +792,7 @@ class DetailPageState extends State<DetailPage> {
     _switcher?.pause(); // 同上：跳列表页前先把本页播放器停掉
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: '标签页'),
         builder: (_) => PageBg(child: TagListPage(
           site: widget.site,
           title: title,
@@ -812,6 +830,7 @@ class DetailPageState extends State<DetailPage> {
                   // 切集：replace 当前页，避免栈无限加深
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
+                      settings: const RouteSettings(name: '详情页'),
                       builder: (_) => PageBg(child: DetailPage(
                           site: widget.site, baseUrl: a.url)),
                     ),
@@ -935,6 +954,8 @@ class _TagListPageState extends State<TagListPage> {
       final next = widget.isTag
           ? await _api.tag(widget.slug, page: _page)
           : await _api.category(widget.slug, page: _page);
+      // 这条对着「标签/分类列表翻不动、少了条目」看：走的是 tag 还是 category + 请求的页号 + 这一页几条
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] 列表 ${widget.isTag ? 'tag' : 'category'} slug=${widget.slug} 页=$_page 本页=${next.length} 条');
       if (!mounted) return;
       setState(() {
         if (next.isEmpty) {

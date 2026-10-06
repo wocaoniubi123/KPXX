@@ -18,6 +18,9 @@ import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../base/fmt.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// wordpress 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class WpSite extends SiteUi {
@@ -90,6 +93,7 @@ class WpSite extends SiteUi {
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// k 以 `/` 开头 = 站内路径型（如 51fans1 的 `/order/hot/` ✓）；否则是分类 slug ✓
+// 看：分类页取回来的 HTML 到底解析出几条 —— 0 条就是选择器变了或域名给的是空壳页。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -99,13 +103,17 @@ class WpSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start();
     // 并集里 kk 是可空具名参数 ✗ → 绑定回原语义 ✓（原位置参数 = 子分类 key）
     final kk = k ?? key;
     final path = kk.startsWith('/')
         // 51fans1 的 /order/hot/ 这类：页 2 = /order/hot/2/
         ? (page <= 1 ? kk : '$k$page/')
         : (page <= 1 ? '/category/$k/' : '/category/$k/$page/');
-    return parseArticles(await _f.text(path));
+    final _r = parseArticles(await _f.text(path));
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
   }
   /// 列表页 / 搜索页通用的文章卡片解析。
   /// 先按 WordPress 模板（article[itemscope]）找，找不到再按 51fans1（.xqbj-list-rows）。
@@ -191,8 +199,10 @@ class WpSite extends SiteUi {
   }
 
   /// WordPress 系详情页
+// 看：详情页解析出的视频/图/相关推荐条数 —— 视频=0 是播放器选择器或 data-config 变了。
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final html = await _f.text(url);
     final doc = hp.parse(html);
 
@@ -366,7 +376,7 @@ class WpSite extends SiteUi {
       if (related.length >= 12) break;
     }
 
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title,
       time: time,
       categories: categories,
@@ -377,6 +387,9 @@ class WpSite extends SiteUi {
       related: related,
       seriesPrefix: seriesPrefix(title),
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 }
 

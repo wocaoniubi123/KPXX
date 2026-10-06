@@ -5,6 +5,14 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'app_background.dart';
+import 'settings.dart';
+
+/// 日志用：只取 `host=` + `path=`（path 截 80）—— **不打完整 URL** ✓
+String webLoc(String url) {
+  final u = Uri.tryParse(url);
+  final p = u?.path ?? '';
+  return 'host=${u?.host ?? '?'} path=${p.length > 80 ? p.substring(0, 80) : p}';
+}
 
 /// **可嵌入的站内网页** ✓（用户 2026-10-03 拍板 A 方案：短片 tab 直接嵌站点自己的页面 ✓）
 ///
@@ -89,6 +97,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
         mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
       );
     }
+    // 加载开始（创建控制器 + 发起首次加载）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 加载开始 ${webLoc(widget.url)}');
     _ctl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setUserAgent(widget.ua)
@@ -99,11 +109,15 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
           },
           onPageFinished: (_) {
             if (mounted) _progress.value = 1; // ★ 语义不变：置 1 ⇒ 条消失 ✓
+            // 加载完成（主文档）
+            if (AppSettings.i.logConsole) debugPrint('[WEB] 加载完成 ${webLoc(widget.url)}');
             _applyGuard();
           },
           onWebResourceError: (e) {
             // 只处理主文档失败，子资源（图/广告）失败不打扰用户 ✓（原 web_page.dart 同款 ✓）
             if (e.isForMainFrame == true && mounted) {
+              // 加载失败（主文档）
+              if (AppSettings.i.logConsole) debugPrint('[WEB] 加载失败 ${webLoc(widget.url)}');
               setState(() => _error = e.description);
             }
           },
@@ -116,6 +130,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   /// 每次页面加载后注入 `_guardJs` ✓（静音 ✓ + 内联播放兜底 ✓ + 系统全屏兜底 ✓）
   Future<void> _applyGuard() async {
     if (!widget.mute) return;
+    // 加载后注入静音/内联播放保底脚本（mute=false 时上面已返回，这里就是"真注入了"）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 注入保底JS ${webLoc(widget.url)}');
     try {
       await _ctl.runJavaScript(_guardJs);
     } catch (_) {

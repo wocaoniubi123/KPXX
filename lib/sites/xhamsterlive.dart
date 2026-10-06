@@ -50,6 +50,7 @@ import '../config.dart' show Site;
 import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
+import '../settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
 
 import 'dart:math' as math; // ④ 2026-10-05：X 与 AppBar 对齐需要 math.max 夹取 ✓（同一步内加 ✓）
 
@@ -285,7 +286,7 @@ class LiveFeed extends ChangeNotifier {
       rooms.addAll(r.rooms);
       // ★ 2026-10-05【常驻诊断·直播⑧】列表刷新条数 ✓（字段真名 = `rooms` ✓ 出处：本文件 `:257 final List<LiveRoom> rooms = [];` ✓）
       //   ⚠️ 不打印 tab 名 ✗：`LiveTabDef` 的字段名我**没读到** ⇒ 不猜（要加先读它的类定义 ✓）
-      debugPrint('[LIVE] ⑧列表 +${r.rooms.length} 总=${rooms.length} raw=${r.raw} done=$_done');
+      if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑧列表 +${r.rooms.length} 总=${rooms.length} raw=${r.raw} done=$_done');
       _raw += r.raw;
       _offset += _kPage;
       error = false;
@@ -315,6 +316,8 @@ class LiveFeed extends ChangeNotifier {
   /// 「重试」（错误态那颗按钮 ✓）：清掉错误、接着当前 offset 再拉 ✓
   void retry() {
     if (_loading) return;
+    // ★【常驻诊断·⑦】三种刷新各留一行（原来都混进 `[LIVE]⑧` 分不清是哪条路 ✓ 只看不改 ☠）
+    if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑦刷新=重试(当前 offset=$_offset 已 ${rooms.length} 间)');
     error = false;
     errorText = '';
     _done = false;
@@ -325,6 +328,8 @@ class LiveFeed extends ChangeNotifier {
   /// 「进行筛选」/「重置」→ **清空重拉** ✓（offset 归 0 ✓ 因为带筛选的 `filteredCount` 是另一套 ✓；
   /// 付费房照旧逐条筛 ✓ —— 筛选和付费过滤是**叠加**的 ✓，翻页也一样 ✓）。
   void reload() {
+    // ★【常驻诊断·⑦】硬刷新（**会当场清空** ✓ `:341` 注释里写了 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑦刷新=硬清空重拉(清前 ${rooms.length} 间)');
     _gen++; // 在途的旧请求作废 ✗（它回来时 gen 对不上 → 直接丢掉 ✓）
     _loading = false;
     rooms.clear();
@@ -342,6 +347,8 @@ class LiveFeed extends ChangeNotifier {
   ///     （用户报"下拉太暴力、卡片直接被清空"✓）⇒ 那条路径**保持不动** ✗（它另有语义 ✓）。
   ///   失败 ⇒ **沿用当前语义**：显示错误页（`error = true` ✓）—— 不改成 SnackBar ✗。
   Future<void> refreshSoft() async {
+    // ★【常驻诊断·⑦】软刷新（下拉 ✓ 旧卡片留屏 ✓ 成功才替换 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑦刷新=软(下拉 旧卡片留屏 ✓ 当前 ${rooms.length} 间)');
     final gen = _gen;
     try {
       final r = await _api.list(tab, 0);
@@ -615,7 +622,7 @@ class _LiveFeedViewState extends State<_LiveFeedView>
   /// （`LiveFeed` 也在 State 里 ✓）→ **返回列表不重拉** ✓。
   void _openRoom(LiveRoom r) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username, id: r.id)),
+      MaterialPageRoute(builder: (_) => LiveRoomPage(username: r.username, id: r.id), settings: const RouteSettings(name: '直播房间')),
     );
   }
 
@@ -821,6 +828,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// "这条 URL 已确认可用"只做一次 ✓（出画后写进 [_variantCache] ✓ 下次直拼跳过 master ✓）
   bool _cacheConfirmed = false;
 
+  /// ★ 2026-10-05【常驻诊断·直播⑧】只给 `_onTick` 的「断流 / 恢复」两行日志当守卫 ✓
+  ///   —— **纯日志用** ✗：不参与任何判定、不读进任何分支 ✓（不然恢复那行每次 tick 都打 ⇒ 刷屏 ☠）
+  bool _stalledForLog = false;
+
   /// `initialize()` 的硬超时（毫秒）= **8000**：
   /// 网络那一段本机实测 ≈2.5 秒 ✓ ⇒ 8 秒 ≈3 倍余量 ✓；超时就当"这条不通"→ 直拼那条会回退 ✓（master 那条只报错 ✓）。
   static const int _kInitTimeoutMs = 8000;
@@ -829,7 +840,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   void initState() {
     super.initState();
     // ★ 2026-10-05【常驻诊断·直播①】进房（只打房间 id ✓ 开关关着零开销 ✓）
-    debugPrint('[LIVE] ①进房 id=${widget.id}');
+    if (AppSettings.i.logConsole) debugPrint('[LIVE] ①进房 id=${widget.id}');
     _checkAndPlay();
   }
 
@@ -887,29 +898,29 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
       {
         final u = Uri.tryParse(url);
         final p = u == null ? url : '${u.scheme}://${u.host}${u.path}';
-        debugPrint('[LIVE] ②取流 host=${u?.host ?? '?'} path=${p.length <= 80 ? p : p.substring(0, 80)} '
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] ②取流 host=${u?.host ?? '?'} path=${p.length <= 80 ? p : p.substring(0, 80)} '
             'qlen=${u?.query.length ?? 0}');
       }
       final r = await Site.httpClient
           .get(Uri.parse(url), headers: <String, String>{'User-Agent': Site.ua})
           .timeout(const Duration(seconds: 8));
       if (r.statusCode != 200) {
-        debugPrint('[LIVE] ③校验 HTTP=${r.statusCode} ✗（不是 200，未播）');
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] ③校验 HTTP=${r.statusCode} ✗（不是 200，未播）');
         if (mounted) setState(() => _err = '直播流打不开（HTTP ${r.statusCode}）✗');
         return;
       }
       if (r.body.contains('MOUFLON-ADVERT')) {
-        debugPrint('[LIVE] ③校验 命中 MOUFLON-ADVERT ⇒ 广告清单 ✗（已停止播放 ✓ 不播广告）');
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] ③校验 命中 MOUFLON-ADVERT ⇒ 广告清单 ✗（已停止播放 ✓ 不播广告）');
         if (mounted) setState(() => _err = '这条流被换成了广告清单，已停止播放 ✗');
         return;
       }
-      debugPrint('[LIVE] ③校验 正常流 ✓ len=${r.body.length}（非广告清单 ✓）');
+      if (AppSettings.i.logConsole) debugPrint('[LIVE] ③校验 正常流 ✓ len=${r.body.length}（非广告清单 ✓）');
       // ★ 自动档（用户四次拍板 ✓）：**把 master 原样交给播放器** ⇒ AVPlayer 自己按网络/解码选档 ✓
       //   （上面已校验过：HTTP 200 ✓ 且不是广告清单 ✓ ⇒ 这条 URL 可直接播 ✓）
       _kpVariantUrl = url;
       if (_variantCache.length >= _kLiveVariantCacheMax) _variantCache.clear(); // ★ #4：上限（同上 ✓ 仅写入前 ✓ 不碰命中路径 ✓）
       _variantCache[id] = url;
-      debugPrint('[LIVE] ④档=自动(master 原样交 AVPlayer ✓ 不由我们选单档 ✓) id=$id');
+      if (AppSettings.i.logConsole) debugPrint('[LIVE] ④档=自动(master 原样交 AVPlayer ✓ 不由我们选单档 ✓) id=$id');
       await _open(url, id, allowFallback: false);
     } catch (e) {
       if (mounted) setState(() => _err = '打开直播失败：$e');
@@ -928,18 +939,18 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     _c = c;
     c.addListener(_onTick);
     // ★ 2026-10-05【常驻诊断·直播⑤⑥⑦】：⑤交播放器 / ⑥起播结果 / ⑦断流或失败 ✓（只打 host ✓）
-    debugPrint('[LIVE] ⑤交给播放器 host=${Uri.tryParse(url)?.host ?? '?'} id=$id fb=$allowFallback');
+    if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑤交给播放器 host=${Uri.tryParse(url)?.host ?? '?'} id=$id fb=$allowFallback');
     try {
       await c.initialize().timeout(const Duration(milliseconds: _kInitTimeoutMs + 2000));
       await c.setVolume(1.0); // **不静音** ✓（给人看的 ✓ 音量走系统默认/满 ✓）
       await c.play();
-      debugPrint('[LIVE] ⑥起播 ok host=${Uri.tryParse(url)?.host ?? '?'} id=$id');
+      if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑥起播 ok host=${Uri.tryParse(url)?.host ?? '?'} id=$id');
       if (!mounted) return;
       setState(() {});
     } catch (e) {
       // ★ 截断到 120 字 ✓（先取字符串再判长度 —— 别对字面量取子串 ✗ 会越界 ☠）
       final es = '$e';
-      debugPrint('[LIVE] ⑦起播失败/断流 id=$id ${es.length <= 120 ? es : es.substring(0, 120)}');
+      if (AppSettings.i.logConsole) debugPrint('[LIVE] ⑦起播失败/断流 id=$id ${es.length <= 120 ? es : es.substring(0, 120)}');
       // ⚠️⚠️ 2026-10-05 用户报"多刷几次、看一会儿再退出后整个 App 变迟钝" —— **这里是那个漏点** ✗：
       //   页面在 `await initialize()` 期间被 pop 时，`dispose()` 已经把 `_c` 拿走并释放了 ✓，
       //   而这里会继续往下走（回退分支会 **再建一个新 controller** ✗ ⇒ 僵尸播放器：网络+解码器都活着 ✗✗）
@@ -981,6 +992,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     if (c == null || !mounted) return;
     final v = c.value;
     if (v.position > Duration.zero) {
+      // ★ 2026-10-05【常驻诊断·直播⑧】恢复：位置又走到 >0 ⇒ 画面回来了 ✓（只在**判过断流之后**打一行 ✓ 防刷屏 ☠）
+      if (_stalledForLog) {
+        _stalledForLog = false;
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] 恢复 pos=${v.position.inMilliseconds}ms');
+      }
       // 真出过画面 ⇒ 这条 URL 才算"缓存可用" ✓（下次进同房间直接拼 ✓ 跳过 master ✓）
       if (!_cacheConfirmed) {
         _cacheConfirmed = true;
@@ -992,6 +1008,11 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     final et = v.errorDescription ?? '';
     if (et.isNotEmpty) {
       final msg = '直播中断：$et';
+      // ★ 2026-10-05【常驻诊断·直播⑧】断流：拿到错误文案那一刻的 position ✓（**新错误才打一行** ⇒ 不刷屏 ☠）
+      if (msg != _err) {
+        _stalledForLog = true;
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] 断流 pos=${v.position.inMilliseconds}ms');
+      }
       if (msg != _err && mounted) setState(() => _err = msg);
     }
   }

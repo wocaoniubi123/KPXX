@@ -102,7 +102,7 @@ class SettingsPage extends StatelessWidget {
               title: '播放记录',
               trailing: '${list.length} 条 ›',
               onTapTrailing: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PageBg(child: PlayHistoryPage())),
+                MaterialPageRoute(builder: (_) => const PageBg(child: PlayHistoryPage()), settings: const RouteSettings(name: '播放历史')),
               ),
             ),
             // 预览只显示前 3 条；点「N 条 ›」进整页。
@@ -135,7 +135,10 @@ class SettingsPage extends StatelessWidget {
             values: AppSettings.stepOptions,
             selected: AppSettings.i.step,
             label: (v) => '$v 秒',
-            onPick: (v) => AppSettings.i.setStep(v),
+            onPick: (v) {
+              if (AppSettings.i.logConsole) debugPrint('[UI] 双击档=$v'); // ★ 诊断（只加打印 ✓ 不改逻辑 ✓）—— 出处 `settings_page.dart:138` ✓
+              AppSettings.i.setStep(v);
+            },
           ),
           _divider(),
           _row(
@@ -144,7 +147,10 @@ class SettingsPage extends StatelessWidget {
             trailing: Switch.adaptive(
               value: AppSettings.i.autoNext,
               activeColor: _orange,
-              onChanged: (v) => AppSettings.i.setAutoNext(v),
+              onChanged: (v) {
+                if (AppSettings.i.logConsole) debugPrint('[UI] 自动下一集=${v ? "on" : "off"}'); // ★ 诊断（出处 `settings_page.dart:147` ✓）
+                AppSettings.i.setAutoNext(v);
+              },
             ),
           ),
           _divider(),
@@ -156,7 +162,10 @@ class SettingsPage extends StatelessWidget {
             values: AppSettings.bufferOptions,
             selected: AppSettings.i.bufferMb,
             label: AppSettings.bufferLabel,
-            onPick: (v) => AppSettings.i.setBufferMb(v),
+            onPick: (v) {
+              if (AppSettings.i.logConsole) debugPrint('[UI] 缓冲=$v'); // ★ 诊断（出处 `settings_page.dart:159` ✓）
+              AppSettings.i.setBufferMb(v);
+            },
           ),
           _note('改完重进视频生效；1G 在低内存机型上可能被杀进程'),
           _divider(),
@@ -169,7 +178,10 @@ class SettingsPage extends StatelessWidget {
             values: AppSettings.hwdecOptions,
             selected: AppSettings.i.hwdec,
             label: (v) => AppSettings.hwdecLabels[v],
-            onPick: (v) => AppSettings.i.setHwdec(v),
+            onPick: (v) {
+              if (AppSettings.i.logConsole) debugPrint('[UI] 硬解=$v'); // ★ 诊断（出处 `settings_page.dart:172` ✓）
+              AppSettings.i.setHwdec(v);
+            },
           ),
           _note('自动＝按引擎默认；硬解失败会自动回落软解；软解最兼容、最吃 CPU。改完重进视频生效'),
         ],
@@ -200,6 +212,8 @@ class SettingsPage extends StatelessWidget {
                     // ★ 2026-10-05：接线 ✓（推送时**必须包 PageBg** ✓ —— 本页其它 push 点同款 ✓）
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
+                        // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
+                        settings: const RouteSettings(name: '图集1'),
                         builder: (_) => const PageBg(child: OnlineAlbumPage()),
                       ),
                     ),
@@ -212,6 +226,8 @@ class SettingsPage extends StatelessWidget {
                     // ★ 2026-10-05：接线 ✓（照本页既有 push 写法 ✓ **必须包 PageBg** ✓）
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
+                        // ★ 2026-10-05【⑥ 页面起名】只加 `settings:` ✓（builder/PageBg 一字未动 ☠）
+                        settings: const RouteSettings(name: '图集2'),
                         builder: (_) => const PageBg(child: OnlineAlbum2Page()),
                       ),
                     ),
@@ -228,14 +244,22 @@ class SettingsPage extends StatelessWidget {
                 Expanded(
                   child: _button(
                     label: '从相册选择',
-                    onTap: () => _pickBg(context),
+                    onTap: () {
+                      if (AppSettings.i.logConsole) debugPrint('[UI] 选背景图'); // ★ 诊断（出处 `settings_page.dart:231` ✓）
+                      _pickBg(context);
+                    },
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _button(
                     label: '恢复默认',
-                    onTap: custom ? () => AppBg.i.clear() : null,
+                    onTap: custom
+                        ? () {
+                            if (AppSettings.i.logConsole) debugPrint('[UI] 清背景'); // ★ 诊断（出处 `settings_page.dart:238` ✓ `custom` 判断未变 ✓）
+                            AppBg.i.clear();
+                          }
+                        : null,
                   ),
                 ),
               ],
@@ -256,7 +280,7 @@ class SettingsPage extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const PageBg(child: BgAlbumPage())),
+        MaterialPageRoute(builder: (_) => const PageBg(child: BgAlbumPage()), settings: const RouteSettings(name: '背景相册')),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -333,7 +357,7 @@ class SettingsPage extends StatelessWidget {
             child: _button(
               label: '错误日志',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage())),
+                MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage()), settings: const RouteSettings(name: '错误日志')),
               ),
             ),
           ),
@@ -351,7 +375,14 @@ class SettingsPage extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: kTxtSub),
             ),
             value: AppSettings.i.logConsole,
-            onChanged: (v) => AppSettings.i.setLogConsole(v),
+            onChanged: (v) {
+              // ★ 2026-10-05（本次修 ✓）：**先落状态、再打日志** ✗ —— `setLogConsole` 的 `_logConsole = v` 是
+              //   **同步**赋值（`settings.dart:122` ✓，首次 `await` 在 `:125` 之后 ✓）⇒ 紧接着这行 debugPrint
+              //   看到的就是**新值** ✓：**打开那一下这行必定进日志** ✓（原来先打后设 ⇒ 打开时按旧值 `false` 被吞 ✗）。
+              //   ⚠️ 代价：**关闭那一下这行不会留下** ✗（关掉后 debugPrint 第一句就 return ✓）—— 这是开关语义本身 ✓，不是漏 ✓。
+              AppSettings.i.setLogConsole(v);
+              debugPrint('[UI] 控制台日志=${v ? "on" : "off"}（本条只在打开那下可见 ✓）');
+            },
           ),
           _note('有站点出错时会记下「时间 + 站点名 + 错误信息」，方便定位是哪个站挂了'),
         ],
@@ -560,6 +591,7 @@ class SettingsPage extends StatelessWidget {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
+        settings: const RouteSettings(name: '详情页'),
         builder: (_) => PageBg(child: DetailPage(
           site: hit.first,
           baseUrl: r.url,

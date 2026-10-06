@@ -11,6 +11,9 @@ import '../base/site_ui.dart';
 import 'package:html/parser.dart' as hp;
 import '../base/fetch.dart';
 import '../models.dart';
+// ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ —— 会与 html/dom 撞名）；开关在 settings ✓
+import 'package:flutter/foundation.dart' show debugPrint;
+import '../settings.dart';
 
 /// madou 本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class MadouSite extends SiteUi {
@@ -63,6 +66,7 @@ class MadouSite extends SiteUi {
 
   /// 「分类」tab 的列表（原 `Api.category` 的 case body 原样搬来 ✓）
   /// ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
+// 看：分类页解析出几条 —— 0 条就是卡片选择器（article.excerpt）变了或该分类路径给的是空页。
 @override
   Future<List<Article>> category(String key,
           {required int page,
@@ -72,21 +76,39 @@ class MadouSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) async {
+    final _sw = Stopwatch()..start(); // ★【常驻诊断】只计时 ✓ 不动分流/取数路径 ☠
     // 并集里 kk 可空、home 可空 ✗ → 绑定回原语义 ✓（原来两者都必填）
     final kk = k ?? key;
     // key 平时是分类 slug（已编码，如 hongkongdoll）；以 / 开头 = 站内路径
     // （/likes /week /month 三个榜单 + /tags 标签云）
-    if (kk.isEmpty) return home!(page: page);
-    if (kk == '/tags') return tags(await _f.text('/tags'));
+    // ⚠️ 空 key = 「首页」tab → 由调用方传入 `home` 兜底（那实际是 `Api.home` ✓）。
+    if (kk.isEmpty) {
+      final _r = await home!(page: page);
+      // ★【常驻诊断】「首页」tab 兜底：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
+    }
+    if (kk == '/tags') {
+      final _r = await tags(await _f.text('/tags'));
+      // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
+    }
     if (kk.startsWith('/')) {
       // 榜单**没有翻页**：第 2 页起直接给空，否则会把同一页重复追加
-      return page > 1 ? const [] : cards(await _f.text(kk));
+      final _r = page > 1 ? const [] : cards(await _f.text(kk));
+      // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+      return _r;
     }
     // 详情页的分类 chip 传的是分类**名**（中文，没编码）→ 自己编码再拼路径
     // （站点对未编码的中文路径实测 400，编码后 200）
     final md = RegExp(r'[^\x00-\x7F]').hasMatch(kk) ? Uri.encodeComponent(kk) : kk;
-    return cards(await _f.text(
+    final _r = await cards(await _f.text(
         page <= 1 ? '/category/$md' : '/category/$md/page/$page'));
+    // ★【常驻诊断】列表解析结果：站名 + key + 页 + 条数 + 耗时 ✓
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} k=$key 页=$page 解析出 ${_r.length} 条 ms=${_sw.elapsedMilliseconds}');
+    return _r;
   }
   /// 卡片解析（首页/分类/搜索/标签/榜单共用）
   List<Article> cards(String html) {
@@ -125,6 +147,7 @@ class MadouSite extends SiteUi {
   /// 详情：标题/分类/标签/相关推荐/播放源（站点没有时长、系列、简介、发布时间）
 @override
   Future<ArticleDetail> detail(String url) async {
+    final _sw = Stopwatch()..start();
     final doc = hp.parse(await _f.text(url));
     final title = (doc.querySelector('.article-title')?.text ?? '').trim();
     final catName = (doc.querySelector('.item-3 a')?.text ?? '').trim();
@@ -155,7 +178,7 @@ class MadouSite extends SiteUi {
       if (related.length >= 12) break;
     }
     final play = await playUrl(doc);
-    return ArticleDetail(
+    final _d = ArticleDetail(
       title: title.isEmpty ? url : title,
       time: '',
       categories: [if (catName.isNotEmpty) catName],
@@ -169,6 +192,9 @@ class MadouSite extends SiteUi {
       related: related,
       seriesPrefix: '',
     );
+    // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${_d.videos.length} 图=${_d.images.length} 相关=${_d.related.length} ms=${_sw.elapsedMilliseconds}');
+    return _d;
   }
 
   /// URL 最后一段（标签 slug 用；空链接返回空串）
@@ -221,7 +247,7 @@ class MadouSite extends SiteUi {
     if (tok.isEmpty || path.isEmpty) return '';
     final abs = path.startsWith('http') ? path : 'https://dash.madou.club$path';
     return '$abs?token=$tok';
-  }
+  }
 }
 
 // ===== 本站专属清单（2026-10-03 从 lib/sites.dart 下放 ✓；循环 import 允许 ✓）=====

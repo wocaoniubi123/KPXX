@@ -24,7 +24,8 @@ void main() {
   //   开了 ⇒ 每条 `debugPrint` 都进 **App 自带的错误日志页**（手机上可见 ✓；原来只进 Xcode 控制台 ✗ 手机上看不到 ☠）；
   //   关了 ⇒ **第一句就 return** ✓ ⇒ 后面一个字都不执行（零开销 ✓ 佐证见下面那行 ✓）。
   //   ⚠️ 实现里**绝不再调 `debugPrint`** ☠（防自套）；写盘走 `SiteErrorLog.log` ✓ 且用 `unawaited` ⇒ **不阻塞 UI** ✓；
-  //   ⚠️ 上限**沿用记录器既有的 `_trimTail` / 256KB** ✓（**不另造"200 条"** ✓ 依据 = 那套已存在、日志页已按它工作 ✓）；
+  //   ⚠️ 上限**沿用记录器既有的 `_trimTail`**（`SiteErrorLog.keepBytes` ≈2.5MB ✓ 见 `lib/site_error_log.dart:27` ✓）——
+  //      **不另造"200 条"** ✓ 依据 = 那套已存在、日志页已按它工作 ✓；
   //   ⚠️ 单条**截断 ≤300 字** ✓（照用户口径 ✓）。
   debugPrint = (String? msg, {int? wrapWidth}) {
     if (!AppSettings.i.logConsole) return; // ☠ 关 ⇒ **第一句 return**（零开销 ✓）
@@ -215,7 +216,7 @@ class ModuleGridPage extends StatelessWidget {
     } else {
       page = WebPage(title: e.name, url: e.url);
     }
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => PageBg(child: page)));
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => PageBg(child: page), settings: RouteSettings(name: e.kind == SiteKind.native ? '站点页' : '网页')));
   }
 
   @override
@@ -268,7 +269,7 @@ class LiveGridPage extends StatelessWidget {
 
   void _open(BuildContext context, SiteEntry e) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PageBg(child: LiveSitePage(site: e))),
+      MaterialPageRoute(builder: (_) => PageBg(child: LiveSitePage(site: e)), settings: const RouteSettings(name: '直播列表')),
     );
   }
 
