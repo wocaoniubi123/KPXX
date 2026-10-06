@@ -153,7 +153,8 @@ class _ArtImageListState extends State<ArtImageList> {
   Future<void> _warmRest() async {
     for (var i = 2; i < widget.urls.length; i++) {
       if (!mounted) return; // 页面已退出 ⇒ 停止预热 ✓
-      FetchedImage.warm(widget.urls[i]);
+      FetchedImage.warm(widget.urls[i],
+          index: i, total: widget.urls.length);
       await Future<void>.delayed(const Duration(milliseconds: 80));
     }
   }

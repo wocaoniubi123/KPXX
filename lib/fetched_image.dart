@@ -73,7 +73,10 @@ class FetchedImage extends StatefulWidget {
   /// **预热**（#8 ✓ 用户拍板）：把这张图的字节先抓进内存缓存 ✓ —— **fire-and-forget** ✓、失败静默 ✓。
   /// ⚠️ 自研组件**不会被框架预取** ✗（列表用的是我们自己的 `FetchedImage` ✓）→ 由列表 itemBuilder 顺手调 ✓。
   /// ⚠️ 与"真正显示时"**共用同一个在途 Future** ✓（走 `_inflight` ✓）→ 不会重复下载 ✓。
-  static void warm(String? url) => _FetchedImageState.warm(url);
+  /// ★ 诊断用 [index]/[total] 是**可选具名**参数 ✓：不传 = 与老调用点**行为完全一致** ✓（日志里序号显示 `?` ✓）。
+  ///   [index] = **被预热那张在列表里的 0 基位次** ✓（如屏幕上第 1 张预热的是第 9 张 ⇒ index = 8 ✓）。
+  static void warm(String? url, {int? index, int? total}) =>
+      _FetchedImageState.warm(url, index: index, total: total);
 
   @override
   State<FetchedImage> createState() => _FetchedImageState();
@@ -196,11 +199,17 @@ class _FetchedImageState extends State<FetchedImage> {
   }
 
   /// 预热（#8 ✓）：已有就跳过 ✓、否则挂进 `_inflight` ✓（= 与真正显示时同一个请求 ✓）
-  static void warm(String? url) {
+  static void warm(String? url, {int? index, int? total}) {
     if (url == null || url.isEmpty) return;
     if (_cache.containsKey(url)) return;
-    // 看：预热发起了几张图（列表滚动时的预取量）—— 与"取数"那几条对着看就是预热命中率。
-    if (AppSettings.i.logConsole) debugPrint('[IMG] 预热 host=${Uri.tryParse(url)?.host ?? '?'}');
+    // 看：预热发起了哪一张图（序号/总数 + host + path 截 80）—— 与"取数"那几条对着看就是预热命中率。
+    //   ⚠️ 原来只打 host ⇒ 同 CDN 的 8 张缩略图会连出 8 条一模一样的行、分不出是哪张（用户实报 ✓）。
+    if (AppSettings.i.logConsole) {
+      final uri = Uri.tryParse(url);
+      final pathOnly = uri == null ? url : '${uri.scheme}://${uri.host}${uri.path}';
+      debugPrint('[IMG] 预热 ${index == null || total == null ? '?' : '${index + 1}/$total'} '
+          'host=${uri?.host ?? '?'} path=${pathOnly.length <= 80 ? pathOnly : pathOnly.substring(0, 80)}');
+    }
     _inflight.putIfAbsent(url, () => _download(url));
   }
 

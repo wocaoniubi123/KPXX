@@ -991,7 +991,9 @@ class _FeedViewState extends State<_FeedView>
                 // ⭐ 预取（#8 ✓）：顺手把"再往后第 8 张"的封面拉进内存缓存 ✓
                 //（自研 FetchedImage 不会被框架预取 ✗；失败静默 ✓、与显示时共用同一个在途请求 ✓）
                 FetchedImage.warm(
-                    i + 8 < feed.items.length ? feed.items[i + 8].cover : null);
+                    i + 8 < feed.items.length ? feed.items[i + 8].cover : null,
+                    index: i + 8,
+                    total: feed.items.length);
                 return ArticleCard(article: feed.items[i], site: widget.site);
               },
             ),
@@ -1515,7 +1517,8 @@ class _SearchPageState extends State<SearchPage> {
                         itemBuilder: (ctx, i) {
                           // #4 ✓（2026-10-03）：顺手预热**后面第 8 张**的封面 ✓（与首页那处同一套 ✓）
                           if (i + 8 < _results.length) {
-                            FetchedImage.warm(_results[i + 8].cover);
+                            FetchedImage.warm(_results[i + 8].cover,
+                                index: i + 8, total: _results.length);
                           }
                           return ArticleCard(article: _results[i], site: widget.site);
                         },

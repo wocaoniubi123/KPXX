@@ -609,7 +609,9 @@ class _LiveFeedViewState extends State<_LiveFeedView>
       itemBuilder: (ctx, i) {
         // 预取（同 home_page ✓）：顺手把"再往后第 8 张"的封面拉进内存缓存 ✓
         FetchedImage.warm(
-            i + 8 < f.rooms.length ? f.rooms[i + 8].cover : null);
+            i + 8 < f.rooms.length ? f.rooms[i + 8].cover : null,
+            index: i + 8,
+            total: f.rooms.length);
         final r = f.rooms[i];
         return LiveRoomCard(room: r, onTap: () {
           _openRoom(r);
@@ -765,29 +767,55 @@ const int _kLiveVariantCacheMax = 200;
 
 final Map<int, String> _variantCache = <int, String>{};
 
-/// 从 master 里挑一条变体 URL ✓（**取第一档** ✓）
-/// ⚠️ **档位策略（2026-10-05 三次拍板）**：**撤销降档上限，恢复"取 master 第一档"= 最高画质** ✓。
-///   沿革：① 最初"不许降分辨率"（用户要画质 ✓）→ ② 为治卡顿临时降档（短边 ≤720 ✓）→ ③ **新框架已治好卡顿** ⇒ 撤上限 ✓。
-///   依据③：用户真机实测"**同一个直播间不卡了**" ✓（配套 = Flutter 3.27.4 + video_player 2.10.0 ✓，`ios.yml:25` / `pubspec.yaml:33` ✓）。
+/// 从 master 里挑**最高档**变体 ✓（用户 2026-10-05 拍板：「**直播直接取最高分辨率**」✓）
+/// ⚠️ **档位策略沿革（四次拍板）**：① 最初"不许降分辨率" → ② 为治卡顿临时降档（短边 ≤720）→
+///   ③ 新框架治好卡顿后撤上限 → ④ **本次：不再"把 master 原样交给 AVPlayer 让它自适应"** ✗ ——
+///   实测观感"默认档太模糊"（用户原话 ✓）⇒ 现在**由我们从 master 里挑最高档** ✓。
 /// ⚠️ 档位**不在 URL 里** ✗ —— 实测 master 原文（真页 curl，2026-10-05）：
 ///   `#EXT-X-STREAM-INF:BANDWIDTH=2427392,CODECS="avc1.4d0029,mp4a.40.2",RESOLUTION=720x960,FRAME-RATE=30.000,…,NAME="source"`
 ///   而**下一行**才是那条变体的 URL ✓ ⇒ 解析必须"读 `STREAM-INF` + 取下一行" ✓ 不能拿 URL 去匹配档位 ✗。
-/// 解析不到就返回空串 ✓（调用方按"没有可用清晰度"处理 ✓）。
-String pickVariantUrl(String master) {
-  // 本函数只负责"**按 master 顺序取第一条**" ✓（= 最高档 ✓；档次差异见上一条注释的实测数据 ✓）。
+/// 比大小的口径 ✓：**先比高度 H** ✓（`RESOLUTION=WxH` 的 H），**同高再比带宽** `BANDWIDTH` ✓
+///   （两样都缺的档按 0 算 ⇒ 只有在"整份清单都没有 RESOLUTION"时才会靠带宽决胜 ✓）。
+/// 相对地址按 **master 的 URL** 解析成绝对地址 ✓（`Uri.resolve` ✓ 不自己拼字符串 ☠ —— 与 `base/fetch.dart:157` 同款 ✓）。
+/// 返回 null ⇒ 这份文本里**挑不出任何变体**（不是多档清单 / 有 `STREAM-INF` 但那行不是地址）✓
+///   ⇒ 调用方**回落到老行为**（master 原样交播放器 ✓ —— **绝不因为解析失败就播不了** ☠）。
+({String url, int w, int h, int bw, int total})? pickVariantUrl(String master, Uri base) {
   final lines = master.split('\n');
+  var bestUrl = '';
+  var bestW = 0;
+  var bestH = -1;
+  var bestBw = -1;
+  var total = 0;
   for (var i = 0; i < lines.length; i++) {
     final t = lines[i].trim();
     if (!t.startsWith('#EXT-X-STREAM-INF')) continue;
-    // 下一行 = URL ✓（跳过空行；遇到下一个注释就说明本档没跟 URL ✗）
+    // 变体地址 = **紧随其后的第一个非 `#` 行** ✓（HLS 规范 ✓；空行跳过 ✓，遇到下一条注释 ⇒ 这档没跟地址 ✗）
+    var ref = '';
     for (var j = i + 1; j < lines.length; j++) {
       final u = lines[j].trim();
       if (u.isEmpty) continue;
       if (u.startsWith('#')) break;
-      return u;
+      ref = u;
+      break;
+    }
+    if (ref.isEmpty) continue;
+    total++;
+    final res = RegExp(r'RESOLUTION=(\d+)x(\d+)').firstMatch(t);
+    final w = res == null ? 0 : int.tryParse(res.group(1)!) ?? 0;
+    final h = res == null ? 0 : int.tryParse(res.group(2)!) ?? 0;
+    // ⚠️ 带边界 `(?:^|[,:])` ✗ 不能裸写 `BANDWIDTH=`：否则会**误命中** `AVERAGE-BANDWIDTH=`（子串）
+    //   ⇒ 同高时比带宽就会拿错值 ✓（`base/fetch.dart:148` 是裸写法，那边只用来算排序分、影响小 ✓ 这里要精确 ✓）。
+    final bw = int.tryParse(RegExp(r'(?:^|[,:])BANDWIDTH=(\d+)').firstMatch(t)?.group(1) ?? '') ?? 0;
+    // ★ 先比高度、同高再比带宽 ✓（首个变体因 `bestH = -1` 必定入选 ✓）
+    if (h > bestH || (h == bestH && bw > bestBw)) {
+      bestH = h;
+      bestBw = bw;
+      bestW = w;
+      bestUrl = base.resolve(ref).toString();
     }
   }
-  return '';
+  if (bestUrl.isEmpty) return null;
+  return (url: bestUrl, w: bestW, h: bestH, bw: bestBw, total: total);
 }
 
 
@@ -827,6 +855,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   /// "这条 URL 已确认可用"只做一次 ✓（出画后写进 [_variantCache] ✓ 下次直拼跳过 master ✓）
   bool _cacheConfirmed = false;
+
+  /// ★ 2026-10-05（用户拍板 ✓）：**"最高档播不了 ⇒ 改试 master"只允许一次** ✓（防死循环 ☠）
+  ///   —— 钉死最高档等于丢掉了 AVPlayer 自己的兜底能力 ✗ ⇒ 用这一格把它补回来 ✓（见 `_open` 的失败分支 ✓）。
+  bool _triedMaster = false;
 
   /// ★ 2026-10-05【常驻诊断·直播⑧】只给 `_onTick` 的「断流 / 恢复」两行日志当守卫 ✓
   ///   —— **纯日志用** ✗：不参与任何判定、不读进任何分支 ✓（不然恢复那行每次 tick 都打 ⇒ 刷屏 ☠）
@@ -884,15 +916,17 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
 
   /// 校验/缓存逻辑**保留**（与播放器无关 ✓ 省的是**我们自己**的抓取 ✓）：
   /// ① 缓存命中 → **跳过 master 抓取** 直接用上次那条 URL（失败自动回退一次 ✓）；
-  /// ② 没缓存 → 抓 master（**判 `MOUFLON-ADVERT` 的底线保留** ✓）→ **把 master(auto) 交给 AVPlayer，让它自己按网络/解码自适应选档** ✓
-  ///    → 缓存 → 播放 ✓。
-  /// ⚠️ 2026-10-05 用户**四次拍板**：要的是**默认档=自动档** ✗ —— **不再由我们选单档**（`pickVariantUrl` 因此暂无调用点 ✓ 保留不删 ✗）。
+  /// ② 没缓存 → 抓 master（**判 `MOUFLON-ADVERT` 的底线保留** ✓）→ **就地挑最高档变体**（`pickVariantUrl` ✓
+  ///    用户 2026-10-05 拍板：「直播直接取最高分辨率」✓）→ 缓存 → 播放 ✓。
+  /// ⚠️ 挑不出变体（不是多档清单 / 变体行不是地址）⇒ **回落到老行为**：master 原样交 AVPlayer ✓
+  ///   （与改动前**逐字一致** ✓ —— 绝不因为解析失败就播不了 ☠）；回落原因进 ④ 日志 ✓。
   Future<void> _checkAndPlay() async {
     final id = widget.id;
     if (id <= 0) {
       if (mounted) setState(() => _err = '这个房间没拿到 id，打不开直播 ✗');
       return;
     }
+    _triedMaster = false; // ★ 本函数每跑一遍（进房 / 缓存回退）都重置 ⇒ "最高档失败→试 master"这一次配额重新可用 ✓
     final cached = _variantCache[id];
     if (cached != null && cached.isNotEmpty) {
       await _open(cached, id, allowFallback: true);
@@ -923,13 +957,29 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         return;
       }
       if (AppSettings.i.logConsole) debugPrint('[LIVE] ③校验 正常流 ✓ len=${r.body.length}（非广告清单 ✓）');
-      // ★ 自动档（用户四次拍板 ✓）：**把 master 原样交给播放器** ⇒ AVPlayer 自己按网络/解码选档 ✓
-      //   （上面已校验过：HTTP 200 ✓ 且不是广告清单 ✓ ⇒ 这条 URL 可直接播 ✓）
-      _kpVariantUrl = url;
+      // ★ 2026-10-05（用户拍板：「直播直接取最高分辨率」✓）：不再把 master 原样交播放器 ✗ ——
+      //   就地在这份**已经拿到的 master 文本**里挑最高档 ✓（**不再多发一次请求** ☠）；
+      //   挑不出 ⇒ 回落到老行为（master 原样交 ✓ 逐字一致 ✓），并把**回落原因**打进日志 ✓。
+      final top = pickVariantUrl(r.body, Uri.parse(url));
+      var playUrl = url;
+      if (top == null) {
+        final why = r.body.contains('#EXT-X-STREAM-INF')
+            ? '有 STREAM-INF 但变体行没解析出地址'
+            : '不是多档清单（没有 #EXT-X-STREAM-INF）';
+        if (AppSettings.i.logConsole) debugPrint('[LIVE] ④档=自动(master 原样交 AVPlayer ✓ 回落原因=$why) id=$id');
+      } else {
+        playUrl = top.url;
+        if (AppSettings.i.logConsole) {
+          final cu = Uri.tryParse(playUrl);
+          final cp = cu == null ? playUrl : '${cu.scheme}://${cu.host}${cu.path}';
+          debugPrint('[LIVE] ④档=最高 ${top.w}x${top.h} bw=${top.bw}（从 master 的 ${top.total} 个变体里选最高 ✓）'
+              ' chosen=${cp.length <= 80 ? cp : cp.substring(0, 80)} id=$id');
+        }
+      }
+      _kpVariantUrl = playUrl;
       if (_variantCache.length >= _kLiveVariantCacheMax) _variantCache.clear(); // ★ #4：上限（同上 ✓ 仅写入前 ✓ 不碰命中路径 ✓）
-      _variantCache[id] = url;
-      if (AppSettings.i.logConsole) debugPrint('[LIVE] ④档=自动(master 原样交 AVPlayer ✓ 不由我们选单档 ✓) id=$id');
-      await _open(url, id, allowFallback: false);
+      _variantCache[id] = playUrl;
+      await _open(playUrl, id, allowFallback: false);
     } catch (e) {
       if (mounted) setState(() => _err = '打开直播失败：$e');
     }
@@ -983,6 +1033,34 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
         setState(() => _err = '正在打开直播…');
         _checkAndPlay(); // 再走一遍 ✓（缓存已删 ⇒ 这次抓 master ✓）
         return;
+      }
+      // ★ 2026-10-05（用户拍板 ✓）：**钉死最高档后要把 AVPlayer 的兜底能力补回来** ——
+      //   最高档那条播不了（地址 / CDN 路径异常、pkey 对它失效…）⇒ **改试 master 一次** ✓
+      //   （master 交 AVPlayer = **改动前的老行为** ✓ 所以这条回落后"能播"的口径与改动前一致 ✓）。
+      //   ⚠️ 只回落一次 `_triedMaster` ✓（防死循环 ☠）；回落再失败 ⇒ 走下面原有的"这条直播打不开" ✓。
+      //   ⚠️ 判据用 `liveMasterUrl(id)` **现算** ⇗ 不存字段（纯函数、id 在手 ✓ 少一份状态 ✗）；
+      //      `url != mu` ⇒ 当前播的确实是"挑出来的变体" ✗ 若本来就是 master（解析失败回落那条）⇒ 不重试 ✓。
+      final mu = liveMasterUrl(id);
+      if (!_triedMaster && url != mu) {
+        _triedMaster = true;
+        if (identical(_c, c)) _c = null;
+        try {
+          c.removeListener(_onTick);
+          await c.dispose();
+        } catch (_) {}
+        if (!mounted) return;
+        final fu = Uri.tryParse(url);
+        final fp = fu == null ? url : '${fu.scheme}://${fu.host}${fu.path}';
+        if (AppSettings.i.logConsole) {
+          debugPrint('[LIVE] 最高档失败 ⇒ 回落 master 重试 ✓ 原因=${es.length <= 80 ? es : es.substring(0, 80)} '
+              'failed=${fp.length <= 80 ? fp : fp.substring(0, 80)} id=$id');
+        }
+        _kpVariantUrl = mu; // 缓存语义不变 = "**实际在播的那个地址**" ✓（首帧确认时 `_onTick` 才写缓存 ✓）
+        await _open(mu, id, allowFallback: false);
+        return;
+      }
+      if (AppSettings.i.logConsole && _triedMaster) {
+        debugPrint('[LIVE] 回落 master 也失败 ⇒ 不再重试 ✓ 原因=${es.length <= 80 ? es : es.substring(0, 80)} id=$id');
       }
       if (identical(_c, c)) _c = null;
       try {

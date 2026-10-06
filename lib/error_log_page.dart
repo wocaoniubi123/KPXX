@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'base/site_ui.dart';
@@ -25,9 +24,6 @@ class ErrorLogPage extends StatefulWidget {
 class _ErrorLogPageState extends State<ErrorLogPage> {
   String _text = '';
   bool _loading = true;
-
-  /// 上一次导出的临时副本路径（下一次导出时顺手删掉 ✓ —— 分享面板是异步的，**分享后不能立刻删** ✓）
-  String? _exported;
 
   /// ⚠️ 2026-10-05 修（用户报"日志一大会卡"）✓：正文超过这个长度就**只渲染末尾一段** ✗ ——
   /// `SelectableText` 是**整篇一次性排版** ✗，而日志上限是 5MB ✗ ⇒ 一次排版 5MB 要等很久 ✓。
@@ -89,9 +85,10 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
   /// 步骤与依据：
   ///   ① `SiteErrorLog.path()` 拿不到时返回**字面量** `'(不可用)'`（`site_error_log.dart:129` ✓）
   ///      ⇒ 先判这个哨兵值，**绝不拿它去构造 `XFile`** ☠。
-  ///   ② **复制**一份到临时目录（文件名带时间戳 ✓）—— **原日志一个字不动** ✓；
-  ///      复制前先删**同一前缀**的旧副本（`kpxx_error_*`）⇒ 面板交给对方是异步的 ✓，
-  ///      所以**分享后不删**、留到下次导出时顺手清 ✓。
+  ///   ② **直接分享源文件** ✓（用户 2026-10-05 改定：**不再复制副本** ✗）——
+  ///      分享面板对文件 URL 是**读取**语义 ✓；用户已接受"极少数'就地打开'目的地可能移动文件"的风险 ✓
+  ///      （真被移走也不影响**后续写日志** —— `site_error_log.dart:100-104` 的 `FileMode.append` ⇒ 文件不存在会自动新建 ✓；
+  ///      ⚠️ 但**已写的历史内容会随文件一起被移走** ✗（不再有副本 ⇒ 没有第二份 ✓）。
   ///   ③ 分享走 `SharePlus.instance.share(ShareParams(files: [XFile(路径)]))` —— 依据 = share_plus 13.3.1
   ///      官方 API 文档 + README（`Share.shareXFiles()` 已废弃 ✗）；`sharePositionOrigin` 按 README
   ///      的 iPad 写法给（`findRenderObject` 拿不到就**不传**，让它走"屏幕中心"兜底 ✓ 不崩 ✗）。
@@ -114,24 +111,13 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
         m.showSnackBar(const SnackBar(content: Text('还没有日志文件 ✓（先复现一次再导出）')));
         return;
       }
-      final dir = await getTemporaryDirectory();
-      if (_exported != null) {
-        final old = File(_exported!);
-        if (await old.exists()) await old.delete();
-      }
-      final t = DateTime.now();
-      String two(int v) => v.toString().padLeft(2, '0');
-      final stamp = '${t.year}-${two(t.month)}-${two(t.day)}_${two(t.hour)}${two(t.minute)}';
-      final dst = '${dir.path}/kpxx_error_$stamp.log';
-      await src.copy(dst); // 复制（**不动原日志** ✓）
-      _exported = dst;
-      // 看：导出 —— **原日志**字节数 + 临时目录（临时文件可清 ✓；原始日志一个字没动 ✓）。
+      // 看：导出 —— 原日志字节数 + 路径（**直接分享源文件** ✓，不再有副本）。
       if (AppSettings.i.logConsole) {
-        final kb = await src.length(); // ← 取的是**原文件**长度（不是刚复制那份；两者数值相同 ✓ 措辞按代码写 ✓）
-        debugPrint('[UI] 错误日志 导出 原日志字节=$kb 副本=$dst');
+        final bytes = await src.length();
+        debugPrint('[UI] 错误日志 导出 原日志字节=$bytes 路径=$p（直接分享源文件 ✓）');
       }
       await SharePlus.instance.share(ShareParams(
-        files: [XFile(dst)],
+        files: [XFile(p)], // ★ 直接分享 Documents 里的源文件 ✓（不外移、不复制 ✓）
         title: '错误日志',
         sharePositionOrigin:
             box == null ? null : (box.localToGlobal(Offset.zero) & box.size),

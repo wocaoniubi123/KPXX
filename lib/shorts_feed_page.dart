@@ -263,7 +263,8 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
       }
       // 已缓存 / 在途 / 正在下的都交给共享缓存去判 ✓（同一 url 只飞一次 ✗ 不用在这里查表 ✓）
       _sourcesOf(j); // 并发跑，不 await（别挡当前这条起播）
-      FetchedImage.warm(_items[j].cover); // #4 ✓：封面也预热（换条瞬间就有图 ✓ 复用同一个 warm ✓）
+      FetchedImage.warm(_items[j].cover,
+          index: j, total: _items.length); // #4 ✓：封面也预热（换条瞬间就有图 ✓ 复用同一个 warm ✓）
     }
     _primeWindow(count); // 源解析完再交给预下载（同样不 await ✓）
   }
