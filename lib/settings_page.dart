@@ -329,6 +329,22 @@ class SettingsPage extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const PageBg(child: ErrorLogPage())),
             ),
           ),
+          // ★ 2026-10-05（用户拍板"加个开关"✓）：**记录控制台日志（调试用）** —— 默认关 ✓
+          //   ⚠️ 状态 + 持久化都在 `AppSettings` 里（`logConsole` / `setLogConsole` ✓ 走 SharedPreferences ✓ 已在别处落好 ✓）；
+          //   本页能自动刷新 ✓ 依据 = `:34 Listenable.merge([AppSettings.i, …])` ✓ ⇒ 一拨开关这里就重建 ✓
+          //   ⚠️ 用标准件 `SwitchListTile`（**不自造样式** ✗）—— 与上方 `_button` 观感略有差别，
+          //      若要与本页完全一致 ⇒ 换成本页既有那对写法（`settings_page.dart:144-147` 那对 ✓）即是一行级替换 ✓
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('记录控制台日志（调试用）', style: TextStyle(fontSize: 14)),
+            subtitle: Text(
+              '打开后控制台打印会记进错误日志页（默认关）',
+              style: TextStyle(fontSize: 12, color: kTxtSub),
+            ),
+            value: AppSettings.i.logConsole,
+            onChanged: (v) => AppSettings.i.setLogConsole(v),
+          ),
           _note('有站点出错时会记下「时间 + 站点名 + 错误信息」，方便定位是哪个站挂了'),
         ],
       ),

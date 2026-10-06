@@ -1,3 +1,5 @@
+import 'dart:async'; // ★ unawaited ✓（接管里"异步写盘、不阻塞 UI"要用 ✓）
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
@@ -7,6 +9,7 @@ import 'fetched_image.dart';
 import 'home_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
+import 'site_error_log.dart'; // ★ 接管里写日志用它 ✓（日志页读的就是同一记录器 ⇒ 自动可见 ✓）
 import 'sites.dart';
 import 'sites/xhamsterlive.dart';
 import 'web_page.dart';
@@ -16,6 +19,18 @@ void main() {
   // 播放器引擎 media_kit(libmpv) 必须在 runApp 之前初始化
   MediaKit.ensureInitialized();
   AppSettings.i.load(); // 读设置（双击快进秒数）
+  // ★ 2026-10-05（用户要求 ✓「需要调试的时候打开开关」）：**接管控制台打印** ✗ ——
+  //   开了 ⇒ 每条 `debugPrint` 都进 **App 自带的错误日志页**（手机上可见 ✓；原来只进 Xcode 控制台 ✗ 手机上看不到 ☠）；
+  //   关了 ⇒ **第一句就 return** ✓ ⇒ 后面一个字都不执行（零开销 ✓ 佐证见下面那行 ✓）。
+  //   ⚠️ 实现里**绝不再调 `debugPrint`** ☠（防自套）；写盘走 `SiteErrorLog.log` ✓ 且用 `unawaited` ⇒ **不阻塞 UI** ✓；
+  //   ⚠️ 上限**沿用记录器既有的 `_trimTail` / 256KB** ✓（**不另造"200 条"** ✓ 依据 = 那套已存在、日志页已按它工作 ✓）；
+  //   ⚠️ 单条**截断 ≤300 字** ✓（照用户口径 ✓）。
+  debugPrint = (String? msg, {int? wrapWidth}) {
+    if (!AppSettings.i.logConsole) return; // ☠ 关 ⇒ **第一句 return**（零开销 ✓）
+    if (msg == null || msg.isEmpty) return;
+    unawaited(SiteErrorLog.log(
+        'console', msg.length > 300 ? '${msg.substring(0, 300)}…' : msg));
+  };
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   runApp(const KpxxApp());

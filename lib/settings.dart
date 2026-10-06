@@ -47,6 +47,12 @@ class AppSettings extends ChangeNotifier {
   bool _autoNext = false;
   bool get autoNext => _autoNext;
 
+  /// ★ 2026-10-05（用户要求 ✓「需要调试的时候打开开关」）：**记录控制台日志**（默认**关** ✓ 持久化 ✓）。
+  ///   照 `_kAutoNext` 逐行对齐 ✓（`SharedPreferences` = 本仓库既有的持久化做法 ✓ 不自造 ☠）。
+  static const String _kLogConsole = 'log_console';
+  bool _logConsole = false;
+  bool get logConsole => _logConsole;
+
   /// 档位显示名：1024 显示成 1G
   static String bufferLabel(int mb) => mb >= 1024 ? '1G' : '${mb}MB';
 
@@ -75,6 +81,11 @@ class AppSettings extends ChangeNotifier {
         _autoNext = an;
         changed = true;
       }
+      final lc = sp.getBool(_kLogConsole); // ★ 判 null ✓ 读不到就**保默认 false** ✗（绝不覆盖默认 ☠）
+      if (lc != null && lc != _logConsole) {
+        _logConsole = lc;
+        changed = true;
+      }
       if (changed) notifyListeners();
     } catch (_) {
       // 读失败保持默认值
@@ -100,6 +111,19 @@ class AppSettings extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setBool(_kAutoNext, v);
+    } catch (_) {
+      // 存失败也不影响本次会话使用
+    }
+  }
+
+  /// ★ 开关的写入口 ✓（照 [setAutoNext] 逐行对齐 ✓：先改内存 + `notifyListeners` ✓ 再异步落盘 ✓ 失败不影响本次会话 ✓）
+  Future<void> setLogConsole(bool v) async {
+    if (v == _logConsole) return;
+    _logConsole = v;
+    notifyListeners();
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setBool(_kLogConsole, v);
     } catch (_) {
       // 存失败也不影响本次会话使用
     }

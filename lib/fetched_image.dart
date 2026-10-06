@@ -232,6 +232,8 @@ class _FetchedImageState extends State<FetchedImage> {
           'Accept': 'image/*,*/*;q=0.8',
         })
         .timeout(const Duration(seconds: 15));
+    // ★ 2026-10-05【临时 1 行】取数结果（开关那套做好前先落这一行 ✓ 只加不删 ✓ 定位后删本行即可 ✓）
+    debugPrint('[IMG] code=${r.statusCode} host=${u.host} len=${r.bodyBytes.length}');
     if (r.statusCode != 200 || r.bodyBytes.isEmpty) return null;
     final raw = r.bodyBytes;
     Uint8List? img;
