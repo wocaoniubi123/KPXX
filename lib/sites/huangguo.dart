@@ -32,6 +32,13 @@ class HuangguoSite extends SiteUi {
 
   final SiteFetcher _f;
 
+  /// ★ 2026-10-08（用户要求 ✅）：相关推荐也改成**卡片网格**（= 野果那套 ✓ 一行三列 ✓）
+  ///   走底座槽位 `SiteUi.relatedAsGrid`（默认 false ⇒ 其它站零变化 ✅）；
+  ///   数据侧的条数本站本来就够（详情解析里 `take(12)` ✅ ⇒ 3 列 = 4 行 ✓）。
+  ///   ⚠️ "点卡片跳转前先停本页播放器"**不靠这条** ✅ —— 由 `detail_page` 的 RouteAware 统一负责（任何 push 都覆盖 ✓）。
+  @override
+  bool get relatedAsGrid => true;
+
   /// 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep ✓）。
   /// ⚠️ 原在共享 `_fetchSourcesAt` 里按模板分叉 ✗，现下放本站 ✓（body 原样搬来 ✓）。
   @override

@@ -47,6 +47,15 @@ class VideoSwitcher {
   final ValueNotifier<int> pauseTick = ValueNotifier<int>(0);
   void pause() => pauseTick.value++;
 
+  /// ★ 2026-10-08（用户拍板 ⑦ ✅）：**与 [pauseTick] 对称的"继续播"信号**（自增计数）——
+  ///   详情页被别的页压到栈下面、又回到栈顶时发一次（RouteAware 的 `didPopNext` ✅），
+  ///   把"**我们自己停的**那一次暂停"续起来 ✅（原来只有停、没有续 ⇒ 回来得手点一下 ✗）。
+  ///   ⚠️ 只续"我们停的"☑️：用户**手动**暂停过再跳走 ⇒ 详情页那侧**根本不会发**这个信号 ✅
+  ///   （判据在详情页：`_pausedByPush = 跳走的那一刻本来在播` ✅）。
+  ///   ⚠️ 跟 [pauseTick] 一样，不直接调播放器（实例由 PlayerWidget 持有、全屏页也共用它 ✓）。
+  final ValueNotifier<int> resumeTick = ValueNotifier<int>(0);
+  void resume() => resumeTick.value++;
+
   bool get hasNext => index.value < total - 1;
   bool get hasPrev => index.value > 0;
 
@@ -65,6 +74,7 @@ class VideoSwitcher {
   void dispose() {
     index.dispose();
     pauseTick.dispose();
+    resumeTick.dispose();
   }
 }
 
@@ -445,11 +455,30 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// 读的就是它 ✓（同一个类，别搬到别处 ✗）。
   bool _userPaused = false;
 
+  /// ★ 2026-10-08（用户拍板 ⑦ 配套 ✅）：**"全屏路由是不是本实例推上去的"** ——
+  ///   全屏页也是 `Navigator.push` 上去的路由 ✅ ⇒ 详情页**必然**收到 `didPushNext` ☑️。
+  ///   详情页据此区分"进全屏"（**不是跳走**：要继续播 ✅、要继续写播放记录 ✅）
+  ///   与"真的跳到别的页"（要暂停 + 停写 ✅）。
+  ///   ⚠️ 置位点 = [_openFullscreen] push **之前**；复位点 = 那次 push 的 `whenComplete`（含异常路径 ✅）。
+  bool fullscreenOpen = false;
+
   Future<void> play() {
     // 看：谁在什么时机调了播放（配合"自动重试/看门狗"几条看是不是被反复拉起）。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放');
     _userPaused = false;
     return _p.play();
+  }
+
+  /// ★ 2026-10-08（用户拍板 ② ✅）：**自动路径专用**的续播 —— 与 [play] 的区别**只有一处**：
+  ///   **不清 `_userPaused`** ✅（自动路径不许把"用户暂停"这件事抹掉 ✗）；
+  ///   且**用户手动暂停过 ⇒ 直接不播**（`_userPaused == true` ⇒ return ✅）。
+  /// ⚠️ 目前**唯一**的调用点 = 全屏页 `initState`（就是 ①"跟随进入前的状态" ✅）——
+  ///   ☑️ **不是**"自动路径已全部改完"：看门狗 / 自动重试 / 缓冲结束那几条**本来就没有** `play()` 调用
+  ///   （全仓 grep 过 ✅），它们的口径**一字未动** ✅。以后新增自动路径才用它 ✅。
+  Future<void> autoResume() async {
+    if (_userPaused) return; // 用户暂停过 ⇒ 自动路径**不许**再拉起来 ✅
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动续播');
+    await _p.play();
   }
 
   Future<void> pause() {
@@ -479,7 +508,14 @@ class KpPlayer extends ValueNotifier<KpState> {
     return _p.seek(d);
   }
 
+  /// ★ 2026-10-08（用户拍板 ⑤ ✅）：**幂等护栏** —— `shutdown()` 会被多处调（`PlayerWidget.dispose` ✅、
+  ///   换源收旧实例 ✅、短片页 `dispose` ✅ ……）⇒ 第二次再进来会把 `Player.dispose()` 与
+  ///   ChangeNotifier 的 `dispose()` **各跑第二遍** ⇒ 崩 ✗。现在第二次**直接返回** ✅（一行 ✅）。
+  bool _disposed = false;
+
   Future<void> shutdown() async {
+    if (_disposed) return;
+    _disposed = true;
     _stallTimer?.cancel();
     for (final s in _subs) {
       await s.cancel();
@@ -582,6 +618,14 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   }
 }
 
+/// ★ 2026-10-08（用户拍板 ③ ✅）：**"当前亮度"全局只留一份** —— 内嵌播放器与全屏页读写**同一个值** ✅
+///   （原来是每个 State 各存一份字段 ✗ ⇒ 全屏里调过亮度、退出回内嵌**再一滑会跳回旧值** ✗）。
+///   ⚠️ 放**模块级**而不是挂 `KpPlayer`：`bvPrime()` 是在 `didChangeDependencies` / `initState` 里跑的 ☑️，
+///   而内嵌那侧那时 `_kp` **还没建好**（`_initPlayerOnce` 里才建 ✅）⇒ 挂播放器会拿到 null ✗。
+///   ⚠️ 音量**不动** ✗ —— 它本来就是系统唯一值 ✓（每次拖动开始时后台刷新 ✓ 没问题 ✓）。
+///   ⚠️ 系统亮度变化的订阅**保留**（[bvPrime] 里那条 ✅）⇒ 用实体键/控制中心改完，我们的值跟着变 ✅。
+double _bvBrightShared = -1;
+
 /// 竖向手势：左半屏上下滑调亮度、右半屏上下滑调音量（内嵌与全屏共用）。
 /// 代价：内嵌播放器接管竖向拖动后，在视频区域内上下拖不会再滚动详情页
 /// （这正是"在视频上调亮度/音量"的必要代价，详情页其它区域照常滚动）。
@@ -596,7 +640,10 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
 
   // 系统值缓存（-1 = 还没读到）。拖动开始立刻用缓存当起点，
   // 避免"拖动那一刻才异步去读、第一帧用到旧值"。
-  double _bvBrightVal = -1;
+  // ★ 亮度 = **全局一份** ✅（读写 [_bvBrightShared] ✓ —— 内嵌与全屏共用 ✓ 见那边的说明 ✓）；
+  //   音量仍按 State 各存一份 ☑️（它本来就是系统唯一值 ✓ 不动 ✗）。
+  double get _bvBrightVal => _bvBrightShared;
+  set _bvBrightVal(double v) => _bvBrightShared = v;
   double _bvVolVal = -1;
   bool _bvPrimed = false;
   StreamSubscription<double>? _bvBrightSub;
@@ -799,6 +846,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   late List<String> _sources =
       widget.sources.where((s) => s.isNotEmpty).toList();
   VoidCallback? _pauseHooked; // 挂在 switcher.pauseTick 上的监听（换 widget 时要摘）
+  VoidCallback? _resumeHooked; // 挂在 switcher.resumeTick 上的监听（同上，⑦ 新增 ✅）
   String? _error;
   bool _busy = false;
   // 播放出错自动重试：最多 5 次（起播成功后清零；手动点重试也给新额度）
@@ -875,20 +923,34 @@ class PlayerWidgetState extends State<PlayerWidget>
 
   /// switcher 会在 initState 之后才传进来（详情页异步拿数据 ✓）（详情页是异步拿数据建 switcher 的），
   /// 所以每次依赖变化/更新都重新对一遍监听，挂的是同一个回调。
+  /// ★ 2026-10-08（用户拍板 ⑦ ✅）：**与 pauseTick 对称的 resumeTick 在**同一处**挂** ——
+  ///   详情页回到栈顶（`didPopNext` ✅）时发 `resume` ⇒ 这里调 `play()`：
+  ///   ⚠️ 必须是 `play()`（= **用户意图** ✓ 会清 `_userPaused` ✓），**不是** `autoResume()` ✗ ——
+  ///   因为这一次暂停本来就是"我们为了跳走而停的"（详情页用 `_pausedByPush` 记着 ✅），不是用户按的 ✅。
   void _syncPauseHook() {
     final tick = widget.switcher?.pauseTick;
-    if (tick == _pauseHookedTick) return;
+    final rtick = widget.switcher?.resumeTick;
+    if (tick == _pauseHookedTick && rtick == _resumeHookedTick) return;
     _pauseHookedTick?.removeListener(_pauseHooked!);
+    _resumeHookedTick?.removeListener(_resumeHooked!);
     _pauseHookedTick = tick;
+    _resumeHookedTick = rtick;
     if (tick != null) {
       _pauseHooked = () => _kp?.pause();
       tick.addListener(_pauseHooked!);
     } else {
       _pauseHooked = null;
     }
+    if (rtick != null) {
+      _resumeHooked = () => _kp?.play();
+      rtick.addListener(_resumeHooked!);
+    } else {
+      _resumeHooked = null;
+    }
   }
 
   ValueNotifier<int>? _pauseHookedTick;
+  ValueNotifier<int>? _resumeHookedTick;
 
   @override
   void didUpdateWidget(covariant PlayerWidget oldWidget) {
@@ -960,6 +1022,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   @override
   void dispose() {
     _pauseHookedTick?.removeListener(_pauseHooked!);
+    _resumeHookedTick?.removeListener(_resumeHooked!); // ★ ⑦：对称地摘掉 resume 监听 ✅
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     _autoRetryTimer?.cancel();
@@ -1436,29 +1499,61 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (_controlsVisible) _scheduleHide();
   }
 
+  /// ★ 2026-10-08（用户拍板 ✅）：**"先按住、别藏"** —— 取消自动隐藏计时器并让控件可见，
+  ///   **但不再重新起那 3 秒** ☑️（详情页被压到栈下面时用它 ✅ —— 那时看不见播放器，可 3 秒计时器
+  ///   照样在跑 ✗ ⇒ 等回到详情页控件早藏没了 ✗ 用户以为"控件消失了"✗）。
+  ///   ⚠️ 本方法**不参与任何手势** ✅：单击/双击/拖拽/长按与 [_toggleControls] 一个字不动 ✅。
+  void holdControls() {
+    _hideTimer?.cancel();
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+  }
+
+  /// ★ 2026-10-08（用户拍板 ✅）：**"显示 + 重新起 3 秒"** —— 回到栈顶（用户又看得见它了）时用 ✅。
+  ///   与 [holdControls] **语义分开** ☑️：那个 = 按住不藏（不计时 ✗）；这个 = 显示并恢复老的自动隐藏 ✓。
+  void showControls() {
+    _hideTimer?.cancel();
+    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    _scheduleHide();
+  }
+
   void _openFullscreen({required bool vertical}) {
     final kp = _kp;
     if (kp == null) return;
-    // 进出全屏用快速淡入淡出：默认系统侧滑转场对全屏视频违和（用户实报"过渡难看"）
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 180),
-        reverseTransitionDuration: const Duration(milliseconds: 180),
-        pageBuilder: (_, __, ___) => FullscreenPlayer(
-          player: kp,
-          vertical: vertical,
-          switcher: widget.switcher,
-        ),
-        transitionsBuilder: (_, anim, __, child) => FadeTransition(
-          opacity: CurvedAnimation(
-            parent: anim,
-            curve: Curves.easeOut,
-            reverseCurve: Curves.easeIn,
+    // ★ 2026-10-08（用户拍板 ⑦ 配套 ✅）：**进全屏不算"跳走"** —— 全屏页也是 push 上去的路由 ☑️
+    //   ⇒ 详情页必然会收到 `didPushNext`，得让它区分得出"这次是全屏"（要继续播 ✅、继续写记录 ✅），
+    //   否则它会暂停 + 停写播放记录 ✗（与 ①"在播时进全屏不断播"正面冲突 ✗）。
+    //   ⚠️ 置位点 = 这里（push **之前** ✅）；复位点**两条都要有**（绝不留"永远为 true" ☠ ——
+    //   那会让以后**所有**跳走都不停 ✗，是最糟的回归）：
+    //     ① 路由 future 完成 ⇒ `whenComplete`（正常退出：返回手势/返回键/播完自动退 ✅；future 带错 ✅）
+    //     ② `push` **同步抛**（极少见 ☑️ 例如 navigator 被锁）⇒ catch 里立刻复位 ✅ 再原样上抛 ✅。
+    kp.fullscreenOpen = true;
+    Future<dynamic>? fut;
+    try {
+      // 进出全屏用快速淡入淡出：默认系统侧滑转场对全屏视频违和（用户实报"过渡难看"）
+      fut = Navigator.of(context).push(
+        PageRouteBuilder(
+          transitionDuration: const Duration(milliseconds: 180),
+          reverseTransitionDuration: const Duration(milliseconds: 180),
+          pageBuilder: (_, __, ___) => FullscreenPlayer(
+            player: kp,
+            vertical: vertical,
+            switcher: widget.switcher,
           ),
-          child: child,
+          transitionsBuilder: (_, anim, __, child) => FadeTransition(
+            opacity: CurvedAnimation(
+              parent: anim,
+              curve: Curves.easeOut,
+              reverseCurve: Curves.easeIn,
+            ),
+            child: child,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      kp.fullscreenOpen = false; // ☠ 第二条复位路径（否则标记会永远挂着）
+      rethrow;
+    }
+    fut?.whenComplete(() => kp.fullscreenOpen = false);
   }
 
   @override
@@ -1879,7 +1974,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   void initState() {
     super.initState();
     bvPrime(); // 预读系统亮度/音量做缓存
-    widget.player.play();
+    // ★ 2026-10-08（用户拍板 ① + ② ✅）：**跟随进入前的状态** ——
+    //   在播 ⇒ 继续播（不断播 ✅）；进入前是暂停 ⇒ `autoResume()` 内部直接 return ⇒ **保持暂停** ☑️。
+    //   原来是**无条件** `play()` ✗ ⇒ 暂停着进全屏也被拉起来 ✗（而且它还会清掉 `_userPaused` ✗）。
+    widget.player.autoResume();
     widget.player.addListener(_onTick);
     if (widget.vertical) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -1918,12 +2016,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     disposeBv();
-    // 退出全屏把窗口亮度还原（否则系统亮度被这次播放改掉了）
-    () async {
-      try {
-        await ScreenBrightness().resetScreenBrightness();
-      } catch (_) {}
-    }();
+    // ★ 2026-10-08（用户拍板 ③ ✅）：原来这里有一句 `ScreenBrightness().resetScreenBrightness()` ✗ ——
+    //   **删掉** ☑️。用户明确：**App 内不还原**（全屏里调好的亮度要留着 ✅ —— 详情页与全屏现在是
+    //   同一份值 ✅，退出全屏再一滑不会跳回旧值 ✅）；**退出 App 的还原交给系统** ✅（不是我们的活 ✗）。
     disposeSwipe();
     widget.player.removeListener(_onTick);
     _routeAnim?.removeStatusListener(_onRouteAnimStatus);

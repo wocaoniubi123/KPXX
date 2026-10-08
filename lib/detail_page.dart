@@ -5,6 +5,7 @@ import 'api.dart';
 import 'app_background.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
+import 'main.dart' show kNavObserver; // ★ ⑦：全局路由观察者（订阅"被压栈 / 回到栈顶" ✅）
 import 'models.dart';
 import 'player_widget.dart';
 import 'settings.dart';
@@ -40,13 +41,33 @@ class DetailPage extends StatefulWidget {
   State<DetailPage> createState() => DetailPageState();
 }
 
-class DetailPageState extends State<DetailPage> {
+/// ⚠️ 这里用 **`implements RouteAware`**（不用 `with RouteAware`）—— 本机没有 Flutter SDK、编译只能交 CI ✅，
+///   所以取**不依赖**"`RouteAware` 在该版 Flutter 里是不是 `mixin class`"的写法 ☑️（零编译风险 ✅）；
+///   代价 = 四个方法都得自己写（其中 `didPush`/`didPop` 是空的 ✅ 本页不需要动作 ✅）。
+class DetailPageState extends State<DetailPage> implements RouteAware {
   late final Api _api = Api(site: widget.site);
   ArticleDetail? _detail;
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
   /// 篇内视频切换（多视频文章；详情页/内嵌播放器/全屏页共用同一份）
   VideoSwitcher? _switcher;
+
+  // ---------------------------------------------------------------------------
+  // ★ 2026-10-08（用户拍板 ④ + ⑦ ✅）：**"跳走停、返回续播" + "只有当前显示的那一页写记录"**
+  //
+  // 实现收口在 RouteAware（`kNavObserver` ✅）—— 这样**任何** push（剧照 ✓ 相关推荐 ✓ 标签页 ✓
+  // Web 页 ✓ 「猜你喜欢」格子卡 ✓ 以及以后新增的任何入口 ✓）都自动走同一套，
+  // 比"每个跳转点手写一遍"更全 ✅（格子卡那种"导航在别处（`ArticleCard`）内部发起的"也兜得住 ✅）。
+
+  /// 本页是不是被别的路由**压到了栈下面**（= 不再是"当前显示的那一页"）
+  bool _pushedAway = false;
+
+  /// ★ ⑦ 红线：**只续"我们自己停的"** ✅ —— 跳走那一刻"本来在播"才记 true；
+  ///   用户**手动暂停**过再跳走 ⇒ 恒为 false ⇒ 回来**必须仍然暂停** ✅。
+  bool _pausedByPush = false;
+
+  /// 订阅用的那条路由（`didChangeDependencies` 里对一遍；`dispose` 里退订 ✅）
+  PageRoute<dynamic>? _subscribedRoute;
 
   /// 内嵌播放器的 key：离开页面时要直接从它身上取最后位置（补写播放记录）
   final GlobalKey<PlayerWidgetState> _playerKey =
@@ -111,6 +132,70 @@ class DetailPageState extends State<DetailPage> {
   }
 
   // ---------------------------------------------------------------------------
+  // ★ ⑦：RouteAware —— "跳走停、返回续播"（本页被压栈 / 回到栈顶两条回调）
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final pr = route is PageRoute<dynamic> ? route : null;
+    if (identical(pr, _subscribedRoute)) return;
+    if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
+    _subscribedRoute = pr;
+    if (pr != null) kNavObserver.subscribe(this, pr);
+  }
+
+  /// ★ ⑦：`RouteAware` 的另外两个回调**本页用不到** ⇒ 空实现 ✅
+  ///   （`didPush` = 本页自己被 push 上去 ☑️ 那时还没有内容；`didPop` = 本页自己被弹出 ⇒
+  ///   收尾统一在 [dispose] 里做 ✅，不在这里做第二遍 ✗）。
+  @override
+  void didPush() {}
+
+  @override
+  void didPop() {}
+
+  /// ★ ⑦（用户拍板 ✅）：本页被**另一个页面**压到栈下面 ⇒ **暂停播放 + 停写播放记录** ✅。
+  ///   ⚠️ **进全屏不算"跳走"**（全屏页也是 push 上去的路由 ☑️）：那种情况必须继续播 ✅、继续写 ✅
+  ///   —— 判据 = 播放器上那个 `fullscreenOpen` 标记（`_openFullscreen` 在 push **之前**置位 ✅）。
+  ///   ⚠️ 暂停走 `switcher.pause()`（= 原来那几处用的同一套 ✓），**不是**直接动播放器 ✓。
+  @override
+  void didPushNext() {
+    final kp = _playerKey.currentState?.player;
+    if (kp?.fullscreenOpen ?? false) return; // 进全屏 ⇒ 不是"跳走" ✅（不暂停、不停写）
+    _pushedAway = true; // ★ ④：被压栈期间**一律不写**播放记录 ✅（防"进度回弹" ✗）
+    final playing = kp?.value.playing ?? false;
+    if (playing) {
+      _pausedByPush = true; // ★ ⑦ 红线：只有"本来在播"才记这一笔 ✅
+      _switcher?.pause();
+    }
+    // ★ 用户拍板（新）：**被压栈期间让控件"先按住、别藏"** —— 播放器那个 3 秒自动隐藏计时器
+    //   压到栈下面照样在跑 ✗ ⇒ 回来时控件已经藏掉（表现为"控件消失了" ✗）；
+    //   这里按住，回到栈顶再由 [didPopNext] "显示 + 重新起 3 秒" ✅。
+    _playerKey.currentState?.holdControls();
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DETAIL] 被压栈 停写=是 暂停=${playing ? '是' : '否（用户暂停过/没在播）'}');
+    }
+  }
+
+  /// ★ ⑦：回到栈顶 ⇒ **恢复写** ✅（把 `_pushedAway` 解掉），并且**只续"我们自己停的那一次"** ✅
+  ///   （用户手动暂停过 ⇒ 跳走时 `playing == false` ⇒ `_pausedByPush` 仍是 false ⇒ 这里什么都不做 ✅）。
+  @override
+  void didPopNext() {
+    _pushedAway = false;
+    // ★ 用户拍板（新）：回到栈顶 ⇒ **控件必须显示** ✅（并按老规矩重新起 3 秒自动隐藏 ✓）。
+    //   ⚠️ 必须放在下面那句 `if (!_pausedByPush) return;` **之前** ☠ —— 否则"用户自己暂停过再跳走"
+    //   那条路会连控件都不显示 ✗（两件事互不影响：显示控件 ≠ 续播 ✅）。
+    _playerKey.currentState?.showControls();
+    if (!_pausedByPush) return;
+    _pausedByPush = false;
+    // ⚠️ 等退场动画走完再续播（≈ `await push` 那套的时机 ✅）：否则会跟被弹出页最后那点声音叠一下 ☑️
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _switcher?.resume(); // 播放器那侧监听到 ⇒ 调 `play()`（用户意图 ✅）
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // 播放记录：详情页是唯一的归档点（播放器只管每 10 秒回调一次 + 离开时给最后位置）
 
   /// 最后一次上报的进度（离开页面时补写用）
@@ -172,6 +257,11 @@ class DetailPageState extends State<DetailPage> {
     required bool finished,
     bool force = false, // true = 绕过节流立刻落盘 ✓（跳进度时用）
   }) {
+    // ★ 2026-10-08（用户拍板 ④ ✅）：**只有"当前显示的那一页"写** —— 被别的页压栈期间**一律不写** ✅
+    //   （原来被压栈的页照样每 10 秒写一次 ⇒ 把前台那页的进度**顶回去** ⇒ 表现就是"进度回弹" ✗）。
+    //   ⚠️ 进全屏**不算被压栈**（同一个播放器、同一个位置 ⇒ 不可能回弹 ✅；而且全屏看几十分钟
+    //   也要照常落盘 ✅ —— 否则 App 被杀就丢进度 ✗）；判据就是 `_pushedAway` 怎么置的（见 [didPushNext] ✅）。
+    if (_pushedAway) return;
     final d = _detail;
     if (d == null || d.videos.isEmpty) return; // 纯图文页不记
     // 站点名要和 kSites 里的对得上（记录列表点回来时要靠它反查 SiteEntry）；
@@ -245,7 +335,8 @@ class DetailPageState extends State<DetailPage> {
   /// 原生 AVPlayer 在个别片源上跳转会卡死，这里是另一个引擎的出口。
   void _openInWeb() {
     if (widget.site.hosts.isEmpty) return;
-    _switcher?.pause(); // 跳走前先停一下，别两边同时出声
+    // ★ ⑦（用户拍板 ✅）：**不再在这里手动 pause** —— 交给 `didPushNext`（RouteAware）统一收口 ✅。
+    //   ⚠️ 先手动停会让 `didPushNext` 读到"本来没在播" ⇒ 记不上 `_pausedByPush` ⇒ 回来**不会**续播 ✗。
     Navigator.of(context).push(
       MaterialPageRoute(
         settings: const RouteSettings(name: 'Web 页'),
@@ -356,6 +447,8 @@ class DetailPageState extends State<DetailPage> {
 
   @override
   void dispose() {
+    // ★ ⑦：退订（不退的话观察者里留着已销毁的 State ⇒ 回调打给死对象 ✗）
+    if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
     _flushProgress(); // 离开详情页：把最后位置补写进播放记录（此时播放器还活着）
     _switcher?.dispose();
     super.dispose();
@@ -735,9 +828,9 @@ class DetailPageState extends State<DetailPage> {
                             for (final a in d.related)
                               InkWell(
                                 onTap: () {
-                                  // 点相关推荐跳走：先把本页播放器停掉
-                                  // （不然本页压栈继续放 + 新页也在放 = 两个声音）
-                                  _switcher?.pause();
+                                  // ★ ⑦（用户拍板 ✅）：原来这里手动 pause ✗ —— 现在**不手动停**，
+                                  // 由 `didPushNext`（RouteAware）统一收口：暂停 ✓ 停写 ✓ 回来续播 ✓
+                                  // （手动先停会让它读到"本来没在播" ⇒ 记不上 ⇒ 回来不续播 ✗）
                                   Navigator.of(context).push(MaterialPageRoute(
                                     settings: const RouteSettings(name: '详情页'),
                                     builder: (_) => PageBg(child: DetailPage(
@@ -829,7 +922,7 @@ class DetailPageState extends State<DetailPage> {
 
   /// 点标签/分类 → 对应列表页
   void _openList(String title, String slug, bool isTag) {
-    _switcher?.pause(); // 同上：跳列表页前先把本页播放器停掉
+    // ★ ⑦（用户拍板 ✅）：同上 —— 不再手动停，交给 `didPushNext` 统一收口 ✅
     Navigator.of(context).push(
       MaterialPageRoute(
         settings: const RouteSettings(name: '标签页'),
@@ -866,6 +959,8 @@ class DetailPageState extends State<DetailPage> {
                 selected: a.url == widget.baseUrl,
                 onSelected: (_) {
                   if (a.url == widget.baseUrl) return;
+                  // ★ ⑦（用户拍板 ✅）：这一条**保留手动 pause** —— `pushReplacement` 走的是 `didReplace`，
+                  //   被替换掉的这一页**收不到** `didPushNext` ☑️，而且它马上就被销毁 ✅
                   _switcher?.pause(); // 切集同理（旧页马上会被 replace 销毁）
                   // 切集：replace 当前页，避免栈无限加深
                   Navigator.of(context).pushReplacement(

@@ -204,6 +204,10 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
 
   Future<void> _open(int i) async {
     if (i < 0 || i >= _items.length) return;
+    // ★ 2026-10-08（用户拍板 ⑥ ✅）：**"最新请求赢"** —— 记下这次要开的是第几条 ✅；
+    //   下面**每个 await 回来之后**都比一次 `_cur`（用户在等的时候又划走了 ⇒ 这次请求作废 ✅）。
+    //   `onPageChanged` 是**先** `_cur = i` **再** `_open(i)`（见本文件 `onPageChanged` 那段 ✅）⇒ 比对是准的 ✅。
+    final want = i;
     // 这条对着「划到某条一直转圈 / 起播失败」看：打开的是第几条（下标 i + 1）+ 列表里一共几条
     if (AppSettings.i.logConsole) debugPrint('[SHORT] 打开 第 ${i + 1}/${_items.length} 条');
     // ⚠️ 2026-10-05：换条 / 重试时**先把上一条留下的错误态撤掉** ✓（否则新条还在取源、屏上却挂着
@@ -214,6 +218,7 @@ class _ShortsFeedPageState extends State<ShortsFeedPage> {
     final srcs = await _sourcesOf(i)
         .timeout(const Duration(seconds: 20), onTimeout: () => const <String>[]);
     if (!mounted) return;
+    if (want != _cur) return; // ★ ⑥ 取源期间用户又划走了 ⇒ 这次作废 ✅（别再去 open 旧条 ✗）
     if (srcs.isEmpty) {
       // 这条对着「屏上一直转圈 / 只有一行错误提示」看：哪一条取不到源（20 秒超时和"站点返回空表"落在同一支 ⇒ 一起记 ✓）
       if (AppSettings.i.logConsole) debugPrint('[SHORT] 取不到源 第 ${i + 1}/${_items.length} 条（20s 超时或空表 ⇒ 同一支 ✓）');

@@ -62,19 +62,31 @@ void main() {
 ///   走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓；
 ///   ⚠️ **守卫写在前**（`if (AppSettings.i.logConsole)`）⇒ 关了时**连字符串都不拼** ⇒ 真正零开销 ✓；
 ///   ⚠️ 页面**名字**为空 ⇒ `runtimeType` 兜底 ✓（**不硬编名字表** ✗）。
-class _NavLog extends NavigatorObserver {
+/// ★ 2026-10-08（用户拍板 ⑦ ✅）：本类**同时**充当全局的 `RouteObserver<PageRoute>` ——
+///   详情页 `subscribe` 它，就能在"被压栈（`didPushNext`）/ 回到栈顶（`didPopNext`）"时
+///   暂停 / 续播 + 停写 / 恢复写播放记录 ✅（`[NAV]` 轨迹照旧，一个字不动 ✅）。
+///   ⚠️ 两条 `didPush` / `didPop` 覆写里**必须 `super.…`** ☠ —— 订阅者的回调正是靠基类那两个方法发的
+///   （漏了 ⇒ 详情页**永远收不到** didPushNext/didPopNext ✗，而且看不出任何报错 ☠）。
+class _NavLog extends RouteObserver<PageRoute<dynamic>> {
   _NavLog(); // ★ CI error 2 修：`NavigatorObserver` 的构造器**不是 const** ⇒ 这里不能是 const ✗
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute); // ★ ⑦：转发给 RouteObserver（didPushNext 靠它 ✅）
     if (AppSettings.i.logConsole) debugPrint('[NAV] → ${route.settings.name ?? route.runtimeType}');
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute); // ★ ⑦：同上（didPopNext 靠它 ✅）
     if (AppSettings.i.logConsole) debugPrint('[NAV] ← ${route.settings.name ?? route.runtimeType}');
   }
 }
+
+/// ★ ⑦：全局**唯一**那一份（`MaterialApp.navigatorObservers` 用它 ✅）——
+///   ⚠️ 详情页订阅的**必须是同一个实例** ☠（各 new 一份 ⇒ 收不到任何回调 ✗）。
+///   ☑️ 类型写成 `RouteObserver<PageRoute<dynamic>>`（不写成私有的 `_NavLog`）⇒ 公开 API 里不出现库私有类型 ✅。
+final RouteObserver<PageRoute<dynamic>> kNavObserver = _NavLog();
 
 class KpxxApp extends StatelessWidget {
   const KpxxApp({super.key});
@@ -84,7 +96,8 @@ class KpxxApp extends StatelessWidget {
     return MaterialApp(
       title: 'KPXX',
       // ★ 2026-10-05（用户要求 ✓）：**导航轨迹** —— 走 `debugPrint` ⇒ **受"控制台日志"开关控制** ✓
-      navigatorObservers: [_NavLog()], // ★ CI error 2 修：去掉 `const`（const 列表要求 const 构造器 ✗）
+      // ★ 2026-10-08（用户拍板 ⑦ ✅）：同一个实例同时是全局 `RouteObserver`（详情页订阅它 ✓）
+      navigatorObservers: [kNavObserver], // ★ CI error 2 修：去掉 `const`（const 列表要求 const 构造器 ✗）
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
