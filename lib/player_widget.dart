@@ -31,6 +31,14 @@ String _fmt(Duration d) {
   return '$m:$s';
 }
 
+/// ★ 2026-10-08（本批修 ✓ · 用户实报「控件像假的」）：**控件/状态变了就主动踢一帧** ——
+///   真机实锤（1.2.8 日志）：单击切换的状态翻转了、3 秒隐藏也执行了，但**屏幕纹丝不动**，
+///   直到滚动/转场带来一帧才"追认" ☠ ⇒ 特征 = setState 排了队却没有帧来消化（帧调度停摆）✓。
+///   ⇒ 官方 API `ensureVisualUpdate()`：幂等 ✓ 极轻 ✓ 确保有一帧会来 ✓（这个不进日志开关——它是功能修复）。
+void kickPlayerFrame() {
+  WidgetsBinding.instance.ensureVisualUpdate();
+}
+
 /// 篇内视频切换状态：详情页持有，内嵌播放器与全屏页共用同一份。
 /// 共用一份是为了避免全屏页拿到"推送那一刻"的序号快照——
 /// 那样切到最后一个后按钮状态会不对，再点就跳错集 ✗（切到最后一个后按钮状态会不对 ✓）
@@ -528,6 +536,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     // ★【常驻诊断】主动置位也要留痕（"置了没生效/被谁改回去"就看这一对日志 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 主动置位 playing：${value.playing} → $v');
     value = value.copyWith(playing: v);
+    kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"图标锁死" ✓）
   }
 
   Future<void> play() {
@@ -1672,11 +1681,13 @@ class PlayerWidgetState extends State<PlayerWidget>
       // ★【常驻诊断】原因=3 秒计时到
       if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)');
       if (mounted) setState(() => _controlsVisible = false);
+      kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
     });
   }
 
   void _toggleControls() {
     setState(() => _controlsVisible = !_controlsVisible);
+    kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
     // ★【常驻诊断】原因=单击切换（切换后的可见性一并打出来 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件${_controlsVisible ? '显示' : '隐藏'} 原因=单击切换(内嵌) 切换后可见=$_controlsVisible');
     if (_controlsVisible) _scheduleHide();
@@ -1691,6 +1702,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件显示+按住 原因=holdControls(内嵌) 原可见=$_controlsVisible');
     _hideTimer?.cancel();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
+    kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
   }
 
   /// ★ 2026-10-08（用户拍板 ✅）：**"显示 + 重新起 3 秒"** —— 回到栈顶（用户又看得见它了）时用 ✅。
@@ -1700,6 +1712,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件显示+重起3秒 原因=showControls(内嵌) 原可见=$_controlsVisible');
     _hideTimer?.cancel();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
+    kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
     _scheduleHide();
   }
 
@@ -2347,11 +2360,13 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
       // ★【常驻诊断】原因=3 秒计时到（全屏）
       if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件隐藏 原因=3 秒计时到(全屏)');
       if (mounted) setState(() => _controls = false);
+      kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
     });
   }
 
   void _toggleControls() {
     setState(() => _controls = !_controls);
+    kickPlayerFrame(); // ★ 状态变了 ⇒ 踢一帧（防"假死" ✓）
     // ★【常驻诊断】原因=单击切换（全屏）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件${_controls ? '显示' : '隐藏'} 原因=单击切换(全屏) 切换后可见=$_controls');
     if (_controls) _scheduleHide();

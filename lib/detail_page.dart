@@ -232,6 +232,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       // ★【常驻诊断】排期到点：这一刻才真正续播 ✓
       if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 1200ms 到 → switcher.resume()');
       _switcher?.resume(); // 播放器那侧监听到 ⇒ 调 `play()`（用户意图 ✅）
+      kickPlayerFrame(); // ★ 续播/控件/状态刚全变 ⇒ 确保有一帧画出来（防"假死" ✓）
     });
   }
 
