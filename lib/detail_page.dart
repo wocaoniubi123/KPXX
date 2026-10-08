@@ -128,6 +128,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   @override
   void initState() {
     super.initState();
+    // ★【常驻诊断】本页 State 建立（"返回后播放器假死/黑屏"先看这条：同一条 url 出现两次 = 页面被重建过 ✓）
+    if (AppSettings.i.logConsole) {
+      final pInit = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      debugPrint('[DETAIL] initState path=${pInit.length <= 80 ? pInit : pInit.substring(0, 80)} 初始集=${widget.initialVideoIndex} 位置=${widget.initialPosition?.inMilliseconds ?? 0}ms');
+    }
     _load();
   }
 
@@ -139,7 +144,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     final pr = route is PageRoute<dynamic> ? route : null;
+    // ★【常驻诊断】重复订阅判据（"同一条 route 又订一次 / 没订上"看这条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didChangeDependencies route=${route?.runtimeType} 可订=${pr != null} 与上次同条=${identical(pr, _subscribedRoute)} 已有订阅=${_subscribedRoute != null}');
     if (identical(pr, _subscribedRoute)) return;
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] RouteAware 同步订阅 pr=${pr?.runtimeType} 先退旧订阅=${_subscribedRoute != null}');
     if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
     _subscribedRoute = pr;
     if (pr != null) kNavObserver.subscribe(this, pr);
@@ -149,10 +157,16 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   ///   （`didPush` = 本页自己被 push 上去 ☑️ 那时还没有内容；`didPop` = 本页自己被弹出 ⇒
   ///   收尾统一在 [dispose] 里做 ✅，不在这里做第二遍 ✗）。
   @override
-  void didPush() {}
+  void didPush() {
+    // ★【常驻诊断】本页自己被推入（RouteAware 回调，与 main.dart 的 [NAV] 配对看 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPush（本页被推入）pushedAway=$_pushedAway pausedByPush=$_pausedByPush');
+  }
 
   @override
-  void didPop() {}
+  void didPop() {
+    // ★【常驻诊断】本页被弹出（= 用户在详情页按返回）那一刻的三个值 ✓
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPop（本页被弹出=返回）pushedAway=$_pushedAway pausedByPush=$_pausedByPush fullscreen=${_playerKey.currentState?.player?.fullscreenOpen ?? false}');
+  }
 
   /// ★ ⑦（用户拍板 ✅）：本页被**另一个页面**压到栈下面 ⇒ **暂停播放 + 停写播放记录** ✅。
   ///   ⚠️ **进全屏不算"跳走"**（全屏页也是 push 上去的路由 ☑️）：那种情况必须继续播 ✅、继续写 ✅
@@ -161,6 +175,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   @override
   void didPushNext() {
     final kp = _playerKey.currentState?.player;
+    // ★【常驻诊断】被压栈这一刻的现场（用户报的"点推荐视频返回后假死"全靠这条定时刻 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPushNext 进入 pushedAway=$_pushedAway pausedByPush=$_pausedByPush fullscreen=${kp?.fullscreenOpen ?? false} userPaused=${kp?.userPaused ?? false} 引擎playing=${kp?.value.playing ?? false} completed=${kp?.value.completed ?? false} pos=${kp?.value.position.inMilliseconds ?? 0}ms');
     if (kp?.fullscreenOpen ?? false) return; // 进全屏 ⇒ 不是"跳走" ✅（不暂停、不停写）
     _pushedAway = true; // ★ ④：被压栈期间**一律不写**播放记录 ✅（防"进度回弹" ✗）
     // ★ 2026-10-08 修（用户报"点推荐视频跳转、返回原详情页不续播"✗ · **已核实的根因**）：
@@ -173,6 +189,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     //   ⚠️ 保留一条 `!completed`：**已经播完**的那次（从没被用户暂停过 ✓）不该被当成"待续播" ✓
     //   —— 与旧判据在这一点上的行为**保持一致** ✓。
     final wantPlay = kp != null && !kp.userPaused && !kp.value.completed;
+    // ★【常驻诊断】续播判定（true ⇒ 记一笔"我们自己停的" + switcher.pause() ⇒ 回来才续播 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPushNext 判定 wantPlay=$wantPlay（判据=非用户暂停 且 未播完）');
     if (wantPlay) {
       _pausedByPush = true; // ★ ⑦ 红线：只有"本来在播"才记这一笔 ✅
       _switcher?.pause();
@@ -181,22 +199,32 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     //   压到栈下面照样在跑 ✗ ⇒ 回来时控件已经藏掉（表现为"控件消失了" ✗）；
     //   这里按住，回到栈顶再由 [didPopNext] "显示 + 重新起 3 秒" ✅。
     _playerKey.currentState?.holdControls();
+    // ★【常驻诊断】收尾：控件已被按住（不被 3 秒计时器藏掉）+ 记下的三个值 ✓
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPushNext 收尾 pausedByPush=$_pausedByPush pushedAway=$_pushedAway → holdControls()');
   }
 
   /// ★ ⑦：回到栈顶 ⇒ **恢复写** ✅（把 `_pushedAway` 解掉），并且**只续"我们自己停的那一次"** ✅
   ///   （用户手动暂停过 ⇒ 跳走时 `userPaused == true` ⇒ `_pausedByPush` 仍是 false ⇒ 这里什么都不做 ✅）。
   @override
   void didPopNext() {
+    // ★【常驻诊断】回到栈顶这一刻的现场（与上面 didPushNext 那条配对看 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 进入 pushedAway=$_pushedAway pausedByPush=$_pausedByPush fullscreen=${_playerKey.currentState?.player?.fullscreenOpen ?? false} userPaused=${_playerKey.currentState?.player?.userPaused ?? false}');
     _pushedAway = false;
     // ★ 用户拍板（新）：回到栈顶 ⇒ **控件必须显示** ✅（并按老规矩重新起 3 秒自动隐藏 ✓）。
     //   ⚠️ 必须放在下面那句 `if (!_pausedByPush) return;` **之前** ☠ —— 否则"用户自己暂停过再跳走"
     //   那条路会连控件都不显示 ✗（两件事互不影响：显示控件 ≠ 续播 ✅）。
     _playerKey.currentState?.showControls();
+    // ★【常驻诊断】控件已恢复显示（在续播判定之前 ✓ 两件事互不影响 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 已 showControls() → 续播判定 pausedByPush=$_pausedByPush');
     if (!_pausedByPush) return;
     _pausedByPush = false;
+    // ★【常驻诊断】续播排期（300ms 等退场动画 ✓ 这一段里播放器是暂停着的 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 排 300ms 后 switcher.resume()（等退场动画走完）');
     // ⚠️ 等退场动画走完再续播（≈ `await push` 那套的时机 ✅）：否则会跟被弹出页最后那点声音叠一下 ☑️
     Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
+      // ★【常驻诊断】排期到点：这一刻才真正续播 ✓
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 300ms 到 → switcher.resume()');
       _switcher?.resume(); // 播放器那侧监听到 ⇒ 调 `play()`（用户意图 ✅）
     });
   }
@@ -297,6 +325,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   }
 
   Future<void> _load() async {
+    // ★【常驻诊断】载入开始（"重试"按钮也走这里 ✓ 与下面"载入 …"那条配对算耗时 ✓）
+    if (AppSettings.i.logConsole) {
+      final pLoad = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      debugPrint('[DETAIL] 载入开始 path=${pLoad.length <= 80 ? pLoad : pLoad.substring(0, 80)}');
+    }
     setState(() {
       _detail = null;
       _error = null;
@@ -333,6 +366,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         }).catchError((_) {});
       }
     } catch (e) {
+      // ★【常驻诊断】载入失败（"详情页一直转圈/空页"看这条 ✓ 截 160 字防超长 ✓）
+      if (AppSettings.i.logConsole) {
+        final es = '$e';
+        debugPrint('[DETAIL] 载入失败 ${es.length <= 160 ? es : es.substring(0, 160)}');
+      }
       if (mounted) setState(() => _error = '$e');
     }
   }
@@ -340,6 +378,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   /// 用站点自己的网页播放器打开本篇（应用内 WebView）。
   /// 原生 AVPlayer 在个别片源上跳转会卡死，这里是另一个引擎的出口。
   void _openInWeb() {
+    // ★【常驻诊断】点顶栏"用网页播放器打开"（hosts 为空 ⇒ 点了没反应，这里也能看出来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点网页播放器 hosts=${widget.site.hosts.length} → ${widget.site.hosts.isEmpty ? '空，直接返回（无跳转）' : 'push Web 页'}');
     if (widget.site.hosts.isEmpty) return;
     // ★ ⑦（用户拍板 ✅）：**不再在这里手动 pause** —— 交给 `didPushNext`（RouteAware）统一收口 ✅。
     //   ⚠️ 先手动停会让 `didPushNext` 读到"本来没在播" ⇒ 记不上 `_pausedByPush` ⇒ 回来**不会**续播 ✗。
@@ -356,6 +396,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
 
   /// 视频地址带 auth_key 时效签名，过期后重抓本页拿新地址（播放器失败时会调）
   Future<List<String>> _refreshSources() async {
+    // ★【常驻诊断】刷新源被触发（播放器"第二轮兜底"或"中途卡住恢复"都会调它 ✓）
+    if (AppSettings.i.logConsole) {
+      final pRef = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      debugPrint('[DETAIL] 刷新源开始 path=${pRef.length <= 80 ? pRef : pRef.substring(0, 80)}');
+    }
     final stopwatch = Stopwatch()..start(); // 只给下面那条日志计时 ✓
     final fresh = await _api.detail(widget.baseUrl);
     // 这条对着「播着播着断了、重抓本页也救不回」看：path（截 80）+ 重抓回几集 + 首条几条源 + 耗时（首条源 0=这次没救回 ✓）
@@ -398,6 +443,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
               OutlinedButton(
                 // 已选中的那颗点自己不做任何事（免得无谓重开一次）
                 onPressed: () {
+                  // ★【常驻诊断】点了哪一档（"已选中 ⇒ 什么都不做"那条路原来完全看不见 ✓）
+                  if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点清晰度 ${q}P 当前=${active}P ${q == active ? '→ 已选中，不动作' : '→ 换档'}');
                   if (q == active) return;
                   _pickQuality(q, srcs);
                 },
@@ -428,6 +475,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     final Duration? pos = (kp == null)
         ? null
         : (kp.lastKnownPosition > Duration.zero ? kp.lastKnownPosition : kp.position);
+    // ★【常驻诊断】换档：目标档 + 带着走的进度（"换分辨率后从头播"看这条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 换清晰度 ${_quality ?? '(站点默认)'} → ${q}P 源=${srcs.length}条 续播位置=${pos?.inMilliseconds ?? 0}ms');
     setState(() => _quality = q);
     _flushProgress(); // ⚠️ 选完清晰度**立刻落盘** ✓（把 quality 一起写进记录 ✓，下次这条视频就按它播 ✓）
     st?.switchSources(_orderByQuality(srcs, q), resumeTo: pos);
@@ -453,6 +502,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
 
   @override
   void dispose() {
+    // ★【常驻诊断】页面销毁这一刻的现场（配 didPop/didPopNext 看"返回后假死" ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] dispose pushedAway=$_pushedAway pausedByPush=$_pausedByPush 播放器State=${_playerKey.currentState != null} fullscreen=${_playerKey.currentState?.player?.fullscreenOpen ?? false}');
     // ★ ⑦：退订（不退的话观察者里留着已销毁的 State ⇒ 回调打给死对象 ✗）
     if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
     _flushProgress(); // 离开详情页：把最后位置补写进播放记录（此时播放器还活着）
@@ -569,7 +620,24 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                           onProgress: _reportProgress,
                         ),
                     Expanded(
-                      child: ListView(
+                      // ★【常驻诊断·滚动】只包一层 NotificationListener：**不拦截通知**（onNotification 一律 return false ✓）
+                      //   滚动行为一字不动 ✓；下面这一棵 ListView 本身没动 ✓
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (n) {
+                          // ★ 只记三个节点：开始 / 结束 / （结束时的）是否已滚过"播放器那一屏高"
+                          //   ⚠️ ScrollUpdateNotification 每帧都来 ⇒ **绝不打**（防刷屏 ✓）
+                          if (AppSettings.i.logConsole) {
+                            if (n is ScrollStartNotification) {
+                              debugPrint('[DETAIL] 滚动开始 offset=${n.metrics.pixels.toStringAsFixed(1)} 视口高=${n.metrics.viewportDimension.toStringAsFixed(1)} 最远=${n.metrics.maxScrollExtent.toStringAsFixed(1)}');
+                            } else if (n is ScrollEndNotification) {
+                              final vpW = MediaQuery.sizeOf(context).width;
+                              final playerH = vpW * 9 / 16; // 内嵌播放器高（16:9 参照值 ✓）
+                              debugPrint('[DETAIL] 滚动结束 offset=${n.metrics.pixels.toStringAsFixed(1)} maxScrollExtent=${n.metrics.maxScrollExtent.toStringAsFixed(1)} 剩余=${(n.metrics.maxScrollExtent - n.metrics.pixels).toStringAsFixed(1)} 到底=${n.metrics.pixels >= n.metrics.maxScrollExtent} 已滚过播放器高(参照${playerH.toStringAsFixed(1)}px)=${n.metrics.pixels > playerH}');
+                            }
+                          }
+                          return false; // ⚠️ 不拦截：滚动行为一字不动 ✓
+                        },
+                        child: ListView(
                           children: [
                     Padding(
                       padding: const EdgeInsets.all(12),
@@ -648,6 +716,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                                     InkWell(
                                       borderRadius: BorderRadius.circular(8),
                                       onTap: () {
+                                        // ★【常驻诊断】点选集（横排胶囊版式）
+                                        if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点选集(横排) i=$i "${v.label}" 当前=$idx 自带源=${v.sources.length}条 懒取=${v.lazyUrl != null}');
                                         _prefetchLazy(v); // 点击立即开抓
                                         _switcher?.select(i);
                                       },
@@ -680,6 +750,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                               for (final (i, v) in videos.indexed)
                                 InkWell(
                                   onTap: () {
+                                    // ★【常驻诊断】点选集（竖排版式）
+                                    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点选集(竖排) i=$i "${v.label}" 当前=$idx 自带源=${v.sources.length}条 懒取=${v.lazyUrl != null}');
                                     _prefetchLazy(v); // 点击立即开抓
                                     _switcher?.select(i);
                                   },
@@ -861,6 +933,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                             for (final a in d.related)
                               InkWell(
                                 onTap: () {
+                                  // ★【常驻诊断】点推荐视频（列表版式）：目标 url + 路由方式（"返回后假死"的入口那一下 ✓）
+                                  if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点推荐视频(列表版式) url=${a.url} → Navigator.push MaterialPageRoute(name=详情页)，不手动 pause（交给 didPushNext）');
                                   // ★ ⑦（用户拍板 ✅）：原来这里手动 pause ✗ —— 现在**不手动停**，
                                   // 由 `didPushNext`（RouteAware）统一收口：暂停 ✓ 停写 ✓ 回来续播 ✓
                                   // （手动先停会让它读到"本来没在播" ⇒ 记不上 ⇒ 回来不续播 ✗）
@@ -913,6 +987,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                               ],
                           ),
                         ),
+                      ),
                       ],
                 ),
     );
@@ -955,6 +1030,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
 
   /// 点标签/分类 → 对应列表页
   void _openList(String title, String slug, bool isTag) {
+    // ★【常驻诊断】点标签/分类：标题 + slug + 走 tag 还是 category + 路由方式 ✓
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点标签/分类 "$title" slug=$slug ${isTag ? 'tag' : 'category'} → Navigator.push MaterialPageRoute(name=标签页)');
     // ★ ⑦（用户拍板 ✅）：同上 —— 不再手动停，交给 `didPushNext` 统一收口 ✅
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -991,6 +1068,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                 ),
                 selected: a.url == widget.baseUrl,
                 onSelected: (_) {
+                  // ★【常驻诊断】点"选集"横条（同系列文章）：手动 pause + pushReplacement ✓
+                  if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点系列选集 ${a.url} → ${a.url == widget.baseUrl ? '就是本页，不动作' : 'switcher.pause() + pushReplacement(name=详情页)'}');
                   if (a.url == widget.baseUrl) return;
                   // ★ ⑦（用户拍板 ✅）：这一条**保留手动 pause** —— `pushReplacement` 走的是 `didReplace`，
                   //   被替换掉的这一页**收不到** `didPushNext` ☑️，而且它马上就被销毁 ✅

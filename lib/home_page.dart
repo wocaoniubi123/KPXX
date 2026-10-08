@@ -1109,6 +1109,13 @@ class ArticleCard extends StatelessWidget {
         onTap: () {
           // 站点 UI 事实（各站自己实现 ✓；没实现的返回 null → 走默认，行为不变 ✓）
           final ui = Api(site: site).ui;
+          // ★【常驻诊断】点了哪张卡 + 会去哪（specialTap：list / shorts / null ⇒ 一眼看出后面走哪个分支 ✓）
+          //   ⚠️ 前缀用本文件既有约定 `[LIST]`（ArticleCard 是**全站共用**卡片：首页/标签页/详情页的推荐格都用它 ✓
+          //      标 [DETAIL] 会把首页那类点击也标错 ✓）；`specialTap` 是纯匹配函数、无副作用 ✓
+          if (AppSettings.i.logConsole) {
+            final t = article.title;
+            debugPrint('[LIST] 点卡片 url=${article.url} 标题=${t.length <= 40 ? t : t.substring(0, 40)} specialTap=${ui?.specialTap(article.url) ?? '(null ⇒ 按 url 分支/详情页)'}');
+          }
           // 专题卡（/topics/xxx/）、合集卡（/moviesets/...）点开的是"下面那批视频的列表"，
           // 不是某一篇详情
           if (article.url.startsWith('/topics/') ||

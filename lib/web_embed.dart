@@ -74,6 +74,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
   ///   ⚠️ 顺序：**先释放子件 ✓ 再 `super.dispose()`** ✓（框架要求 ✓）。
   @override
   void dispose() {
+    // ★【常驻诊断】嵌入页销毁（keepAlive ⇒ 切 tab 不会走这里；全页版关页时会走 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] WebEmbed dispose ${webLoc(widget.url)}');
     _progress.dispose();
     super.dispose();
   }
@@ -98,6 +100,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
       );
     }
     // 加载开始（创建控制器 + 发起首次加载）
+    // ★【常驻诊断】实际用哪套创建参数（"内联播放没生效/被顶到系统全屏播放器"先看这条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 创建参数 走 iOS 专用=${params is WebKitWebViewControllerCreationParams} 内联播放=${params is WebKitWebViewControllerCreationParams ? '开' : '默认(关)'} 需要手势的媒体类型=${params is WebKitWebViewControllerCreationParams ? '已清空' : '默认{audio,video}'}');
     if (AppSettings.i.logConsole) debugPrint('[WEB] 加载开始 ${webLoc(widget.url)}');
     _ctl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -105,6 +109,18 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (p) {
+            // ★【常驻诊断】进度**只记关键节点**（首个进度 / 过半 / 100）——**不逐 1% 打** ✓
+            //   ⚠️ 用既有 notifier `_progress.value` 当"上一次"的记忆 ✓ 不新增字段、不改这行的赋值语义 ✓
+            if (AppSettings.i.logConsole) {
+              final prev = _progress.value * 100;
+              if (prev <= 0 && p > 0) {
+                debugPrint('[WEB] 进度起 ${p.round()}% ${webLoc(widget.url)}');
+              } else if (prev < 50 && p >= 50) {
+                debugPrint('[WEB] 进度过半 ${p.round()}% ${webLoc(widget.url)}');
+              } else if (p >= 100) {
+                debugPrint('[WEB] 进度 100% ${webLoc(widget.url)}');
+              }
+            }
             if (mounted) _progress.value = p / 100; // ★ 不再 setState ✓ 只重建进度条 ✓
           },
           onPageFinished: (_) {
@@ -118,6 +134,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
             if (e.isForMainFrame == true && mounted) {
               // 加载失败（主文档）
               if (AppSettings.i.logConsole) debugPrint('[WEB] 加载失败 ${webLoc(widget.url)}');
+              // ★【常驻诊断】失败原因（错误码 + 描述）——点"重试"之前先看这条 ✓
+              if (AppSettings.i.logConsole) debugPrint('[WEB] 失败详情 code=${e.errorCode.toString()} desc=${e.description}');
               setState(() => _error = e.description);
             }
           },
@@ -134,8 +152,15 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
     if (AppSettings.i.logConsole) debugPrint('[WEB] 注入保底JS ${webLoc(widget.url)}');
     try {
       await _ctl.runJavaScript(_guardJs);
-    } catch (_) {
+      // ★【常驻诊断】注入成功（静音 + 内联播放 + 系统全屏兜底都挂上了 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[WEB] 注入成功 ${webLoc(widget.url)}');
+    } catch (e) {
       // 页面里没有 video / JS 被拦 → 静默 ✓（绝不弹错、绝不影响浏览 ✗）
+      // ★【常驻诊断】注入失败也静默，但留痕（截 120 字 ✓）
+      if (AppSettings.i.logConsole) {
+        final es = '$e';
+        debugPrint('[WEB] 注入失败(静默) ${webLoc(widget.url)} ${es.length <= 120 ? es : es.substring(0, 120)}');
+      }
     }
   }
 
@@ -177,6 +202,8 @@ class WebEmbedState extends State<WebEmbed> with AutomaticKeepAliveClientMixin {
     //    全丢 ✗（用户报的"点重试弹回入口页" ✓）。`reload` 就是 WKWebView 的原地刷新 ✓：
     //    当前 URL / 站内位置都保留 ✓（换的是"重新加载"，不是"重新打开入口" ✓）。
     //    ⚠️ `:102` 的**初次加载**仍走 `loadRequest` + 入口地址 ✓（那里本就该用入口地址 ✓）—— 没动 ✗。
+    // ★【常驻诊断】用户点了"重试"（原地刷新：保留站内位置，不是回入口 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 点重试 ⇒ 原地 reload() ${webLoc(widget.url)}');
     _ctl.reload();
   }
 

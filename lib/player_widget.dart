@@ -219,6 +219,8 @@ class KpPlayer extends ValueNotifier<KpState> {
       // （真失败时位置不会前进 ✓ 所以不会误清 ✓）
       if (s.error &&
           (s.position - _lastPos).abs().inMilliseconds >= 500) {
+        // ★【常驻诊断】看门狗撤 error（位置又在走 = 确实在播 ✓ 只在真触发时打 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 看门狗 撤 error（位置已前进 ${(s.position - _lastPos).inMilliseconds}ms）');
         value = value.copyWith(error: false, errorText: '');
       }
       // ⚠️ 2026-10-05：卡顿期间 mpv 常把 playing 报成 false（缓冲中），原来这里 `!s.playing`
@@ -255,6 +257,8 @@ class KpPlayer extends ValueNotifier<KpState> {
           } else {
             _errHoldMs += 1000;
             if (_errHoldMs >= _kStartupErrHoldMs) {
+              // ★【常驻诊断】看门狗判"这条源不行"（首帧前偶发 error 宽限到点仍未就绪 ✓）
+              if (AppSettings.i.logConsole) debugPrint('[PLAY] 看门狗 判失败(启动期error宽限${_kStartupErrHoldMs ~/ 1000}s) userPaused=$_userPaused everStarted=$_everStarted ready=${s.ready} pos=${s.position.inMilliseconds}ms 引擎日志=${_lastFatal.isEmpty ? '(无)' : (_lastFatal.length <= 80 ? _lastFatal : _lastFatal.substring(0, 80))}');
               _startupErrPending = false;
               _errHoldMs = 0;
               value = value.copyWith(
@@ -284,6 +288,8 @@ class KpPlayer extends ValueNotifier<KpState> {
         if (s.ready) {
           _noFrameMs += 1000;
           if (_noFrameMs >= _kFirstFrameLimitMs) {
+            // ★【常驻诊断】看门狗判"首帧超时"（已 open 成功但这么久没画面 ✓）
+            if (AppSettings.i.logConsole) debugPrint('[PLAY] 看门狗 判失败(首帧超时${_kFirstFrameLimitMs ~/ 1000}s) userPaused=$_userPaused everStarted=$_everStarted ready=${s.ready} pos=${s.position.inMilliseconds}ms duration=${s.duration.inSeconds}s');
             _noFrameMs = 0;
             value = value.copyWith(
               error: true,
@@ -301,6 +307,8 @@ class KpPlayer extends ValueNotifier<KpState> {
       if ((s.position - _lastPos).abs().inMilliseconds < 500) {
         _stuckMs += 1000;
         if (_stuckMs >= _stuckLimitMs) {
+          // ★【常驻诊断】看门狗判"卡住"（位置连续不前进 ✓ 含 _userPaused / 位置 / _everStarted ✓）
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 看门狗 判卡住(${_stuckLimitMs ~/ 1000}s 未前进) userPaused=$_userPaused everStarted=$_everStarted pos=${s.position.inMilliseconds}ms lastPos=${_lastPos.inMilliseconds}ms playing=${s.playing} buffering=${s.buffering} 引擎日志=${_lastFatal.isEmpty ? '(无)' : (_lastFatal.length <= 80 ? _lastFatal : _lastFatal.substring(0, 80))}');
           _stuckMs = 0;
           value = value.copyWith(
             error: true,
@@ -591,6 +599,8 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     _dragDx = 0;
     _dragFrom = swipePlayer.value.position;
     _dragTarget = _dragFrom;
+    // ★【常驻诊断】横滑开始（只记起点 ✓ 拖动过程不逐帧打 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 横滑开始 起点=${_dragFrom.inMilliseconds}ms 时长=${swipePlayer.value.duration.inSeconds}s');
   }
 
   void swipeUpdate(DragUpdateDetails d) {
@@ -606,7 +616,10 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   void swipeEnd(DragEndDetails d) {
     if (!_dragging) return;
     _dragging = false;
+    // ★【常驻诊断】横滑结束：起点 → 目标 + 实际跳不跳（松手那一下才 seek ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 横滑结束 起=${_dragFrom.inMilliseconds}ms 目标=${_dragTarget.inMilliseconds}ms 位移=${_dragDx.toStringAsFixed(1)}px 需要跳转=${_dragTarget != _dragFrom}');
     if (_dragTarget != _dragFrom) {
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=横滑快进快退 到=${_dragTarget.inMilliseconds}ms');
       swipePlayer.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）
     }
     if (swipePreview.value == null) return;
@@ -706,6 +719,8 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     _bvStart = _bvBrightness
         ? (_bvBrightVal >= 0 ? _bvBrightVal : 0.5)
         : (_bvVolVal >= 0 ? _bvVolVal : 1.0);
+    // ★【常驻诊断】竖滑开始：左半=亮度 / 右半=音量 + 起手位置与起点数值（拖动中不逐帧打 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 竖滑开始 ${_bvBrightness ? '亮度(左半)' : '音量(右半)'} dx=${d.localPosition.dx.toStringAsFixed(1)} w=${w.toStringAsFixed(1)} 起点=${_bvStart.toStringAsFixed(2)}');
     if (_bvBrightness) {
       () async {
         try {
@@ -741,6 +756,8 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
   }
 
   void bvEnd(DragEndDetails d) {
+    // ★【常驻诊断】竖滑结束：本次调的是亮度还是音量 + 起点/终点数值（指示条 700ms 后收 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 竖滑结束 ${_bvBrightness ? '亮度(左半)' : '音量(右半)'} 起点=${_bvStart.toStringAsFixed(2)} 终点=${(_bvBrightness ? _bvBrightVal : _bvVolVal).toStringAsFixed(2)} 累计dy=${_bvDy.toStringAsFixed(1)}px');
     _bvTimer?.cancel();
     _bvTimer = Timer(const Duration(milliseconds: 700), () {
       if (mounted) setState(() => _bvShow = null);
@@ -909,6 +926,13 @@ class PlayerWidgetState extends State<PlayerWidget>
   bool _longPressing = false; // 长按快进中（按住 2 倍速）
 
   @override
+  void initState() {
+    super.initState();
+    // ★【常驻诊断】播放器 State 建立（同一条视频出现两次 = 内嵌播放器被整个重建过 ⇒ "画面假死"先看这条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] PlayerWidget.initState 挂载 源=${widget.sources.length}条 poster=${widget.poster.isEmpty ? '无' : '有'} 续播=${widget.initialPosition?.inMilliseconds ?? 0}ms switcher=${widget.switcher != null}');
+  }
+
+  @override
   KpPlayer get swipePlayer => _kp!;
 
   /// 当前播放器实例（详情页写播放记录时取位置用；未初始化时为 null）
@@ -922,6 +946,8 @@ class PlayerWidgetState extends State<PlayerWidget>
         state == AppLifecycleState.inactive) {
       final p = _kp?.value.position ?? Duration.zero;
       if (p > Duration.zero) {
+        // ★【常驻诊断】切后台/失活前补报一次进度（"最后 10 秒进度丢了"看这条 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 切后台补报进度 state=${state.name} pos=${p.inMilliseconds}ms dur=${_kp?.value.duration.inSeconds ?? 0}s 播完=${_kp?.value.completed ?? false}');
         _repPos = p;
         widget.onProgress?.call(
           p,
@@ -955,13 +981,21 @@ class PlayerWidgetState extends State<PlayerWidget>
     _pauseHookedTick = tick;
     _resumeHookedTick = rtick;
     if (tick != null) {
-      _pauseHooked = () => _kp?.pause();
+      // ★【常驻诊断】触发源=RouteAware（详情页被压栈 → switcher.pauseTick）
+      _pauseHooked = () {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=RouteAware(详情页 didPushNext → switcher.pauseTick)');
+        _kp?.pause();
+      };
       tick.addListener(_pauseHooked!);
     } else {
       _pauseHooked = null;
     }
     if (rtick != null) {
-      _resumeHooked = () => _kp?.play();
+      // ★【常驻诊断】触发源=RouteAware（详情页回到栈顶 → switcher.resumeTick）
+      _resumeHooked = () {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放 触发源=RouteAware(详情页 didPopNext → switcher.resumeTick)');
+        _kp?.play();
+      };
       rtick.addListener(_resumeHooked!);
     } else {
       _resumeHooked = null;
@@ -975,6 +1009,8 @@ class PlayerWidgetState extends State<PlayerWidget>
   void didUpdateWidget(covariant PlayerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncPauseHook();
+    // ★【常驻诊断】父级重建：switcher 序号变没变（变了才走下面"换片"那一段 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] didUpdateWidget index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex 换片=${(widget.switcher?.index.value ?? 0) != _curIndex} 源=${widget.sources.length}条 lazy=${widget.lazyUrl != null}');
     if ((widget.switcher?.index.value ?? 0) != _curIndex) {
       _curIndex = widget.switcher?.index.value ?? 0;
       // 换片（点"下一集"或自动下一集）：复用同一个播放器实例去开新源。
@@ -990,8 +1026,10 @@ class PlayerWidgetState extends State<PlayerWidget>
       _autoRetrying = false;
       // 点击就要"立刻"有反应（用户要求）：旧视频先停住，别等新源就绪；
       // 这一集要按需取源的话，"正在取视频…"提示也立即亮（不用等网络）。
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=换片(didUpdateWidget：篇内序号→$_curIndex，旧源先停住别抢声音)');
       _kp?.pause();
       _fetchingLazy = widget.lazyUrl != null && _sources.isEmpty;
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 换片 ⇒ _initPlayer() 源=${_sources.length}条 需按需取源=$_fetchingLazy');
       _initPlayer();
     }
   }
@@ -1004,6 +1042,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 既有的续播机制 `_restoreTo`）。
   void switchSources(List<String> srcs, {Duration? resumeTo}) {
     final list = srcs.where((s) => s.isNotEmpty).toList();
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] switchSources 传入=${srcs.length}条 有效=${list.length}条 ${list.isEmpty ? '⇒ 空表，直接返回（不换源）' : '⇒ 换源'}');
     if (list.isEmpty) return;
     _sources = list;
     _nextFired = false;
@@ -1018,9 +1057,11 @@ class PlayerWidgetState extends State<PlayerWidget>
       debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
       '首源host=${Uri.tryParse(srcs.isEmpty ? '' : srcs.first)?.host ?? '?'}');
     }
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=换源(switchSources：清晰度/外部换源，旧源先停住)');
     _kp?.pause(); // 换档：先把旧源停住，别和新源抢声音
     _fetchingLazy = false;
     if (resumeTo != null && resumeTo > Duration.zero) _restoreTo = resumeTo;
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 换源 ⇒ _initPlayer() 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms');
     _initPlayer();
   }
 
@@ -1028,18 +1069,23 @@ class PlayerWidgetState extends State<PlayerWidget>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _syncPauseHook(); // switcher 后到时也对一遍监听 ✓（每次依赖变化 ✓）
+    // ★【常驻诊断】依赖变化（首次那条会去建引擎 ⇒ 与 didUpdateWidget 分开看 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] didChangeDependencies 已初始化=$_init（false ⇒ 下面排微任务建引擎）switcher=${widget.switcher != null}');
     if (!_init) {
       _init = true;
       // 切后台/被杀前补报一次播放进度（不注册就收不到生命周期回调）
       WidgetsBinding.instance.addObserver(this);
       bvPrime(); // 预读系统亮度/音量做缓存
       // 微任务里再初始化：_initPlayer 结尾会 setState，不能在本元素 build 期间调用
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer');
       Future.microtask(_initPlayer);
     }
   }
 
   @override
   void dispose() {
+    // ★【常驻诊断】播放器 State 销毁（与 initState 配对 ⇒ 判断是不是被整个重建过 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] PlayerWidget.dispose kp=${_kp == null ? '(无)' : identityHashCode(_kp!).toString()} 预建kp=${_prebuiltKp == null ? '(无)' : '有'} busy=$_busy 重试额度=$_autoRetries 在途=$_initRunning');
     _pauseHookedTick?.removeListener(_pauseHooked!);
     _resumeHookedTick?.removeListener(_resumeHooked!); // ★ ⑦：对称地摘掉 resume 监听 ✅
     _hideTimer?.cancel();
@@ -1061,12 +1107,16 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// ★ 2026-10-05（用户批准 · 内存 · ②c）：**重入锁** ✅ —— 说明见 [_initRunning] ✅。
   ///   主体原样搬进 [_initPlayerOnce]（**逐字搬、只改名字** ✅ —— 不是为了套 `try` 把上百行整体缩进 ☑️）。
   Future<void> _initPlayer() async {
+    // ★【常驻诊断】初始化入口（多入口：换集/换档/重试/自动重试/恢复 都会到这里 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 起 在途=$_initRunning 源=${_sources.length}条 index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex');
     if (_initRunning) {
       // ⚠️ 2026-10-05（lead 复核时补 · 内存 ②c）：**不能直接丢弃** ☠ ——
       //   初始化要几秒（要取源，最长 6 秒），这期间用户点了别集 / 触发了重试 ⇒
       //   丢请求 = 点了像没反应 ✗。改成**记一笔、这次跑完补跑一次** ✅（最后一次请求赢 ✓、
       //   依旧不会有第二个实例并存 ✓）。
       _initPending = true;
+      // ★【常驻诊断】重入（初始化还在跑）⇒ 只记一笔、跑完补跑一次 ✓
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 重入(在途) ⇒ 记账待补跑一次');
       return;
     }
     _initRunning = true;
@@ -1074,6 +1124,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       await _initPlayerOnce();
     } finally {
       _initRunning = false;
+      // ★【常驻诊断】本次初始化收尾（补跑=true ⇒ 下面立刻再跑一次 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 结束 补跑=$_initPending');
       if (_initPending) {
         _initPending = false; // 先清再跑 ⇒ 每次挂起最多补跑一次，不会自激 ☠
         unawaited(_initPlayer());
@@ -1086,6 +1138,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     // 起播时把「当前篇内序号」对齐到 switcher：续播起点不是第 1 集时（例：第 3 集 ✓），
     // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
     _curIndex = widget.switcher?.index.value ?? 0;
+    // ★【常驻诊断】本次初始化的输入（源几条 / 是否要按需取源 / 续播目标 / 重试提示 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayerOnce 起 源=${_sources.length}条 lazy=${widget.lazyUrl != null} 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms 当前kp=${_kp == null ? '(无)' : '有'}');
     // ⚠️ 2026-10-05（用户报"提示还在"）：**重开就把"自动重试中"的提示撤掉** ✓
     //    （与 `switchSources` / `didUpdateWidget` 那两处一致 ✓）。原来这里只清 `_error` ✗
     //    → 从"排了重试 → 重开"这条路上来的时候，提示会一直挂到新播放的 position 抬起来为止 ✗。
@@ -1094,12 +1148,16 @@ class PlayerWidgetState extends State<PlayerWidget>
     // ★ 2026-10-05（用户拍板：起播优化 #1）：**引擎构造提前**到"按需取源"之前 ✓
     //   —— 构造 + 起播参数都与 URL 无关 ✓ ⇒ 与取源窗口（最长 6 秒 ✓）**重叠** ✓；
     //   ⚠️ 上屏（`_attach`）**仍在取源完成之后** ✓（时机与改前逐字一致 ✓ 不出现空壳播放器 ✓）。
+    // ★【常驻诊断】要不要现在建引擎（true ⇒ 下面新建一个"还没上屏"的 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 预建引擎 需要=${_kp == null && _prebuiltKp == null}（缓冲=${AppSettings.i.bufferMb}MB）');
     if (_kp == null && _prebuiltKp == null) {
       _prebuiltKp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
       // ⭐ 详情页/全屏都套起播参数（#5 ✓）——与短片页**同一个实现** ✓（`KpPlayer.tuneStartupQuiet` ✓）
       KpPlayer.tuneStartupQuiet(_prebuiltKp!);
     }
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
+    // ★【常驻诊断】这次要不要按需取源（true ⇒ 先亮"正在取视频…"，最长等 6 秒 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 按需取源 需要=${_sources.isEmpty && widget.lazyUrl != null && widget.onFetchSources != null}');
     if (_sources.isEmpty &&
         widget.lazyUrl != null &&
         widget.onFetchSources != null) {
@@ -1122,12 +1180,16 @@ class PlayerWidgetState extends State<PlayerWidget>
             .toList();
         if (!mounted) return;
         _sources = got;
+        // ★【常驻诊断】按需取源结果（0 条 ⇒ 下面直接报"这一集已失效" ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 按需取源 取到 ${got.length} 条');
       } catch (_) {
         // 下面统一误提示
       }
       if (!mounted) return;
       _fetchingLazy = false; // 源到手（或失败）：提示要么转播放、要么转错误
       if (_sources.isEmpty) {
+        // ★【常驻诊断】按需取源拿空（页面卡住/子文章没有视频）⇒ 报"这一集已失效" ✓
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 按需取源 0 条 ⇒ 报"这一集已失效" + 收掉预建引擎');
         setState(() {
           _busy = false;
           _error = '这一集已失效（子文章打不开或没有视频）';
@@ -1138,6 +1200,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       }
     }
     if (_sources.isEmpty) {
+      // ★【常驻诊断】压根没有源（纯图文页/站点没给源）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 没有可用源 ⇒ 报"该文章暂无视频" + 收掉预建引擎');
       setState(() => _error = '该文章暂无视频');
       _dropPrebuiltKp(); // ★ 同上 ✓
       return;
@@ -1147,6 +1211,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       _error = null;
     });
 
+    // ★【常驻诊断】已有实例就直接用；没有才拿预建引擎上屏（上屏时机=取源之后 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 交给播放器 已有实例=${_kp != null}（false ⇒ 用预建引擎 _attach 上屏）');
     var kp = _kp;
     if (kp == null) {
       kp = _prebuiltKp!; // ★ 引擎在取源前就建好了 ✓（上面那段 ✓）—— 这里只负责**上屏** ✓
@@ -1159,9 +1225,13 @@ class PlayerWidgetState extends State<PlayerWidget>
     try {
       for (var round = 0; round < 2; round++) {
         for (var i = 0; i < _sources.length; i++) {
+          // ★【常驻诊断】每条源的尝试都留痕（与 _openAndWait 的 host=/起播= 两条配对 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 试源 round=$round i=$i/共${_sources.length}条');
           final ok = await _openAndWait(kp, _sources[i]);
           if (!mounted) return;
           if (ok) {
+            // ★【常驻诊断】这条源起播成功（后面若不跳转就直接返回了 ✓）
+            if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播成功 i=$i ready=${kp.value.ready} duration=${kp.value.duration.inSeconds}s 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms');
             // 续播：本次起播前记录下来的进度，跳完就置空（换集不再跳）
             final to = _restoreTo;
             _restoreTo = null;
@@ -1169,6 +1239,7 @@ class PlayerWidgetState extends State<PlayerWidget>
               try {
                 // ⚠️ 用 seekExact 而不是 seek：seek 会按 value.duration 裁剪，
                 // 万一时长还没报上来就会被裁小（表现就是"从头发"）。
+                if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播(首个源起播后的跳转) 到=${to.inMilliseconds}ms');
                 await kp.seekExact(to);
                 // 再校验一次：mpv 偶尔会把早期的 seek 丢掉，没跳过去就补一枪。
                 // 3 秒的容差是给"视频刚开始播、位置还在往上走"留的余量。
@@ -1176,17 +1247,22 @@ class PlayerWidgetState extends State<PlayerWidget>
                 if (mounted &&
                     kp.value.duration > Duration.zero &&
                     kp.value.position < to - const Duration(seconds: 3)) {
+                  if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播补枪(早期 seek 被丢掉) pos=${kp.value.position.inMilliseconds}ms → ${to.inMilliseconds}ms');
                   await kp.seekExact(to);
                 }
               } catch (_) {
                 // 续播失败不影响播放，从头放就行
               }
             }
+            // ★【常驻诊断】起播成功 ⇒ 排 3 秒自动隐藏（控件显隐的"排期者"之一 ✓）
+            if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功');
             _scheduleHide();
             return;
           }
         }
         // 本轮全失败：刷新一次时效链接再来一轮
+        // ★【常驻诊断】本轮全失败（true 的兜底 ⇒ 下面刷新时效链接再来一轮 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 本轮源全失败 round=$round ⇒ 刷新源兜底=${round == 0 && widget.onRefreshSources != null}');
         if (round == 0 && widget.onRefreshSources != null) {
           try {
             // ⚠️ 2026-10-05 修：这个回调**原来也没有超时** ✗（同一症状：提示永不消失 / 重试排不上 ✓）
@@ -1199,6 +1275,7 @@ class PlayerWidgetState extends State<PlayerWidget>
                 .where((s) => s.isNotEmpty)
                 .toList();
             if (fresh.isNotEmpty) {
+              if (AppSettings.i.logConsole) debugPrint('[PLAY] 刷新源拿到 ${fresh.length} 条 ⇒ 再试一轮（round 1）');
               _sources = fresh;
               continue;
             }
@@ -1212,6 +1289,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       _opening = false;
     }
     if (mounted) {
+      // ★【常驻诊断】两轮源都失败 ⇒ 报"视频加载失败" + 排自动重试 ✓
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 两轮源全失败 ⇒ error="视频加载失败" + 排自动重试');
       setState(() {
         _busy = false;
         _error = '视频加载失败';
@@ -1296,12 +1375,16 @@ class PlayerWidgetState extends State<PlayerWidget>
   ///   `shutdown()` 与 [dispose] 里对 `_kp` 用的是**同一个 API** ✓（:905 ✓）⇒ 不存在新机制 ✓。
   void _dropPrebuiltKp() {
     final pb = _prebuiltKp;
+    // ★【常驻诊断】丢弃"提前建好但还没上屏"的引擎（失败路径 / dispose 共用 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 丢弃预建引擎 ${pb == null ? '(本来就没有)' : 'kp=${identityHashCode(pb)} ⇒ shutdown()'}');
     _prebuiltKp = null;
     if (pb != null) unawaited(pb.shutdown());
   }
 
   void _attach(KpPlayer kp) {
     final old = _kp;
+    // ★【常驻诊断】上屏换引擎：新 kp 身份 / 旧 kp 身份（旧的非空 ⇒ 下面立刻 shutdown ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _attach 新kp=${identityHashCode(kp)} vc=${identityHashCode(kp.videoController)} 旧kp=${old == null ? '(无=首次上屏)' : identityHashCode(old).toString()} 旧kp会被shutdown=${old != null} 预建kp=${_prebuiltKp == null ? '(已交接)' : '仍持有'}');
     if (old != null) old.shutdown();
     _kp = kp;
     kp.addListener(_onTick);
@@ -1337,6 +1420,10 @@ class PlayerWidgetState extends State<PlayerWidget>
     final pos = _kp?.value.position ?? Duration.zero;
     final advanced = pos - _lastSeenPos;
     _lastSeenPos = pos;
+    // ★【常驻诊断】恢复即撤（位置又在走 ⇒ 撤掉已排的自动重试；只在真有排期时打 ✓）
+    if (AppSettings.i.logConsole && advanced >= const Duration(milliseconds: 100) && (_autoRetryTimer != null || _autoRetrying)) {
+      debugPrint('[PLAY] 恢复即撤 位置又在走(+${advanced.inMilliseconds}ms) ⇒ 撤掉已排的自动重试、额度清零');
+    }
     if (advanced >= const Duration(milliseconds: 100) &&
         (_autoRetryTimer != null || _autoRetrying)) {
       _autoRetryTimer?.cancel();
@@ -1351,6 +1438,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     // 播完 → 按设置决定是否自动切下一个（每次播放只触发一次）
     if ((_kp?.value.completed ?? false) && !_nextFired) {
       _nextFired = true;
+      // ★【常驻诊断】播完 ⇒ 是否自动切下一集（开关 + 有没有下一集 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 播完 ⇒ 自动下一集开关=${AppSettings.i.autoNext} 有下一集=${widget.switcher?.hasNext ?? false} ${AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false) ? '→ 切下一集' : '→ 不切'}');
       if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
         widget.switcher?.next();
       }
@@ -1382,11 +1471,15 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (kp == null) return;
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     final dx = _lastTapPos.dx;
+    // ★【常驻诊断】双击落点判定：dx + 屏宽 + 区域（左半退 / 中间暂停播放 / 右半进 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 双击(内嵌) dx=${dx.toStringAsFixed(1)} w=${w.toStringAsFixed(1)} 区域=${dx > w * 0.35 && dx < w * 0.65 ? '中间' : (dx < w / 2 ? '左半' : '右半')} 步长=${AppSettings.i.step}s 引擎playing=${kp.value.playing} pos=${kp.value.position.inMilliseconds}ms');
     if (dx > w * 0.35 && dx < w * 0.65) {
       if (kp.value.playing) {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=双击中间(内嵌)');
         kp.pause();
         _flashTapHint(Icons.pause, 0);
       } else {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放 触发源=双击中间(内嵌)');
         kp.play();
         _flashTapHint(Icons.play_arrow, 0);
       }
@@ -1394,6 +1487,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     }
     final back = dx < w / 2;
     final secs = AppSettings.i.step;
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=双击${back ? '左半(退)' : '右半(进)'}(内嵌) 从=${kp.value.position.inMilliseconds}ms 步长=${secs}s');
     kp.seek(kp.value.position + Duration(seconds: back ? -secs : secs));
     _flashTapHint(back ? Icons.fast_rewind : Icons.fast_forward,
         back ? -0.6 : 0.6);
@@ -1412,6 +1506,8 @@ class PlayerWidgetState extends State<PlayerWidget>
 
   void _retry() {
     // 手动重试：撤销自动重试排期、额度清零（再失败会重新自动重试一轮）
+    // ★【常驻诊断】用户手动点了"重试"（与自动重试那条分开看 ✓ 触发来源=用户按钮 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 手动重试 触发源=用户点重试按钮 ⇒ 额度清零 + _initPlayer() 原额度=$_autoRetries');
     _autoRetryTimer?.cancel();
     _autoRetryTimer = null;
     _autoRetries = 0;
@@ -1429,13 +1525,19 @@ class PlayerWidgetState extends State<PlayerWidget>
     // ⚠️ 2026-10-05（用户报"又重载一遍"）：只判 `_opening` 时，**取源窗口**里来的 errEdge
     //    会排下一个 1.2 秒重试 ✗ → 和**正在跑的那个 `_initPlayer`** 并发 → 两次加载 ✗。
     //    这两段合起来 = "整段加载流程" ✓；窗口期内的失败由流程自己收尾（`:840-847` / `:917-923` ✓）。
+    // ★【常驻诊断】自动重试排期判定（三条早退原因都能看出来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动重试判定 加载流程中=${_opening || _fetchingLazy} 额度=$_autoRetries/5 已排期=${_autoRetryTimer != null} 已播起来过=${_kp?.value.started ?? false}');
     if (_opening || _fetchingLazy) return;
     if (_autoRetries >= 5) {
       // 额度用完：撤掉"自动重试中"提示，把错误提示/重试按钮露出来
+      // ★【常驻诊断】不再自动重试：5 次额度用完（错误提示/重试按钮露出来 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 不排自动重试 原因=5 次额度用完');
       if (_autoRetrying) setState(() => _autoRetrying = false);
       return;
     }
     // 同一次失败会从两条通道各报一次（引擎 error + 源尝试失败 ✓）→ 排一次就够 ✓
+    // ★【常驻诊断】不重复排期判定（已排期=true ⇒ 下面直接 return，这一次不再排 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 重复排期判定 已排期=${_autoRetryTimer != null}');
     if (_autoRetryTimer != null) return;
     _autoRetries++;
     // ⚠️ 2026-10-05：**中途**卡住（已经播起来过）不能拿同一批没刷新的源从 0 重开 ✗ ——
@@ -1444,9 +1546,13 @@ class PlayerWidgetState extends State<PlayerWidget>
     setState(() => _autoRetrying = true);
     // ★【常驻诊断·★】自动重试排上（**"经常重新加载"看这一条** ✓ `_autoRetries` = 既有额度字段 ✓ 只看不改 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 准备重试 midStall=$midStall 已用额度=$_autoRetries');
+    // ★【常驻诊断】自动重试排期：第几次 / 走哪条路（中途卡住走 _recover 原地续播，起播失败走 _initPlayer 重开 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动重试排期 1200ms 第$_autoRetries次/5 路径=${midStall ? '_recover(中途卡住→刷新源原地续播)' : '_initPlayer(起播失败→按旧源重开)'}');
     _autoRetryTimer = Timer(const Duration(milliseconds: 1200), () {
       _autoRetryTimer = null;
       if (!mounted) return;
+      // ★【常驻诊断】排期到点（finally/销毁时这句不会出现 ⇒ 能看出"重试没跑成" ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动重试到点 ⇒ ${midStall ? '_recover()' : '_initPlayer()'}');
       if (midStall) {
         _recover();
       } else {
@@ -1458,6 +1564,8 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 中途卡住的恢复：**先向页面要一批新源**（新签名 ✓），拿到就原地续播 ✓；
   /// 拿不到才退回既有的"按旧源重开"（_initPlayer ✓ 里面还有刷新一轮的兜底 ✓）。
   Future<void> _recover() async {
+    // ★【常驻诊断】中途卡住恢复入口（距上次恢复 <10 秒会直接作废 ⇒ 那条也在这里看出来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _recover 起 index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex 距上次恢复=${DateTime.now().millisecondsSinceEpoch - _lastRecoverMs}ms 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
     // 用户已经切走（换集/换视频）→ 这次恢复作废，别去掐新视频 ✓
     if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -1473,6 +1581,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     // ★【常驻诊断】恢复：刷新前位置 + 这次拿到几条新源（只看 ✓ 下面判据一字未动 ☠）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 恢复 刷新前 position=${posBefore.inMilliseconds}ms 拿到新源=${fresh.length} 条');
     if (!mounted) return;
+    // ★【常驻诊断】二次校验（切走了 / 别的加载在跑 / 位置自己又走了 ⇒ 三种作废都能看出来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _recover 二次校验 已切走=${(widget.switcher?.index.value ?? 0) != _curIndex} 加载在跑=${_opening || _fetchingLazy} posNow=${_kp?.value.position.inMilliseconds ?? 0}ms 刷新前=${posBefore.inMilliseconds}ms');
     if ((widget.switcher?.index.value ?? 0) != _curIndex) return;
     // ① 别的加载已经在跑了（换档/手动重试/流程自身 ✓）→ 让它去，别并发开第二次 ✓
     if (_opening || _fetchingLazy) return;
@@ -1482,6 +1592,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (fresh.any((s) => s.isNotEmpty)) {
       _sources = fresh.where((s) => s.isNotEmpty).toList();
     }
+    // ★【常驻诊断】恢复的结论：原地重开（会走 _initPlayerOnce，用 _restoreTo 跳回原位 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] _recover 结论 ⇒ _restartFromLastPos() 用源=${_sources.length}条');
     _restartFromLastPos();
   }
 
@@ -1490,6 +1602,8 @@ class PlayerWidgetState extends State<PlayerWidget>
   void _restartFromLastPos() {
     final last = _kp?.lastKnownPosition ?? Duration.zero;
     _restoreTo = last > const Duration(seconds: 1) ? last : null;
+    // ★【常驻诊断】重开时打算跳回哪儿（0 = 从头，说明 lastKnown 还没到 1 秒 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 原地重开 lastKnown=${last.inMilliseconds}ms ⇒ 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms');
     _initPlayer();
   }
 
@@ -1508,13 +1622,19 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 控制条显示数秒后自动隐藏
   void _scheduleHide() {
     _hideTimer?.cancel();
+    // ★【常驻诊断】控件隐藏排期（"谁排的"看调用点那条 ✓ 这里只记 3 秒计时器已起 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=$_controlsVisible');
     _hideTimer = Timer(const Duration(seconds: 3), () {
+      // ★【常驻诊断】原因=3 秒计时到
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)');
       if (mounted) setState(() => _controlsVisible = false);
     });
   }
 
   void _toggleControls() {
     setState(() => _controlsVisible = !_controlsVisible);
+    // ★【常驻诊断】原因=单击切换（切换后的可见性一并打出来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件${_controlsVisible ? '显示' : '隐藏'} 原因=单击切换(内嵌) 切换后可见=$_controlsVisible');
     if (_controlsVisible) _scheduleHide();
   }
 
@@ -1523,6 +1643,8 @@ class PlayerWidgetState extends State<PlayerWidget>
   ///   照样在跑 ✗ ⇒ 等回到详情页控件早藏没了 ✗ 用户以为"控件消失了"✗）。
   ///   ⚠️ 本方法**不参与任何手势** ✅：单击/双击/拖拽/长按与 [_toggleControls] 一个字不动 ✅。
   void holdControls() {
+    // ★【常驻诊断】原因=holdControls（详情页被压栈 ⇒ 先按住别藏、**不**重起 3 秒 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件显示+按住 原因=holdControls(内嵌) 原可见=$_controlsVisible');
     _hideTimer?.cancel();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
   }
@@ -1530,6 +1652,8 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// ★ 2026-10-08（用户拍板 ✅）：**"显示 + 重新起 3 秒"** —— 回到栈顶（用户又看得见它了）时用 ✅。
   ///   与 [holdControls] **语义分开** ☑️：那个 = 按住不藏（不计时 ✗）；这个 = 显示并恢复老的自动隐藏 ✓。
   void showControls() {
+    // ★【常驻诊断】原因=showControls（回到栈顶 ⇒ 显示 + 重新起 3 秒 ✓ 与 holdControls 不同 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件显示+重起3秒 原因=showControls(内嵌) 原可见=$_controlsVisible');
     _hideTimer?.cancel();
     if (!_controlsVisible) setState(() => _controlsVisible = true);
     _scheduleHide();
@@ -1546,6 +1670,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     //     ① 路由 future 完成 ⇒ `whenComplete`（正常退出：返回手势/返回键/播完自动退 ✅；future 带错 ✅）
     //     ② `push` **同步抛**（极少见 ☑️ 例如 navigator 被锁）⇒ catch 里立刻复位 ✅ 再原样上抛 ✅。
     kp.fullscreenOpen = true;
+    // ★【常驻诊断】进全屏：标记置位（push 之前 ✓ 详情页 didPushNext 靠它区分"全屏"与"跳走" ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 进 vertical=$vertical fullscreenOpen=true 引擎playing=${kp.value.playing} 用户暂停=${kp.userPaused}');
     Future<dynamic>? fut;
     try {
       // 进出全屏用快速淡入淡出：默认系统侧滑转场对全屏视频违和（用户实报"过渡难看"）
@@ -1569,17 +1695,34 @@ class PlayerWidgetState extends State<PlayerWidget>
         ),
       );
     } catch (_) {
+      // ★【常驻诊断】push 同步抛（极少见：navigator 被锁）⇒ 立刻复位、原样上抛 ✓
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 push 同步抛异常 ⇒ fullscreenOpen 立刻复位 false 并 rethrow');
       kp.fullscreenOpen = false; // ☠ 第二条复位路径（否则标记会永远挂着）
       rethrow;
     }
     // 此处 fut 必非空：push 同步抛的路径已在上面 catch 里 rethrow ✅（故不用 ?.）
-    fut.whenComplete(() => kp.fullscreenOpen = false);
+    // ★【常驻诊断】转场 future 已挂 whenComplete：退出（返回手势/返回键/播完自动退）时把 fullscreenOpen 复位 ✓
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 已挂 whenComplete（退出那一刻复位 fullscreenOpen）');
+    fut.whenComplete(() {
+      // ★【常驻诊断】复位**前**的值 + 引擎是否已 shutdown（赋值语句本身一个字符未动 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位前 fullscreenOpen=${kp.fullscreenOpen} 引擎已shutdown=${kp._disposed}');
+      kp.fullscreenOpen = false;
+      // ★【常驻诊断】复位**后**的值（应与上面那条配对看 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位后 fullscreenOpen=${kp.fullscreenOpen}');
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin 必须调用
     final kp = _kp;
+    // ★【常驻诊断·关键】视频层重建可见性：kp 身份 / 渲染上下文(vc) 身份 —— 身份不变 = 只是重建、没换引擎；
+    //   身份变了 = 换了引擎（画面会重新附上下文 ⇒ "画面定格/不刷新"先对比这两行 ✓）
+    //   ⚠️ 末尾那个 `_bvShow == null` 是**日志自己的**过滤（不是改既有条件）：上下滑亮度/音量时本 State 每帧 setState
+    //      （`bvUpdate → _bvGauge`）⇒ 不过滤就是逐帧刷屏（违反"不做逐帧日志"）；其余重建一条不漏 ✓
+    if (AppSettings.i.logConsole && _bvShow == null) {
+      debugPrint('[PLAY] 视频层重建(内嵌) kp=${kp == null ? '(无=显示封面区)' : identityHashCode(kp).toString()} vc=${kp == null ? '-' : identityHashCode(kp.videoController).toString()} playing=${kp?.value.playing ?? false} buffering=${kp?.value.buffering ?? false} completed=${kp?.value.completed ?? false} pos=${kp?.value.position.inMilliseconds ?? 0}ms 首帧到=$_started 控件可见=$_controlsVisible poster=${widget.poster.isEmpty ? '无' : '有'}');
+    }
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: ColoredBox(
@@ -1604,14 +1747,20 @@ class PlayerWidgetState extends State<PlayerWidget>
                     onHorizontalDragEnd: swipeEnd,
                     // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
                     onLongPressStart: (_) {
+                      // ★【常驻诊断】长按开始 = 2 倍速（触发源=长按 ✓）
+                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按开始 触发源=长按(内嵌) ⇒ setRate(2.0) 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
                       _kp?.setRate(2.0);
                       setState(() => _longPressing = true);
                     },
                     onLongPressEnd: (_) {
+                      // ★【常驻诊断】长按结束 = 还原 1 倍速
+                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(内嵌) ⇒ setRate(1.0) 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
                       _kp?.setRate(1.0);
                       if (_longPressing) setState(() => _longPressing = false);
                     },
                     onLongPressCancel: () {
+                      // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样还原 1 倍速
+                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(内嵌) ⇒ setRate(1.0)');
                       _kp?.setRate(1.0);
                       if (_longPressing) setState(() => _longPressing = false);
                     },
@@ -1896,18 +2045,30 @@ class _ControlBarState extends State<_ControlBar> {
                     if (widget.hasPrev)
                       _barBtn(
                         icon: Icons.skip_previous,
-                        onPressed: widget.onPrev,
+                        onPressed: () {
+                          // ★【常驻诊断】触发源=用户按钮（控制条）；目标 index 拿不到（本组件只有 hasPrev/onPrev ✓）——
+                          //   切完的新 index 由 `didUpdateWidget` 那条 `index=`/`换片=` 打 ✓
+                          if (AppSettings.i.logConsole) debugPrint('[PLAY] 上一集 触发源=用户按钮(控制条) hasPrev=${widget.hasPrev} 动作=prev() 全屏控件=${!widget.showFullscreen}');
+                          widget.onPrev?.call();
+                        },
                       ),
                     _barBtn(
                       icon: s.playing ? Icons.pause : Icons.play_arrow,
-                      onPressed: () =>
-                          s.playing ? widget.player.pause() : widget.player.play(),
+                      onPressed: () {
+                        // ★【常驻诊断】触发源=用户按钮（控制条，内嵌/全屏共用本组件 ✓）
+                        if (AppSettings.i.logConsole) debugPrint('[PLAY] ${s.playing ? '暂停' : '播放'} 触发源=用户按钮(控制条) 当前playing=${s.playing} 动作=${s.playing ? 'pause()' : 'play()'} 全屏控件=${!widget.showFullscreen}');
+                        s.playing ? widget.player.pause() : widget.player.play();
+                      },
                     ),
                     // 下一集：篇内没有下一个视频时置灰禁用
                     _barBtn(
                       icon: Icons.skip_next,
                       enabled: widget.hasNext,
-                      onPressed: widget.onNext,
+                      onPressed: () {
+                        // ★【常驻诊断】触发源=用户按钮（控制条）；hasNext=false 时 _barBtn 里已禁用、点不动 ✓
+                        if (AppSettings.i.logConsole) debugPrint('[PLAY] 下一集 触发源=用户按钮(控制条) hasNext=${widget.hasNext} 动作=next() 全屏控件=${!widget.showFullscreen}');
+                        widget.onNext?.call();
+                      },
                     ),
                     Expanded(
                       child: Text(
@@ -1994,6 +2155,10 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   void initState() {
     super.initState();
     bvPrime(); // 预读系统亮度/音量做缓存
+    // ★【常驻诊断】进全屏那一刻的状态（"跟随进入前状态"看这条 ✓ 用户暂停过就不会被拉起来 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 initState vertical=${widget.vertical} 用户暂停=${widget.player.userPaused} 引擎playing=${widget.player.value.playing} fullscreenOpen=${widget.player.fullscreenOpen} 有下一集=${widget.switcher?.hasNext ?? false}');
+    // ★【常驻诊断】下一步就走 autoResume（用户暂停过 ⇒ 它内部直接 return，日志里就不会出现"自动续播"那条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 initState ⇒ autoResume() 触发源=进全屏');
     // ★ 2026-10-08（用户拍板 ① + ② ✅）：**跟随进入前的状态** ——
     //   在播 ⇒ 继续播（不断播 ✅）；进入前是暂停 ⇒ `autoResume()` 内部直接 return ⇒ **保持暂停** ☑️。
     //   原来是**无条件** `play()` ✗ ⇒ 暂停着进全屏也被拉起来 ✗（而且它还会清掉 `_userPaused` ✗）。
@@ -2013,6 +2178,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   /// 路由转场状态：一开始退场（reverse）就恢复竖屏——
   /// 让系统旋转和退场动画并行跑，消除横版退出"先横版卡一会"（用户实报）。
   void _onRouteAnimStatus(AnimationStatus s) {
+    // ★【常驻诊断】全屏路由转场状态（reverse=开始退场 ⇒ 立刻恢复竖屏，与退场动画并行 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 转场状态=$s（reverse ⇒ 提前恢复竖屏）');
     if (s == AnimationStatus.reverse) _restoreOrientation();
   }
 
@@ -2028,11 +2195,15 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
 
   /// 恢复竖屏（退出路径都调它；dispose 里兜底）
   void _restoreOrientation() {
+    // ★【常驻诊断】恢复竖屏（退出路径都调它：返回键/边缘滑/播完自动退/退场动画/dispose 兜底 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 恢复竖屏（锁 portraitUp）');
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
   @override
   void dispose() {
+    // ★【常驻诊断】全屏页销毁（此刻 fullscreenOpen 仍为 true：复位在路由 future 的 whenComplete ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 dispose 引擎playing=${widget.player.value.playing} fullscreenOpen=${widget.player.fullscreenOpen} 用户暂停=${widget.player.userPaused}');
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     disposeBv();
@@ -2058,6 +2229,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     if (v.completed) {
       if (!_endHandled) {
         _endHandled = true;
+        // ★【常驻诊断】播完那一刻：有下一集就等自动下一集，没有就自己退全屏 ✓
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 播完 有下一集=${widget.switcher?.hasNext ?? false} ${(widget.switcher?.hasNext ?? false) ? '⇒ 等自动切下一集' : '⇒ 恢复竖屏并自动退出全屏'}');
         if (!(widget.switcher?.hasNext ?? false)) {
           _restoreOrientation();
           Navigator.pop(context);
@@ -2072,11 +2245,15 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   void _onDoubleTap() {
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     final dx = _lastTapPos.dx;
+    // ★【常驻诊断】双击落点判定(全屏)：dx + 屏宽 + 区域（左半退 / 中间暂停播放 / 右半进 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 双击(全屏) dx=${dx.toStringAsFixed(1)} w=${w.toStringAsFixed(1)} 区域=${dx > w * 0.35 && dx < w * 0.65 ? '中间' : (dx < w / 2 ? '左半' : '右半')} 步长=${AppSettings.i.step}s 引擎playing=${widget.player.value.playing} pos=${widget.player.value.position.inMilliseconds}ms');
     if (dx > w * 0.35 && dx < w * 0.65) {
       if (widget.player.value.playing) {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=双击中间(全屏)');
         widget.player.pause();
         _flashTapHint(Icons.pause, 0);
       } else {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放 触发源=双击中间(全屏)');
         widget.player.play();
         _flashTapHint(Icons.play_arrow, 0);
       }
@@ -2084,6 +2261,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     }
     final back = dx < w / 2;
     final secs = AppSettings.i.step;
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=双击${back ? '左半(退)' : '右半(进)'}(全屏) 从=${widget.player.value.position.inMilliseconds}ms 步长=${secs}s');
     widget.player.seek(
         widget.player.value.position + Duration(seconds: back ? -secs : secs));
     _flashTapHint(back ? Icons.fast_rewind : Icons.fast_forward,
@@ -2103,19 +2281,30 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
 
   void _scheduleHide() {
     _hideTimer?.cancel();
+    // ★【常驻诊断】控件隐藏排期（全屏）：3 秒计时器已起（谁排的看调用点那条 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件排期 3 秒后自动隐藏(全屏) 当前可见=$_controls');
     _hideTimer = Timer(const Duration(seconds: 3), () {
+      // ★【常驻诊断】原因=3 秒计时到（全屏）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件隐藏 原因=3 秒计时到(全屏)');
       if (mounted) setState(() => _controls = false);
     });
   }
 
   void _toggleControls() {
     setState(() => _controls = !_controls);
+    // ★【常驻诊断】原因=单击切换（全屏）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 控件${_controls ? '显示' : '隐藏'} 原因=单击切换(全屏) 切换后可见=$_controls');
     if (_controls) _scheduleHide();
   }
 
   @override
   Widget build(BuildContext context) {
     final kp = widget.player;
+    // ★【常驻诊断·关键】视频层重建可见性(全屏)：与内嵌那条同一个 kp/vc 身份 ⇒ 只是重建、没换引擎 ✓
+    //   （`_bvShow == null` 是日志自己的过滤：上下滑亮度/音量时每帧 setState，会逐帧刷屏 ✓ 见内嵌那段说明）
+    if (AppSettings.i.logConsole && _bvShow == null) {
+      debugPrint('[PLAY] 视频层重建(全屏) kp=${identityHashCode(kp).toString()} vc=${identityHashCode(kp.videoController).toString()} playing=${kp.value.playing} buffering=${kp.value.buffering} completed=${kp.value.completed} pos=${kp.value.position.inMilliseconds}ms 首帧到=${kp.value.started} 控件可见=$_controls vertical=${widget.vertical}');
+    }
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -2133,6 +2322,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         onHorizontalDragStart: (d) {
           _edgeSwipe = _hDownX <= _kEdgeWidth;
           _edgeDx = 0;
+          // ★【常驻诊断】全屏横滑起手：边缘带内=返回手势，否则=快进快退 ✓
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 横滑起手 x=${_hDownX.toStringAsFixed(1)} 边缘带=${_kEdgeWidth.toString()} ⇒ ${_edgeSwipe ? '返回手势（不进入快进快退）' : '快进快退'}');
           if (!_edgeSwipe) swipeStart(d);
         },
         onHorizontalDragUpdate: (d) {
@@ -2146,6 +2337,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
           if (_edgeSwipe) {
             _edgeSwipe = false;
             final w = MediaQuery.sizeOf(context).width;
+            // ★【常驻诊断】边缘滑返回判定：速度/位移 vs 阈值（不触发=只是回弹 ✓）
+            if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 边缘滑返回判定 v=${(d.primaryVelocity ?? 0).toStringAsFixed(0)} 位移dx=${_edgeDx.toStringAsFixed(1)} 阈值=${(w * 0.28).toStringAsFixed(1)} 触发=${(d.primaryVelocity ?? 0) > 300 || _edgeDx > w * 0.28}');
             if ((d.primaryVelocity ?? 0) > 300 || _edgeDx > w * 0.28) {
               _restoreOrientation();
               Navigator.pop(context);
@@ -2160,14 +2353,20 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         },
         // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
         onLongPressStart: (_) {
+          // ★【常驻诊断】长按开始 = 2 倍速（触发源=长按 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按开始 触发源=长按(全屏) ⇒ setRate(2.0) 位置=${widget.player.value.position.inMilliseconds}ms');
           widget.player.setRate(2.0);
           setState(() => _longPressing = true);
         },
         onLongPressEnd: (_) {
+          // ★【常驻诊断】长按结束 = 还原 1 倍速
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(全屏) ⇒ setRate(1.0) 位置=${widget.player.value.position.inMilliseconds}ms');
           widget.player.setRate(1.0);
           if (_longPressing) setState(() => _longPressing = false);
         },
         onLongPressCancel: () {
+          // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样还原 1 倍速
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(全屏) ⇒ setRate(1.0)');
           widget.player.setRate(1.0);
           if (_longPressing) setState(() => _longPressing = false);
         },
@@ -2182,6 +2381,8 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                     IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () {
+                        // ★【常驻诊断】全屏页"返回"按钮 ⇒ 恢复竖屏 + pop
+                        if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 返回按钮 ⇒ 恢复竖屏 + Navigator.pop');
                         _restoreOrientation();
                         Navigator.pop(context);
                       },
@@ -2325,6 +2526,8 @@ class _SeekBarState extends State<_SeekBar> {
     final d = _drag;
     setState(() => _drag = null);
     widget.onPreview(null);
+    // ★【常驻诊断】进度条松手（触发源=进度条点击/拖动 ✓ 不跟手时不打 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 进度条松手 触发源=进度条点击/拖动 目标=${d?.inMilliseconds ?? 0}ms 需要跳转=${d != null}');
     if (d != null) widget.onSeek(d);
   }
 

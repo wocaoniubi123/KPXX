@@ -23,6 +23,21 @@ class WebPage extends StatefulWidget {
 class _WebPageState extends State<WebPage> {
   WebViewController? _ctl;
 
+  // ★【常驻诊断】本页进/出（只含日志的两个钩子：super + 一条 debugPrint，不动任何既有逻辑 ✓）
+  //   原文件没有 initState/dispose ⇒ 这两条在"用网页播放器打开"这条路上原本完全看不见 ✓
+  @override
+  void initState() {
+    super.initState();
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 整页版进 title=${widget.title} ${webLoc(widget.url)}');
+  }
+
+  @override
+  void dispose() {
+    // ⚠️ 只记日志：**不**在这里 dispose 控制器（原来就没有，行为一字不动 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[WEB] 整页版出（dispose）title=${widget.title} ${webLoc(widget.url)}');
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     // 整页跟着背景明暗重建（顶栏标题/图标都读 kTxt）
@@ -37,14 +52,20 @@ class _WebPageState extends State<WebPage> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        // ★【常驻诊断】返回手势/返回键落到本页（PopScope 拦着：先退网页历史，退到底才关页 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[WEB] 返回动作 ctl=${_ctl == null ? '(还没建好)' : '有'} ${webLoc(widget.url)}');
         // 先回退网页历史，退到底了才关页面
         final ctl = _ctl;
         if (ctl != null && await ctl.canGoBack()) {
+          // ★【常驻诊断】还有网页历史 ⇒ 只后退、不关页（App 内不跳出 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[WEB] 返回 ⇒ 还有网页历史：goBack()（不关页）');
           ctl.goBack();
         } else if (context.mounted) {
           // ⚠️ 用 `context.mounted` 而不是 `mounted`：analyze 报
           //    `use_build_context_synchronously`（`mounted` 在它看来是"不相关的检查" ✗）
           //    —— 语义相同 ✓，只是把守卫挂在真正要用的那个 context 上 ✓
+          // ★【常驻诊断】退到底 ⇒ 关这一页（回到宿主页 ✓）
+          if (AppSettings.i.logConsole) debugPrint('[WEB] 返回 ⇒ 已退到底：Navigator.pop() 关页');
           Navigator.of(context).pop();
         }
       },
