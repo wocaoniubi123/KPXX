@@ -48,6 +48,13 @@ void main() {
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 背景图加载（AppBg）开始');
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
+  // ★ 2026-10-05（用户批准 · 内存 · ③c）：**给 Flutter 自己的图片缓存设预算** ✅ ——
+  //   全项目此前没设过 ⇒ 走框架默认 **100MB**（`imageCache` 管的是**解码后的位图** ✅）。
+  //   ⚠️ **48MB 是我们自己定的值**（依据：详情页/图集都是大图 ✅ 且真机偶发闪退怀疑内存）；
+  //      它与 `fetched_image.dart` 的**原始字节缓存**（`_maxBytes` 96MB ✅）是**两层独立预算** ✅：
+  //      那层管"下载到的字节"、这层管"解码后的位图" —— 不是重复算一份 ✅。
+  //   ⚠️ `maximumSize`（张数）**保持框架默认** ☑️ 不动（只收字节上限）。
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 48 << 20;
   runApp(const KpxxApp());
 }
 

@@ -485,15 +485,19 @@ class DetailPageState extends State<DetailPage> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              const Icon(Icons.local_fire_department,
-                                  size: 16, color: Colors.red),
-                              const SizedBox(width: 4),
-                              Text(
-                                _fmtTime(d.time),
-                                style: TextStyle(
-                                    fontSize: 12, color: kTxtSub),
-                              ),
-                              const SizedBox(width: 12),
+                              // ★ 2026-10-08（显示规范「缺则隐藏」✅）：没有时间就**整段不渲染** ——
+                              //   原来无条件画那个红火焰图标 ⇒ 没时间的站（野果短剧）会剩一个孤零零的火苗 ☑️
+                              if (_fmtTime(d.time).isNotEmpty) ...[
+                                const Icon(Icons.local_fire_department,
+                                    size: 16, color: Colors.red),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _fmtTime(d.time),
+                                  style: TextStyle(
+                                      fontSize: 12, color: kTxtSub),
+                                ),
+                                const SizedBox(width: 12),
+                              ],
                               // 显示本篇的视频数（原来显示的是"同系列文章数"，
                               // 一篇挂多个视频但没有"第N集"的文章会显示成 0）；
                               // 图文帖（没有视频）就不显示这一段，别写"0 集"
@@ -507,6 +511,18 @@ class DetailPageState extends State<DetailPage> {
                                 Text('时长 ${d.duration}',
                                     style: TextStyle(
                                         fontSize: 12, color: kTxtSub)),
+                              ],
+                              // ★ 2026-10-06（**通用槽位**）：站点自定的元信息（空串 = 不显示 ✅）
+                              //   例：野果短剧「连载中 · 播放 38W · 追剧 36931」（站点文件拼好传进来 ✅）
+                              if (d.metaLine.isNotEmpty) ...[
+                                const SizedBox(width: 12),
+                                Flexible(
+                                  child: Text(d.metaLine,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                          fontSize: 12, color: kTxtSub)),
+                                ),
                               ],
                             ],
                           ),
@@ -688,14 +704,34 @@ class DetailPageState extends State<DetailPage> {
                             _buildTagsStrip(d),
                           ],
                           // 相关推荐（规范：必须显示在「剧照」下方）
+                          // ★ 2026-10-08（新增通用槽位 ✅ 默认值 ⇒ 老站零变化）：标题与版式都可由站点给 ——
+                          //   标题空串 = 「相关推荐」✅；`relatedAsGrid` = 3 列网格 + 角标（野果短剧 ✅）。
                           if (d.related.isNotEmpty) ...[
                             const SizedBox(height: 16),
-                            Text('相关推荐',
+                            Text(
+                                (_api.ui?.relatedTitle.isNotEmpty ?? false)
+                                    ? _api.ui!.relatedTitle
+                                    : '相关推荐',
                                 style: TextStyle(
                                     fontSize: 15,
                                     fontWeight: FontWeight.bold,
                                     color: kTxt)),
                             const SizedBox(height: 6),
+                            if (_api.ui?.relatedAsGrid ?? false)
+                              GridView.count(
+                                crossAxisCount: 3,
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                mainAxisSpacing: 8,
+                                crossAxisSpacing: 8,
+                                childAspectRatio: 0.62,
+                                children: [
+                                  for (final a in d.related)
+                                    ArticleCard(
+                                        article: a, site: widget.site),
+                                ],
+                              )
+                            else
                             for (final a in d.related)
                               InkWell(
                                 onTap: () {

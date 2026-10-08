@@ -10,6 +10,7 @@ import 'sites/madou.dart';
 import 'sites/pornhub.dart';
 import 'sites/xhamster.dart';
 import 'sites/xhamsterlive.dart';
+import 'sites/yeguodj.dart';
 
 import 'package:flutter/material.dart';
 
@@ -117,6 +118,13 @@ enum SiteTemplate {
   /// → 它**没有**列表页/详情页/搜索页 ✓（`Api.ui` 对它是 `null` ✓，也不会有人调 ✓）。
   /// 只在底栏「直播」宫格里出现 ✓（`group: SiteGroup.live` ✓）。
   xhamsterlive,
+
+  /// 野果短剧（yeguodj.com，2026-10-08 新增 ✅）—— **第二个"自管整页"的站点** ✅
+  /// （第一个 = xhamsterlive ✅）：三主 tab（推荐 / 探索 / 排行榜）+ 分区行（每区 4 条 + 「查看更多 ›」）
+  /// + 5 组筛选胶囊 —— 全是站点专有版式 ⇒ 整页在 `lib/sites/yeguodj.dart` 的 `YgHomePage` ✅
+  /// （底座唯一使用点 = `home_page.dart:580` 那句 `sitePage` ✅ —— 那里**不认站名** ✅）。
+  /// 详情**仍走通用详情页** ✅：本站只提供解析（`YeguoSite.detail` ✅）与元信息行 ✅。
+  yeguodj,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -289,7 +297,6 @@ const List<SiteEntry> kSites = [
   kSite03,
   kSite04,
   kSite05,
-  kSite06,
   kSite07,
   kSite08,
   kSite09,
@@ -298,6 +305,11 @@ const List<SiteEntry> kSites = [
   kSite12,
   kSite13,
   kSite14,
+  // 野果短剧（kSite15 ✅ 2026-10-08 新增）：紧接 kSite14 之后 ✅
+  kSite15,
+  // ⚠️ 黄果短剧（kSite06 ✓）—— **用户指定挪到野果之后** ✅（就挪这一行 ☑️ ——
+  //   它的档案本身在 `lib/sites/huangguo.dart:571`，那边**一个字都没改** ✗ ✅）
+  kSite06,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,

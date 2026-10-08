@@ -574,6 +574,11 @@ class _HomePageState extends State<HomePage>
   }
 
   Widget _pageView(BuildContext context) {
+    // ★ 2026-10-06（**通用槽位** · 不带任何站名/模板判断）：站点**自管整页** ⇒ 直接显示它 ✅
+    //   —— 本站自己的顶部 tab / 分区行 / 筛选组都在**站点文件**里实现（见 `SiteUi.sitePage` ✅）；
+    //   默认 `null` ⇒ 继续走下面这套通用「tab + 分页列表」✅ ⇒ 未覆写的站点行为零变化 ✅。
+    final own = _api.ui?.sitePage(context, widget.site);
+    if (own != null) return own;
     final idx = _cats.isEmpty ? 0 : _tab.index.clamp(0, _cats.length - 1);
     final cur = _cats.isEmpty ? null : _cats[idx];
     final l1 = cur == null ? null : _level1(cur);

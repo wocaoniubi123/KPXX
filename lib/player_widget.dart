@@ -807,6 +807,17 @@ class PlayerWidgetState extends State<PlayerWidget>
   Timer? _autoRetryTimer;
   bool _opening = false; // 正在依次尝试各源（期间不排自动重试，交给循环收尾）
   bool _init = false;
+
+  /// ★ 2026-10-05（用户批准 · 内存 · ②c）：**`_initPlayer` 的重入锁** ✅ ——
+  ///   多入口（换集 / `_retry` / `_autoRetryTimer` / `_recover`）可**并发**进来（原来没有在途标志 ☑️）⇒ 两个调用都挂在 `await` 上时
+  ///   会**各建一个 `KpPlayer`**（见 [_initPlayerOnce] 里那段）⇒ 后到的覆盖 `_prebuiltKp`、
+  ///   前一个**既没上屏也没人收** ⇒ native 泄漏（无异常、无日志 ☑️）。
+  ///   ⚠️ 只挡「**并发重入**」：并在挂起期间**只记一笔**（[_initPending]）⇒ 跑完补跑一次（最后一次请求赢 ✅）；
+  ///   `try/finally` ⇒ 所有 return 都解锁 ✅。
+  bool _initRunning = false;
+  /// ★ 2026-10-05（lead 复核时补）：挂起期间又来过的初始化请求 ⇒ 当前这次跑完**补跑一次** ✅
+  ///   （直接丢弃会让"初始化中点的第 N 集"像没反应 ✗；只记一笔 ⇒ 不会自激 ☠）
+  bool _initPending = false;
   /// 正在按需取源（合集/黄果选集）：点击那一刻就亮提示，别等网络回来才弹
   bool _fetchingLazy = false;
   int _curIndex = 0; // 当前已打开的篇内序号（判断是否换片）
@@ -964,7 +975,32 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 依次尝试各视频源；全失败时刷新时效链接再试一轮。
   /// 注意顺序：先把播放器挂到界面上（画面/声音一有就出），
   /// 再等"就绪"——就绪只用来判断要不要换下一个源，不该拦住显示。
+  ///
+  /// ★ 2026-10-05（用户批准 · 内存 · ②c）：**重入锁** ✅ —— 说明见 [_initRunning] ✅。
+  ///   主体原样搬进 [_initPlayerOnce]（**逐字搬、只改名字** ✅ —— 不是为了套 `try` 把上百行整体缩进 ☑️）。
   Future<void> _initPlayer() async {
+    if (_initRunning) {
+      // ⚠️ 2026-10-05（lead 复核时补 · 内存 ②c）：**不能直接丢弃** ☠ ——
+      //   初始化要几秒（要取源，最长 6 秒），这期间用户点了别集 / 触发了重试 ⇒
+      //   丢请求 = 点了像没反应 ✗。改成**记一笔、这次跑完补跑一次** ✅（最后一次请求赢 ✓、
+      //   依旧不会有第二个实例并存 ✓）。
+      _initPending = true;
+      return;
+    }
+    _initRunning = true;
+    try {
+      await _initPlayerOnce();
+    } finally {
+      _initRunning = false;
+      if (_initPending) {
+        _initPending = false; // 先清再跑 ⇒ 每次挂起最多补跑一次，不会自激 ☠
+        unawaited(_initPlayer());
+      }
+    }
+  }
+
+  /// [_initPlayer] 的**主体**（原来就在这个方法名下面 ✅ 逐字搬来、只改了名字 ✅）。
+  Future<void> _initPlayerOnce() async {
     // 起播时把「当前篇内序号」对齐到 switcher：续播起点不是第 1 集时（例：第 3 集 ✓），
     // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
     _curIndex = widget.switcher?.index.value ?? 0;

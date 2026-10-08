@@ -83,6 +83,11 @@ class ArticleDetail {
 
   final String seriesPrefix; // 系列前缀（如"良子重生绑定系统"），非系列文章为空
 
+  /// ★ 2026-10-06（**通用槽位**）：详情页标题下面那行**站点自定的元信息** ——
+  ///   例：野果短剧的「连载中 · 播放 38W · 追剧 36931」（由**站点文件**拼好传进来 ✅）。
+  ///   空串 = 不显示 ✅ ⇒ 现有站点默认空 ⇒ **行为零变化** ✅。
+  final String metaLine;
+
   ArticleDetail({
     required this.title,
     required this.time,
@@ -94,5 +99,6 @@ class ArticleDetail {
     this.related = const [],
     this.duration = '',
     required this.seriesPrefix,
+    this.metaLine = '',
   });
 }

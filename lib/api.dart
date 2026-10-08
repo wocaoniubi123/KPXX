@@ -19,6 +19,7 @@ import 'sites/kmsvip.dart';
 import 'sites/madou.dart';
 import 'sites/wordpress.dart';
 import 'sites/xhamster.dart';
+import 'sites/yeguodj.dart';
 import 'sites.dart';
 
 /// 站点抓取层。按 [SiteEntry.template] 分派到各站模板的解析规则：
@@ -95,6 +96,9 @@ class Api {
         // `lib/sites/xhamsterlive.dart` 里自己实现 ✓（界面上也不会有人把它交给 HomePage：
         // 它 `group: SiteGroup.live` ✓，只从底栏「直播」进 ✓）
         SiteTemplate.xhamsterlive => null,
+        // 野果短剧（2026-10-08 ✅）：**自管整页**（三主 tab / 分区行 / 5 组筛选在站点文件里 ✅）；
+        // 详情走本站解析 ✅（`YeguoSite.detail` ✅），通用详情页照常 ✅
+        SiteTemplate.yeguodj => _ygSite,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
@@ -128,6 +132,9 @@ class Api {
 
   /// xHamster **本站专属实现**（2026-10-03 站点独立改造 Step B）✓ —— 用同一份取数底座 `_f` ✓
   late final XhSite _xhSite = XhSite(_f);
+
+  /// 野果短剧 **本站专属实现**（2026-10-08 ✅）—— 同一份取数底座 `_f` ✅
+  late final YeguoSite _ygSite = YeguoSite(_f);
 
   /// 切回「短片」tab 时让下一次取数重新随机（`home_page` 会调 ✓；原方法随段搬去了 XhSite ✗）
 

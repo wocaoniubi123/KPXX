@@ -898,6 +898,23 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     super.dispose();
   }
 
+  /// ★ 2026-10-05（用户批准 · 内存 · ②d）：**把"当前那套 controller"收干净** ✅ ——
+  ///   一次只让**一套** AVPlayer 活着（`_c` 当场置 null ⇒ 后面那些 `identical(_c, c)` 判定与
+  ///   失败分支里的 dispose 自然变成 no-op ✅ 不会二次释放）。
+  ///   收尾口径照 [dispose] 里那段（`removeListener` 与 `dispose` **各自**包 try/catch ✅），只是这里要 **await** 完再建新的 ✅。
+  ///   本函数只做"释放"这一件事 ✅ —— 不改任何播放参数/文案/交互 ✅。
+  Future<void> _releaseCurrent() async {
+    final c = _c;
+    _c = null;
+    if (c == null) return;
+    try {
+      c.removeListener(_onTick);
+    } catch (_) {}
+    try {
+      await c.dispose();
+    } catch (_) {}
+  }
+
   /// ③ 显隐 X + **显示后 3 秒自动隐藏** ✓（用户 2026-10-05 拍板；**只隐藏，绝不 pop** ✗）
   /// 同款先例：`player_widget.dart` 的控制条自动隐藏（起 Timer / 再点先 cancel ✓）。
   void _toggleX() {
@@ -985,10 +1002,16 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
     }
   }
 
-  /// 真正把 URL 交给 **AVPlayer**（`video_player` ✓ iOS = AVPlayer ✓）
-  /// ⚠️ `httpHeaders` 带我们的 UA（照 [Site.ua] ✓）—— HLS 请求会带上它 ✓。
+  /// 真正把 URL 交给 **AVPlayer**（`video_player` ✅ iOS = AVPlayer ✅）
+  /// ⚠️ `httpHeaders` 带我们的 UA（照 [Site.ua] ✅）—— HLS 请求会带上它 ✅。
+  ///
+  /// ★ 2026-10-05（用户批准 · 内存 · ②d）：**进门前先把上一套 controller 收干净** ✅ ——
+  ///   原来直接 new 一个覆盖 `_c` ☑️ ⇒ 旧的那套（网络 + 解码器）没人收；而失败回退会**第二次**进本函数
+  ///   （最高档失败 → master、缓存回退 → `_checkAndPlay`）⇒ **两套 AVPlayer 同时活着**。
+  ///   ⚠️ 只影响"同时活着的套数"✅：URL、UA、超时、⑤⑥⑦ 日志、`_c`/`_onTick` 的接线口径**一字未改** ✅。
   Future<void> _open(String url, int id, {required bool allowFallback}) async {
     if (!mounted) return;
+    await _releaseCurrent(); // ★ ②d：先收旧、再建新（一次只让**一套** AVPlayer 活着 ✅）
     final c = VideoPlayerController.networkUrl(
       Uri.parse(url),
       httpHeaders: <String, String>{'User-Agent': Site.ua},

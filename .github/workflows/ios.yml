@@ -117,6 +117,18 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 导出背景图到系统相册时需要保存权限" Runner/Info.plist || \
             /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 导出背景图到系统相册时需要保存权限" Runner/Info.plist
           grep -n "NSPhotoLibraryAddUsageDescription" Runner/Info.plist
+          # ★ 2026-10-08（用户要求 ✓）：**让 App 的 Documents 出现在「文件」App 里** ✅ ——
+          #   目的：直接在「文件 → 我的 iPhone → KPXX」里看 `kpxx_error.log` ✓（不用再走 设置→诊断→导出 ✓）。
+          #   ⚠️ **两个键都要** ✓：`UIFileSharingEnabled`（显示名「应用支持 iTunes 文件共享」）
+          #   + `LSSupportsOpeningDocumentsInPlace`（「就地打开文稿」）—— 缺后者就不会出现在
+          #   「文件」App 的「我的 iPhone」里 ✗。只暴露 `Documents/` ✓（Library/Caches 不会露 ✓）。
+          #   代价（已知 ✓）：用户可在「文件」里改/删 `Documents/` 里的文件 ✗（日志被删=无事 ✓；
+          #   背景图被删那张就加载失败 ✓ 属可接受）。
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Runner/Info.plist
+          grep -n "UIFileSharingEnabled\|LSSupportsOpeningDocumentsInPlace" Runner/Info.plist
           # ⚠️ **关掉 Impeller**（用户 2026-10-02 报"软件有时候会字体会变成这样"——花字，
           # 跨控件、偶发，截图里顶部通知条/图标标签/底部文字块同时花 ✗）。
           # 判断依据（**推断 🔍，不是已确认**）：

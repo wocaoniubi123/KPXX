@@ -86,12 +86,32 @@ class _FetchedImageState extends State<FetchedImage> {
   static final Map<String, Uint8List> _cache = {};
   static final Map<String, Future<Uint8List?>> _inflight = {};
   static const int _maxCache = 400;
-  /// #2 ✓（2026-10-03 用户拍板）：内存缓存按**字节**封顶 ✗（原来只看张数 ✗）
-  /// **图片内存上限 64MB：实测封面中位 52.1KB（sim-dev 2026-10-04，13 张多站样本）。**
-  /// 400 张 × 中位 = 20.3MB；64MB = 400 × 164KB = 中位的 3 倍余量，作硬上界防大图爆发。
+  /// #2 ✅（2026-10-03 用户拍板）：内存缓存按**字节**封顶（原来只看张数 ☑️）
+  /// **图片内存上限 96MB：实测封面中位 52.1KB（sim-dev 2026-10-04，13 张多站样本）。**
+  /// 400 张 × 中位 = 20.3MB；96MB = 400 × 245KB = 中位的 4.7 倍余量，作硬上界防大图爆发。
   /// p90(425.3KB) 满 400 张需 166.1MB、最大(464.8KB) 需 181.6MB —— 不按极端值设（iPhone 有 jetsam 风险）。
-  /// 实测最小 4.3KB、最大 464.8KB ✓
-  static const int _maxBytes = 64 * 1024 * 1024;
+  /// 实测最小 4.3KB、最大 464.8KB ✅
+  /// ★ 2026-10-05（用户批准 · 内存 · ③a）：**64MB → 96MB** ✅（用户点头 ✅）；同时把**字节闸**从"条数条件"里挪出来 ✅
+  ///   —— 原来只有 `_cache.length >= _maxCache`（400 张）时才顺带按字节淘汰 ☑️ ⇒ 不到 400 张时**永不按字节淘汰**（大图只涨不落）。
+  static const int _maxBytes = 96 * 1024 * 1024;
+
+  /// ★ 2026-10-05（③a）：`_cache` 当前**总字节**（**增量维护** ✅ 写入 +len、淘汰 -len）——
+  ///   不再每次写入都全量累加（那是 O(n) ☑️ 从条件里挪出来后会变成每次写入都跑）。
+  static int _cacheBytes = 0;
+
+  /// 按「条数 + 字节」双闸淘汰：**只从头砍最久没用的**，砍到合规为止 ✅
+  ///   ⚠️ 两处写入（网络/解密那张、磁盘命中那张）**共用**这一个函数 ✅ ⇒ ③a 的"每次写入后都检查"两处都成立 ✅
+  ///   ⚠️ 只计入"实际从 `_cache` 里移除的字节"（`remove` 的返回值 ✅）⇒ 增量口径不会漂。
+  /// 返回淘汰张数（给日志用 ✅）。
+  static int _evict() {
+    var n = 0;
+    while (_cache.isNotEmpty &&
+        (_cache.length > _maxCache || _cacheBytes > _maxBytes)) {
+      _cacheBytes -= _cache.remove(_cache.keys.first)?.length ?? 0;
+      n++;
+    }
+    return n;
+  }
 
   Uint8List? _bytes;
   bool _error = false;
@@ -129,6 +149,13 @@ class _FetchedImageState extends State<FetchedImage> {
   /// 只对**当前这份字节**挂一次尺寸监听 ✓ —— 在 `build` 里调 ✓（同一份 ⇒ 直接返回 ✓ 不会每帧挂一个 ☠）。
   ///   ⚠️ 挂上后**不在这里等结果** ✓：结果由回调丢到**帧后**处理 ✓（见下面那两行注释 ✓）。
   void _watchSize() {
+    // ★ 2026-10-05（用户批准 · 内存 · ③b）：**没人要尺寸就别解** ✅ ——
+    //   本函数唯一的产物就是 `widget.onImageInfo`（全仓只有下面回调里那一处消费它 ✅；
+    //   真要用尺寸的调用方都显式传了：`online_album_common.dart:174 / :1020` ✅）。
+    //   为它 `MemoryImage(b).resolve(...)`（下面那行）会让**同一份字节再全尺寸解码一份**驻留 ☑️
+    //   —— 而绘制那边 `Image.memory`（见 `build` 里）本来就会自己解一份 ✅
+    //   ⇒ 没传回调就直接返回（不挂监听、不多解一份）。
+    if (widget.onImageInfo == null) return;
     final b = _bytes;
     if (b == null || identical(b, _sizeBytes)) return;
     _unwatchSize();
@@ -175,7 +202,10 @@ class _FetchedImageState extends State<FetchedImage> {
     await ImageDiskCache.i.init(); // 幂等 ✓
     final disk = ImageDiskCache.i.take(url);
     if (disk != null) {
-      _cache[url] = disk; // 顺手进内存缓存 ✓
+      _cache[url] = disk; // 顺手进内存缓存 ✅
+      // ★ 2026-10-05（③a）：磁盘命中也是"写入" ⇒ 走同一套「条数 + 字节」双闸 ✅
+      _cacheBytes += disk.length;
+      _evict();
       // 看：这张图命中磁盘缓存（冷启动第一张常走这里）⇒ 没有下载、没有解密。
       if (AppSettings.i.logConsole) debugPrint('[IMG] 命磁盘 字节=${disk.length} host=${Uri.tryParse(url)?.host ?? '?'}');
       if (!mounted) return;
@@ -319,23 +349,18 @@ class _FetchedImageState extends State<FetchedImage> {
       debugPrint('[IMG] 落盘+入内存缓存 len=${img.length} 缓存条数=${_cache.length + 1} '
       'host=${Uri.tryParse(url)?.host ?? '?'}');
     }
-    if (_cache.length >= _maxCache) {
-      // #1+#2 ✓：LRU（命中已挪队尾 ✓）+ 字节封顶 → **只从头砍最久没用的**，砍到合规为止 ✗
-      // （原来一次丢 100 张 ✗ → 屏幕上的图会被丢 → 立刻重下 + 重解密 ✗）
-      var totalBytes = 0;
-      for (final v in _cache.values) {
-        totalBytes += v.length;
-      }
-      var evicted = 0; // ★【常驻诊断】只计数 ✓ 不改淘汰规则 ☠
-      while (_cache.isNotEmpty &&
-          (_cache.length > _maxCache || totalBytes > _maxBytes)) {
-        totalBytes -= _cache.remove(_cache.keys.first)?.length ?? 0;
-        evicted++;
-      }
-      // ★【常驻诊断】淘汰了几个/剩多少（条数上限 $_maxCache / 字节上限 $_maxBytes ✓）
-      if (AppSettings.i.logConsole) debugPrint('[IMG] LRU 淘汰 $evicted 张 ⇒ 剩=${_cache.length} 张 剩字节=$totalBytes');
-    }
+    // ★ 2026-10-05（用户批准 · 内存 · ③a）：**字节闸从"条数条件"里挪出来** ✅ ——
+    //   原来外面套着 `if (_cache.length >= _maxCache)`（400 张）⇒ 不到 400 张就**永不按字节淘汰** ☑️
+    //   （大图场景内存只涨不落）。现在**每次写入后**都走双闸 ✅（[`_evict`] ✅ 只从头砍最久没用的）；
+    //   ⚠️ 字节改为**增量维护**（`_cacheBytes` ✅）⇒ 每次写入 O(1)（原来是每次全量累加、O(n) ☑️）。
+    _cacheBytes += img.length; // 本次要写入的那张（下面淘汰完才落进 `_cache` ✅）
     _cache[url] = img;
+    final evicted = _evict(); // ★【常驻诊断】只计数 ✅ 不改淘汰规则
+    // ★【常驻诊断】只在**真淘汰过**时打（条数上限 $_maxCache / 字节上限 $_maxBytes ✅）
+    //   ⚠️ 原来这条只可能在"≥400 张"时打；现在挪到每次写入 ⇒ 必须加 `evicted > 0` 守卫，免得刷屏 ☑️
+    if (AppSettings.i.logConsole && evicted > 0) {
+      debugPrint('[IMG] LRU 淘汰 $evicted 张 ⇒ 剩=${_cache.length} 张 剩字节=$_cacheBytes');
+    }
     return img;
   }
 

@@ -1,6 +1,7 @@
 
 import '../app_background.dart';
 import '../models.dart';
+import '../sites.dart' show SiteEntry; // ★ 通用槽位 [SiteUi.sitePage] 要用（只为类型 ✅ 循环 import 本项目允许 ✓）
 import 'package:flutter/material.dart';
 
 /// A2（2026-10-05 重构）：标签弹窗的**公共外壳** —— 只统一尺寸与滚动
@@ -152,6 +153,25 @@ abstract class SiteUi {
   ///
   /// ⚠️ 各站判定**不同** ✗，所以判定本身下放到站点 ✓（不是在 UI 里 if 模板 ✓）。
   String? specialTap(String url) => null;
+
+  /// ★ 2026-10-06（**新增 · 通用槽位**）：站点**自管整页** —— 返回非 `null` ⇒ `HomePage` 直接显示它 ✅
+  ///
+  /// 用途：本站的顶部 tab / 分区行（每区 4 条 + 「查看更多」）/ 自定义筛选组（5 组这类）
+  /// 这种**站点专有版式**，由站点文件自己实现（野果短剧 = 第一个用它的 ✅）。
+  /// 默认 `null` ⇒ 走通用「tab + 分页列表」✅ ⇒ **未覆写的站点一行都不用改、行为零变化** ✅。
+  /// ⚠️ 底座只做"要不要用"这一句判断 ✗ —— 站名/URL/解析/分区/筛选**一概不进底座** ✅
+  /// （见 DEVLOG 顶部「写死的规则」✅）。
+  Widget? sitePage(BuildContext context, SiteEntry site) => null;
+
+  /// ★ 2026-10-08（**新增 · 通用槽位**）：详情页「相关推荐」那一块的**标题** ✅
+  /// 空串 ⇒ 底座用默认的「相关推荐」✅（站点可给真站叫法，如野果的「猜你喜欢」✅）。
+  String get relatedTitle => '';
+
+  /// ★ 2026-10-08（**新增 · 通用槽位**）：「相关推荐」的**版式** ✅
+  /// `false` = 底座老路（竖排单列 · 108×61 横缩略图 · 不显示角标 ✅）；
+  /// `true` = **3 列竖版网格 + 封面右下角角标**（复用现成的 `ArticleCard` ✅ —— 野果短剧用 ✅）。
+  /// ⚠️ 默认 `false` ⇒ 未覆写的站点**行为零变化** ✅
+  bool get relatedAsGrid => false;
 
   /// 分类选择器是否按**分组**展示（xHamster 有 40 个演员分类分组 ✓）。
   bool get hasCatGroups => false;
