@@ -165,7 +165,24 @@ class KpPlayer extends ValueNotifier<KpState> {
         }
         value = value.copyWith(duration: v);
       }),
-      _p.stream.playing.listen((v) => value = value.copyWith(playing: v)),
+      // ★ 2026-10-08（本批修 ✓ · 用户实报 + 日志实锤）：**用户意图优先** ——
+      //   media_kit 在 `pause()` 之后**仍然会报 `playing = true`** ☠（真机日志：连点 10 次暂停，
+      //   控件那侧读到的 `当前playing` **一直是 true** ✗）⇒ 引擎的值会把"用户按了暂停"冲掉 ✗
+      //   ⇒ 按钮图标不换、再点又判"当前在播" ⇒ **又一次 pause()** ☠
+      //   ⇒ 所以「用户明确按过暂停」时，**引擎报"在播"一律不认** ✓；
+      //     引擎报 `false`（真停了）照收 ✓；用户按下播放后 `_userPaused` 复位 ⇒ 之后照常收 ✓。
+      //   ⚠️ 看门狗不看这个字段（它读 `_userPaused` + 位置 ✓）⇒ 这条只影响按钮状态显示 ✓。
+      _p.stream.playing.listen((v) {
+        if (_userPaused && v) return; // 用户暂停过 ⇒ 引擎说"在播"也不认（否则状态被冲掉 ☠）
+        // ★【常驻诊断·关键】**引擎自己**把 `playing` 置成 false（不是用户按的）——
+        //   "返回后视频看着播了一下又停"要看的正是这条 ✓（它说明是引擎/会话侧停了，不是我们发的 pause ✓）
+        if (!v && !_userPaused && value.playing) {
+          if (AppSettings.i.logConsole) {
+            debugPrint('[PLAY] 引擎自行停止（非用户暂停）pos=${value.position.inMilliseconds}ms buffering=${value.buffering}');
+          }
+        }
+        value = value.copyWith(playing: v);
+      }),
       // ★【常驻诊断·★】缓冲起/止（卡顿判据 ✓ 只在变化时打 ✓ 防刷屏 ☠）
       _p.stream.buffering.listen((v) {
         if (v != value.buffering) {

@@ -221,6 +221,12 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     // ★【常驻诊断】续播排期（300ms 等退场动画 ✓ 这一段里播放器是暂停着的 ✓）
     if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 排 300ms 后 switcher.resume()（等退场动画走完）');
     // ⚠️ 等退场动画走完再续播（≈ `await push` 那套的时机 ✅）：否则会跟被弹出页最后那点声音叠一下 ☑️
+    // ☑️ 2026-10-08 复核（读日志 + 逐行核查代码后**撤回**一个改动）：曾把这里改成 1200ms，
+    //    依据是"两个 mpv 双播 1 秒、先起的会被顶停"—— **那条不成立** ✗：
+    //    ① 全套 dispose 路径里**没有**任何全局对象（`VideoCache`/`SourceCache`/`MediaKit`/`AudioSession` 全 grep 过 ✓）；
+    //    ② 日志里 A 的 `wakelock` 从 2 掉到 1 是 **B 释放自己**、A 那一路没被顶 ✓；
+    //    ③ A 的 `pos` 在那一秒里**确实前进了**（18556→19589ms ✓）= 续播成功 ✓。
+    //    ⇒ 所以 300ms 本来是对的 ✓，改回 300ms（别让续播白等 0.9 秒 ✗）。
     Future.delayed(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       // ★【常驻诊断】排期到点：这一刻才真正续播 ✓
