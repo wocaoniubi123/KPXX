@@ -80,6 +80,13 @@ jobs:
           s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;',
                         'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = Z8J7VYHQZF;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
                         + os.environ.get('PROFILE_NAME', '') + '";')
+          # ⚠️ 2026-10-08（用户要求 ✓）：把**进程名**从模板默认的 `Runner` 改成 `KPXX` ✓ ——
+          #   iOS「设置 → 隐私与安全性 → 分析与改进 → 分析数据」里的文件名取的是**进程名**
+          #   ⇒ 改完是 `KPXX-<日期>-<时分秒>.ips` ✓（模板里 `CFBundleName` = `$(PRODUCT_NAME)` ⇒ 一起变 ✓）。
+          #   ⚠️ 只影响**以后**产生的日志 ✗（旧文件仍叫 `Runner-…` ✓）；模板里 `RunnerTests` 那个 target
+          #   用的是同一个占位串 ⇒ 会一起被改名（我们不跑单测、archive 也不编它 ⇒ 实测无影响 ✓，CI 若报错
+          #   就按这一行回退 ✓）。
+          s = s.replace('PRODUCT_NAME = "$(TARGET_NAME)";', 'PRODUCT_NAME = KPXX;')
           # media_kit(libmpv) 需要 iOS 13+，部署目标一并提到 13.0
           s = re.sub(r'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;',
                      'IPHONEOS_DEPLOYMENT_TARGET = 13.0;', s)
@@ -123,6 +130,24 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :FLTEnableImpeller false" Runner/Info.plist
           grep -n "FLTEnableImpeller" Runner/Info.plist
           grep -n "PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_STYLE\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE\|DEVELOPMENT_TEAM" Runner.xcodeproj/project.pbxproj | head -12
+          grep -n "PRODUCT_NAME = KPXX;" Runner.xcodeproj/project.pbxproj | head -6
+          # 自证：进程名确实改成了 KPXX（一处都没有就**当场失败** ✗ —— 分析数据文件名靠它 ✓）
+          grep -q "PRODUCT_NAME = KPXX;" Runner.xcodeproj/project.pbxproj || { echo "::error::PRODUCT_NAME 未改成 KPXX（分析日志名不会变）"; exit 1; }
+
+      - name: 替换 App 图标（ios_icon/ ⇒ Runner/Assets.xcassets/AppIcon.appiconset）
+        run: |
+          SET=ios/Runner/Assets.xcassets/AppIcon.appiconset
+          echo "--- 模板自带（替换前）---"; ls -1 "$SET" | head -25
+          cp -f ios_icon/Icon-App-*.png "$SET"/
+          echo "--- 替换后 ---"; ls -1 "$SET" | head -25
+          # 每个图标都必须被模板的 Contents.json 引用；有一个没被引用就**当场失败** ✗（不静默）
+          for f in ios_icon/Icon-App-*.png; do
+            n=$(basename "$f")
+            grep -q "\"$n\"" "$SET/Contents.json" || { echo "::error::Contents.json 未引用 $n —— 图标没生效"; exit 1; }
+          done
+          echo "15 个图标全部被 Contents.json 引用 ✓"
+          # 尺寸核对：1024 那张必须是 1024×1024（App Store 尺寸，iOS 必需）
+          python3 -c "import struct,sys; d=open('$SET/Icon-App-1024x1024@1x.png','rb').read(33); w,h=struct.unpack('>II',d[16:24]); print('1024 图实际尺寸 =',w,'x',h); sys.exit(0 if (w,h)==(1024,1024) else 1)"
 
       - name: 生成导出选项 (Ad-hoc)
         run: |

@@ -20,3 +20,4 @@ release/
 
 # 模拟器临时抓取文件（排查用，不入库）
 sim/tmp_*
+DEVLOG_backup*.md

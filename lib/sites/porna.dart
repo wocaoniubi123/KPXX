@@ -102,7 +102,12 @@ class PornaSite extends SiteUi {
           String? sort,
           List<MapEntry<String, String>>? extra,
           Future<List<Article>> Function({int page})? home}) =>
-      list(key, page: page);
+      // ⚠️ 2026-10-07 修：**必须用 `k`** ✗ —— `api.dart:155-157` 已经把
+      //   `sub2 ?? sub ?? key`（二级子分类 > 一级子分类 > 主分类 tab）合并成 `k` 传下来 ✓；
+      //   原先这里只吃 `key` ✗ ⇒ 同一主分类 tab 下点任何「分类标签」发出的 **URL 完全相同**
+      //   ⇒ 列表全一样（用户实测报的就是这个 ✗）。
+      // 本文件其它站（蜜桃/黑料/ms/小说）的 `categories` 是空的 ⇒ 走不到这里 ✓。
+      list(k ?? key, page: page);
   // 91porna
 
   /// 列表：按路径分三种页面类型（都是服务端渲染，取到就能用）：
