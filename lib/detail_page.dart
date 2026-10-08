@@ -218,19 +218,19 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 已 showControls() → 续播判定 pausedByPush=$_pausedByPush');
     if (!_pausedByPush) return;
     _pausedByPush = false;
-    // ★【常驻诊断】续播排期（300ms 等退场动画 ✓ 这一段里播放器是暂停着的 ✓）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 排 300ms 后 switcher.resume()（等退场动画走完）');
-    // ⚠️ 等退场动画走完再续播（≈ `await push` 那套的时机 ✅）：否则会跟被弹出页最后那点声音叠一下 ☑️
-    // ☑️ 2026-10-08 复核（读日志 + 逐行核查代码后**撤回**一个改动）：曾把这里改成 1200ms，
-    //    依据是"两个 mpv 双播 1 秒、先起的会被顶停"—— **那条不成立** ✗：
-    //    ① 全套 dispose 路径里**没有**任何全局对象（`VideoCache`/`SourceCache`/`MediaKit`/`AudioSession` 全 grep 过 ✓）；
-    //    ② 日志里 A 的 `wakelock` 从 2 掉到 1 是 **B 释放自己**、A 那一路没被顶 ✓；
-    //    ③ A 的 `pos` 在那一秒里**确实前进了**（18556→19589ms ✓）= 续播成功 ✓。
-    //    ⇒ 所以 300ms 本来是对的 ✓，改回 300ms（别让续播白等 0.9 秒 ✗）。
-    Future.delayed(const Duration(milliseconds: 300), () {
+    // ★【常驻诊断】续播排期（1200ms：等**新页面彻底销毁完**再恢复 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 排 1200ms 后 switcher.resume()（等新页面销毁完 + 退场动画）');
+    // ★ 2026-10-08（本批修 ✓ · 用户实报 + 日志时序）：**延迟 300ms → 1200ms** ——
+    //   `resume()` 虽然被调了（日志有「播放 触发源=RouteAware」✓）但**视频没有播起来** ✗：
+    //   它和**新详情页的销毁撞在同一秒**（21:39:09 恢复 → 21:39:10 B 的 `_p.dispose()` ✓）——
+    //   iOS 上销毁一个 mpv 实例会动全局音频会话，把刚恢复的那一路打断 ☠（且引擎侧无日志 ☠）。
+    //   用户实报：「返回之后没有自动续播」「动了 1 秒又停止」✓ ⇒ 时序错开 ✓。
+    //   ⚠️ 1.2.6 曾改过 1200ms 又被撤回 —— 那次撤回的**依据**（"dispose 不碰全局所以无影响"）是错的 ✗：
+    //      不碰我们自己的全局对象 ≠ 不碰 iOS 的全局音频会话 ✓。这次依据是**日志时序** ✓。
+    Future.delayed(const Duration(milliseconds: 1200), () {
       if (!mounted) return;
       // ★【常驻诊断】排期到点：这一刻才真正续播 ✓
-      if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 300ms 到 → switcher.resume()');
+      if (AppSettings.i.logConsole) debugPrint('[DETAIL] didPopNext 1200ms 到 → switcher.resume()');
       _switcher?.resume(); // 播放器那侧监听到 ⇒ 调 `play()`（用户意图 ✅）
     });
   }

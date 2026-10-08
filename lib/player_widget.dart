@@ -173,6 +173,13 @@ class KpPlayer extends ValueNotifier<KpState> {
       //     引擎报 `false`（真停了）照收 ✓；用户按下播放后 `_userPaused` 复位 ⇒ 之后照常收 ✓。
       //   ⚠️ 看门狗不看这个字段（它读 `_userPaused` + 位置 ✓）⇒ 这条只影响按钮状态显示 ✓。
       _p.stream.playing.listen((v) {
+        // ★【常驻诊断·关键】引擎报的**每一个** playing 值都留痕（这个流只在变化时发 ⇒ 天然不刷屏 ✓）——
+        //   "按钮状态被冲回在播"要看的正是「引擎什么时候报了 true」✓（这是绕了三轮才补上的判据 ✗）
+        if (AppSettings.i.logConsole) {
+          final blocked = _userPaused && v;
+          debugPrint('[PLAY] 引擎 playing=$v（_userPaused=$_userPaused 状态里旧值=${value.playing}）'
+              '${blocked ? ' ⇒ 拦下（用户暂停过，不采纳）' : ' ⇒ 采纳'}');
+        }
         if (_userPaused && v) return; // 用户暂停过 ⇒ 引擎说"在播"也不认（否则状态被冲掉 ☠）
         // ★【常驻诊断·关键】**引擎自己**把 `playing` 置成 false（不是用户按的）——
         //   "返回后视频看着播了一下又停"要看的正是这条 ✓（它说明是引擎/会话侧停了，不是我们发的 pause ✓）
@@ -517,7 +524,10 @@ class KpPlayer extends ValueNotifier<KpState> {
   ///   ⇒ 修法：先按用户意图置位（界面立刻响应 ✓）；引擎的流随后到达时会覆盖它（如果它会发 ✓）。
   ///   ⚠️ 不做无谓通知：值没变就不置位 ✓。
   void _syncPlayingFlag(bool v) {
-    if (value.playing != v) value = value.copyWith(playing: v);
+    if (value.playing == v) return;
+    // ★【常驻诊断】主动置位也要留痕（"置了没生效/被谁改回去"就看这一对日志 ✓）
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 主动置位 playing：${value.playing} → $v');
+    value = value.copyWith(playing: v);
   }
 
   Future<void> play() {
@@ -2045,6 +2055,15 @@ class _ControlBarState extends State<_ControlBar> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: enabled ? onPressed : null,
+      // ★【常驻诊断】按下那一刻的**坐标 + 是否禁用态** —— "控件按不动"要能分清
+      //   「手指根本没落在按钮上」还是「点到了、回调却没跑」✓（坐标能和屏幕位置对上 ✓）。
+      //   ⚠️ `onTapDown` 在 `onTap == null`（禁用）时**照样触发** ✓ ⇒ 禁用态也会留痕 ✓。
+      onTapDown: (d) {
+        if (AppSettings.i.logConsole) {
+          debugPrint('[PLAY] 控件按钮按下 icon=${icon.codePoint} at=${d.globalPosition.dx.toStringAsFixed(0)},'
+              '${d.globalPosition.dy.toStringAsFixed(0)} enabled=$enabled');
+        }
+      },
       // 控件放大一倍（用户要求）：图标 20→40、点击区 40×26→56×44
       child: SizedBox(
         width: 56,
@@ -2089,9 +2108,16 @@ class _ControlBarState extends State<_ControlBar> {
                     _barBtn(
                       icon: s.playing ? Icons.pause : Icons.play_arrow,
                       onPressed: () {
-                        // ★【常驻诊断】触发源=用户按钮（控制条，内嵌/全屏共用本组件 ✓）
-                        if (AppSettings.i.logConsole) debugPrint('[PLAY] ${s.playing ? '暂停' : '播放'} 触发源=用户按钮(控制条) 当前playing=${s.playing} 动作=${s.playing ? 'pause()' : 'play()'} 全屏控件=${!widget.showFullscreen}');
-                        s.playing ? widget.player.pause() : widget.player.play();
+                        // ★ 2026-10-08（本批修 ✓ · 日志实锤）：**动作改为点击时实时读** ——
+                        //   原来读闭包捕获的 `s.playing`（= 界面上次 build 时的快照）☠ ——
+                        //   真机实锤：控件条整段没重建的 11 秒里，连点 10+ 次**全部**读到旧的 true ⇒
+                        //   点「播放」它一直发 `pause()`，直到双击（手势是点击时实时读）才恢复 ✓。
+                        //   ⇒ 现在**动作**不依赖界面刷新：点的那一刻实时读引擎当前值 ✓（图标仍按 `s` 画 ✓）。
+                        final live = widget.player.value.playing;
+                        if (AppSettings.i.logConsole) {
+                          debugPrint('[PLAY] ${live ? '暂停' : '播放'} 触发源=用户按钮(控制条) 快照playing=${s.playing} 实时playing=$live 动作=${live ? 'pause()' : 'play()'} 全屏控件=${!widget.showFullscreen}');
+                        }
+                        live ? widget.player.pause() : widget.player.play();
                       },
                     ),
                     // 下一集：篇内没有下一个视频时置灰禁用
