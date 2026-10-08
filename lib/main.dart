@@ -41,7 +41,23 @@ void main() {
   // ★ 2026-10-05（用户口径变更 ✓）：**不再把框架错误写进错误日志** ✗ —— 只保留框架默认的控制台呈现
   //   （`presentError` ✓）；要查输出时用设置页的「控制台日志」开关 + 复现一次 ✓。
   //   ⚠️ 下面这块与 `:30-35` 的 `debugPrint` 接管**互不相干** ☠（那是开关生效的唯一通路，动不得 ✓）。
+  // ★ 2026-10-08（本批 ✓）：**把框架异常的原文写进日志** —— 原来只 `presentError`（只进 Xcode 控制台 ✗），
+  //   真机日志里就只剩一句 `Instance of 'DiagnosticsProperty<void>'`（Flutter 自己构造诊断信息时失败 ✗）
+  //   ⇒ **等于看不到异常到底是什么** ☠（用户实报：每次退出详情页都出现这一句，`[DETAIL] dispose` 紧随其后 ✓）。
+  //   现在守卫内补两条：异常原文 + 堆栈 ✓；打印本身用 try 兜住 ✓ ——
+  //   就算它连 `toString()` 都抛，也至少留一条"打印不出来"的痕迹 ✓，不会再是一片空白 ☠。
+  //   ⚠️ `presentError` **保留**（框架原有的控制台呈现一字不动 ✓）；关着开关时这里只多一次 bool 判断 ✓。
   FlutterError.onError = (d) {
+    if (AppSettings.i.logConsole) {
+      try {
+        final es = '${d.exception}';
+        debugPrint('[ERR] 框架异常 ${es.length <= 300 ? es : es.substring(0, 300)}');
+        final st = d.stack;
+        if (st != null) debugPrint('[ERR] 框架异常堆栈 ${st.toString()}');
+      } catch (e) {
+        debugPrint('[ERR] 框架异常打印不出来（$e）');
+      }
+    }
     FlutterError.presentError(d);
   };
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 播放记录加载（PlayHistory）开始');

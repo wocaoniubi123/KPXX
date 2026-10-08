@@ -553,8 +553,18 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     // 整页跟着背景明暗重建（顶栏 / 标题 / 小字 / 小节标题都读 kTxt）。
     // ⚠️ 必须在 builder 里重建页面：把 widget 实例直接交给 builder，
     // Flutter 会因"实例相同"跳过整棵子树的重建，isDark 翻了也不会刷。
+    // ★ 2026-10-08（本批修 ✓ · 用户实报 + 日志实锤）：**同时监听篇内序号** ——
+    //   原来只听 `AppBg.i` ✗ ⇒ 点「下一集 / 上一集」时 `switcher.index` 确实变了 ✓，
+    //   但**没有任何东西让本页重建** ☠ ⇒ `sources` 还是旧的、播放器收不到新 widget
+    //   ⇒ `didUpdateWidget` 不触发 ⇒ **换集看起来"按不动"** ✓
+    //   （用户实报：返回后 播放暂停 / 上一集 / 下一集 都按不动；而两个全屏按钮有效 ——
+    //    因为它们**直接 push 路由**，顺手把整页逼着重建了一次 ✓）。
+    //   日志铁证：`下一集 … 动作=next()` 之后一直静默，直到进全屏那一刻才冒出
+    //   `didUpdateWidget index=1 换片=true` ✓。
+    //   ⚠️ `_switcher` 还没建好时传 null 项（`Listenable.merge` 会忽略 null ✓）；
+    //   `_switcher` 换新实例时本行会重新订阅 ✓（listenables 变了 ⇒ builder 自己换订阅 ✓）。
     return ListenableBuilder(
-      listenable: AppBg.i,
+      listenable: Listenable.merge(<Listenable?>[AppBg.i, _switcher?.index]),
       builder: (context, _) => _pageView(context),
     );
   }

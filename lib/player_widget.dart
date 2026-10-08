@@ -489,10 +489,25 @@ class KpPlayer extends ValueNotifier<KpState> {
   ///   ⚠️ 置位点 = [_openFullscreen] push **之前**；复位点 = 那次 push 的 `whenComplete`（含异常路径 ✅）。
   bool fullscreenOpen = false;
 
+  /// ★ 2026-10-08（本批修 ✓ · **用户实报 + 日志实锤**）：**按用户意图主动置位 `playing`**。
+  ///   依据（日志里可复现，不是推断）：`pause()` 之后控件那侧读到的 `playing` **一直是 true** ——
+  ///   连点 4 次暂停，四条日志全是 `当前playing=true` ✓，而 wakelock 早已掉到 0（引擎**确实**停了）✓。
+  ///   ⇒ 根因：media_kit 的 `stream.playing` 在暂停/恢复那一刻**不总会更新** ☠。后果三条：
+  ///     ① 播放/暂停按钮的**图标不换** ⇒ 看着像"点不动" ✓；
+  ///     ② 再点一次仍判"当前在播" ⇒ **又调一次 `pause()`** ⇒ 想播却一直在暂停 ☠；
+  ///     ③ 用户只有**滚动页面**（触发重建）才把它"刷出来" ⇒ 表现为「**必须划到上面才能按**」✓。
+  ///   ⚠️ 为什么全屏按钮不受影响：它的 `onPressed` **直接调动作、不读状态** ✓ ⇒ 永远有反应 ✓。
+  ///   ⇒ 修法：先按用户意图置位（界面立刻响应 ✓）；引擎的流随后到达时会覆盖它（如果它会发 ✓）。
+  ///   ⚠️ 不做无谓通知：值没变就不置位 ✓。
+  void _syncPlayingFlag(bool v) {
+    if (value.playing != v) value = value.copyWith(playing: v);
+  }
+
   Future<void> play() {
     // 看：谁在什么时机调了播放（配合"自动重试/看门狗"几条看是不是被反复拉起）。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放');
     _userPaused = false;
+    _syncPlayingFlag(true); // ★ 主动置位（见上）—— 按钮图标立刻换、下次点击才会判成"该 pause"
     return _p.play();
   }
 
@@ -505,6 +520,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> autoResume() async {
     if (_userPaused) return; // 用户暂停过 ⇒ 自动路径**不许**再拉起来 ✅
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动续播');
+    _syncPlayingFlag(true); // ★ 同上（口径与 play 一致 ✓）
     await _p.play();
   }
 
@@ -512,6 +528,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 看：谁在什么时机调了暂停（用户操作还是流程自己暂停 ⇒ 与"看门狗"对着看）。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停');
     _userPaused = true;
+    _syncPlayingFlag(false); // ★ 主动置位（见上）—— 否则图标不换、再点又判成"在播"⇒ 又 pause() ☠
     return _p.pause();
   }
 
