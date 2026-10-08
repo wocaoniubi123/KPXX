@@ -394,6 +394,13 @@ class KpPlayer extends ValueNotifier<KpState> {
     _noFrameMs = 0; // ⚠️ 2026-10-05：首帧前那条 12 秒兜底也**随换源归零** ✓（每条源各算各的 ✓）
     _startupErrPending = false; // 首帧前那条 3 秒宽限同理：新源重新算 ✓（上一条源的偶发不作数 ✓）
     _errHoldMs = 0;
+    // ★ 2026-10-08 修（用户报"点推荐视频返回后不续播"✗ · 已核实的根因之一）：
+    //   `open` **一律按 `play: true` 起播** ✓ ⇒ 打开新源这一刻，"用户意图"就是**在播** ✅，
+    //   所以必须把 `_userPaused` 复位 ✗ —— 否则它会被上游那次**内部** pause 污染 ☠：
+    //   换片（`didUpdateWidget`）/ 换档（`switchSources`）都**先**调过一次 `pause()`
+    //   （本意只是"旧源先停住、别和新源抢声音"✓），那一下会把 `_userPaused` 置成 true ✗，
+    //   于是详情页后来读到的是"用户**主动**暂停过" ✗ ⇒ 跳走不记续播 ⇒ 回来不播 ☠。
+    _userPaused = false;
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
@@ -454,6 +461,18 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// ⚠️ 由**本类自己的** [play]/[pause] 维护 ✓ —— 看门狗（本类构造函数里那个 `_stallTimer`）
   /// 读的就是它 ✓（同一个类，别搬到别处 ✗）。
   bool _userPaused = false;
+
+  /// ★ 2026-10-08（用户报"点推荐视频跳转、返回原详情页，视频不自动续播"✗ · **已核实的根因**）：
+  ///   **"用户意图是不是在播"** —— 详情页 RouteAware 判"跳走这一刻该不该记一笔'回来续播'"
+  ///   **必须**读它 ✅。
+  ///   ⚠️ **绝不能**改用引擎的 `value.playing` ☠ —— 那是**引擎状态**、不是用户意图：
+  ///   · 本文件看门狗那段已写明：**mpv 在缓冲期就会把 `playing` 报成 false** ✓；
+  ///   · 页面被压到栈下面之后，引擎自己停下来（或音频被新页面抢走 ✓）同样会让它变 false ✓。
+  ///   拿它当判据 ⇒ "用户明明在看"被判成"没在播" ✗ ⇒ `_pausedByPush` 不置位 ⇒
+  ///   返回时按 ⑦ 红线判定"这不是我们停的" ⇒ **不续播** ☠（用户实报的现象 ✓）。
+  ///   ⚠️ 语义边界：只有**用户自己**按过暂停（控制条按钮 / 双击中间 / 全屏里的播放键 ✓）
+  ///   才为 true ✅ —— 流程内部的 pause（换片、换档）已由 [open] 复位 ✅。
+  bool get userPaused => _userPaused;
 
   /// ★ 2026-10-08（用户拍板 ⑦ 配套 ✅）：**"全屏路由是不是本实例推上去的"** ——
   ///   全屏页也是 `Navigator.push` 上去的路由 ✅ ⇒ 详情页**必然**收到 `didPushNext` ☑️。
@@ -1553,7 +1572,8 @@ class PlayerWidgetState extends State<PlayerWidget>
       kp.fullscreenOpen = false; // ☠ 第二条复位路径（否则标记会永远挂着）
       rethrow;
     }
-    fut?.whenComplete(() => kp.fullscreenOpen = false);
+    // 此处 fut 必非空：push 同步抛的路径已在上面 catch 里 rethrow ✅（故不用 ?.）
+    fut.whenComplete(() => kp.fullscreenOpen = false);
   }
 
   @override

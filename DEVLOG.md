@@ -144,7 +144,7 @@ App **直连**（不走代理）；本机所有网络操作走系统代理 `127.
 ## 三、版本号（唯一来源 ✓）
 改 **`lib/app_version.dart` 的 `kAppVersion`** 一个常量 ✓ → **包名 / Release 附件名 / 设置页显示三处自动一致** ✓
 （CI 用 `sed` 读它 → ipa 改名 `kpxx-<版本>.ipa`；App **设置页最底下**显示「版本 <版本>」✓）
-**约定：每次构建 +1** ✓（当前 **1.2.3**）
+**约定：每次构建 +1** ✓（当前 **1.2.4**）
 （规则："每段 0~9、满 9 进位" ✓ 见 `lib/app_version.dart` ✓；CI 用"去点"当 `--build-number` ⇒ 1.2.0⇒120 ✓）
 
 ## 四、构建流程（唯一验证手段 ✓）
@@ -2614,6 +2614,47 @@ kp.setMpvOptionQuiet('hwdec', 'no');   // 放在 open() 之前；一行、可回
 - **"看图说话"要落到像素**：两处几何争议，靠"真机截图量 + 源码算"一次定死 ✓（比互相说服快 ✓）。
 - **别用 innerHTML 判界面**（会吃到 `<script>` 文本 ✓）；**别猜函数签名**（读源码/读行的 onclick ✓）。
 - **无头适合核尺寸与交互、可见窗口适合用户中途预览** ⇒ 两者并用 ✓（用户明确要预览 ⇒ 起了可见窗 + 常驻服务 ✓）。
+
+---
+
+## 二十二、2026-10-08 · **1.2.4（构建中）**：推荐视频卡片自适应 + 「返回不续播」根因修复 + warning 清零
+
+### 一、推荐视频卡片：两行标题被裁（用户实报 ✓）
+- 症状：野果 / 黄果详情页的「推荐视频 / 猜你喜欢」3 列卡，**标题两行会被裁** ✗
+- 根因：用的是 `GridView.count(childAspectRatio: 0.62)` ⇒ **高度写死** ⇒ 内容高于该比例就被裁 ☠
+- 修法：改成**交错行**（`Column` + 每行 `IntrinsicHeight` + `Row(crossAxisAlignment: stretch)` ✓）——
+  行高 = 该行最高那张卡 ✓、行内等高 ✓、卡片高**随内容自适应** ✓（即用户要的"取长补短" ✓）
+- ⚠️ **不能直接用 `RowsGrid`** ✗：它内部是 `ListView`（没有 `shrinkWrap`）⇒ 嵌进详情页的滚动视图会"无界高度"报错 ☠
+  （已读它的实现确认 ✓）
+- 落点：`detail_page.dart` 的 `relatedAsGrid` 分支 ✓（野果原有 ✓；黄果本批补 `relatedAsGrid => true` ✓）
+
+### 二、「点推荐视频跳转、返回原详情页**不自动续播**」——**根因 + 修复**（用户实报 ✓）
+- **根因（读代码定死 ✓，本批没有加任何诊断日志 ✓）**：`didPushNext` 判"跳走这一刻该不该记一笔续播"用的是
+  `kp.value.playing` ☠ —— 那是**引擎状态**、不是用户意图：`player_widget.dart` 看门狗那段**自己写着**
+  「**卡顿期间 mpv 常把 playing 报成 false（缓冲中）**」✓；页面被压到栈下面之后引擎自己停掉也一样 ✓
+  ⇒ "用户明明在看"被判成"没在播" ✗ ⇒ `_pausedByPush` 不置位 ⇒ 回来时按 ⑦ 红线判定"这不是我们停的" ⇒ **不续播** ☠
+- **第二处（同源）**：换片（`didUpdateWidget`）/ 换档（`switchSources`）都**先**调过一次内部 `pause()`
+  （本意只是"旧源先停住、别和新源抢声音"✓）⇒ 那一下把 `_userPaused` 置成 true ✗ ⇒ 污染"用户是否主动暂停"这个判据 ☠
+- **修法（3 处）**：
+  1. `player_widget.dart`：新增公开只读 `bool get userPaused`（把"用户意图"暴露给详情页 ✓，注释里写明为什么不能用 `value.playing` ✓）
+  2. `player_widget.dart`：`open()` 里复位 `_userPaused = false` ✓ —— `open` 一律按 `play: true` 起播 ⇒ 此刻意图就是"在播" ✓
+  3. `detail_page.dart`：判据换成 `kp != null && !kp.userPaused && !kp.value.completed` ✓
+- ⚠️ **⑦ 红线一字未动** ✓：用户**自己**按过暂停（控制条 / 双击中间 / 全屏播放键 ✓）⇒ 跳走不记 ⇒ 回来**仍然暂停** ✓
+- ⚠️ 保留 `!completed`：**已经播完**的那次（从没被用户暂停过 ✓）不该被当成"待续播" ✓（与旧判据在这点上**一致** ✓）
+- 顺带：**删掉** `didPushNext` / `didPopNext` 里那两条 `[DETAIL]` 诊断 `debugPrint` ✓
+  （判据一改，前者的语义已过时 ✓；用户明确不要"加日志让你复现"这条路子 ✓）
+
+### 三、`flutter analyze` warning 清零
+- `player_widget.dart`：`fut?.whenComplete(...)` ⇒ `fut.whenComplete(...)` ✓
+  （`fut` 在 `:1530` 声明为可空、`:1533` 在 try 里被赋值；**push 同步抛的那条路径已在 catch 里 rethrow** ✓
+  ⇒ 走到那一行时必非空 ✓ —— 编译器的 `invalid_null_aware_operator` 判断成立 ✓）
+- 加了一行防回归注释 ✓（免得以后有人看着 `.` 觉得"漏了空判"又改回 `?.` ✓）
+
+### 四、复验（改完当场做的 ✓）
+- 括号平衡 **必须用 `-Encoding UTF8` 读** ✓ —— 本机是 **PowerShell 5.1**，`Get-Content -Raw` **默认按 GBK 解码**，
+  中文注释会把它后紧跟的半角字符**吞掉** ⇒ 会数出**假的不平衡** ☠（本批已踩过一次 ✓，差点误判成"漏了括号"✗）：
+  `player_widget.dart` `()` **1010/1010** · `{}` 294/294 · `[]` 69/69 ✓；`detail_page.dart` 565/565 · 117/117 · 62/62 ✓
+- `git diff --numstat`：`detail_page.dart` +49/−16 · `player_widget.dart` +21/−1 ✓（含卡片自适应那部分 ✓）
 
 ---
 

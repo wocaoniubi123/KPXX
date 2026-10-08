@@ -163,8 +163,17 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     final kp = _playerKey.currentState?.player;
     if (kp?.fullscreenOpen ?? false) return; // 进全屏 ⇒ 不是"跳走" ✅（不暂停、不停写）
     _pushedAway = true; // ★ ④：被压栈期间**一律不写**播放记录 ✅（防"进度回弹" ✗）
-    final playing = kp?.value.playing ?? false;
-    if (playing) {
+    // ★ 2026-10-08 修（用户报"点推荐视频跳转、返回原详情页不续播"✗ · **已核实的根因**）：
+    //   判据原来是 `kp.value.playing`（= **引擎**状态）☠ —— 本文件之外的既有事实是：
+    //   **mpv 在缓冲期就会把 playing 报成 false**（`player_widget.dart` 看门狗那段的注释 ✓），
+    //   页面被压到栈下面之后引擎自己停掉也一样 ⇒ "用户明明在看"被判成"没在播" ✗ ⇒
+    //   `_pausedByPush` 不置位 ⇒ 回来后按 ⑦ 红线判定"这不是我们停的" ⇒ **不续播** ☠。
+    //   现在改成读**用户意图**（`KpPlayer.userPaused` ✓：只有用户自己按过暂停才为 true ✓，
+    //   流程内部的换片/换档那两次 pause 已在 `KpPlayer.open` 里复位 ✓）。
+    //   ⚠️ 保留一条 `!completed`：**已经播完**的那次（从没被用户暂停过 ✓）不该被当成"待续播" ✓
+    //   —— 与旧判据在这一点上的行为**保持一致** ✓。
+    final wantPlay = kp != null && !kp.userPaused && !kp.value.completed;
+    if (wantPlay) {
       _pausedByPush = true; // ★ ⑦ 红线：只有"本来在播"才记这一笔 ✅
       _switcher?.pause();
     }
@@ -172,13 +181,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     //   压到栈下面照样在跑 ✗ ⇒ 回来时控件已经藏掉（表现为"控件消失了" ✗）；
     //   这里按住，回到栈顶再由 [didPopNext] "显示 + 重新起 3 秒" ✅。
     _playerKey.currentState?.holdControls();
-    if (AppSettings.i.logConsole) {
-      debugPrint('[DETAIL] 被压栈 停写=是 暂停=${playing ? '是' : '否（用户暂停过/没在播）'}');
-    }
   }
 
   /// ★ ⑦：回到栈顶 ⇒ **恢复写** ✅（把 `_pushedAway` 解掉），并且**只续"我们自己停的那一次"** ✅
-  ///   （用户手动暂停过 ⇒ 跳走时 `playing == false` ⇒ `_pausedByPush` 仍是 false ⇒ 这里什么都不做 ✅）。
+  ///   （用户手动暂停过 ⇒ 跳走时 `userPaused == true` ⇒ `_pausedByPush` 仍是 false ⇒ 这里什么都不做 ✅）。
   @override
   void didPopNext() {
     _pushedAway = false;
@@ -811,17 +817,44 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                                     color: kTxt)),
                             const SizedBox(height: 6),
                             if (_api.ui?.relatedAsGrid ?? false)
-                              GridView.count(
-                                crossAxisCount: 3,
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                mainAxisSpacing: 8,
-                                crossAxisSpacing: 8,
-                                childAspectRatio: 0.62,
+                              // ★ 2026-10-08（用户报"标题两行会被遮挡"✗ 已核实）：原来用
+                              //   `GridView.count(childAspectRatio: 0.62)` ⇒ **高度写死** ⇒ 两行标题溢/遮 ✗
+                              //   ⇒ 改成与 `RowsGrid` **同一套行语义**（`IntrinsicHeight` + `Row(stretch)`：
+                              //   行高 = 该行最高卡 · 行内等高 · 卡片高**随内容自适应** ✅ —— 即"取长补短" ✓）。
+                              //   ⚠️ **不能直接用 `RowsGrid`** ✗：它内部是 `ListView`（没有 shrinkWrap）
+                              //   ⇒ 嵌在详情页的滚动视图里会"无界高度"报错 ☠（已读它的实现确认 ✅）。
+                              Column(
                                 children: [
-                                  for (final a in d.related)
-                                    ArticleCard(
-                                        article: a, site: widget.site),
+                                  for (var r = 0;
+                                      r * 3 < d.related.length;
+                                      r++)
+                                    Padding(
+                                      padding:
+                                          EdgeInsets.only(top: r == 0 ? 0 : 8),
+                                      child: IntrinsicHeight(
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            for (var c = 0; c < 3; c++)
+                                              Expanded(
+                                                child: Padding(
+                                                  padding: EdgeInsets.only(
+                                                      left: c == 0 ? 0 : 8),
+                                                  child: (r * 3 + c) <
+                                                          d.related.length
+                                                      ? ArticleCard(
+                                                          article: d.related[
+                                                              r * 3 + c],
+                                                          site: widget.site)
+                                                      : const SizedBox
+                                                          .shrink(),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                 ],
                               )
                             else
