@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 widgets.dart 带入 ✓
+import 'site_error_log.dart'; // ★ 选图失败写公共错误日志 ✅（日志页读的就是同一记录器 ✅）
 
 /// 图集里的一张背景（索引里存的就是这两样：文件 + 加入时间）。
 ///
@@ -268,16 +269,64 @@ class AppBg extends ChangeNotifier {
     }
   }
 
+  // ===== 相册选图：共用的**防重入闸** + 命中 multiple_request 自动重试一次（2026-10-08 ✅）=====
+
+  /// 选图**防重入闸**（多选 [addFromGallery] 与单选 [pickFromGallery] **共用**一个 ✅）——
+  /// `image_picker` 在"上一个选图请求还在途"时再来一次会抛
+  /// `PlatformException(multiple_request, Cancelled by a second request)`：**覆盖安装后首次**
+  /// 点「从相册选择」就撞到 ✅（用户实测 ☑️ 我们代码里没有第二条请求路径 ✅ 成因在插件/系统侧 ☑️）
+  /// ⇒ 在途时**直接忽略这次点击** ✅（不抛错 ✅ 用户永远看不到这个错 ✅）。
+  static bool _picking = false;
+
+  /// 跑一次选图（多选/单选都走这里 ✅）。**返回 null = 上一次选图还在途，这次点击被忽略** ✅。
+  ///
+  /// 三条口径（用户 2026-10-08 拍板 ✅）：
+  ///   · 命中 `multiple_request` ⇒ 等 **500ms** 后**重跑同一次选取** ✅；**第二次仍失败 ⇒ 原样抛**
+  ///     （保持既有"调用方 catch 后提示"的语义 ✅ ☑️ 不吞）；
+  ///   · **其它异常 ⇒ 行为一字不改**（该抛的照旧抛 ✅），只是先写一条错误日志 ✅；
+  ///   · **用户取消**（返回空列表 / 空值）= 正常返回 ☑️ **不进任何 catch** ⇒ 仍然是"取消" ✅
+  ///     （☑️ 不会被防重入或重试改成"失败"/"成功"）。
+  /// ☠ 任何 return / 抛错路径都复位 [_picking]（`finally` ✅ —— 含重试失败那条 ✅）。
+  static Future<T?> _pickGuarded<T>(Future<T> Function() run) async {
+    if (_picking) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('背景图：上一次选图还在途 ⇒ 忽略这次点击');
+      }
+      return null; // ☑️ 不抛错（口径：忽略第二次点击）
+    }
+    _picking = true;
+    try {
+      try {
+        return await run();
+      } on PlatformException catch (e) {
+        if (e.code != 'multiple_request') rethrow; // 其它异常：行为原样 ✅（外层统一记日志 ✅）
+        if (AppSettings.i.logConsole) {
+          debugPrint('背景图：选图撞到 multiple_request ⇒ 500ms 后自动重试一次');
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        // ★ 重跑**同一次**选取 ✅ —— 第二次仍失败 ⇒ 异常原样上抛（外层记日志 ✅ 调用方照旧提示 ✅）
+        return await run();
+      }
+    } catch (e) {
+      await SiteErrorLog.log('选图', e); // ★ 异常原文进日志 ✅（弹给用户的只有友好文案 ✅）
+      rethrow;
+    } finally {
+      _picking = false; // ☠ 任何路径都复位 ✅
+    }
+  }
+
   /// 图集页右上角「＋」：相册**多选** → 逐张存进 `bg_album/` → 加进索引（新加的排最前）
   /// → **不自动应用**。返回 `(加入成功张数, 因为满 [maxAlbum] 张被跳过的张数)`，
   /// 调用方据此提示。选图失败会抛异常（调用方 catch 后提示）。
   Future<({int added, int full})> addFromGallery() async {
-    final picked = await ImagePicker().pickMultiImage(
-      maxWidth: 1440, // 和内置默认图同规格：解码内存 ~10MB
-      maxHeight: 2400,
-      imageQuality: 88,
-    );
-    if (picked.isEmpty) return (added: 0, full: 0);
+    // ★ 防重入 + 命中 multiple_request 自动重试一次（见 [_pickGuarded] ✅）——
+    //   在途时返回 null ⇒ 按"这次没选中"处理 ✅（返回值语义与"用户取消"同形：一张没加 ✅）
+    final picked = await _pickGuarded(() => ImagePicker().pickMultiImage(
+          maxWidth: 1440, // 和内置默认图同规格：解码内存 ~10MB
+          maxHeight: 2400,
+          imageQuality: 88,
+        ));
+    if (picked == null || picked.isEmpty) return (added: 0, full: 0);
     final dir = await _albumDir();
     var added = 0;
     var skipped = 0;
@@ -316,12 +365,14 @@ class AppBg extends ChangeNotifier {
   /// 设置页「从相册选择」：**单选 → 立即应用，但不进图集**（用户明确要的行为）。
   /// true = 换好了；false = 用户取消（选图/写盘失败会抛异常，调用方 catch 后提示）
   Future<bool> pickFromGallery() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1440, // 和内置默认图同规格：解码内存 ~10MB
-      maxHeight: 2400,
-      imageQuality: 88,
-    );
+    // ★ 防重入 + 命中 multiple_request 自动重试一次（见 [_pickGuarded] ✅）——
+    //   在途时返回 null ⇒ 走下面那句 `return false` ✅（`bool` 语义一字不改：false = 没换图 ✅）
+    final picked = await _pickGuarded(() => ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          maxWidth: 1440, // 和内置默认图同规格：解码内存 ~10MB
+          maxHeight: 2400,
+          imageQuality: 88,
+        ));
     if (picked == null) return false;
     // ⚠️ 2026-10-05（用户拍板 A2 ✓）：原来落地的那 6 步**抽出去共用** ✗
     //   —— 本方法前半段（弹相册 / 取到文件）**一个字没动** ✓

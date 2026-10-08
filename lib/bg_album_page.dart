@@ -5,6 +5,7 @@ import 'package:gal/gal.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
+import 'site_error_log.dart'; // ★ 选图失败写公共错误日志 ✅（弹给用户的只有友好文案 ✅）
 
 /// 背景图集（设置页「背景图集 N 张 ›」进来）。照模拟器 `viewAlbum()` 定稿的样子：
 /// - 行**全透明**（背景图从行间透出来）、**没有分割线**，行与行靠间距分开
@@ -135,7 +136,10 @@ class BgAlbumPage extends StatelessWidget {
               '${r.full > 0 ? '；另有 ${r.full} 张到上限没加' : ''}';
       messenger.showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('选图失败：$e')));
+      // ★ 2026-10-08（用户批准 ✅）：**别把英文异常原文弹给用户** ☑️ —— 原文进错误日志 ✅
+      await SiteErrorLog.log('选图', e);
+      messenger.showSnackBar(
+          const SnackBar(content: Text('选图失败，请再试一次')));
     }
   }
 

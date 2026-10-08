@@ -11,6 +11,7 @@ import 'online_album_page.dart';
 import 'play_history_page.dart';
 import 'play_record_tile.dart';
 import 'settings.dart';
+import 'site_error_log.dart'; // ★ 选图失败写公共错误日志 ✅（弹给用户的只有友好文案 ✅）
 import 'sites.dart';
 
 /// 设置页（改版：卡片分组 + 分段控件 + 开关 + 播放记录预览）。
@@ -592,7 +593,10 @@ class SettingsPage extends StatelessWidget {
     try {
       await AppBg.i.pickFromGallery();
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('选图失败：$e')));
+      // ★ 2026-10-08（用户批准 ✅）：**别把英文异常原文弹给用户** ☑️ —— 原文进错误日志 ✅
+      await SiteErrorLog.log('选图', e);
+      messenger.showSnackBar(
+          const SnackBar(content: Text('选图失败，请再试一次')));
     }
   }
 

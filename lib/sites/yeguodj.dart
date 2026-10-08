@@ -46,6 +46,7 @@ import '../detail_page.dart';
 import '../fetched_image.dart';
 import '../models.dart';
 import '../settings.dart'; // ★ 诊断开关（`AppSettings.i.logConsole` ✅）；`debugPrint` 由 material 带入 ✅
+import '../site_error_log.dart'; // ★ 列表请求非 200 时写公共错误日志 ✅（`SiteErrorLog.log` ✅）
 import '../sites.dart'; // 本站档案 `kSite15` + `SiteTemplate.yeguodj` ✅（循环 import 本项目允许 ✅）
 
 /// 野果短剧本站专属实现（取数走底座 [SiteFetcher] ✅）
@@ -240,12 +241,58 @@ class YeguoSite extends SiteUi {
 
   // ===== 四、分区页 / 探索 / 排行榜 =====
 
+  /// **列表类 SSR 页**（分区页 / 探索 / 榜单 / 标签页）取 HTML：**本站单独放宽到 15 秒** ✅
+  ///
+  /// 依据（2026-10-08 ✅）：本站列表页全是 SSR HTML，而**底座超时是 8 秒**
+  /// （`lib/base/fetch.dart:70` ✅）—— 同一页实测在 **2~8 秒**之间浮动
+  /// （`/explore/drama/` 一次 7.93 秒 ☑️、复测 3 次都 200 · 1.8~2.2 秒 ✅；
+  /// `/rank/drama/` 到过 10.7 秒 ☑️）⇒ **卡在超时线上**，稍一抖动就整批失败
+  /// （真机表现 = `Exception: 所有域名均无法访问` ✅）⇒ 本站列表请求单独放宽到 **15 秒** ✅。
+  ///   ⚠️ 域名照档案写死 `yeguodj.com` ✅（`kSite15.hosts` **只有这一个** ✅ ⇒ 与底座的域名轮换等价 ✅；
+  ///      `www.` 会 301 回 apex ✅）。⚠️ **未加 `Referer`** ☑️ —— 照 `online_album_common.dart:568` 的先例 ✅。
+  ///   ⚠️ 只覆盖**列表类** ☑️：详情接口（[_detailApi] ✅）与播放页**保持底座原样** ✅（它们不慢 ✅）。
+  ///   ⚠️ 非 200 ⇒ **抛异常 + 写错误日志** ✅（☑️ 不静默、不假装空列表）；任何失败都**原样上抛** ✅
+  ///      （只多两条日志 ✅ 不吞异常 ☑️）。
+  ///
+  /// 取证日志（2026-10-08 要求 ✅；两条都受 `AppSettings.i.logConsole` 守卫 ✅ ⇒ 关着时零开销 ✅，
+  ///   打开时经 `main.dart` 的 `debugPrint` 接管进错误日志页 ✅）：
+  ///   ① 请求**发出前**打**最终 URL** + 入口（含 `seg` ✅）⇒ 一眼看出是不是我们**拼错了** ☑️
+  ///      （例：`seg` 没算成空 ☑️）；⚠️ 这几条列表 URL **不带 `auth_key`** ✅ ⇒ 与本站
+  ///      "不打带 key 的完整 URL" 那条口径不冲突 ✅；
+  ///   ② 失败时打**异常类名 + 原文 + URL** ✅ ⇒ 分辨 DNS / 连接被拒 / TLS / 超时
+  ///      （此前只有包装过的"所有域名均无法访问" ☑️ 看不出是哪一种 ☑️）。
+  Future<String> _listHtml(String path, String entry) async {
+    final url = 'https://yeguodj.com$path';
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 入口=$entry url=$url'); // ① 请求前：最终 URL ✅
+    }
+    try {
+      final r = await Site.httpClient
+          .get(Uri.parse(url), headers: {'User-Agent': Site.ua})
+          .timeout(const Duration(seconds: 15)); // ★ 本站列表 15 秒 ✅（底座 8 秒 ☑️）
+      if (r.statusCode != 200) {
+        // ☑️ 非 200 不静默：写错误日志 + 抛（调用方照旧显示失败态 + 可重试 ✅）
+        final e = Exception('HTTP ${r.statusCode}');
+        await SiteErrorLog.log(_f.site.name, '$entry ${e.toString()} url=$url');
+        throw e;
+      }
+      return utf8.decode(r.bodyBytes);
+    } catch (e) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 入口=$entry 失败 类型=${e.runtimeType} '
+            '原文=$e url=$url'); // ② 失败：类名 + 原文 + URL ✅
+      }
+      rethrow; // ☑️ 行为原样：照旧抛给调用方（☑️ 不吞）
+    }
+  }
+
   /// 分区页 `/drama/<code>/`（站上**只有第 1 页** ☑️ 别承诺翻页 ☑️）
   ///
   /// 看：标题 + 条数 —— 0 条就是该分区当前没有内容，或 `title/module/list` 那套对象没找到。
   Future<({String title, List<Article> items, int total})> section(String code) async {
     final sw = Stopwatch()..start();
-    final html = await _f.text('/drama/${Uri.encodeComponent(code)}/');
+    final html = await _listHtml(
+        '/drama/${Uri.encodeComponent(code)}/', '分区 code=$code');
     final a = _nuxt(html);
     var title = '';
     final out = <Article>[];
@@ -281,7 +328,9 @@ class YeguoSite extends SiteUi {
   Future<({List<Article> items, int total})> explore(String seg) async {
     final sw = Stopwatch()..start();
     final path = seg.isEmpty ? '/explore/drama/' : '/explore/drama/$seg/';
-    final html = await _f.text(path);
+    // ★【取证】入口里带上 `seg` ✅ —— 一眼看出"是不是没算成空" ☑️（见 [_listHtml] ✅）
+    final html = await _listHtml(
+        path, '探索 seg=${seg.isEmpty ? '(空)' : seg}');
     final r = _listObj(html, ['total', 'page', 'limit']);
     final out = r?.items ?? const <Article>[];
     if (AppSettings.i.logConsole) {
@@ -298,7 +347,8 @@ class YeguoSite extends SiteUi {
   /// 看：周/月、条数 —— 空就是该榜单当前没数据。
   Future<({List<Article> items, int total})> rank({bool month = false}) async {
     final sw = Stopwatch()..start();
-    final html = await _f.text(month ? '/rank/drama/month/' : '/rank/drama/');
+    final html = await _listHtml(month ? '/rank/drama/month/' : '/rank/drama/',
+        '排行榜 ${month ? '月榜' : '周榜'}');
     final r = _listObj(html, ['total', 'page', 'limit']);
     final out = r?.items ?? const <Article>[];
     if (AppSettings.i.logConsole) {
@@ -546,7 +596,8 @@ class YeguoSite extends SiteUi {
       }
       return [];
     }
-    final html = await _f.text('/tag/${Uri.encodeComponent(slug)}/');
+    final html = await _listHtml(
+        '/tag/${Uri.encodeComponent(slug)}/', '标签 slug=$slug');
     final r = _listObj(html, ['total', 'page', 'limit']);
     final out = r?.items ?? const <Article>[];
     if (AppSettings.i.logConsole) {
@@ -663,9 +714,25 @@ class YgGroup {
   final List<MapEntry<String, String>> opts;
 }
 
+/// 探索页一组选中的值 ⇒ 真站路径里的**那一段** ✅ —— **只此一处定义** ✅：
+///   `''`（本页「全部」在 `_sel` 里存的就是它 ✅）与 `'0'`（站上的"不选" ✅）**都表示「全部」**
+///   ⇒ 一律写成 `'0'` ✅。⚠️ 2026-10-08 实锤根因就在这一层映射上（见 [ygExploreSeg] ✅）。
+String _ygSegOf(String v) => (v.isEmpty || v == '0') ? '0' : v;
+
 /// 选中的 5 组 ⇒ 真站的**路径式**段串 ✅（`0` = 该组不选 ✅；全不选 = 空串 ⇒ `/explore/drama/` ✅）
+///
+/// ⚠️ 2026-10-08 **实锤根因**（用户 curl 真站 ✅）：本页「全部」在 `_sel` 里存的是 **`''`**
+/// （`_YgExploreTabState._sel` 的初始化 / `_pick` 写入 / 胶囊高亮判据用的都是 `''` ✅），
+/// 而老实现**只认 `'0'`** ✗ ⇒ `''` 被当成有效段 ⇒ 五组全「全部」时拼出 **`'----'`** ⇒ 真站 **404** ✗
+/// （底座 `lib/base/fetch.dart:86-93` 把 4xx 和"连不上"混成同一句"所有域名均无法访问" ✗
+/// ⇒ 真机上看着像网络/超时 ✗ —— 别去 `lib/base/**` 里找 ✗）。
+/// 真站实测：`/explore/drama/----/` 404 ✗ · `/explore/drama/` 200 ✅ · 主题=7 ⇒ `7-0-0-0-0` ✅ ·
+/// 设定=23 ⇒ `0-23-0-0-0` ✅ · 五组都选 ⇒ `7-23-39-1-1` ✅（三个都 200 ✅）·
+/// **全 `0`（`0-0-0-0-0`）也 404** ✗ ⇒ **全不选必须"不带段"** ✅。
+/// ⇒ 现在：映射收口在 [_ygSegOf] 一处 ✅（`''` 与 `'0'` 都当"不选" ✅）；`_sel` 的表示 / 写入 /
+/// 高亮判据**一字未动** ✅ ⇒ 高亮与拼串仍一致 ✅。
 String ygExploreSeg(Map<String, String> sel) {
-  final seg = [for (final g in kYgExplore) sel[g.key] ?? '0'];
+  final seg = [for (final g in kYgExplore) _ygSegOf(sel[g.key] ?? '')];
   return seg.every((x) => x == '0') ? '' : seg.join('-');
 }
 
@@ -889,7 +956,11 @@ class _YgExploreTabState extends State<_YgExploreTab> {
     }
   }
 
+  /// 点一个标签：**点的就是已经选中的那个 ⇒ 直接不重拉** ✅（白拉一次没意义 ☑️）。
+  /// ⚙️ 比的是 [_ygSegOf] **归一化后**的值 ✅ —— `''`（「全部」✅）与 `'0'` 是同一个意思 ✅
+  ///    ⇒ "重复点全部"不会被误判成"变了" ✅；真变了（如 `'7'` → 全部）才重取 ✅。
   void _pick(String key, String value) {
+    if (_ygSegOf(_sel[key] ?? '') == _ygSegOf(value)) return; // 没变化 ⇒ 不重拉 ✅
     setState(() {
       _sel[key] = value;
       _f = _load(); // 换一个组合 ⇒ **真的重筛重画** ✅（不是只切本地选中态 ☑️）
