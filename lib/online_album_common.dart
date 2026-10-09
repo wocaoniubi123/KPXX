@@ -349,7 +349,8 @@ class ArtPreviewPage extends StatelessWidget {
   }
 }
 
-class _ArtPreviewBodyState extends State<ArtPreviewBody> {
+class _ArtPreviewBodyState extends State<ArtPreviewBody>
+    with SingleTickerProviderStateMixin {
   late int _index = widget.initial;
 
   /// ★ 2026-10-05（照 sim 1:1 ✓）：切图**不用 `PageView`** ✗ —— sim 是"指针按下→抬起比位移"：
@@ -360,6 +361,33 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   /// 框选态（用户要求 ✓）：此态**不切图** ✗
   bool _crop = false;
   final TransformationController _tc = TransformationController();
+
+  /// ★ 2026-10-08（**方案 X** ✓ · 修用户报的"**慢捏没反应**"）：**页面级**指针计数 + 多指标记 ——
+  ///   为什么必须**页面级**（✗ 不能挂图片区那个 raw `Listener`）：第二指常落在图片矩形**外面**
+  ///   （上下黑留白 / 页码行 / 两颗按钮 ✓）⇒ 挂图片区就**静默数不到** ☠ ⇒ 多指永远认不出来 ✓。
+  ///   为什么必须**计数**（✗ 不能用 bool）：只要有一根手指 `cancel`（来电 / 系统手势抢走 / 熄屏 ✓）
+  ///   而标记没复位 ⇒ 下面那些 `|| _multi` 会把**所有**预览手势**永久置 null** ☠ ⇒ 预览只剩"能看"
+  ///   ⇒ 只能重启 App ☠ ⇒ 必须**减计数** + `cancel` 也减 ✓。
+  int _ptCount = 0;
+  bool _multi = false;
+
+  /// ★ 2026-10-08（**B** ✓ 用户要「双击缩放」）：**预览态** `InteractiveViewer` 自己的变换控制器 ——
+  ///   ⚠️ **与框选那份 `_tc` 严格分开** ☠（`_tc` 是框选的模型：`_centerT` / `_clampT` / `_cropPng` /
+  ///   `_cropPngWithFallback` 都在读它 ✓）。共用一份的后果 = 进框选那一下 `_centerT(1.15)`
+  ///   把预览的缩放**冲掉** ✗、预览里双击又把框选的起始态带偏 ☠（两块状态生命周期完全不同 ✓）。
+  final TransformationController _pvTc = TransformationController();
+
+  /// 双击缩放动画（**只在"双击那一刻"跑一次** ✗ 不做连续手势 ✓）—— `vsync` 由本 State 提供 ✓。
+  late final AnimationController _dblAnim;
+  Matrix4Tween? _dblTween;
+
+  /// 双击点（**预览图自己的局部坐标** ✓ = `InteractiveViewer` 的坐标系 ✓）——
+  ///   内层那个 detector 与 IV 同盒 ⇒ `localPosition` **直接能用** ✗ 不用 GlobalKey 换算 ✓
+  ///   （这也是"双击挂**内层**"的理由之一 ✓ —— 取舍全文见 [_onDoubleTap] 的注释 ✓）。
+  Offset _dblAt = Offset.zero;
+
+  /// 双击放大倍数（用户口径 = 「双击放大 / 再双击回原大」✓ ⇒ 固定 **2.5** ✗ 不做连续缩放 ✓）。
+  static const double _kDblZoom = 2.5;
 
   /// 当前框尺寸（逻辑像素 ✓）—— 由 `MediaQuery` **动态算** ✗（不写死 ✓）
   Size _frame = Size.zero;
@@ -386,6 +414,17 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   @override
   void initState() {
     super.initState();
+    // ★ 2026-10-08（B ✓）：双击缩放的动画 —— 220ms ✓（"一下子到位但别生硬"那种观感 ✓）；
+    //   ⚠️ 用 `Matrix4Tween` **逐元素插值** ✓：纯缩放+平移矩阵这样插值，视觉上就是"边放大边挪到中点" ✓
+    //   （不做矩阵分解 ✗ —— 本来就只有缩放+平移，分解是多余工序 ✓）。
+    _dblAnim = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 220));
+    _dblAnim.addListener(() {
+      final tw = _dblTween;
+      // ⚠️ `tw` 为 null 时**什么都不写** ✓：`stop()` 之后控制器还会补一帧，
+      //   那时 tween 已被置空 ⇒ 不许把值再推回去 ☠（换图那条路正是这样收尾的 ✓）。
+      if (tw != null) _pvTc.value = tw.transform(_dblAnim.value);
+    });
     // ★ 2026-10-05（用户反馈"双指不灵敏" ✓ 真因）：**不挂** `_tc.addListener(_clampT)` ✗ ——
     //   监听在回写 `_tc.value` 会与手势打架 ☠。
     // ★ 2026-10-05（**方案 A** ✓ 用户拍板）：框选态**已不用 `InteractiveViewer`** ✗ ⇒ 变换全由
@@ -394,6 +433,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
 
   @override
   void dispose() {
+    _dblAnim.dispose(); // ★ 2026-10-08（B ✓）：动画控制器是资源 ⇒ 必须放 ✓（不放 = 泄漏一个 ticker ☠）
+    _pvTc.dispose(); // ★ 同上：预览态那份变换控制器 ✓（框选那份在下面 ✓ 两份都放 ✓）
     _tc.dispose();
     super.dispose();
   }
@@ -405,6 +446,12 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     final n = widget.urls.length;
     final ni = _index + d;
     if (ni < 0 || ni > n - 1) return; // 照 sim ✓
+    // ★ 2026-10-08（B ✓）：**换图 ⇒ 预览的缩放归零** ✗ —— 否则新图会带着上一张的 2.5x + 平移上来
+    //   （一进来就是放大态 ☠，而且平移方向还是按上一张算的 ⇒ 观感像"跑偏了" ✗）。
+    //   ⚠️ 先 `stop()` 再清 tween ⇒ 动画的补帧不会再把值写回去 ✓（换图正好在动画中时才会踩到 ✓）。
+    _dblAnim.stop();
+    _dblTween = null;
+    _pvTc.value = Matrix4.identity();
     setState(() => _index = ni);
   }
 
@@ -531,6 +578,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
 
   void _pvDown(PointerDownEvent e) {
     if (_crop) return; // 框选态一律不生效 ✓
+    if (_multi) return; // ★ 多指（捏合中）不记账 ✓（记了也会被随后的 `_pvUp` 当成"快扫"⇒ 误翻页 ☠）
     _pvFrom = e.localPosition;
     _pvFromMs = e.timeStamp.inMilliseconds;
     _pvTo = e.localPosition;
@@ -541,6 +589,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
 
   void _pvMove(PointerMoveEvent e) {
     if (_crop) return;
+    if (_multi) return; // ★ 同上：捏合中的移动不进"快扫"记账 ✓
     _pvTo = e.localPosition;
     _pvToMs = e.timeStamp.inMilliseconds;
   }
@@ -550,6 +599,7 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
   ///   ⚠️ 翻之前**先置 `_pvFlipped`** ☠ ⇒ 随后那次点击会被吞掉 ✓ ⇒ **不会"又翻页又关闭"** ✓。
   void _pvUp(PointerUpEvent e) {
     if (_crop) return;
+    if (_multi) return; // ★ 同上：防"捏合抬手那一下"被判成快扫 ⇒ 误翻页 ✓
     final d0 = _pvFrom, t0 = _pvFromMs, d1 = _pvTo, t1 = _pvToMs;
     _pvReset();
     if (d0 == null || t0 == null || d1 == null || t1 == null) return;
@@ -562,6 +612,98 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     if (vx.abs() < 400) return; // ③ 速度门槛 ✓（初值 ✓）
     _pvFlipped = true; // ★ 先置标志（随后那次点击被吞 ✓）
     _step(dx < 0 ? 1 : -1); // 左 = 下一张 ✓ 右 = 上一张 ✓（与 18px 那条同向 ✓）
+  }
+
+  /// ★ 2026-10-08（**方案 X** ✓）：页面级指针**计数**（字段说明见 [_ptCount] ✓）——
+  ///   第二根手指一落下 ⇒ `_multi` 翻 true ⇒ 下一帧 `build` 把预览那些 `onTap` / `onVerticalDragEnd` /
+  ///   `onHorizontalDrag*` **全部置 null** ⇒ `RawGestureDetector` 把对应 `GestureRecognizer`
+  ///   **dispose 掉** ⇒ 它们各自对手上的指针 `resolve(rejected)` ⇒ 竞技场里**只剩
+  ///   `InteractiveViewer` 那个 `ScaleGestureRecognizer`** ⇒ **单成员 ⇒ 默认判胜** ✓
+  ///   ⇒ 捏合**不再等那套 slop 门槛**（横拖 `kTouchSlop` = **18** ✓ 见下面那处注释 ✓；
+  ///      scale 的门槛按"两指**到焦点的平均距离**（span）"算 ⇒ **两指间距大约要变 >36px（≈ 2×18）**
+  ///      才认 ✓ 这是按 span 的定义推的 ✓ = 用户报"**慢捏没反应**"的位置 ✓）
+  ///   ⇒ **慢捏也跟手** ✓（这就是本方案的机理 ✓）。
+  ///   ⚠️ **机理那一句本机没法对照框架源码逐行核** ✗（无 SDK ✗）：真判据是**真机行为** ✓
+  ///      （"慢捏跟手了"= 成立 ✓；没跟手 ⇒ 这条机理不成立 ⇒ 回来改这里 ✓）。
+  ///   ⚠️ 计数本身**不 setState** ✓（它不影响画面 ✓）；只有 `_multi` **翻面**才要重建 ✓。
+  void _ptDown(PointerDownEvent e) {
+    _ptCount++;
+    if (_ptCount > 1 && !_multi) {
+      // ★ 顺手把"快扫"的记账**清掉** —— 这一行**超出 A 方案原文**，但正是 A4 要防的那件事 ✓：
+      //   两根手指都抬起时，**最后一根**的 up 会落在 `_multi` 已经变回 false **之后** ⇒
+      //   那次 `_pvUp` 会拿着"捏合之前"的按下点去算位移与速度 ☠ ⇒ **捏合抬手那一下**有可能被判成
+      //   "快扫"⇒ 误翻页 ✗。清零后 `_pvUp` 撞上的是 `d0 == null` ⇒ 直接返回 ✓（下次真按下会重写 ✓）。
+      _pvReset();
+      // ★ 2026-10-08（verify 复核 ✓）：**先把双击动画停掉** ☠ —— 双击那 220ms 动画还没跑完就落下第二指
+      //   ⇒ 动画每帧仍在往**同一个** `_pvTc` 写值 ⇒ 与捏合写的矩阵**互相覆盖** ⇒ 画面抖 ☠。
+      //   ⚠️ `_dblTween` **也要清** ✓：`stop()` 之后控制器还会补一帧，那时 tween 要还在就又把值推回去 ✗
+      //   （与 `_step` 里那三行同款 ✓ —— 那条路的收尾写法就是这个 ✓）。
+      _dblAnim.stop();
+      _dblTween = null;
+      setState(() => _multi = true);
+    }
+  }
+
+  /// 抬指 / 取消（**共用同一支** ✓ —— `cancel` 不减计数的话 `_multi` 会**粘死** ☠，见 [_ptCount] ✓）。
+  ///   ⚠️ 判据是 `<= 1` ✗ 不是 `== 0`：三指时抬掉一根还剩两根 ⇒ **仍是多指** ✓（`_multi` 不许提前放开 ✓）。
+  void _ptUp(PointerEvent e) {
+    // ★ 2026-10-08（verify 复核 ✓）：**mounted 守卫** ☠ —— 多指期间页面被 pop（/浮层被关）时，
+    //   剩下的手指抬手或取消**仍会按"按下那一刻的命中路径"打到这里**（框架把那份 `HitTestResult`
+    //   按指针存着，之后即便控件已被销毁也照发 ✓ —— 见 `gestures/binding.dart` 那句
+    //   "even if they have since been disposed" ✓）⇒ 直接 setState 就是
+    //   "setState() called after dispose()" ☠（debug 直接抛 ✓ / release 静默 ☠）。
+    //   ⇒ 与本文件惯例一致：`:155` / `:786` / `:888` / `:1203` 都是这个写法 ✓。
+    //   ⚠️ 位置放在**减计数之前** ✓：已经 unmount ⇒ 这个计数再准也没用（State 不会被复用 ✓）。
+    if (!mounted) return;
+    if (_ptCount > 0) _ptCount--;
+    if (_ptCount <= 1 && _multi) setState(() => _multi = false);
+  }
+
+  /// ★ 2026-10-08（**B** ✓）：双击点（`onDoubleTapDown` 在**第一下按下**时就给 ✓）。
+  ///   ⚠️ 只挂在**内层**（图片区）那个 detector 上 ✗ —— 取舍全文见 [_onDoubleTap] ✓。
+  void _onDoubleTapDown(TapDownDetails d) {
+    if (_crop || _multi) return;
+    _dblAt = d.localPosition;
+  }
+
+  /// 双击 ⇒ 在「**还原**」与「**以双击点为中心 2.5x**」之间切换 ✓（用户口径 ✓：双击放大 / 再双击回原大 ✓，
+  ///   **不做**双击拖动连续缩放 ✗）。
+  ///
+  /// ⚠️ **取舍：为什么挂"内层图片区"而不是"页面级"** ✓ ——
+  ///   先说**两条路都躲不掉的固有代价** ☠：`onTap`（点图 / 点空白 **关预览** ✓ 是本页核心交互）
+  ///   与 `onDoubleTap` **同存**时，第一下的抬手会被 `DoubleTapGestureRecognizer` **`hold` 住竞技场**
+  ///   ⇒ 单击的关闭要**等双击窗口过完**才发生（≈ **300ms** `kDoubleTapTimeout` ✓）——
+  ///   这是"要能认出双击"的数学前提 ✗ 不是实现缺陷（除非不要双击 ✓）。
+  ///   于是只剩"把这份代价摊给谁"：
+  ///   ① 挂**页面级** ⇒ 它是两颗按钮（设为背景 / 保存相册）与页码那层的**祖先** ⇒ 那些点击
+  ///      也会被一起扣住 ⇒ **按钮也变迟钝** ☠☠（点空白那一下同理 ☠）；且双击空白变成"缩放"
+  ///      而**不是关闭** ⇒ 与用户既有习惯相左 ✗。
+  ///   ② 挂**内层**（**本次选它** ✓）⇒ 代价只落在**图片区的单击**上；点**空白** / 两颗**按钮**照旧**即时** ✓；
+  ///      而双击的自然目标本来就是图 ✓ ⇒ 双击点直接落在图自己的坐标系里（省掉 GlobalKey 换算 ✓）。
+  ///   ⇒ 选 ② ✓。**已知副作用**：点**图**关闭比原来慢 ≈300ms ✓；点空白 / 按钮**一点不变** ✓。
+  void _onDoubleTap() {
+    if (_crop || _multi) return;
+    final target = _pvTc.value.getMaxScaleOnAxis() > 1.01
+        ? Matrix4.identity() // 已在放大态 ⇒ **回原大** ✓
+        // ⚠️ 判据用 **1.01** ✗ 不是 1：捏合到 1.001 这种浮点尾差**不该**算成"放大"⇒ 否则双击只会"回原大" ✓
+        : _zoomAt(_dblAt, _kDblZoom);
+    // ★ 走动画 ✗ 不硬切（硬切在真机上是"啪"一下 ✓）—— `stop()` 是必要的：
+    //   上一次动画没跑完就再双击 ⇒ 不许两条补间同时往 `_pvTc` 里写值 ☠。
+    _dblAnim.stop();
+    _dblTween = Matrix4Tween(begin: _pvTc.value, end: target);
+    _dblAnim.forward(from: 0);
+  }
+
+  /// 以**视口局部点** `q` 为中心把预览图放到 `s` 倍 ✓（`InteractiveViewer` 的矩阵口径 = **T·S** ✓：
+  ///   先缩后平移 ⇒ 平移量按"视口像素"算 ✓ —— 与框选那边 `_onScaleUpdate` 的写法**同款** ✓）。
+  ///   要让 `q` 底下那个图点**别动** ⇒ `t = q·(1 − s)` ✓（就是官方"双击缩放"示例那条公式 ✓）。
+  ///   ⚠️ **不用再夹边界** ✓：从 `identity` 出发时 `t = q(1−s)` 必落在合法区间
+  ///      `[W(1−s), 0] × [H(1−s), 0]`（`q` 在视口内 ✓）—— 那正是"子盒必须盖满视口"（`boundaryMargin` 默认 0 ✓）
+  ///      的区间 ✓ ⇒ 也就**不需要**视口尺寸、不需要 GlobalKey ✓（少一处能算错的地方 ✓）。
+  Matrix4 _zoomAt(Offset q, double s) {
+    return Matrix4.identity()
+      ..translateByDouble(q.dx * (1 - s), q.dy * (1 - s), 0.0, 1.0)
+      ..scaleByDouble(s, s, s, 1.0);
   }
 
   /// 取**原图字节**（`FetchedImage` 的缓存不外露 ✗ ⇒ 自己下一次 ✓ —— 保存与裁剪都要原图 ✓）
@@ -765,6 +907,11 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
     //   `Matrix4..scale` 是**绕左上角**缩放的 ✓ ⇒ 起点会偏 ✗；改走 `_centerT` ✓ = 摆到允许区间的**中点** ✓
     //   ⇒ 视觉上就是**绕中心**缩放 ✓，且一开始就**盖满框**（不露白 ✗）✓。
     _centerT(1.15);
+    // ★ 2026-10-08（A5 ✓）：进框选**先清多指状态** ☠ —— 上一次捏合的手指要是没抬完就点了
+    //   「设为背景」，页面级计数留下的 `_multi` 会让框选里**所有**判断继续走"多指"这条路 ☠
+    //   ⇒ 框选自己也拖不动 / 捏不动 ⇒ 用户只能重启 App ☠（计数一并清 ⇒ 下一次真按下重新数 ✓）。
+    _ptCount = 0;
+    _multi = false;
     setState(() => _crop = true);
   }
 
@@ -807,14 +954,30 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
       // ★ 2026-10-05（用户口径 ✓）：**下滑关** ✗ —— 生效范围 = **图片区之外**（黑色留白 / 页码行 ✓）：
       //   `InteractiveViewer` 的手势同时声明两轴 ⇒ **会吃掉图片区里的竖向拖动** ☠（框架行为 ✓ 不是 bug ✓）；
       //   ⚠️ **框选态一律禁止** ✗（那会儿竖向拖动是"拖图"✓ 打架 ☠）。
-      body: GestureDetector(
+      // ★ 2026-10-08（**方案 X** ✓）：**页面级**再包一层 raw `Listener` 数指针（为什么必须页面级 ⇒ 见 `_ptCount` 字段说明 ✓）。
+      //   ⚠️ `behavior: translucent` **必须显式给** ☠ —— `Listener` 默认 `deferToChild`，而点**黑留白**
+      //   那种"没有任何子件被命中"的位置时，下面那层 `GestureDetector(translucent)` 是**只把自己
+      //   加进命中路径、返回值仍可能为 false** ⇒ 外层的 `deferToChild` 就**未必**被加进去 ⇒ 第二指
+      //   落在留白上就**数不到** ☠（= 又回到"第二指必须落在图里"的老毛病 ✓）。
+      //   ⇒ 给 translucent 是**保险**做法 ✓：**只要指针在这个矩形内，它一定被加进命中路径** ✓
+      //   （`translucent` 的语义就是"参与但不拦截" ✓ ⇒ 不吃指针、不改变别的件的判定 ✓）。
+      //   （⚠️ 上面那条"返回值"细节是框架内部行为 ✓ 本机无 SDK ⇒ 没逐行核过源码：但**结论**是按
+      //     translucent 的语义推出来的 ✓ 与源码细节无关 ✓。）
+      body: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _ptDown,
+        onPointerUp: _ptUp,
+        onPointerCancel: _ptUp, // ★ 取消也必须减计数 ✓（不减 ⇒ `_multi` 粘死 ⇒ 预览手势全灭 ☠）
+        child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         // ★ 2026-10-05（用户报"点空白不关" ✓ 真因）：透明 ≠ 不吃指针 ⇒ 空白处补一个 tap 才收得到 ✓
         //   四类边界：空白 ⇒ 关 ✓；图上（内层那个 detector 认领）⇒ 关 ✓（同一动作 ✓）；
         //   两颗按钮（`TextButton` 认领）⇒ **不关** 且能点 ✓；页码（下面套了 `opaque` 壳）⇒ **不关** ✓；
-        //   框选态 ⇒ `_crop ? null` ⇒ **一律不关** ✓
-        onTap: _crop ? null : _close,
-        onVerticalDragEnd: _crop
+        //   框选态 ⇒ `_crop ? null` ⇒ **一律不关** ✓；
+        //   ★ 2026-10-08 起 **多指（`_multi`）也一律不关** ✓ —— 捏合那一下不许把预览关掉 ✓
+        //   （捏合抬手时那一"tap"是捏合的尾巴 ✓ 不是用户的点击 ✓）。
+        onTap: (_crop || _multi) ? null : _close,
+        onVerticalDragEnd: (_crop || _multi)
             ? null
             : (d) {
                 if ((d.primaryVelocity ?? 0) > 250) _close(); // 向下 = 正速度 ✓
@@ -852,18 +1015,28 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                         // ★ 2026-10-05（用户报"只有快划才认" ✓ 真因）：**框选态必须把预览手势全摘掉** ☠
                         //   —— 摘之前：这层与内层 `InteractiveViewer` 抢同一个指针 ⇒ 慢拖被 tap 认走/被僵住 ✓
                         //   ⇒ 三件全部 `_crop ? null : …` ✓ ⇒ 框选态只剩"拖 + 捏" ✓；`Listener` 里也先判 `_crop` ✓
+                        //   ★ 2026-10-08 起：判据由 `_crop` 扩成 `_crop || _multi` ✓（多指时也把预览手势全摘掉 ✓
+                        //      —— 见各回调 ✓ 与 `_ptDown` 的机理说明 ✓）；框选态的判断**一字未改** ✓
                         // ★ 件二②（✓）：**被"快扫"用掉的那一次点击要吞掉** ☠（否则 10px 快扫"又翻又关" ✗）
-                        onTap: _crop
+                        // ★ 2026-10-08（**B** ✓）：双击缩放 —— **只挂在这一层**（图片区 ✓），取舍全文见 `_onDoubleTap` ✓。
+                        //   ⚠️ 代价：本层"**点图关闭**"从即时变成 ≈**300ms** 后（`onTap` 与 `onDoubleTap`
+                        //      同存的**固有**效应 ✓ —— 第一下抬手被双击识别器 `hold` 住 ✓）；
+                        //      点**空白** / 两颗**按钮**照旧**即时** ✓（它们不在本层里 ✓）。
+                        onDoubleTapDown: (_crop || _multi) ? null : _onDoubleTapDown,
+                        onDoubleTap: (_crop || _multi) ? null : _onDoubleTap,
+                        onTap: (_crop || _multi)
                             ? null
                             : () {
                                 if (_pvFlipped) return;
                                 _close();
                               },
                         // 切图手势：横向位移 ≥ **18px** 才算 ✓（**不再是 40** ✗ —— 依据见下面 `onHorizontalDragEnd`）
-                        onHorizontalDragStart: _crop ? null : (_) => _dragDx = 0,
-                        onHorizontalDragUpdate:
-                            _crop ? null : (d) => _dragDx += d.delta.dx,
-                        onHorizontalDragEnd: _crop
+                        onHorizontalDragStart:
+                            (_crop || _multi) ? null : (_) => _dragDx = 0,
+                        onHorizontalDragUpdate: (_crop || _multi)
+                            ? null
+                            : (d) => _dragDx += d.delta.dx,
+                        onHorizontalDragEnd: (_crop || _multi)
                             ? null
                             : (_) {
                                 // ★ 2026-10-05（用户报"**划得轻了没反应**" ✓）：阈值 **40 → 18** ✗ —— 依据：
@@ -885,6 +1058,12 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(10), // = sim 的 border-radius:10px ✓
                           child: InteractiveViewer(
+                            // ★ 2026-10-08（**B** ✓）：控制器**必须显式挂上** ✗ —— 原来没挂（= 框架内部
+                            //   自建一个，我们拿不到 ⇒ 双击根本没法写它 ☠）。挂的是**预览**那份 `_pvTc` ✓
+                            //   ✗ 不是框选那份 `_tc`（理由见字段说明 ✓）。挂上之后捏合/平移的既有行为
+                            //   **一字不变** ✓（IV 本来就在写"自己那个"控制器 ⇒ 现在只是换成我们这份 ✓），
+                            //   双击则由 `_onDoubleTap` 写同一份 ✓。
+                            controller: _pvTc,
                             maxScale: 5,
                             child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
                           ),
@@ -1008,7 +1187,8 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody> {
           ],
         ],
         ), // ← Stack 闭合（上面包了 GestureDetector ✓ 多一层 ⇒ 多这一个括号 ✓）
-      ),
+      ), // ← 页面级 GestureDetector 闭合 ✓
+      ), // ← 页面级 Listener 闭合 ★ 2026-10-08 新增（方案 X ✓ ⇒ 又多这一层 ⇒ 再多这一个括号 ✓）
     );
   }
 
