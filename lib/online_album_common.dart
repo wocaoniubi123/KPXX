@@ -1063,7 +1063,10 @@ class _ArtPreviewBodyState extends State<ArtPreviewBody>
                             //   ✗ 不是框选那份 `_tc`（理由见字段说明 ✓）。挂上之后捏合/平移的既有行为
                             //   **一字不变** ✓（IV 本来就在写"自己那个"控制器 ⇒ 现在只是换成我们这份 ✓），
                             //   双击则由 `_onDoubleTap` 写同一份 ✓。
-                            controller: _pvTc,
+                            // ★ 2026-10-09（CI 实锤 ☠）：参数名是 **`transformationController`** ✗ 不是 `controller`
+                            //   —— `InteractiveViewer` **没有** `controller` 这个参数（analyze:
+                            //   `undefined_named_parameter` ✓ run 37885155389 ✓）。recon 已用 3.47.6 源码核过 ✓。
+                            transformationController: _pvTc,
                             maxScale: 5,
                             child: _artImage(widget.urls[_index], BoxFit.contain, 1600),
                           ),
