@@ -144,6 +144,12 @@ class KpState {
 /// 长视频/加密 HLS 跳转容易长时间卡加载；libmpv 由 FFmpeg 层面处理 HLS，
 /// 且 bufferSize 可调（就是网页播放器那种缓冲控制）。
 class KpPlayer extends ValueNotifier<KpState> {
+  /// ★ 2026-10-10（**dev 接缝** ✓ 用户拍板：桌面 dev 默认静音）：非空 ⇒ 每个新建的 Player 都按它
+  ///   设**初始音量**（0 = 静音 ✓）。桌面 dev 入口在 runApp 之前设 0 ✓。
+  ///   ✅ **iOS 零影响**：iOS 侧**没有任何代码**写它 ⇒ 恒为 null ⇒ 下面的 if 永不进入 ⇒
+  ///      行为与不写这几行**逐字节相同** ✓。
+  ///   ⚠️ 不许改它来动"系统音量"（那是全局的 ✗ 用户明确禁止 ✓）—— 这里动的是**播放器自己**的音量 ✓。
+  static double? startupVolumeOverride;
   KpPlayer({int bufferMb = 200})
       : _p = Player(
           configuration: PlayerConfiguration(
@@ -156,13 +162,16 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 否则 iOS 上 mpv 打开 vo/libmpv 时会报 "No render context set"，
     // 表现就是只有声音、画面全黑（media-kit issue #1192）。
     _vc = VideoController(_p);
+    // ★ 2026-10-10（dev 接缝的应用点 ✓）：只在被显式要求时设 ⇒ iOS（null）一字不变 ✓
+    final sv = KpPlayer.startupVolumeOverride;
+    if (sv != null) unawaited(_p.setVolume(sv));
     _subs = [
       _p.stream.position.listen((v) {
         value = value.copyWith(position: v);
         // ★【常驻诊断】只打**首次** position>0（首帧 ✓）⇒ 防刷屏 ☠；`_everStarted` 是既有字段 ✓ 不改它的用法 ✓
         if (v > Duration.zero && !_everStarted) {
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 首帧 position=${v.inMilliseconds}ms');
-        }
+	}
         if (v > Duration.zero) _everStarted = true;
       }),
       // ★【常驻诊断·★】时长拿到那一刻（**"总进度只有几秒"就看这一条** ✓ 只打一次 ✓ 不改逻辑 ☠）
@@ -803,7 +812,15 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
       final v = (_bvStart + delta).clamp(0.0, 1.0).toDouble();
       _bvVolVal = v;
       // 系统音量（0~1）：和手机音量键是同一套，改动会留存
-      VolumeController().setVolume(v);
+      // ★ 2026-10-09（Windows 桌面链路 ✓）：**必须包一层** ☠ —— `volume_controller 2.0.8` 的
+      //   pubspec 只声明了 **android/ios** 两个平台（实测读该包 pubspec ✓），桌面上调用会抛
+      //   `MissingPluginException` ☠；本函数是**拖动回调**（右半屏竖滑），不在手势里接住的话
+      //   每滑一下都往 `FlutterError.onError` 抛一条 ✗（用户会看到日志刷屏，观感像"播放坏了" ✓）。
+      //   ⚠️ 口径与同文件 `bvPrime`/`_bvRefreshVolume` 那两处**完全一致**（它们本来就 `catch (_) {}` ✓）；
+      //      iOS 上调用**照旧成功** ⇒ 行为零变化 ✓（只是多了个永不会走的 catch ✓）。
+      try {
+        VolumeController().setVolume(v);
+      } catch (_) {}
       _bvGauge(v);
     }
   }

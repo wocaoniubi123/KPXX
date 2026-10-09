@@ -226,6 +226,21 @@ class AppBg extends ChangeNotifier {
     return m == null ? null : int.tryParse(m.group(1)!);
   }
 
+  /// ★ 2026-10-09（**Windows 实测 bug 的修法** ✓）：路径**比较前先规范化分隔符** ——
+  ///   `_abs()` 是 `'$_root$_sep$rel'`（`_sep = '/'` ✓ 见 `:65/:84`）⇒ 在 **Windows** 上产出的是
+  ///   `C:\…\Documents/bg_album/x.jpg`（**混斜杠** ✓），而目录枚举拿到的 `e.path` 是
+  ///   `C:\…\Documents\bg_album\x.jpg`（全反斜杠 ✓）⇒ `keep.contains(e.path)` **恒 false** ☠ ⇒
+  ///   图集目录里**每个** `bg_*.jpg`、以及根目录里"当前那张" `bg_direct_*` 都被当孤儿**删掉** ☠
+  ///   （桌面 dev 实测：刚播种的两张图 45s 后就不见了 ✓ 用户报的"背景图红叉"正是这条 ✓）。
+  ///   ⇒ 比较前两边都过 [_norm] ✓（只统一分隔符，别的一个字不动 ✓）。
+  /// ⚠️ **只改"比较"、不改 `_abs()` 的产出** ✗ —— 理由：`_abs()` 的结果还被 `fileOf()` / `image` /
+  ///   `File(...).existsSync()` / `delete()` / `rename()` 等**多处**当真路径用 ✓，而 Win32 文件 API
+  ///   **本来就接受 `/`**（本项目实测：同一文件写成"混斜杠"与"全反斜杠"两种，`File.exists()` **都是 true** ✓）
+  ///   ⇒ 那些地方**没有缺陷、一律不动** ✓；去改产出反而会动到"对外路径形态" ✗（最小改动口径 ✓）。
+  /// ✅ **iOS 零影响**：iOS 的路径分隔符本来就是 `/` ⇒ `e.path` 里**没有** `\` ⇒ [_norm] 是 **no-op**
+  ///   ⇒ 比较结果 / 删除集合 / 行为**逐字节不变** ✓（本仓 iOS 在发布中，这条是硬前提 ✓）。
+  static String _norm(String p) => p.replaceAll(r'\', '/');
+
   /// 清扫孤儿图（启动时跑一次，只列两个目录，成本极低）：
   /// - `documents/bg_album/`：**索引里没有的** `bg_*.jpg` 删掉（加图/换图/删图中途被杀留下的）
   /// - `documents/`：老实现的 `bg_custom*`、以及不是当前那张的 `bg_direct_*` 删掉
@@ -238,13 +253,13 @@ class AppBg extends ChangeNotifier {
   Future<void> _sweepOrphans() async {
     if (_album.isEmpty || _root.isEmpty) return;
     try {
-      final keep = <String>{for (final it in _album) _abs(it.file)};
+      final keep = <String>{for (final it in _album) _norm(_abs(it.file))};
       final cur = _current;
-      if (cur != null) keep.add(_abs(cur));
+      if (cur != null) keep.add(_norm(_abs(cur)));
       final dir = Directory('$_root${Platform.pathSeparator}$_albumDirName');
       if (await dir.exists()) {
         await for (final e in dir.list()) {
-          if (e is! File || keep.contains(e.path)) continue;
+          if (e is! File || keep.contains(_norm(e.path))) continue;
           final n = _name(e.path);
           if (!n.startsWith('bg_') || !n.endsWith('.jpg')) continue;
           try {
@@ -255,7 +270,7 @@ class AppBg extends ChangeNotifier {
         }
       }
       await for (final e in Directory(_root).list()) {
-        if (e is! File || keep.contains(e.path)) continue;
+        if (e is! File || keep.contains(_norm(e.path))) continue;
         final n = _name(e.path);
         if (!n.startsWith('bg_direct_') && !n.startsWith('bg_custom')) continue;
         try {

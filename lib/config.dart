@@ -15,7 +15,15 @@ class Site {
   /// dart:io 的 HttpClient 默认 "DIRECT"、**不读系统代理**：手机上挂着代理才
   /// 能打开的站（如 hanime1.me），浏览器能开、App 却直连被墙——2026-10-01 实锤
   /// （同一套请求头：走代理 200 / 直连 000）。其它平台/异常时退回默认客户端。
-  static final http.Client httpClient = _makeClient();
+  /// ★ 2026-10-10（**dev 接缝** ✓ 用户拍板）：原来的 `static final httpClient` 拆成下面三行 ——
+  ///   ① `_baseClient` = 原逻辑**一字不动** ✓；② `devClientOverride` = **只有 Windows dev 入口会设** ✓；
+  ///   ③ `httpClient` = getter：非空优先用覆盖件 ✓。
+  ///   ✅ **iOS 零影响**：全仓赋值点扫描 = **0 处**（只有读取 ✓ ⇒ iOS 取值恒为 `_baseClient`
+  ///      ⇒ 行为**逐字节不变** ✓）。覆盖件用法见 `lib/main_win_dev_h2.dart`（只对 `hanime1.me` 走
+  ///      h2 通道、其余 host 原样委托回 `_baseClient` ✓）。
+  static final http.Client _baseClient = _makeClient();
+  static http.Client? devClientOverride;
+  static http.Client get httpClient => devClientOverride ?? _baseClient;
 
   static http.Client _makeClient() {
     if (Platform.isIOS) {

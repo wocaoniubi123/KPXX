@@ -378,19 +378,27 @@ class PlayHistory extends ChangeNotifier {
     assert(r.key == a.key, '去重键必须一致：${r.key}');
 
     // 2) 字段缺失/类型错 → 不能抛异常（宁可丢一条，不能让整页崩）
+    //    ⚠️ 2026-10-09 **更正期望值**（桌面 debug 首启撞出来的 ✓）：本段断言原先要求"非 int 数字退化到 0" ✗，
+    //       而 `PlayRecord.fromJson` 里的 `int sec(dynamic v)` 对**非 int 的数字**是 `v.toInt()` **收下**（`5.0 ⇒ 5` ✓）
+    //       ⇒ **断言与实现互相矛盾** ☠（release 里 `assert` 整段被剥掉 ⇒ 真机从没暴露；CI 只 analyze 不跑 ⇒ 也照不到 ✓）。
+    //       ⇒ 现在按**实现**对齐 ✓：只有**非数字**（字符串 / null / 键缺失 ✓）才退化 0；非 int 的"数字"按 `toInt()` 收下 ✓。
+    //    ⚠️ 只动**自检的期望值** ✗：`sec()` / `fromJson` / 任何落盘读写**一个字不动** ✓（release 行为逐字节不变 ✓）。
     assert(PlayRecord.fromJson(const {}) == null, '没有 site/url 的应丢弃');
     assert(PlayRecord.fromJson(const {'s': 'x'}) == null, '只有 site 的应丢弃');
     final messy = PlayRecord.fromJson(const {
       's': '站',
       'u': '/x/',
-      'p': '坏值',
-      'd': null,
-      'f': 'yes',
-      'ts': 5.0,
+      'p': '坏值', // 非数字（字符串）
+      'd': null, // 非数字（null）
+      'f': 'yes', // 不是 true
+      'i': 'abc', // ★ 非数字（字符串）⇒ 集号这条也一起断言上 ✓（原来不给 'i' ⇒ 走的是"键缺失"那条，覆盖弱一点 ✓）
+      'ts': 5.0, // ★ **非 int 的"数字"** ⇒ 按 toInt() 收下 ⇒ 5（**不是** 0）✓
     });
-    assert(messy != null && messy.position == Duration.zero, '坏字段退化到 0');
+    assert(messy != null && messy.position == Duration.zero, '非数字（字符串）⇒ 位置退化 0');
+    assert(messy!.duration == Duration.zero, 'd = null ⇒ 时长退化 0');
     assert(!messy!.finished, 'f 不是 true 就当 false');
-    assert(messy!.videoIndex == 0 && messy.updatedAt == 0, '非 int 数字退化');
+    assert(messy!.videoIndex == 0, '非数字（字符串）⇒ 集号退化 0');
+    assert(messy!.updatedAt == 5, '非 int 的"数字"按 toInt() 收下（5.0 ⇒ 5）—— 只有非数字才退化 0');
 
     // 3) 进度计算
     assert(mk(u: '/p.html', p: 0).progress == 0, '没动过 = 0');
