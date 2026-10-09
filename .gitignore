@@ -21,3 +21,8 @@ release/
 # 模拟器临时抓取文件（排查用，不入库）
 sim/tmp_*
 DEVLOG_backup*.md
+
+# ★ 2026-10-10 Windows 桌面开发环境：本地产物（不入库 ✓）
+.flutter-plugins-dependencies
+_vs2019_cleanup_backup/
+_soak_tmp/

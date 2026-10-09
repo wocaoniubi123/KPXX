@@ -26,6 +26,15 @@ dependencies:
   media_kit: '>=1.1.11 <1.2.0'
   media_kit_video: '>=1.2.5 <1.3.0'
   media_kit_libs_ios_video: ^1.1.3
+  # ★ 2026-10-09（Windows 桌面开发链路 ✓ 用户要求"Windows 也能播"）：
+  #   media_kit 在**每个平台**都要一个"带原生库"的伴生包 ✓ —— iOS 那套在上面（`..._ios_video` ✓）；
+  #   缺了它 ⇒ 运行时 `MediaKit.ensureInitialized()` 直接抛 `Cannot find libmpv-2.dll …` ☠
+  #   （桌面首次冒烟的逐字原文 ✓）⇒ 播放链路整个起不来 ✓。
+  #   ⚠️ 它是 **Windows-only** 的包（pubspec 只声明 windows ✓）⇒ **iOS 侧零影响** ✓；
+  #   ⚠️ 版本线**与 iOS 那套不同**（各自的包各自发版：iOS = 1.1.x / Windows = 1.0.x ✓）；
+  #   ⚠️ 它**不带 DLL** ✗ —— 构建时由它的 `windows/CMakeLists.txt:70` 现下 `mpv-dev-…7z`
+  #      （GitHub release ✓ 走 `file(DOWNLOAD)` ⇒ 受 `HTTPS_PROXY` 影响 ✓ ⇒ 本机构建要带代理环境变量 ✓）。
+  media_kit_libs_windows_video: ^1.0.11
 
   # 2026-10-05（用户拍板）：直播房间页改用 iOS 原生播放器（iOS = AVPlayer）；版本钉 **2.10.1**
   #   理由（2026-10-05 二次拍板：升框架 ✓）：2.10.0 是**首次**支持 `videoViewType` 的版本（可选平台视图/纹理 ✓），
@@ -71,6 +80,8 @@ dependencies:
   #   ⇒ 回退 = 删 `plugins/kp_avif/**` + 删这一行 + 删图集2 里那几处接线 ✓
   kp_avif:
     path: plugins/kp_avif
+  device_preview: ^3.0.0
+  http2: ^3.1.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0

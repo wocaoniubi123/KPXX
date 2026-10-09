@@ -18,3 +18,11 @@ flutter:
     platforms:
       ios:
         pluginClass: KpAvifPlugin
+      # ★ 2026-10-09（Windows 桌面链路 ✓ 用户要求"桌面上图集2 不再红叉"）：
+      #   新增 **Windows 实现**（`windows/` 目录，C++ 走系统 WIC 解 AVIF ⇒ 再编成 PNG ✓）。
+      #   ⚠️ **iOS 那一行与 `ios/` 目录一个字未动** ✓；两侧契约完全相同：
+      #      通道 `kp_avif` / 方法 `decodeToPng` / 入 Uint8List / 出 PNG 或 null ✓。
+      #   ⚠️ 系统没装 AVIF 解码器（Store 包 HEIF Image Extension）时 ⇒ 本实现返回 null ⇒
+      #      Dart 侧照旧走占位 ✓ **绝不会比今天更糟** ✓。
+      windows:
+        pluginClass: KpAvifPluginCApi
