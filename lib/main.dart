@@ -5,6 +5,8 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
+import 'favorites.dart';
+import 'favorites_page.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
 import 'settings.dart';
@@ -62,6 +64,10 @@ void main() {
   };
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 播放记录加载（PlayHistory）开始');
   PlayHistory.i.load(); // 读播放记录（设置页列表 + 续播都要）
+  // ★ 2026-10-10（用户拍板 ✅）：收藏是**另一份独立存储**（`fav_list` ☠ 不与 play_history 混）——
+  //   ⚠️ 这句**必须在任何 toggle/save 之前**跑完 ☠：收藏没读出来就写盘 ⇒ 会把用户已有收藏覆盖掉。
+  if (AppSettings.i.logConsole) debugPrint('[BOOT] 收藏加载（Favorites）开始');
+  Favorites.i.load(); // 读收藏（底栏「收藏」页 + 详情页那颗星都要）
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 背景图加载（AppBg）开始');
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   // ★ 2026-10-05（用户批准 · 内存 · ③c）：**给 Flutter 自己的图片缓存设预算** ✅ ——
@@ -180,8 +186,9 @@ class KpxxLogo extends StatelessWidget {
   }
 }
 
-/// 根页：底部三个 tab —— 点播（站点宫格）/ **直播**（直播站点宫格）/ 设置。
-/// ⚠️ 顺序是用户 2026-10-03 拍板的：**点播 → 直播 → 设置**（与模拟器同序 ✓）—— 别改顺序 ✗。
+/// 根页：底部四个 tab —— 点播（站点宫格）/ **直播**（直播站点宫格）/ **收藏** / 设置。
+/// ⚠️ 顺序是用户拍板的：**点播 → 直播 → 收藏 → 设置**（收藏 = 第 3 格 ✅ 用户 2026-10-10 口径）——
+///   （2026-10-03 那次定的是三格「点播 → 直播 → 设置」，本次在**设置之前**插进「收藏」⇒ 别把收藏挪到最后 ☠）
 class RootPage extends StatefulWidget {
   const RootPage({super.key});
 
@@ -210,6 +217,7 @@ class _RootPageState extends State<RootPage> {
         children: const [
           ModuleGridPage(),
           LiveGridPage(),
+          FavoritesPage(), // ★ 第 3 格「收藏」（用户 2026-10-10 拍板 ✅）
           SettingsPage(),
         ],
       ),
@@ -232,6 +240,12 @@ class _RootPageState extends State<RootPage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.live_tv_outlined),
             label: '直播',
+          ),
+          // ★ 第 3 格「收藏」（用户 2026-10-10 拍板 ✅：接在「直播」后、「设置」前）
+          //   图标用空心星 —— 与「点播/直播/设置」那几项同为描边风格 ✅（详情页已收藏时才换成实心星）
+          BottomNavigationBarItem(
+            icon: Icon(Icons.star_border),
+            label: '收藏',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),

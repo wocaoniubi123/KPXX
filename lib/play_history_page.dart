@@ -53,10 +53,12 @@ class PlayHistoryPage extends StatelessWidget {
                   style: TextStyle(color: kTxtSub, fontSize: 13)),
             );
           }
-          return ListView.separated(
+          // ★ 2026-10-10（用户要求 ✅）：**播放记录列表不要条目分割线**（与收藏页**同口径** ✅）——
+          //   原来这里有一条 `Divider(height: 1, indent: 12)` ☑️ 已去掉 ⇒ 改用 `ListView.builder`
+          //   （不带 separator ☠）；行的 padding/间距**一个字没动** ✅。
+          return ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 6),
             itemCount: list.length,
-            separatorBuilder: (_, __) => const Divider(height: 1, indent: 12),
             // 行布局只有 PlayRecordTile 一份（设置页预览用的是同一个）
             itemBuilder: (context, i) {
               final r = list[i];

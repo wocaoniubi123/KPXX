@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_bg.dart';
 import 'api.dart';
 import 'app_background.dart';
+import 'favorites.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
 import 'main.dart' show kNavObserver; // ★ ⑦：全局路由观察者（订阅"被压栈 / 回到栈顶" ✅）
@@ -314,6 +315,9 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         title: d.title,
         cover: _coverOf(d),
         videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
+        // ★ 2026-10-10（用户要求 ✅）：本篇共几个视频 —— 区分"电影/单集"与"多集文章的第 1 集" ✅
+        //   （两者 videoIndex 都是 0；没这个字段就分不开 ⇒ 老记录 = 0 = 不知道 ✅ 行为不变）
+        total: d.videos.length,
         quality: _quality, // ⚠️ A 方案：记住这条视频选过的清晰度 ✓
         position: pos,
         duration: dur,
@@ -322,6 +326,25 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       ),
       force: force, // ⚠️ 具名参数必须在位置参数之后 ✓
     );
+    // ★ 2026-10-10（用户拍板 ✅）：**收藏**跟着同一套时机刷新"最近观看 + 集号"
+    //   （用户口径：收藏列表按"最近观看"降序 ⇒ 看过哪条哪条排最前 ✅）。
+    //   ⚠️ `Favorites.touch` **只更新已存在的收藏** ☠ —— 没收藏过就是空操作（**绝不新建、绝不删除** ✅），
+    //      所以这里不需要判 `contains`，也不会因为播放而凭空多出收藏 ✅。
+    //   ⚠️ 挂这里的理由（与 PlayHistory **完全同一套节奏** ✅）：一处覆盖
+    //      "播放中每 ~10 秒（:280）" + "离开详情页/换清晰度补写（:289）"两条时机，
+    //      而且沿用本方法既有的两道守卫（`_pushedAway` 被压栈不写 / 纯图文页不记 ✅）。
+    //   ⚠️ 不 await：与紧邻的 `PlayHistory.i.touch` 同款（内存先更新、落盘在后台走 ✅）。
+    Favorites.i.touch(
+      widget.site.name,
+      widget.baseUrl,
+      _switcher?.index.value ?? widget.initialVideoIndex,
+      // ★ 2026-10-10（用户要求 ✅）：把**同一份** pos/dur 也交给收藏自己存 ——
+      //   收藏页据此显示 `已看 47% · 1:26 / 3:01`，且**删掉播放记录后依然显示** ✅（不跨读 PlayHistory ☠）；
+      //   total 用来区分"电影"与"多集文章的第 1 集" ✅
+      position: pos,
+      duration: dur,
+      total: d.videos.length,
+    );
   }
 
   /// 记录列表的封面：优先用正文首图（详情页已经下载过、多半在内存缓存里），
@@ -329,6 +352,41 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   String _coverOf(ArticleDetail d) {
     if (d.images.isNotEmpty) return d.images.first;
     return widget.listCover;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 收藏（用户 2026-10-10 拍板 ✅）：与播放记录是**两份独立存储**
+  //   （`lib/favorites.dart`，键 `fav_list` ☠ —— 删播放记录不动收藏、删收藏不动播放记录）
+
+  /// 当前这一篇是否已收藏（键 = 站点名 + 详情页相对路径，与 `PlayRecord.key` 同一套口径 ✅）
+  bool get _isFav => Favorites.i.contains(widget.site.name, widget.baseUrl);
+
+  /// 顶栏那颗星：收藏 / 取消收藏（同一篇 = 同一条 ⇒ 再点一次就是取消 ✅）。
+  /// ⚠️ 取值与写播放记录**同一套**（`_coverOf` / `_switcher.index` ✅）：
+  ///   详情还没载入完就点 ⇒ 标题空串、封面退回列表页给的那张（照旧能收藏 ✅，不是空记录）。
+  Future<void> _toggleFav() async {
+    final d = _detail;
+    final added = await Favorites.i.toggle(
+      site: widget.site.name,
+      url: widget.baseUrl,
+      title: d?.title ?? '',
+      cover: d == null ? widget.listCover : _coverOf(d),
+      // 集号 = 当前播到第几集（0-based，与 PlayRecord.videoIndex 同一套下标 ✅）
+      videoIndex: _switcher?.index.value ?? widget.initialVideoIndex,
+      // ★ 2026-10-10：收藏这一刻**手上就有的**三样一起带上 ——
+      //   否则"收藏了但还没播"的那条，第 1 集的集号与进度要等下一次上报（约 10 秒）才出现 ☑️。
+      //   拿不到就按默认（total 0 = 不知道 ✅ / 0 时长 ⇒ 收藏行**不显示进度** ✅ 缺则隐藏）
+      total: d?.videos.length ?? 0,
+      position: _lastPos ?? Duration.zero,
+      duration: _lastDur,
+    );
+    if (!mounted) return;
+    if (AppSettings.i.logConsole) {
+      final path = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      debugPrint('[DETAIL] ${added ? '收藏' : '取消收藏'} path=${path.length <= 80 ? path : path.substring(0, 80)}');
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(added ? '已收藏' : '已取消收藏')));
   }
 
   Future<void> _load() async {
@@ -571,7 +629,13 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     //   ⚠️ `_switcher` 还没建好时传 null 项（`Listenable.merge` 会忽略 null ✓）；
     //   `_switcher` 换新实例时本行会重新订阅 ✓（listenables 变了 ⇒ builder 自己换订阅 ✓）。
     return ListenableBuilder(
-      listenable: Listenable.merge(<Listenable?>[AppBg.i, _switcher?.index]),
+      // ★ 2026-10-10（收藏 ✅）：把 `Favorites.i` 一并监听 —— 顶栏那颗星（空心/实心 + 主题色）
+      //   在收藏/取消收藏后立刻翻，不用等别的重建 ✅（`AppBg.i` / 篇内序号原本就在 ✅）。
+      listenable: Listenable.merge(<Listenable?>[
+        AppBg.i,
+        _switcher?.index,
+        Favorites.i,
+      ]),
       builder: (context, _) => _pageView(context),
     );
   }
@@ -582,6 +646,9 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     final idx = videos.isEmpty
         ? 0
         : (_switcher?.index.value ?? 0).clamp(0, videos.length - 1).toInt();
+    // ★ 全屏顶部标题的集标签：与详情页选集胶囊**同一份** `ArticleVideo.label`（下标同 `_switcher.index`）——
+    //   多集时全屏标题拼成 `文章标题 · 第 N 集`（换集实时变 ✅）；单集/电影用不到（全屏侧不加后缀 ✅）
+    final epLabels = <String>[for (final v in videos) v.label];
     return Scaffold(
       // 透明：详情页也吃根层背景图（播放器画面本身是视频纹理，不受影响）
       backgroundColor: Colors.transparent,
@@ -590,6 +657,18 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         title: Text(widget.site.name),
         foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         actions: [
+          // ★ 收藏（用户 2026-10-10 拍板 ✅）：未收藏 = 空心星 / 已收藏 = **实心星 + 主题色**；
+          //   ⚠️ 位置固定在「用网页播放器打开」**左边** ☠（用户口径，别挪）
+          //   ⚠️ 状态读的是 `Favorites.i`（同一份存储）；本页 `build` 已把 `Favorites.i` 并进监听
+          //      （见 `_pageView` 上方那段 `Listenable.merge` ✅）⇒ 星形立刻跟着翻 ✅
+          IconButton(
+            tooltip: _isFav ? '取消收藏' : '收藏',
+            icon: Icon(
+              _isFav ? Icons.star : Icons.star_border,
+              color: _isFav ? Theme.of(context).colorScheme.primary : kTxt,
+            ),
+            onPressed: _toggleFav,
+          ),
           // 原生播放器卡的时候换网页那套引擎（hls.js，跳转更快）
           IconButton(
             tooltip: '用网页播放器打开',
@@ -626,6 +705,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                               : _orderByQuality(videos[idx].sources, _quality),
                           referer: _api.base,
                           poster: d.images.isNotEmpty ? d.images.first : '',
+                          // ★ 用户要求：全屏（竖版/横屏）顶部显示视频标题；内嵌播放器不显示 ✅
+                          title: d.title,
+                          // 多集时全屏标题带"第 N 集"（换集实时更新）；单集/电影忽略它 ✅
+                          epLabels: epLabels,
                           onRefreshSources: _refreshSources,
                           // 合集类：当前这一集没有源时，按需去子文章取
                           lazyUrl:

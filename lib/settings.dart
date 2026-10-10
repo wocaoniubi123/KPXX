@@ -163,6 +163,13 @@ class PlayRecord {
   final String title;
   final String cover; // 原始 URL，显示时走 FetchedImage（该解密的自动解密）
   final int videoIndex; // 篇内第几个视频（多视频文章用）
+
+  /// ★ 2026-10-10（用户要求 ✅）：**本篇共几个视频**（详情页写 `d.videos.length` ✅）——
+  ///   用来区分"电影 / 单集（只有 1 个视频）"与"多集文章的**第 1 集**"
+  ///   （这两者 `videoIndex` 都是 0 ☠，只有这个字段能分开 ✅）。
+  ///   ⚠️ **`0` = 不知道**（老记录没有 `'n'` 这个键 ✅ / 纯图文页不写 ✅）
+  ///      ⇒ 显示时按"没这回事"处理 ☑️ ⇒ **老记录的行为与加字段之前完全一致** ✅。
+  final int total;
   final Duration position; // 已看到哪
   final Duration duration; // 总时长（0 = 还没拿到）
 
@@ -180,6 +187,7 @@ class PlayRecord {
     required this.title,
     required this.cover,
     required this.videoIndex,
+    required this.total,
     required this.position,
     required this.duration,
     required this.finished,
@@ -204,6 +212,7 @@ class PlayRecord {
         't': title,
         'c': cover,
         'i': videoIndex,
+        'n': total, // ★ 2026-10-10：本篇共几个视频（0 = 不知道 ✅ 老版本读新 JSON 会**忽略**这个未知键 ✅）
         'p': position.inSeconds, // 秒精度就够（JSON 也小）
         'd': duration.inSeconds,
         'f': finished,
@@ -224,6 +233,7 @@ class PlayRecord {
       title: j['t'] is String ? j['t'] as String : '',
       cover: j['c'] is String ? j['c'] as String : '',
       videoIndex: sec(j['i']),
+      total: sec(j['n']), // ★ 缺键/非数字 ⇒ 0 = 不知道（老记录走这条 ✅ 行为不变）
       position: Duration(seconds: sec(j['p'])),
       duration: Duration(seconds: sec(j['d'])),
       finished: j['f'] == true,
@@ -357,6 +367,7 @@ class PlayHistory extends ChangeNotifier {
           title: '标题 $u',
           cover: 'https://x/c.jpg',
           videoIndex: 2,
+          total: 12, // ★ 2026-10-10：总集数新字段也进往返
           position: Duration(seconds: p),
           duration: Duration(seconds: d),
           finished: f,
@@ -372,6 +383,7 @@ class PlayHistory extends ChangeNotifier {
     final r = b!;
     assert(r.site == a.site && r.url == a.url && r.title == a.title, '基本字段');
     assert(r.cover == a.cover && r.videoIndex == a.videoIndex, '封面/集号');
+    assert(r.total == a.total, '总集数（本篇共几个视频）'); // ★ 2026-10-10 新字段
     assert(r.position == a.position, '位置（秒精度）');
     assert(r.duration == a.duration && r.finished && r.updatedAt == a.updatedAt,
         '时长/看完/时间戳');
@@ -392,12 +404,14 @@ class PlayHistory extends ChangeNotifier {
       'd': null, // 非数字（null）
       'f': 'yes', // 不是 true
       'i': 'abc', // ★ 非数字（字符串）⇒ 集号这条也一起断言上 ✓（原来不给 'i' ⇒ 走的是"键缺失"那条，覆盖弱一点 ✓）
+      'n': 'abc', // ★ 2026-10-10：总集数同款——非数字（字符串）⇒ 退化 0（= 不知道）
       'ts': 5.0, // ★ **非 int 的"数字"** ⇒ 按 toInt() 收下 ⇒ 5（**不是** 0）✓
     });
     assert(messy != null && messy.position == Duration.zero, '非数字（字符串）⇒ 位置退化 0');
     assert(messy!.duration == Duration.zero, 'd = null ⇒ 时长退化 0');
     assert(!messy!.finished, 'f 不是 true 就当 false');
     assert(messy!.videoIndex == 0, '非数字（字符串）⇒ 集号退化 0');
+    assert(messy!.total == 0, '非数字（字符串）⇒ 总集数退化 0（= 不知道，显示规则按老记录走）'); // ★ 2026-10-10
     assert(messy!.updatedAt == 5, '非 int 的"数字"按 toInt() 收下（5.0 ⇒ 5）—— 只有非数字才退化 0');
 
     // 3) 进度计算

@@ -42,6 +42,7 @@ import 'package:video_player/video_player.dart'; // ★ 只给 ⑥ 的 dev 探�
 
 import 'app_bg.dart';
 import 'config.dart'; // ★ Site.devClientOverride（h2 通道挂载点 ✓ 只有本入口会写 ✓）+ Site.ua（探针要照房间页带 UA ✓）
+import 'favorites.dart'; // ★ 收藏（与发布入口同一份存储 ✅ 不读出来就会被"保存"覆盖掉 ☠）
 import 'main.dart'
     show KpxxApp; // ★ 复用发布入口**同一个**根 widget ✓（☠ 绝不复制一份 UI 树 —— 复制必然走样 ✓）
 import 'main_win_dev_h2.dart'; // ★ dev 专用 h2 通道（只给 hanime1.me ✓）
@@ -261,7 +262,8 @@ Future<void> main() async {
     debugPrint('[WIN-DEV] 播种纯色背景失败（已拦，不影响看界面）：$e');
   }
 
-  // ③ 与发布入口 `main.dart:21/64/66` **逐条对齐**的三件加载（**顺序也照抄** ✓：设置 → 播放记录 → 背景图 ✓）
+  // ③ 与发布入口 `main.dart:23/66/70/72` **逐条对齐**的四件加载
+  //   （**顺序也照抄** ✅：设置 → 播放记录 → **收藏**（2026-10-10 新增 ✅）→ 背景图 ✅）
   //   ⚠️ 但**各自兜一层** ☠ —— 2026-10-09 桌面冒烟**实测**（不是瞎防 ✓），`PlayHistory.load()` 会抛：
   //      `'package:kpxx/settings.dart': Failed assertion: line 393 pos 12:`
   //      `'messy!.videoIndex == 0 && messy.updatedAt == 0': 非 int 数字退化`
@@ -288,6 +290,9 @@ Future<void> main() async {
 
   await tryLoad('设置（AppSettings）', AppSettings.i.load);
   await tryLoad('播放记录（PlayHistory）', PlayHistory.i.load);
+  // ★ 2026-10-10（收藏 ✅）：发布入口也加了这一行（`main.dart` 的 `Favorites.i.load()`）⇒ 本入口照抄同序 ✅。
+  //   ⚠️ **必须有** ☠：收藏页/详情页那颗星要在 `load()` 之后才能写盘；没读出来就 save ⇒ 会把用户已有收藏覆盖掉。
+  await tryLoad('收藏（Favorites）', Favorites.i.load);
   await tryLoad('背景图（AppBg）', AppBg.i.load);
 
   // ☑️ 这里原来有一段"在 `load()`（= 清扫）之后再补写种子文件 + 重新应用当前背景"的**绕法** ✗ ——

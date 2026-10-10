@@ -894,6 +894,16 @@ class PlayerWidget extends StatefulWidget {
   final String referer;
   final String poster; // 视频封面，可为空
 
+  /// 视频标题（详情页传文章标题，可为空）——
+  /// ★ 用户要求：**只在两种全屏**（竖版全屏 `vertical=true` / 横屏全屏 `vertical=false`）的顶部显示；
+  ///   内嵌播放器**不显示**（原样不动 ✅）。显隐跟随全屏页那套 `_controls`（不另起定时器 ✅）。
+  final String title;
+
+  /// 各集标签（与详情页选集同一份：`ArticleVideo.label`，如"第 3 集"），下标与 [switcher] 的 index 同一套。
+  /// ★ 用户要求：**多集**时全屏标题为 `文章标题 · 第 N 集`（换集实时变 ✅），**单集/电影**不加后缀 ✅。
+  /// 标签为空（或下标越界）时全屏侧兜底成 `第 N 集`（1-based）✅。
+  final List<String> epLabels;
+
   /// 全部源都失败时调用：重新抓详情页拿新地址
   final Future<List<String>> Function()? onRefreshSources;
 
@@ -918,6 +928,8 @@ class PlayerWidget extends StatefulWidget {
     required this.sources,
     required this.referer,
     this.poster = '',
+    this.title = '',
+    this.epLabels = const [],
     this.onRefreshSources,
     this.lazyUrl,
     this.onFetchSources,
@@ -1757,6 +1769,8 @@ class PlayerWidgetState extends State<PlayerWidget>
             player: kp,
             vertical: vertical,
             switcher: widget.switcher,
+            title: widget.title,
+            epLabels: widget.epLabels,
           ),
           transitionsBuilder: (_, anim, __, child) => FadeTransition(
             opacity: CurvedAnimation(
@@ -2209,11 +2223,19 @@ class FullscreenPlayer extends StatefulWidget {
 
   /// 篇内切换状态（与内嵌播放器共用同一份，取实时值）
   final VideoSwitcher? switcher;
+
+  /// 顶部标题（可为空 = 不画标题，只留返回键）——竖版全屏/横屏全屏都走这个页面 ✅
+  final String title;
+
+  /// 各集标签（与详情页选集同一份；下标同 `switcher.index`）。多集时全屏标题带"第 N 集" ✅
+  final List<String> epLabels;
   const FullscreenPlayer({
     super.key,
     required this.player,
     this.vertical = false,
     this.switcher,
+    this.title = '',
+    this.epLabels = const [],
   });
 
   @override
@@ -2389,6 +2411,76 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     if (_controls) _scheduleHide();
   }
 
+  /// 顶部标题行（用户选定「甲」方案 ✅）：
+  ///   ① 有标题 + 多集 ⇒ `[标题 Flexible ⇒ 可压缩/超长省略] 6 [集号 Text ⇒ 固定、绝不省略]`
+  ///   ② 标题为空 + 多集 ⇒ **只有集号**（左对齐、样式同上 ✅ —— 标题那一格根本不生成 ✅）
+  ///   （③ 空标题 + 单集/电影 = 整块不画，判据在调用点 `if (widget.title.isEmpty && !_multiEp)` ✅）
+  /// ★ 显隐不受这里管：外层就是 `if (_controls)`（那个**唯一真源** ✅），本方法只管"画什么" ✅。
+  /// ★ 换集实时更新：直接监听详情页那份 `switcher.index`（**同一份真源** ✅，不另起状态/定时器 ✅）。
+  Widget _titleRow() {
+    final sw = widget.switcher;
+    if (sw == null) return _titleRowLine(0); // 没有切换状态 ⇒ 单条（无集号）✅
+    return ValueListenableBuilder<int>(
+      valueListenable: sw.index,
+      builder: (_, i, __) => _titleRowLine(i),
+    );
+  }
+
+  Widget _titleRowLine(int i) {
+    final ep = _epText(i);
+    final hasTitle = widget.title.isNotEmpty;
+    return Row(
+      children: [
+        // 标题：空标题 ⇒ 这一格**不生成**（不留 0 宽占位、也不留多余间距）✅
+        if (hasTitle) Flexible(child: _titleLine(widget.title)),
+        if (ep != null) ...[
+          if (hasTitle) const SizedBox(width: 6), // 只有"标题 + 集号"之间才要那条间距 ✅
+          // 集号：**非** Flexible ⇒ 拿自己的固有宽度、不参与省略 ✅（标题超长时先压标题）
+          Text(ep, maxLines: 1, softWrap: false, style: _titleStyle),
+        ],
+      ],
+    );
+  }
+
+  /// 多集（本篇视频数 > 1）⇒ 集号该显示；单集/电影 ⇒ 不显示 ✅
+  ///   ⚠️ `total` 是详情页那份 `VideoSwitcher` 上的**共享**字段（换源刷新时会更新 `detail_page.dart:479`）
+  bool get _multiEp => (widget.switcher?.total ?? 0) > 1;
+
+  /// "标签长得像集号"的判据（用户拍板 ✅）：形如 `第 5 集` / `第5集`（中间允许空白）——
+  ///   ⚠️ **只认这一种写法**：站点里目前只有黄果/野果产这种真集号标签（`sites/huangguo.dart:508/519`、
+  ///   `sites/yeguodj.dart:517`）；其余站的标签是**视频标题型**（`视频` / `视频 2` / 子标题 / 文章标题）
+  ///   ⇒ 用序号。发现别的"真集号"写法**先报再改**，不许自己扩正则 ☠
+  static final _epLabelRe = RegExp(r'^第\s*\d+\s*集$');
+
+  /// 集号文本：多集才有（单集/电影 ⇒ null ⇒ **不显示集号** ✅，行为不变）
+  ///   ★ 用户拍板：标签**长得像集号** ⇒ **保留标签原文**（页面从"第 5 集"起也对 ✅）；
+  ///     标签不是集号形态（视频标题型）或**为空 / 下标越界** ⇒ 改用**序号** `第 ${i + 1} 集`（1-based）✅
+  ///   ⚠️ 本方法只喂全屏标题；详情页选集胶囊仍原样显示 `ArticleVideo.label`（一个字没动 ✅）
+  String? _epText(int i) {
+    if (!_multiEp) return null;
+    final labels = widget.epLabels;
+    final raw = (i >= 0 && i < labels.length) ? labels[i].trim() : '';
+    if (_epLabelRe.hasMatch(raw)) return raw; // 真集号形态 ⇒ 原文（含前后空白已 trim 掉）✅
+    return '第 ${i + 1} 集'; // 视频标题型标签 / 空 / 越界 ⇒ 序号 ✅
+  }
+
+  /// 标题与集号共用同一套 HUD 样式（白字 + 轻投影，两处必须是同一份 ⇒ 视觉不割裂 ✅）
+  static const _titleStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: FontWeight.w500,
+    shadows: [
+      Shadow(offset: Offset(0, 1), blurRadius: 4, color: Colors.black87),
+    ],
+  );
+
+  Widget _titleLine(String text) => Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _titleStyle,
+      );
+
   @override
   Widget build(BuildContext context) {
     final kp = widget.player;
@@ -2465,8 +2557,34 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         child: Stack(
           children: [
             Center(child: _videoSurface(kp)),
-            // 顶部：返回
-            if (_controls)
+            // 顶部：返回 + 视频标题
+            // ★ 用户要求（2026-10）：两种全屏（竖版/横屏）顶部都显示标题，且**跟随控件一起显隐** ——
+            //   本块整体挂在既有的 `_controls` 上 ✅（与返回键、底部控制条**同一套**状态、同一个 3 秒
+            //   计时器/单击切换 ☑️）⇒ 不新增任何定时器、不新增任何状态 ✅；
+            //   ⚠️ 内嵌播放器不显示标题（那边一个字没动 ✅）。
+            if (_controls) ...[
+              // 轻量渐变遮罩：只为标题可读性（纯装饰 ⇒ IgnorePointer 包住，绝不抢触摸/手势 ✅）
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Container(
+                    // 高度 = 顶部安全区 + 标题行高（避开刘海/状态栏）
+                    height: MediaQuery.paddingOf(context).top + 64,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.62),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               SafeArea(
                 child: Row(
                   children: [
@@ -2479,10 +2597,19 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                         Navigator.pop(context);
                       },
                     ),
-                    const Expanded(child: SizedBox()),
+                    const SizedBox(width: 8),
+                    // 顶部标题行（用户选定「甲」方案）：标题可伸缩 + **集号独立、不参与省略** ✅
+                    //   ① 有标题 + 多集 ⇒ 标题 + 集号；② 标题为空 + 多集 ⇒ **只有集号**（左对齐）✅；
+                    //   ③ 标题为空 + 单集/电影 ⇒ 什么都不画（保持原样 ✅）
+                    if (widget.title.isEmpty && !_multiEp)
+                      const Expanded(child: SizedBox())
+                    else
+                      Expanded(child: _titleRow()),
+                    const SizedBox(width: 14),
                   ],
                 ),
               ),
+            ],
             // 亮度/音量指示条（图标 + 条，不显示数字）
             buildGauge(),            // 双击左/中/右的提示图标（必须判空：
             // 少了这层判断会直接 null! 崩溃，整页灰屏）
