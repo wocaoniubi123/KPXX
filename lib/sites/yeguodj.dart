@@ -18,13 +18,22 @@
 //  · 详情 = **接口优先** `POST https://www.yeguodj.com/api.php/api/playlet/detail`（form 编码 ✅
 //    AES-128-CBC/Pkcs7 响应 ⇒ 明文里再取 `.data` ✅）；失败**回落 SSR**（`<script id="__NUXT_DATA__">` ✅）
 //    并**打错误日志** ✅（☑️ 不许静默）
-//  · 播放 = `GET /drama/video/<video_id>/` ✅ —— **实测（2026-10-08）：这一页就带全集地址** ✅
-//    （`episodeAll[]` 每项都有 `id/sort/video_url` ✅；同一部剧的第 1/2 集地址都在这一页里 ✅）
-//    ⚠️ 而"按单集寻址"**不存在** ☑️（复核过：`/drama/video/<单集行id>/` 落通用页 ☑️、
-//      `/drama/video/<剧id>/<集号>/` = 404 ☑️、`?episode_id=` / `?episode_sort=` / `?sort=` / `?ep=` 一律**照旧出第 1 集** ☑️）
-//      ⇒ 所以本站的"每集现取"在 App 侧落成：**详情打开时抓一次播放页** ✅ ⇒ 按 `id`（回退 `sort`）把
-//        `episodeAll[]` 的地址映射到**每一集** ✅（这正是站上的真实形态 ✅ —— 站方自己也是从这一页拿全集 ✅）；
-//        第 1 集另有 `lazyUrl` 现取兜底 ✅（该页顶层 `video_url` **就是第 1 集** ✅ 实测吻合 ✅）。
+//  · 播放 = **接口** `POST https://www.yeguodj.com/api.php/api/playlet/play` ✅
+//    （表单 = 详情那 11 个字段**同款** ✅ + `playlet_id`/`video_id`/`episode_id` ✅；AES key/iv 与详情**同一套** ✅）
+//    ★ 2026-10-11 换的：站方把老的**播放页** `/drama/video/<id>/` 改成了 **CSR 空壳** ☑️
+//      ⇒ 那一页 HTML 里 `video_url` / `episodeAll` / `m3u8` **全 0 命中** ⇒ 老 `_playPage` 取空、
+//      每集都没源（= 用户报的"视频地址失效" ✅）⇒ **老 `_playPage` 已删** ✅（连带老 `sourcesFromHtml` ✅）。
+//    ★ 现在口径 = **打开详情时"一次拿全集"** ✅：那一次（`episode_id=0` ✅）就把 `episodeAll[]`
+//      （每项 `id`/`sort`/`video_url` ✅）整份取回 ⇒ 按 `id`（回退 `sort`）映射到**每一集** ✅
+//      = 老 `_playPage` 时代的行为 ✅（打开即"全集地址就位" ✅）。
+//      · 为什么**不**做"按集取"：底座那条 lazy 链是 `GET → sourcesFromHtml(html)`
+//        （`api.dart:_fetchSourcesAt` ✅，而 `sourcesFromHtml` 是**同步 + 只收 html** ✅）
+//        可本接口**只认 POST** ☑️（GET = HTTP 200 + 解密后 `status=0 msg=参数错误` ✅ 实测）
+//        ⇒ 想按集取就**必须动公共区**加钩子 ☑️；**一次拿全集则一个公共文件都不用动** ✅。
+//      · 代价 & 兜底 ✅：后段集地址在**打开时就生成**、可能放置较久 ☑️ —— 但地址**就在 `detail()`
+//        的返回值里** ✅ ⇒ 播放器那条"重抓这一页"的兜底（`detail_page.dart:465 _refreshSources` ✅
+//        —— 它**会重新调本 `detail()`** ✅、取的就是当前集 `fresh.videos[i]` ✅）
+//        **对每一集都有效** ✅ ⇒ 地址过期了重抓一次就拿新地址，**无死角** ✅。
 //  · 封面是**加密图** ⇒ 直接用底座 `fetched_image.dart` ✅（key/iv 与本文件无关、两边**同一份** ✅ 零成本复用 ✅）
 //
 // ---- 日志（照 DEVLOG 顶部第七节 ✅）----
@@ -60,6 +69,9 @@ class YeguoSite extends SiteUi {
 
   /// 详情接口路径（前端 JS 里那串 ✅ 照抄 ☑️ 不改）
   static const String _kApiPath = '/api.php/api/playlet/detail';
+
+  /// 播放接口路径（**一次拿全集** ✅ 2026-10-11 本机 curl 实测 ✅）——与详情**同一个 host、同一套表单与 AES** ✅
+  static const String _kPlayPath = '/api.php/api/playlet/play';
 
   /// 接口响应的 AES 参数（recon 从站点前端抠出的 ✅；**勿改** ☑️）
   static const String _kApiKey = '2acf7e91e9864673';
@@ -250,7 +262,7 @@ class YeguoSite extends SiteUi {
   /// （真机表现 = `Exception: 所有域名均无法访问` ✅）⇒ 本站列表请求单独放宽到 **15 秒** ✅。
   ///   ⚠️ 域名照档案写死 `yeguodj.com` ✅（`kSite15.hosts` **只有这一个** ✅ ⇒ 与底座的域名轮换等价 ✅；
   ///      `www.` 会 301 回 apex ✅）。⚠️ **未加 `Referer`** ☑️ —— 照 `online_album_common.dart:568` 的先例 ✅。
-  ///   ⚠️ 只覆盖**列表类** ☑️：详情接口（[_detailApi] ✅）与播放页**保持底座原样** ✅（它们不慢 ✅）。
+  ///   ⚠️ 只覆盖**列表类** ☑️：详情接口（[_detailApi] ✅）与播放接口（[_playApi] ✅）**保持底座原样** ✅（它们不慢 ✅）。
   ///   ⚠️ 非 200 ⇒ **抛异常 + 写错误日志** ✅（☑️ 不静默、不假装空列表）；任何失败都**原样上抛** ✅
   ///      （只多两条日志 ✅ 不吞异常 ☑️）。
   ///
@@ -428,52 +440,122 @@ class YeguoSite extends SiteUi {
     return _obj(a, ['episodes', 'description', 'video_id']);
   }
 
-  /// 播放页：`/drama/video/<id>/` ⇒ **全集地址**（`episodeAll[]` ✅ 每项 `id/sort/video_url` ✅）
+  /// **播放接口**（form + AES-128-CBC/Pkcs7 ✅ —— 表单 / UA / Content-Type / 解密流程**全部照 [_detailApi]** ✅，
+  /// 复用**同一套 key/iv** ✅）：`POST /api.php/api/playlet/play`。
   ///
-  /// 返回「集行 id → 地址」和「集号 → 地址」两张表（都为空 = 这页没给地址 ✅ 调用方记日志 ✅）
-  Future<({Map<int, String> byId, Map<int, String> bySort, String top})> _playPage(
-      int id) async {
+  /// `episodeId`：`0` = 第 1 集 ✅（**本站只用 0** ✅ —— 一次拿全集）；传**集行 id** = 那一集 ✅。
+  /// 返回明文里的 `data` 对象（含 `id/playlet_id/episode_sort/total_serial/video_url/episodeAll[]` ✅）；
+  /// 失败 / 异常一律返回 null（**调用方打日志** ✅ —— 口径同 [_detailApi] ✅）。
+  ///
+  /// ⚠️ 取证（2026-10-11 本机 curl ✅，play 端点共 3 次）：
+  ///   · `episode_id=0` ⇒ `episode_sort=1`、`episodeAll[7]`（每项 `id/sort/video_url` ✅）、顶层 `video_url` = 第 1 集 ✅
+  ///   · `episode_id=187246`（第 2 集行 id）⇒ `episode_sort=2`、`episode_title=五姐姐2`、
+  ///     地址与 `episodeAll[1]` **逐字相同** ✅（本站**不用**按集取 ☑️，但这条能证明 `episodeAll` 的 `id` 是真集行 id ✅）
+  ///   · `episodeAll[].id` 与 detail 的 `episodes[].id` **完全一致** ✅（187245/187246/187247… ✅）
+  ///   · 解出的 m3u8 实播复验：200 / 15329 字节 / 真 m3u8（带 `#EXT-X-KEY`）✅
+  ///   · ☠ **GET 不通**（本节最要紧的一条）：`GET …/play?<全部参数>` ⇒ HTTP **200**，但解密后
+  ///     `status=0 msg=参数错误`（服务端只读 POST ✅）⇒ 底座那条 `GET → sourcesFromHtml(html)` 的 lazy 链
+  ///     **够不到本接口** ☑️（这也是本站**不做按集取**的原因 ✅ —— 要做就得动公共区 ✅）。
+  ///
+  /// ⚠️ 日志口径照本文件顶部「日志」那一节 —— **绝不打带 `auth_key` 的完整地址** ☠（只打剧/集/状态码/字节数/耗时 ✅；
+  ///   `auth_key` 在**响应**里 ✅，而这几条日志一个字段都没带出去 ✅）。
+  Future<Map<String, dynamic>?> _playApi(int playletId, {int episodeId = 0}) async {
     final sw = Stopwatch()..start();
     try {
-      final html = await _f.text('/drama/video/$id/');
-      final a = _nuxt(html);
-      final byId = <int, String>{};
-      final bySort = <int, String>{};
-      var top = '';
-      if (a != null) {
-        final o = _obj(a, ['video_url', 'episodeAll']);
-        if (o != null) {
-          top = '${o['video_url'] ?? ''}';
-          final all = o['episodeAll'];
-          if (all is List) {
-            for (final e in all) {
-              if (e is! Map) continue;
-              final u = '${e['video_url'] ?? ''}';
-              if (u.isEmpty) continue;
-              final eid = (e['id'] as num?)?.toInt() ?? 0;
-              final es = (e['sort'] as num?)?.toInt() ?? 0;
-              if (eid > 0) byId[eid] = u;
-              if (es > 0) bySort[es] = u;
-            }
-          }
+      final r = await _f.client
+          .post(
+            Uri.parse('https://$_kApiHost$_kPlayPath'),
+            headers: {
+              'User-Agent': Site.ua,
+              'Referer': 'https://$_kApiHost/',
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            body: {
+              // ↓↓↓ 与 [_detailApi] **逐字同款**的 11 个字段 ✅（`video_id` 同传剧 id ✅）
+              'bundleId': 'com.pwa.mater',
+              'version': '1.3.2',
+              'oauth_type': 'web',
+              'language': 'zh',
+              'via': 'pwa',
+              'oauth_id': _kOauthId,
+              'token': '',
+              'trace_id': _kOauthId,
+              'video_id': '$playletId',
+              'episode_id': '$episodeId',
+              'related_list': '1',
+              // ↓↓↓ 本接口**比 detail 多这一个** ✅（少它 ⇒ `参数错误` ☑️ 实测必带 ✅）
+              'playlet_id': '$playletId',
+            },
+          )
+          // ⚠️ 与 [_detailApi] 一致（8 秒 ✅）—— 别套列表那套 15 秒 ☑️（它不慢 ✅）
+          .timeout(const Duration(seconds: 8));
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 播放接口 剧=$playletId 集=$episodeId '
+            'code=${r.statusCode} len=${r.bodyBytes.length} ms=${sw.elapsedMilliseconds}');
+      }
+      if (r.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(r.bodyBytes));
+      if (j is! Map || (j['errcode'] as num?)?.toInt() != 0) {
+        if (AppSettings.i.logConsole) {
+          debugPrint('[SRC] ${_f.site.name} 播放接口 剧=$playletId 集=$episodeId '
+              'errcode=${j is Map ? j['errcode'] : '?'} ⇒ 没拿到');
+        }
+        return null;
+      }
+      final b64 = j['data'];
+      if (b64 is! String) return null;
+      final plain = _aes.decrypt64(b64, iv: _iv); // AES-128-CBC / Pkcs7 ✅（与详情同一套 key/iv ✅）
+      final o = jsonDecode(plain);
+      final inner = (o is Map && o['data'] is Map) ? o['data'] : o;
+      if (inner is! Map) return null;
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 播放接口 剧=$playletId 集=$episodeId 解密命中 '
+            'ms=${sw.elapsedMilliseconds}');
+      }
+      return Map<String, dynamic>.from(inner);
+    } catch (e) {
+      // ⚠️ 这里**必须打**（"为什么各集没有源"要看得见 ✅ ☑️ 不许静默）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 播放接口 剧=$playletId 集=$episodeId 失败：$e（各集将没有源）');
+      }
+      return null;
+    }
+  }
+
+  /// 播放接口明文 ⇒ 「集行 id → 地址」+「集号 → 地址」+ 顶层地址（都为空 = 这次没给地址 ✅）
+  ///
+  /// ⚠️ 两张表都留着 ✅ —— 主用 `id`（它与 detail 的 `episodes[].id` 完全一致 ✅ 实锤），
+  ///   `sort` 是**回退**（老 `_playPage` 时代就是这套口径 ✅ 一行未改 ✅）。
+  ({Map<int, String> byId, Map<int, String> bySort, String top}) _playUrls(
+      Map<String, dynamic>? j) {
+    final byId = <int, String>{};
+    final bySort = <int, String>{};
+    var top = '';
+    if (j != null) {
+      top = '${j['video_url'] ?? ''}'.trim();
+      final all = j['episodeAll'];
+      if (all is List) {
+        for (final e in all) {
+          if (e is! Map) continue;
+          final u = '${e['video_url'] ?? ''}'.trim();
+          if (u.isEmpty) continue;
+          final eid = (e['id'] as num?)?.toInt() ?? 0;
+          final es = (e['sort'] as num?)?.toInt() ?? 0;
+          if (eid > 0) byId[eid] = u;
+          if (es > 0) bySort[es] = u;
         }
       }
-      if (AppSettings.i.logConsole) {
-        debugPrint('[SRC] ${_f.site.name} 播放页 id=$id 集址=${byId.length} '
-            '顶层=${top.isEmpty ? '无' : '有'} ms=${sw.elapsedMilliseconds}');
-      }
-      return (byId: byId, bySort: bySort, top: top);
-    } catch (e) {
-      if (AppSettings.i.logConsole) {
-        debugPrint('[SRC] ${_f.site.name} 播放页 id=$id 失败：$e（各集将没有源）');
-      }
-      return (byId: const <int, String>{}, bySort: const <int, String>{}, top: '');
     }
+    return (byId: byId, bySort: bySort, top: top);
   }
 
   /// 详情入口（`Api.detail` → 本方法 ✅）
   ///
-  /// 看：走了接口还是 SSR、几集、几集拿到地址、猜你喜欢几条、耗时 —— 详情页空白时先看这行。
+  /// 看：走了接口还是 SSR、几集、**几集拿到地址**、猜你喜欢几条、耗时 —— 详情页空白时先看这行。
+  ///   ★ 2026-10-11 口径：**打开详情时一次拿全集** ✅（`_playApi(id)` 那一次 ✅ ⇒ `episodeAll[]` 整份回来
+  ///   ⇒ **每一集都有源** ✅）；本页**没有** lazyUrl / 按需取源 ☑️ —— 地址过期由播放器那条
+  ///   "重抓这一页"的兜底接住（`detail_page.dart:465 _refreshSources` ✅ 它会重新走本方法 ✅
+  ///   ⇒ 每一集都拿得到**新**地址 ✅）。
   @override
   Future<ArticleDetail> detail(String url) async {
     final sw = Stopwatch()..start();
@@ -487,8 +569,11 @@ class YeguoSite extends SiteUi {
       }
       throw Exception('野果短剧：详情路径里没有 video_id（$path）');
     }
-    // ★ 播放页与详情**同时发**（别串行等 ☑️）—— 站上这一页就是全集地址 ✅
-    final playF = _playPage(id);
+    // ★ 播放接口与详情**同时发**（别串行等 ☑️）—— 站上**这一次就带全集地址** ✅
+    //   ⚠️ 站方已把播放页 `/drama/video/<id>/` 改成 CSR 空壳（HTML 里 `video_url`/`episodeAll`/`m3u8` 0 命中 ✅）
+    //   ⇒ 老 `_playPage`（抓那一页）**已删** ✅ —— 换成这条**只认 POST** 的新接口 ✅
+    //   （GET 是 HTTP 200 + 解密后 `status=0 msg=参数错误` ✅ 实测 ☑️，所以只能 POST ✅）。
+    final playF = _playApi(id);
     var j = await _detailApi(id);
     var via = '接口';
     if (j == null) {
@@ -501,7 +586,7 @@ class YeguoSite extends SiteUi {
       }
       throw Exception('野果短剧：详情解析失败（id=$id）');
     }
-    final play = await playF;
+    final play = _playUrls(await playF);
 
     // ---- 选集（站上字段：id / sort / title / resolution / duration / access.can_play ✅）----
     final eps = j['episodes'];
@@ -512,18 +597,18 @@ class YeguoSite extends SiteUi {
         final eid = (e['id'] as num?)?.toInt() ?? 0;
         final sort = (e['sort'] as num?)?.toInt() ?? 0;
         final n = sort > 0 ? sort : videos.length + 1;
+        // ★ **一次拿全集** ✅：**每一集**都直接填上地址（按集行 id 命中 ✅，回退集号 ✅
+        //   —— 口径与老 `_playPage` 时代**逐字相同** ✅）；没有 `lazyUrl` ☑️（本方案不需要按需/懒取 ✅）。
         final u = play.byId[eid] ?? play.bySort[sort] ?? '';
         videos.add(ArticleVideo(
           label: '第 $n 集',
           ordinal: n,
           sources: u.isEmpty ? const <String>[] : <String>[u],
-          // 第 1 集兜底现取：播放页顶层 `video_url` **就是第 1 集** ✅（实测吻合 ✅）
-          lazyUrl: (n == 1 && u.isEmpty) ? '/drama/video/$id/' : null,
         ));
       }
     }
     if (videos.isEmpty && play.top.isNotEmpty) {
-      // 详情里没有集清单、但播放页有地址 ⇒ 兜住第 1 集（不静默：上面已打日志 ✅）
+      // 详情里没有集清单、但播放接口有地址 ⇒ 兜住第 1 集（不静默：上面已打日志 ✅）
       videos.add(ArticleVideo(
           label: '第 1 集', ordinal: 1, sources: <String>[play.top]));
     }
@@ -615,32 +700,6 @@ class YeguoSite extends SiteUi {
       debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page ⇒ 本站搜索还没做，返回 0 条');
     }
     return [];
-  }
-
-  /// 取源（通用槽位 ✅）：**播放页**里那一个 `video_url`（本站的地址全在播放页/详情那一页 ✅）
-  ///
-  /// ⚠️ 正常路径**走不到这里** ✅ —— 详情打开时已把 `episodeAll[]` 映射到每一集（见 [detail] ✅），
-  ///   只有"第 1 集没拿到地址"那条兜底会用它（`lazyUrl = /drama/video/<id>/` ✅）。
-  ///
-  /// 看：解析出几条源 —— 0 条就是这一页没给 `video_url`（顶层那个字段 ✅）。
-  @override
-  List<String>? sourcesFromHtml(String html) {
-    final out = <String>[];
-    final a = _nuxt(html);
-    if (a != null) {
-      final o = _obj(a, ['video_url', 'episodeAll']);
-      if (o != null) {
-        for (final k in const ['video_url', 'video_url_h265']) {
-          final u = '${o[k] ?? ''}'.trim();
-          if (u.isNotEmpty && !out.contains(u)) out.add(u);
-        }
-      }
-    }
-    // ★【常驻诊断】本站自有取源结果：条数（⚠️ **不打 URL** ☠ —— 带 auth_key ✅）
-    if (AppSettings.i.logConsole) {
-      debugPrint('[SRC] ${_f.site.name} 分支=站点自有(播放页) n=${out.length}');
-    }
-    return out;
   }
 
   /// 自管整页（底座唯一使用点 = `home_page.dart:580` ✅）
