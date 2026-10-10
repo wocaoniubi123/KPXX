@@ -134,12 +134,15 @@ class BgAlbumPage extends StatelessWidget {
           ? '图集上限 ${AppBg.maxAlbum} 张，先删几张再加'
           : '已加入 ${r.added} 张（共 ${AppBg.i.album.length}/${AppBg.maxAlbum}）'
               '${r.full > 0 ? '；另有 ${r.full} 张到上限没加' : ''}';
-      messenger.showSnackBar(SnackBar(content: Text(msg)));
+      messenger.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text(msg)));
     } catch (e) {
       // ★ 2026-10-08（用户批准 ✅）：**别把英文异常原文弹给用户** ☑️ —— 原文进错误日志 ✅
       await SiteErrorLog.log('选图', e);
-      messenger.showSnackBar(
-          const SnackBar(content: Text('选图失败，请再试一次')));
+      messenger.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text('选图失败，请再试一次')));
     }
   }
 
@@ -151,14 +154,19 @@ class BgAlbumPage extends StatelessWidget {
       if (!await Gal.hasAccess()) {
         if (!await Gal.requestAccess()) {
           messenger.showSnackBar(const SnackBar(
+              duration: Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
               content: Text('没有相册权限，导不出去 —— 去「设置 → 隐私 → 照片」里给 KPXX 打开')));
           return;
         }
       }
       await Gal.putImage(AppBg.i.fileOf(it));
-      messenger.showSnackBar(const SnackBar(content: Text('已导出到相册')));
+      messenger.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text('已导出到相册')));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('导出失败：$e')));
+      messenger.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
+          content: Text('导出失败：$e')));
     }
   }
 
@@ -167,8 +175,9 @@ class BgAlbumPage extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
     final wasCurrent = await AppBg.i.removeAlbum(i);
     if (wasCurrent) {
-      messenger.showSnackBar(
-          const SnackBar(content: Text('删的是当前这张背景 → 已切回内置默认图')));
+      messenger.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text('删的是当前这张背景 → 已切回内置默认图')));
     }
   }
 

@@ -386,7 +386,9 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       debugPrint('[DETAIL] ${added ? '收藏' : '取消收藏'} path=${path.length <= 80 ? path : path.substring(0, 80)}');
     }
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(added ? '已收藏' : '已取消收藏')));
+        .showSnackBar(SnackBar(
+            duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text(added ? '已收藏' : '已取消收藏')));
   }
 
   Future<void> _load() async {

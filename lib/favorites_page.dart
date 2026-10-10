@@ -118,7 +118,9 @@ class FavoritesPage extends StatelessWidget {
     final site = kSites.where((s) => s.name == it.site).toList();
     if (site.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('找不到站点「${it.site}」，这条收藏打不开了')),
+        SnackBar(
+            duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text('找不到站点「${it.site}」，这条收藏打不开了')),
       );
       return;
     }

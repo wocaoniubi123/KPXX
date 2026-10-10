@@ -93,7 +93,9 @@ class PlayHistoryPage extends StatelessWidget {
     final site = kSites.where((s) => s.name == record.site).toList();
     if (site.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('找不到站点「${record.site}」，这条记录打不开了')),
+        SnackBar(
+            duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text('找不到站点「${record.site}」，这条记录打不开了')),
       );
       return;
     }

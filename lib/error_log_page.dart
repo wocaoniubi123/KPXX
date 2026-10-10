@@ -76,7 +76,10 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
     await Clipboard.setData(ClipboardData(text: '文件：$p\n\n$_text'));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制到剪贴板')),
+      const SnackBar(
+        duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+        content: Text('已复制到剪贴板'),
+      ),
     );
   }
 
@@ -103,12 +106,16 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
       final box = context.findRenderObject() as RenderBox?;
       final p = await SiteErrorLog.path();
       if (p == '(不可用)' || p.isEmpty) {
-        m.showSnackBar(const SnackBar(content: Text('日志文件不可用 ✗（拿不到 App 文档目录）')));
+        m.showSnackBar(const SnackBar(
+            duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text('日志文件不可用 ✗（拿不到 App 文档目录）')));
         return;
       }
       final src = File(p);
       if (!await src.exists()) {
-        m.showSnackBar(const SnackBar(content: Text('还没有日志文件 ✓（先复现一次再导出）')));
+        m.showSnackBar(const SnackBar(
+            duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text('还没有日志文件 ✓（先复现一次再导出）')));
         return;
       }
       // 看：导出 —— 原日志字节数 + 路径（**直接分享源文件** ✓，不再有副本）。
@@ -123,9 +130,13 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             box == null ? null : (box.localToGlobal(Offset.zero) & box.size),
       ));
       if (!mounted) return;
-      m.showSnackBar(const SnackBar(content: Text('已打开分享面板 ✓')));
+      m.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text('已打开分享面板 ✓')));
     } catch (e) {
-      m.showSnackBar(SnackBar(content: Text('导出失败：$e ✗')));
+      m.showSnackBar(SnackBar(
+          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
+          content: Text('导出失败：$e ✗')));
     }
   }
 

@@ -595,8 +595,9 @@ class SettingsPage extends StatelessWidget {
     } catch (e) {
       // ★ 2026-10-08（用户批准 ✅）：**别把英文异常原文弹给用户** ☑️ —— 原文进错误日志 ✅
       await SiteErrorLog.log('选图', e);
-      messenger.showSnackBar(
-          const SnackBar(content: Text('选图失败，请再试一次')));
+      messenger.showSnackBar(const SnackBar(
+          duration: Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+          content: Text('选图失败，请再试一次')));
     }
   }
 
@@ -606,7 +607,9 @@ class SettingsPage extends StatelessWidget {
     final hit = kSites.where((s) => s.name == r.site).toList();
     if (hit.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('找不到站点「${r.site}」，这条记录打不开了')),
+        SnackBar(
+            duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
+            content: Text('找不到站点「${r.site}」，这条记录打不开了')),
       );
       return;
     }
