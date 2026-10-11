@@ -28,6 +28,16 @@ jobs:
       - name: Flutter version
         run: flutter --version
 
+      # ★ 2026-10-12（修 `Framework 'Mpv' not found`，run 38175637422 实测 ✅）：
+      #   iOS 新库版 `media_kit_libs_ios_video 1.1.5`（git override）**自带 `Package.swift`** ⇒
+      #   Flutter 3.47.6 **默认走 SwiftPM** 装它 ⇒ **SPM 路径不会执行 podspec 里的 `system("make")`**
+      #   ⇒ `Mpv.xcframework` 永远不会被下载 ⇒ 链接期报 `Framework 'Mpv' not found` ☠
+      #   （旧版 1.1.4 没有 `Package.swift` ⇒ 只能走 CocoaPods ⇒ 所以以前能出包 ✅）
+      #   ⇒ **在这里显式关掉 SwiftPM，回到 CocoaPods**：podspec 的 `make` 会照常拉 xcframework ✅。
+      #   ⚠️ 关掉后**对所有插件都用 CocoaPods**（与历次成功构建同一条路 ✅），不影响其它插件。
+      - name: 关闭 SwiftPM（改用 CocoaPods，确保 media_kit 的 Makefile 会下载 Mpv.xcframework）
+        run: flutter config --no-enable-swift-package-manager
+
       - name: 生成 iOS 工程（iOS 目录不入库，构建时生成）
         run: |
           flutter create --platforms=ios --org ysc --project-name kpxx .
