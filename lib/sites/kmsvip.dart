@@ -29,13 +29,26 @@ class KmSite extends SiteUi {
 
   final SiteFetcher _f;
 
-  /// 本站**没有搜索功能**（照站点实况 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
-// 看：搜索入口 —— 本站没有搜索功能，这里必定抛错（打一行，避免"点了搜索没反应"查不出来）。
-@override
+  /// 本站**没有搜索功能** —— 依据 = 本文件原有的**站点实况记录**（"照站点实况 ✓；原 `Api.search` 的
+  ///   case body 原样搬来 ✓"）🛢️[代码依据]；
+  ///   ⚠️ **2026-10-12 本轮官网没核到**（`https://kmsvip.com/` 请求失败、域名可能已变/需代理 ❓）
+  ///   ⇒ "站点无搜索"这条**如实标注：不是本轮实测**，是代码注释级依据 ☑️。
+  ///
+  /// ★ 2026-10-12（用户批准 · 防"**搜索页报错**"）：**不再 `throw`**，改成 **返回空列表 + 一行日志** ✅
+  ///   【依据】底座搜索页 `_search()` 在 `home_page.dart:1479` 调 `Api.search`：
+  ///     · 原来 `throw` ⇒ 走它的 `catch`（`home_page.dart:1503-1508`，日志那条「[SEARCH] 异常 ⇒ done=true」）
+  ///       ⇒ 用户侧看到的是**报错/异常** ☠；
+  ///     · 返回空列表 ⇒ 走**正常空态**：`home_page.dart:1485-1486` 把 `_done = true`（底部**不会一直转圈** ✅）
+  ///       + `home_page.dart:1683-1686` 渲染 `Center(Text('无结果'))` ✅ ⇒ **无需改公共区** ✅。
+  ///   ⚠️ 不改行为的地方：本站其它入口（首页/分类/详情）一律不经过这里 ☑️。
+  @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} ⇒ 本站无搜索，抛错');
-    throw Exception('该站点没有搜索功能');
+    if (AppSettings.i.logConsole) {
+      debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} '
+          '⇒ 本站无搜索功能 ⇒ 返回 0 条');
+    }
+    return const [];
   }
 
   /// 本站没有标签功能（原 `Api.tag` 的 case body 原样搬来 ✓）

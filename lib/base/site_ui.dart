@@ -91,6 +91,16 @@ abstract class SiteUi {
   /// 那正是"站点逻辑散在公用函数里"的典型 ✓，现在下放给站点 ✓。
   List<String>? sourcesFromHtml(String html) => null;
 
+  /// ★ 2026-10-11（**新增 · 可选钩子** ✅）：站点**按地址自己取源** —— 返回非 `null` ⇒
+  /// 底座**不再自己 GET**（`api.dart` 的 `_fetchSourcesAt` **开头**先问这一句 ✓，非 null 直接返回 ✓）。
+  ///
+  /// 用途：取源**只认 POST / 要现取签名**的站点 —— 「GET 完把 html 交给 [sourcesFromHtml]」那条老路
+  /// **够不到**的场景（柚子短剧 ✅：它的播放票只能 `POST /api/playback/<videoId>` 现取，票只 15 分钟 ✓）。
+  ///
+  /// ⚠️ 地址形态由**站点自己定**（= 站点填进 `ArticleVideo.lazyUrl` 的那一串 ✓）—— 底座只原样转交 ✓；
+  ///   默认 `null` = **走老路** ✓ ⇒ 未覆写的站点**行为逐字不变** ✅（☑️ 这里不做任何站点名判断 ✓）。
+  Future<List<String>?> fetchSources(String url) async => null;
+
   // ===== 分发：各站自己实现（并集签名 ✓ —— 用不到的参数忽略即可 ✓）=====
   //
   // ⚠️ 为什么是"并集签名"：各站参数天然不同 ✗（有的要 k、有的要 theme、有的要 home 回调 ✓），

@@ -53,6 +53,9 @@ import '../base/site_ui.dart';
 import '../config.dart' show Site;
 import '../detail_page.dart';
 import '../fetched_image.dart';
+// ★ 2026-10-12（用户口径"右上角搜索你没做" ✅）：复用**底座的通用搜索页** `SearchPage`
+//   （`home_page.dart:1351` ✅ public、只吃 `site` ✅）—— 输入框 / 空态 / 卡片 / "上拉到底"全白拿 ✅
+import '../home_page.dart' show SearchPage;
 import '../models.dart';
 import '../settings.dart'; // ★ 诊断开关（`AppSettings.i.logConsole` ✅）；`debugPrint` 由 material 带入 ✅
 import '../site_error_log.dart'; // ★ 列表请求非 200 时写公共错误日志 ✅（`SiteErrorLog.log` ✅）
@@ -692,14 +695,103 @@ class YeguoSite extends SiteUi {
     return out;
   }
 
-  /// 搜索：**没做** ☑️（真站有没有搜索页未核实 ❓）⇒ 返回空 + 日志 ✅（不静默 ☑️、也不假装有 ☑️）
+  /// 搜索接口路径（★ 2026-10-12 recon-5 用**无头浏览器 + HAR** 探明 ✅ 照抄 ☑️ 别再造）
+  static const String _kSearchPath = '/api.php/api/search/result';
+
+  /// 搜索（入口 = 底座通用搜索页 `SearchPage`（`home_page.dart:1351`）⇒ `Api.search` ⇒ 这里 ✅）。
+  ///
+  /// 【依据 · recon-5 的 HAR 实锤 🛢️】
+  ///   · **`POST https://www.yeguodj.com/api.php/api/search/result`**，**form 编码** ✅（与详情同一个 host ✅）；
+  ///   · **`Origin: https://yeguodj.com` 必带** ☠ —— 注意它**不带 `www.`**（HAR 原文如此 ✅，缺了拿不到结果）；
+  ///   · 表单 = **详情接口那 8 个固定字段**（`_detailApi` :389-396 同一套 ✅）
+  ///     + `keyword` / `tab=video`（**首版写死** ✅，其它 tab 未探）/ `page`（**从 1 起** ✅）/ `limit=20` ✅；
+  ///   · 响应外层 `{"errcode":0,…,"data":"<base64>"}` ⇒ **与详情同一套 AES-128-CBC/Pkcs7**
+  ///     （`_aes`/`_iv` :83-85 ✅ 零新密码学 ✅）；
+  ///     内层 `{"data":{"keyword":…,"total":N,"page":n,"limit":20,"has_more":bool,"list":[…]}}` ✅；
+  ///   · 列表项字段与列表/详情**同一套**（`video_id/title/cover/play_count/play_count_text` ✅）
+  ///     ⇒ 直接复用 [_item]（:169 ✅）；
+  ///   · **空结果是"正常返回"** ☑️（HTTP 200 + `errcode=0` + `total=0` + `list=[]` + `has_more=false`）
+  ///     ⇒ 返回空列表、**不当失败** ✅；
+  ///   · ⚠️ **不要**用 `/search/drama/<kw>`（recon-5 实测是 **CSR 空壳**、拿不到数据 ☠）。
+  ///
+  /// 异常一律**吞掉 + 记日志**并返回 `[]`（搜索失败**不许**把搜索页搞崩 ☑️）。
+  /// 日志口径（照 DEVLOG 第七节 ✅）：`入口=搜索 页=n kwLen=… 条=… total=… has_more=… ms=…`
+  ///   —— **不打关键词全文、不打 cookie/地址** ☠。
   @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    if (AppSettings.i.logConsole) {
-      debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page ⇒ 本站搜索还没做，返回 0 条');
+    final kw = keyword.trim();
+    if (kw.isEmpty) return []; // 空关键词不发请求 ✅（省一次网络）
+    final sw = Stopwatch()..start();
+    var total = 0;
+    var hasMore = false;
+    var code = 0;
+    final out = <Article>[];
+    try {
+      final r = await _f.client
+          .post(
+            Uri.parse('https://$_kApiHost$_kSearchPath'),
+            headers: {
+              'User-Agent': Site.ua,
+              'Referer': 'https://$_kApiHost/',
+              'Origin': 'https://yeguodj.com', // ☠ 必带（HAR 实锤；**不带 www.**）
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            body: {
+              // ↓ 与详情接口**同一套**固定字段（`_detailApi` :389-396 ✅）
+              'bundleId': 'com.pwa.mater',
+              'version': '1.3.2',
+              'oauth_type': 'web',
+              'language': 'zh',
+              'via': 'pwa',
+              'oauth_id': _kOauthId,
+              'token': '',
+              'trace_id': _kOauthId,
+              // ↓ 搜索自己的 4 个（recon-5 配方 ✅）
+              'keyword': kw,
+              'tab': 'video', // 首版写死 ✅
+              'page': '$page',
+              'limit': '20',
+            },
+          )
+          .timeout(const Duration(seconds: 8));
+      code = r.statusCode;
+      if (code == 200) {
+        final j = jsonDecode(utf8.decode(r.bodyBytes));
+        if (j is Map && (j['errcode'] as num?)?.toInt() == 0) {
+          final b64 = j['data'];
+          if (b64 is String && b64.isNotEmpty) {
+            final plain = _aes.decrypt64(b64, iv: _iv); // 与详情同一套 AES ✅
+            final o = jsonDecode(plain);
+            final Map<dynamic, dynamic>? inner =
+                o is Map ? ((o['data'] is Map) ? o['data'] as Map : o) : null;
+            total = (inner?['total'] as num?)?.toInt() ?? 0;
+            hasMore = inner?['has_more'] == true;
+            final list = inner?['list'];
+            if (list is List) {
+              for (final it in list) {
+                if (it is Map) {
+                  final one = _item(Map<String, dynamic>.from(it));
+                  if (one != null) out.add(one);
+                }
+              }
+            }
+          }
+        }
+      }
+      if (AppSettings.i.logConsole) {
+        debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page kwLen=${kw.length} '
+            '条=${out.length} total=$total has_more=$hasMore code=$code '
+            'ms=${sw.elapsedMilliseconds}');
+      }
+    } catch (e) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page kwLen=${kw.length} '
+            '失败 类型=${e.runtimeType} ms=${sw.elapsedMilliseconds}');
+      }
+      return [];
     }
-    return [];
+    return out;
   }
 
   /// 自管整页（底座唯一使用点 = `home_page.dart:580` ✅）
@@ -845,6 +937,21 @@ class _YgHomePageState extends State<YgHomePage> {
             title: Text(widget.site.name),
             centerTitle: true,
             foregroundColor: kTxt,
+            // ★ 2026-10-12（用户口径"右上角搜索你没做" ✅）：右上角**搜索图标** —— 与柚子同款接法 ✅
+            //   （`youzidj.dart:914-929` 逐条照抄 ✅）：点它 push 底座通用搜索页 `SearchPage`
+            //   ⇒ 它内部只调 `Api.search` ⇒ 落到本站 [YeguoSite.search] ✅（**零公共区改动** ✅）
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.search),
+                tooltip: '搜索',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    settings: const RouteSettings(name: '搜索页'),
+                    builder: (_) => PageBg(child: SearchPage(site: widget.site)),
+                  ),
+                ),
+              ),
+            ],
             bottom: TabBar(
               indicatorColor: _kAccent,
               dividerColor: Colors.transparent,

@@ -48,6 +48,13 @@ class DetailPage extends StatefulWidget {
 class DetailPageState extends State<DetailPage> implements RouteAware {
   late final Api _api = Api(site: widget.site);
   ArticleDetail? _detail;
+
+  /// ★ 2026-10-12（用户批准 ✅ · 修"播放记录串剧"）：**这份 `_detail` 属于哪条 url** ——
+  ///   只给 [_writeRecord] 开头那道"归属校验"用（宁可少写一条记录，绝不写串 ☠）。
+  ///   ⚠️ **每次给 `_detail` 赋值都必须同时更新它**（`_load()` / `_refreshSources()` 两处 ✅）；
+  ///   `baseUrl` 原地变化时 [didUpdateWidget] 会把它清成 null ⇒ 新剧详情到位前不写任何记录 ✅。
+  String? _detailUrl;
+
   String? _error;
   List<Article> _series = []; // 当前系列文章（含当前集）
   /// 篇内视频切换（多视频文章；详情页/内嵌播放器/全屏页共用同一份）
@@ -134,6 +141,60 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       final pInit = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
       debugPrint('[DETAIL] initState path=${pInit.length <= 80 ? pInit : pInit.substring(0, 80)} 初始集=${widget.initialVideoIndex} 位置=${widget.initialPosition?.inMilliseconds ?? 0}ms');
     }
+    _load();
+  }
+
+  /// ★ 2026-10-12（用户批准 ✅ · **断根**）：`baseUrl` 变了 ⇒ **本页整体清整 + 重载**。
+  ///
+  /// 【为什么必须加】本页原来**没有 `didUpdateWidget`** ⇒ 一旦被"原地换 url"（widget 更新而 State 复用），
+  ///   `_detail` 仍是**上一部剧**的 ⇒ `_writeRecord`（全仓唯一落盘点）就写出"A 的 url + B 的标题" ☠。
+  ///   实测依据见 [_writeRecord] 开头那段：prefs 里两条柚子短剧记录**相差 48.001 秒、进度 8→56**、
+  ///   `t/n/d` 全是前一部剧的 🛢️（= 同一次播放的连续上报，url 中途被换）。
+  ///
+  /// 【清整清单 · 逐项理由】
+  ///   ① `_switcher`：**先 `pause()` 再 `dispose()` 再置 null** —— 停掉旧剧的播放意图，丢掉篇内序号对象
+  ///      ⇒ 新剧详情到位前**不会继续播旧剧**（`_detail = null` 后 build 走 `d == null` 分支 ⇒
+  ///      `PlayerWidget` 整棵被卸载、旧引擎随之退场 ✅）。
+  ///   ② `_detail` / `_detailUrl`：清掉 ⇒ 归属校验立刻失效（这段时间**任何**上报都不落盘 ☑️ 不写串）。
+  ///   ③ `_error`：清掉 ⇒ 新剧从"载入中"干净起步（不残留上一部的错误横幅/重试态）。
+  ///   ④ `_series`：它是"**当前**系列文章（含当前集）" ⇒ 属于上一部剧，必须丢（否则选集横条串剧）。
+  ///   ⑤ `_lastPos` / `_lastDur` / `_lastFinished`：`_flushProgress` 的兜底值 ⇒ 不清的话，
+  ///      新剧第一次上报前若发生补写，会拿**旧剧的位置/时长**去写 ☠。
+  ///   ⑥ `_quality`：手选清晰度跟着"这一集/这部剧" ⇒ 不带过去（`_load()` 会按新 url 的记录重新取 ✅）。
+  ///   ⑦ `_pausedByPush`：那笔"我们自己停的"属于旧剧 ⇒ 清掉，回栈顶时不会误给新剧续播 ☑️。
+  ///      （`_pushedAway` / `_subscribedRoute` / `_playerKey` **不动**：它们描述"本页在路由栈里的位置"，
+  ///        与 url 无关 ✅。）
+  ///   ⑧ 最后 `_load()`：按**新** `widget.baseUrl` 重新拉详情（它开头就会置加载态 ✅）。
+  ///   ⚠️ `widget.initialVideoIndex` / `initialPosition` 是**新 widget 自带**的值 ⇒ 新剧续播照旧生效 ✅。
+  ///   ⚠️ 已知边界：`_api`（`late final`）绑的是 `widget.site` ⇒ **同一站点内换 url 没问题**；
+  ///      若哪天有调用方连 `site` 一起换，这里只记日志、不重建 `_api`（需要时另行拍板 ☑️）。
+  ///
+  ///   ⚠️ 本方法里**直接给字段赋值、不 setState**（紧跟其后的 build 会照新状态渲染 ✅）；
+  ///      `_load()` 内部本来就有 setState（在"被祖先 build 触发"的语境下是合法的 ✅）。
+  @override
+  void didUpdateWidget(covariant DetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.baseUrl == widget.baseUrl) return;
+    if (AppSettings.i.logConsole) {
+      final pOld = Uri.tryParse(oldWidget.baseUrl)?.path ?? oldWidget.baseUrl;
+      final pNew = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+      debugPrint('[DETAIL] didUpdateWidget：baseUrl 变了 ⇒ 清整 + 重载 '
+          'old=${pOld.length <= 80 ? pOld : pOld.substring(0, 80)} '
+          'new=${pNew.length <= 80 ? pNew : pNew.substring(0, 80)} '
+          '站点也变=${oldWidget.site.name != widget.site.name}');
+    }
+    _switcher?.pause();
+    _switcher?.dispose();
+    _switcher = null;
+    _detail = null;
+    _detailUrl = null;
+    _error = null;
+    _series = [];
+    _lastPos = null;
+    _lastDur = Duration.zero;
+    _lastFinished = false;
+    _quality = null;
+    _pausedByPush = false;
     _load();
   }
 
@@ -281,6 +342,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   }
 
   /// 离开时补写：播放器实例还在（dispose 前调用），位置从它身上直接取
+  /// ⚠️ **只给"非锁树期"的调用点用** ✅（现仅 `_pickQuality` :640 选清晰度那条 ⇒ 保持同步写、行为不变 ☑️）。
+  ///    `dispose()` **不要**再调它 —— 那里必须走 [_flushProgressDeferred]（依据见该方法的注释 ☠）。
   void _flushProgress() {
     final kp = _playerKey.currentState?.player;
     final pos = kp?.position ?? _lastPos;
@@ -291,6 +354,53 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       dur: dur,
       finished: kp?.value.completed ?? _lastFinished,
     );
+  }
+
+  /// ★ 2026-10-12（用户批准 ✅ · 修 `setState() … widget tree was locked`）：**`dispose()` 专用的补写**
+  ///   —— **同步取现场 + 微任务写**（采用方案 A，理由与风险见下）。
+  ///
+  /// 【依据 · 用户侧 verify-4 的完整堆栈 🛢️】
+  /// ```
+  /// DetailPageState.dispose → _flushProgress → _writeRecord → PlayHistory.touch
+  ///   → ChangeNotifier.notifyListeners → _AnimatedState._handleChange（设置页预览行/播放记录页）
+  ///   → Element.markNeedsBuild 断言：setState() … widget tree was locked
+  /// ```
+  /// 原因：`dispose()` 发生在 Flutter **卸载控件树**期间（`lockState(_inactiveElements._unmountAll)`）
+  ///   ⇒ 这段时间里任何 `markNeedsBuild` 都会撞断言（异常被 `notifyListeners` 的 try/catch 上报，
+  ///   不崩，但**那一次监听页刷新被吞掉** ☠）。
+  /// 同一处紧跟着的 `Favorites.i.touch(...)`（在 `_writeRecord` 末尾）**同样是通知** ⇒ 一并被本方法覆盖 ✅。
+  ///
+  /// 【为什么选 A（而不是改公共存储类的通知时序）】
+  ///   · B 方案（`PlayHistory.touch`/`Favorites` 内部 `scheduleMicrotask(notifyListeners)`）会动**公共存储类**
+  ///     的通知时序 ⇒ 影响所有调用方（详情页每 10 秒上报、设置页预览、播放记录页、收藏页、排序刷新…），
+  ///     风险面大 ☠；A 只影响"离开页面这一笔"，**范围最小** ✅。
+  ///
+  /// 【挪动的代价 · 已核清】
+  ///   · **现场必须同步取**（上面那几行）：微任务执行时本页子树**已经卸载** ⇒ `_playerKey.currentState`
+  ///     会是 null ⇒ 只能退回 `_lastPos`（播放器每 2 秒上报一次 ⇒ 最多旧 ~2 秒）☠。
+  ///     所以这里**同步**先把 `pos/dur/finished` 抓下来 ⇒ 与原来的同步写法**数值完全一样**，**不降级** ✅。
+  ///   · `_switcher` 也**同步**抓住并**延后** dispose：`_writeRecord` 要读 `sw.index.value`，
+  ///     若先 dispose 会踩"ValueNotifier used after dispose" ☠ ⇒ 顺序必须是"**先写记录、再 dispose**" ✅。
+  ///   · **写丢失风险**：微任务在"当前同步块结束后"立即执行（同一事件循环、早于下一帧，量级 = 毫秒）
+  ///     ⇒ 只有"进程被强杀/isolate 终止"才可能不跑；而那种情况下**原来的同步路径也不保证落盘**
+  ///     （`touch()` 内部的 `_save()` 本来就是异步写 SharedPreferences ✅）⇒ **A 没有引入新的必然丢失路径** ✅
+  ///     ⇒ 因此**不需要**再加 `AppLifecycleState.detached` 之类的同步兜底 ☑️。
+  ///   · 逐行核过：本方法 + `_writeRecord()` 都**不碰 `context`/`mounted`/`setState`**（只用自身字段与 `widget.*`），
+  ///     所以推迟到微任务后调用是安全的 ✅。
+  void _flushProgressDeferred() {
+    final kp = _playerKey.currentState?.player;
+    final pos = kp?.position ?? _lastPos;
+    final dur = kp?.value.duration ?? _lastDur;
+    final finished = kp?.value.completed ?? _lastFinished;
+    final sw = _switcher; // 同步抓住（微任务里还要用它读集号，见上面"代价"那条 ☠）
+    Future.microtask(() {
+      // ① 写记录（= 会 notifyListeners ⇒ 监听页 setState）：此刻锁树期已结束 ✅
+      if (pos != null && dur > Duration.zero && pos > Duration.zero) {
+        _writeRecord(pos: pos, dur: dur, finished: finished);
+      }
+      // ② 写完再解掉篇内序号（原来在 dispose 里紧跟 `_flushProgress()` 那一句 ⇒ 位置不变，只是晚了 1 个微任务）
+      sw?.dispose();
+    });
   }
 
   void _writeRecord({
@@ -304,6 +414,31 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     //   ⚠️ 进全屏**不算被压栈**（同一个播放器、同一个位置 ⇒ 不可能回弹 ✅；而且全屏看几十分钟
     //   也要照常落盘 ✅ —— 否则 App 被杀就丢进度 ✗）；判据就是 `_pushedAway` 怎么置的（见 [didPushNext] ✅）。
     if (_pushedAway) return;
+
+    // ★ 2026-10-12（用户批准 ✅ · **止血**）：**归属校验** —— 只写"这份详情确实属于当前 url"的记录。
+    //
+    // 【依据 · prefs 实测 🛢️】`%APPDATA%\com.example\kpxx\shared_preferences.json` 里那两条柚子短剧记录：
+    //   ① {"u":"/dramas/tiktok-sex-system/season-2/",     "t":"抖音性爱系统 · 第2季","n":29,"p":8, "d":113,"ts":1791739493581}
+    //   ② {"u":"/dramas/high-school-love-story/season-1/","t":"抖音性爱系统 · 第2季","n":29,"p":56,"d":113,"ts":1791739541582}
+    //   · 两条 **时间相差 48.001 秒**、进度 **8 → 56（正好 +48 秒）** ⇒ 是**同一次播放的连续上报** ☠；
+    //   · 而 `u` 中途从 B 换成了 A，`t/n/d` 却一直是 B 的 ⇒ 页面 **url 换了、`_detail` 没换** ☠；
+    //   · 站点侧已排除（现场抓 A 页：`高中爱情故事 · 第1季`、42 集、封面非空 ⇒ 与记录里的 `n=29/c=''` 不符）。
+    // 【原因】本页原来**没有 `didUpdateWidget`** ⇒ 被"原地换 url"时不会重载、也不会校验 `_detail` 归属；
+    //   `_writeRecord` 又是**唯一**落盘点（全仓 grep 过）⇒ 于是写出"A 的键 + B 的标题"。
+    // 【这条守卫的语义】`_detailUrl` 为空（正在载入 / 刚换页）或与当前 url 不一致 ⇒ **直接不写** ✅
+    //   （不为它兜底、不猜 —— 记录可以少一条，绝不能串 ☠）。
+    if (_detailUrl != widget.baseUrl) {
+      if (AppSettings.i.logConsole) {
+        final rawDet = _detailUrl;
+        final pDet = (rawDet == null || rawDet.isEmpty)
+            ? '(null)'
+            : (Uri.tryParse(rawDet)?.path ?? rawDet);
+        final pPage = Uri.tryParse(widget.baseUrl)?.path ?? widget.baseUrl;
+        debugPrint('[DETAIL] 跳过写记录（详情归属不符）detailUrl=${pDet.length <= 80 ? pDet : pDet.substring(0, 80)} 页url=${pPage.length <= 80 ? pPage : pPage.substring(0, 80)}');
+      }
+      return;
+    }
+
     final d = _detail;
     if (d == null || d.videos.isEmpty) return; // 纯图文页不记
     // 站点名要和 kSites 里的对得上（记录列表点回来时要靠它反查 SiteEntry）；
@@ -425,7 +560,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       // 没选过 → null → 跟随**站点默认** ✓（用户要求：站点给哪个就播哪个 ✓）
       _quality = PlayHistory.i.find(widget.site.name, widget.baseUrl)?.quality;
       _switcher = sw;
-      setState(() => _detail = d);
+      setState(() {
+        _detail = d;
+        _detailUrl = widget.baseUrl; // ★ 2026-10-12（用户批准）：记下"这份详情属于哪条 url"（写记录前的归属校验用 ☠）
+      });
       // 系列聚合：异步填充，失败静默（无选集不影响主内容）
       if (d.seriesPrefix.isNotEmpty) {
         _fetchSeries(d.seriesPrefix).then((list) {
@@ -479,7 +617,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         .toInt();
     // 顺手整页刷新（简介/剧照也一起更新），当前视频序号保持不变
     _switcher?.total = fresh.videos.length;
-    setState(() => _detail = fresh);
+    setState(() {
+      _detail = fresh;
+      _detailUrl = widget.baseUrl; // ★ 2026-10-12（用户批准）：同上（刷新源拿到的是**同一条 url**的详情 ✅）
+    });
     return fresh.videos[i].sources;
   }
 
@@ -573,8 +714,12 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     if (AppSettings.i.logConsole) debugPrint('[DETAIL] dispose pushedAway=$_pushedAway pausedByPush=$_pausedByPush 播放器State=${_playerKey.currentState != null} fullscreen=${_playerKey.currentState?.player?.fullscreenOpen ?? false}');
     // ★ ⑦：退订（不退的话观察者里留着已销毁的 State ⇒ 回调打给死对象 ✗）
     if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
-    _flushProgress(); // 离开详情页：把最后位置补写进播放记录（此时播放器还活着）
-    _switcher?.dispose();
+    // ★ 2026-10-12（用户批准 ✅ · 修 `setState() … widget tree was locked`）：
+    //   **锁树期里不能同步写记录** ⇒ 换 `_flushProgressDeferred()`（同步取现场 + 微任务写，依据见其注释 🛢️）。
+    //   原来是这两句：`_flushProgress();` + `_switcher?.dispose();`
+    //   —— 前者会经 `PlayHistory.touch → notifyListeners → 监听页 setState` 撞断言 ☠；
+    //   后者已挪进**同一个微任务**（先写记录、再解篇内序号）⇒ 时序上晚 1 个微任务 ✅。
+    _flushProgressDeferred();
     super.dispose();
   }
 
@@ -716,6 +861,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                           lazyUrl:
                               videos.isEmpty ? null : videos[idx].lazyUrl,
                           onFetchSources: _api.videoSourcesAt,
+                          // ★ 2026-10-11（**可选** ✅）：**当前这一集**的额外请求头 ——
+                          //   取流要 cookie 的站点（柚子短剧 ✅）靠它；默认 null（其余站点都如此）✅
+                          //   ⇒ 行为逐字不变 ✅。刷新源时父级 setState ⇒ 下一轮 open 自动换成新头 ✅。
+                          httpHeaders:
+                              videos.isEmpty ? null : videos[idx].headers,
                           // 续播：只有从「播放记录」点进来才传（站点入口进来是 null）
                           // ⚠️ 2026-10-03 用户要求：**不管从哪进来**，只要播放记录里有这条就续播 ✓
                         initialPosition: widget.initialPosition ?? _resumeFrom(),

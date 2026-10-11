@@ -477,6 +477,9 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
+    // ★ 2026-10-11（**用户实测**：全屏卡死 + "切集偶尔也弹"同类异常；依据 verify-4 审计表 #6）：
+    //   本方法原来缺"已释放"护栏（另外 6 个公开操作早就有）⇒ 补上，与它们口径一致（忽略 + 留痕，不抛）。
+    if (_disposed) return _skip('open');
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
     //
@@ -642,9 +645,19 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> play() {
     // 看：谁在什么时机调了播放（配合"自动重试/看门狗"几条看是不是被反复拉起）。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放');
+    if (_disposed) return _skip('play');
     _userPaused = false;
     _syncPlayingFlag(true); // ★ 主动置位（见上）—— 按钮图标立刻换、下次点击才会判成"该 pause"
     return _p.play();
+  }
+
+  /// ★ 2026-10-11（**用户实测"退不出全屏"** ⇒ 本防御）：引擎已释放 ⇒ **忽略本次操作、只留痕、不抛**。
+  ///   背景：全屏里切集会把旧引擎延迟回收，而全屏页/手势回调可能还攥着那个实例（见下面那条堆栈），
+  ///   媒体库会抛 `A KpPlayer was used after being disposed.` ⇒ 串发框架异常 ⇒ **整条全屏路由卡死**。
+  ///   那一处在 UI 层也修了（全屏页动态取当前引擎 + 自愈），这里是**兜底**：任何漏网的调用点都不会再炸。
+  Future<void> _skip(String op) {
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] ⚠️ 已释放引擎收到 $op() ⇒ 忽略（防 used-after-disposed 连锁）');
+    return Future<void>.value();
   }
 
   /// ★ 2026-10-08（用户拍板 ② ✅）：**自动路径专用**的续播 —— 与 [play] 的区别**只有一处**：
@@ -656,6 +669,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> autoResume() async {
     if (_userPaused) return; // 用户暂停过 ⇒ 自动路径**不许**再拉起来 ✅
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 自动续播');
+    if (_disposed) return _skip('autoResume');
     _syncPlayingFlag(true); // ★ 同上（口径与 play 一致 ✓）
     await _p.play();
   }
@@ -663,6 +677,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> pause() {
     // 看：谁在什么时机调了暂停（用户操作还是流程自己暂停 ⇒ 与"看门狗"对着看）。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停');
+    if (_disposed) return _skip('pause');
     _userPaused = true;
     _syncPlayingFlag(false); // ★ 主动置位（见上）—— 否则图标不换、再点又判成"在播"⇒ 又 pause() ☠
     return _p.pause();
@@ -670,12 +685,16 @@ class KpPlayer extends ValueNotifier<KpState> {
 
 
   /// 播放倍速——长按快进用：按住时 2.0、松手回 1.0
-  Future<void> setRate(double r) => _p.setRate(r);
+  Future<void> setRate(double r) async {
+    if (_disposed) return _skip('setRate');
+    await _p.setRate(r);
+  }
 
   Future<void> seek(Duration d) {
     final t = _clampDur(d, value.duration);
     // 看：seek 的实际去向（从当前播到的位置 → 裁剪后的目标）—— "跳完从头/跳不动"对这条看。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 从=${value.position.inMilliseconds}ms 到=${t.inMilliseconds}ms');
+    if (_disposed) return _skip('seek'); // ★ 幂等护栏
     return _p.seek(t);
   }
 
@@ -685,8 +704,15 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> seekExact(Duration d) {
     // 看：不裁剪的精确 seek（续播/换档用）—— 目标是多少 ms。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek(精确) 从=${value.position.inMilliseconds}ms 到=${d.inMilliseconds}ms');
+    if (_disposed) return _skip('seekExact');
     return _p.seek(d);
   }
+
+  /// ★ 2026-10-11（**用户实测"退不出全屏"** 的防御配套）：给外部一个**可查询的**释放状态。
+  ///   依据的用户栈：`_FullscreenPlayerState._onDoubleTap`（`:2664`）⇒ `KpPlayer.seek` ⇒ 媒体库
+  ///   `A KpPlayer was used after being disposed.` ⇒ 串发框架异常 ⇒ 全屏路由卡死。
+  ///   ⚠️ 全屏页那边已改成"**每次都取当前引擎**"+自愈；这里是给那类判断用的公开只读口子。
+  bool get isDisposed => _disposed;
 
   /// ★ 2026-10-08（用户拍板 ⑤ ✅）：**幂等护栏** —— `shutdown()` 会被多处调（`PlayerWidget.dispose` ✅、
   ///   换源收旧实例 ✅、短片页 `dispose` ✅ ……）⇒ 第二次再进来会把 `Player.dispose()` 与
@@ -724,6 +750,65 @@ Widget _bufferingHint(KpPlayer kp) {
   );
 }
 
+/// ★ 2026-10-11（**用户实测**：全屏卡死 + "切集偶尔也弹"同类异常；依据 **verify-4 审计表** #5/#6/#12/#21/#22）：
+///   **护栏统一日志口径** —— 任何一处发现"手里的引擎已释放"都打这一行（仅 `logConsole` 打开时），
+///   格式固定为 `忽略已释放引擎的操作: <op> @<位置>` ⇒ 以后真机上再出问题时，一眼看出是**哪个位置**晚了。
+void _logDisposedSkip(String op, String where) {
+  if (AppSettings.i.logConsole) {
+    debugPrint('[PLAY] 忽略已释放引擎的操作: $op @$where');
+  }
+}
+
+/// ★ 2026-10-11（**用户新规格**）：**倍速按钮** —— **正圆 + 半透明**、**只有数字变化**
+///   （`1X`/`2X` 样式**完全一致**：无橙色/主色高亮、底色/文字色/尺寸都不变）；**跟随"控件可见"显隐**
+///   （内嵌复用 `_controlsVisible`、全屏复用 `_controls` —— **不新造计时器**）；**贴右缘、垂直居中**。
+///   ⚠️ 手势竞争（"不吃播放器手势"的关键）：
+///     · **只注册 `onTap`** ⇒ 起手拖动/双击/长按落到这块时，tap 识别器会在竞技场里**失败退出** ⇒
+///       手势**回落到下层**（播放器的滑动 seek / 双击 seek / 长按 2×）✅
+///     · 命中区 = 这个直径 [_kRateD] 的正圆（`HitTestBehavior.opaque`）⇒ "小而准" ✅
+///     · 层级：Stack 里在"视频 + 手势层"**之上**、提示/控制条**之下** ✅
+/// ★ 2026-10-11（**用户微调**："倍率按钮小了一点，再加大一点点"）：直径 36 → **42**、字号 13 → **15**
+///   （只动这两个数 ⇒ 正圆/半透明 45% 黑底/白字/无高亮/跟随显隐/只注册 onTap 全部不变）
+const double _kRateD = 42; // 直径（36 → 42：略大一点点，仍"小而准"）
+
+Widget _rateButton(ValueNotifier<double> n) {
+  return SizedBox(
+    width: _kRateD,
+    height: _kRateD,
+    child: ValueListenableBuilder<double>(
+      valueListenable: n,
+      builder: (_, r, __) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => n.value = r >= 1.5 ? 1.0 : 2.0, // 只有两档
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.45), // 半透明（黑底白字；1X/2X 完全同款）
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                r >= 1.5 ? '2X' : '1X', // ★ 唯一区别 = 数字
+                // ★ 2026-10-11（**用户实拍："字体没居中"** ⇒ 定位 + 修复）：
+                //   原因 = 上面那句 `height: 1.0`（**不是** `Center` 缺失：盒子是 42×42 紧约束、`Center` 已经
+                //   在几何上居中）。`height: 1.0` 把行盒**压缩到正好 15px** ⇒ 字体自然的
+                //   ascent/descent（约 0.93em/0.24em）被等比压进 15px ⇒ 基线落到 0.795em 处，
+                //   而数字（无降部、只占 cap height）的视觉中心 ≈ 0.435em，比盒子中心（0.5em）**偏高约 1px**
+                //   ⇒ 看着"没居中"。修法 = **去掉 `height: 1.0`**，用字体自然行高：此时基线在 0.93em、
+                //   数字视觉中心 ≈ 0.57em，与盒子中心 0.585em 只差 **≈0.2px**（<1px，无需 `Transform` 补偿 ✅）。
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15, // 13 → 15（与直径 42 同步；1X/2X 仍完全同款）
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
 /// 视频画面（引擎自带纹理，等比缩放不拉伸）
 Widget _videoSurface(KpPlayer kp) => Video(
       controller: kp.videoController,
@@ -736,7 +821,9 @@ Widget _videoSurface(KpPlayer kp) => Video(
 /// 拖动时只有最底下那条进度条跟着手指走（不弹文字提示），松手才真正跳转。
 /// 内嵌播放器和全屏播放器共用。
 mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
-  KpPlayer get swipePlayer;
+  /// ★ 2026-10-11（verify-4 **R2**）：**可空** —— 切集空窗期可能"一个活引擎都没有"；
+  ///   调用方一律 `?.`（拿不到就跳过这次手势，绝不空断言崩）。
+  KpPlayer? get swipePlayer;
 
   Timer? _swipeHoldTimer;
 
@@ -751,16 +838,18 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
   void swipeStart(DragStartDetails d) {
     _dragging = true;
     _dragDx = 0;
-    _dragFrom = swipePlayer.value.position;
+    // ★ 2026-10-11（verify-4 **R2**）：引擎可能**在切集空窗里暂时不存在**（旧的已转回收、新的还没上屏）
+    //   ⇒ getter 改为**可空**，这里用 `?.` + 兜底值（绝不再用 `!` 空断言：那会直接崩在空窗期）
+    _dragFrom = swipePlayer?.value.position ?? Duration.zero;
     _dragTarget = _dragFrom;
     // ★【常驻诊断】横滑开始（只记起点 ✓ 拖动过程不逐帧打 ✓）
-    if (AppSettings.i.logConsole) debugPrint('[PLAY] 横滑开始 起点=${_dragFrom.inMilliseconds}ms 时长=${swipePlayer.value.duration.inSeconds}s');
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 横滑开始 起点=${_dragFrom.inMilliseconds}ms 时长=${swipePlayer?.value.duration.inSeconds ?? 0}s');
   }
 
   void swipeUpdate(DragUpdateDetails d) {
     if (!_dragging) return;
     _dragDx += d.delta.dx;
-    final total = swipePlayer.value.duration;
+    final total = swipePlayer?.value.duration ?? Duration.zero;
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     _dragTarget = _clampDur(
         _dragFrom + Duration(seconds: _swipeSeconds(_dragDx, w)), total);
@@ -774,7 +863,7 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 横滑结束 起=${_dragFrom.inMilliseconds}ms 目标=${_dragTarget.inMilliseconds}ms 位移=${_dragDx.toStringAsFixed(1)}px 需要跳转=${_dragTarget != _dragFrom}');
     if (_dragTarget != _dragFrom) {
       if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=横滑快进快退 到=${_dragTarget.inMilliseconds}ms');
-      swipePlayer.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）
+      swipePlayer?.seek(_dragTarget); // 只在这一下跳转（拖动中不动播放器）；空窗期无引擎 ⇒ 跳过
     }
     if (swipePreview.value == null) return;
     // A 方案 ✓（2026-10-04 用户拍板）：**扛住预览** ✗ —— 清早了进度条会往回跳一下
@@ -789,7 +878,7 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
     var waitedMs = 0;
     _swipeHoldTimer = Timer.periodic(const Duration(milliseconds: 50), (t) {
       waitedMs += 50;
-      final near = (swipePlayer.value.position - target).abs() <=
+      final near = ((swipePlayer?.value.position ?? target) - target).abs() <=
           const Duration(milliseconds: 500);
       if (near || waitedMs >= 600) {
         t.cancel(); // 自适应结束 ✓（到达就立刻清 ✓ / 满 600ms 强制清 ✗）
@@ -816,7 +905,8 @@ double _bvBrightShared = -1;
 /// 代价：内嵌播放器接管竖向拖动后，在视频区域内上下拖不会再滚动详情页
 /// （这正是"在视频上调亮度/音量"的必要代价，详情页其它区域照常滚动）。
 mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
-  KpPlayer get gesturePlayer;
+  /// ★ 2026-10-11（verify-4 **R2**）：可空，同 [swipePlayer]。
+  KpPlayer? get gesturePlayer;
 
   bool _bvBrightness = false; // 本次调的是亮度？
   double _bvDy = 0; // 本次竖向累计位移
@@ -1008,6 +1098,12 @@ class PlayerWidget extends StatefulWidget {
   /// 篇内视频切换状态（多视频文章才有；null = 单视频，没有"下一集"）
   final VideoSwitcher? switcher;
 
+  /// ★ 2026-10-11（**新增 · 可选** ✅）：这一集额外要带的请求头（默认 null ⇒ 所有站点零变化 ✅）。
+  /// 用途：取流要 cookie 的站点（柚子短剧 ✅ 的 `Cookie: eden_play_<videoId>=…` ✅）。
+  /// ⚠️ **每次 `open` 现读**（见 `_openAndWait` ✅）—— 不在 init 时缓存 ☑️
+  ///   ⇒ "刷新源拿到新头 ⇒ 重试那一轮就用新头" ✅。
+  final Map<String, String>? httpHeaders;
+
   /// 从"播放记录"点进来时的续播位置：首次成功起播后跳到这（只生效一次）。
   /// 从站点入口进来不传 → null → 完全按原行为从头播（用户要求）。
   final Duration? initialPosition;
@@ -1026,6 +1122,7 @@ class PlayerWidget extends StatefulWidget {
     this.lazyUrl,
     this.onFetchSources,
     this.switcher,
+    this.httpHeaders,
     this.initialPosition,
     this.onProgress,
   });
@@ -1053,6 +1150,55 @@ class PlayerWidgetState extends State<PlayerWidget>
   ///   回收：交接给 `_kp` 后置空 ✓；失败/销毁路径由 [_dropPrebuiltKp] 收掉 ✓。
   ///   ⚠️ 2026-10-05 CI 修复：本字段原来落在 `class KpPlayer` 里 ✗ ⇒ 7 条 `undefined_identifier` ⇒ 挪到本类（使用点全在 `PlayerWidgetState` ✓）。
   KpPlayer? _prebuiltKp;
+
+  // ★ 2026-10-11（**probe23/26 实测驱动** ✅）：切集改为"**重建引擎 + 新纹理**"，并给新引擎配"**首帧自愈**"。
+  //   依据：probe23（新库）**每集新建引擎 5/5 正常**（1.8~4.3s 出画）；probe26（App 界面路径、复用引擎）
+  //   实测 **16/17 次黑**（新源 `Opening done` 后不出帧、位置恒 0）⇒ 复用那条路不可用。
+  Timer? _ffTimer; // 首帧自愈计时器（新引擎 N 秒内没首帧 ⇒ 重建一次）
+  int _ffHeals = 0; // 首帧自愈已用次数（每次切集/换源清零；上限 [_kFfHealMax] 防死循环）
+  static const int _kFfHealMax = 2;
+  static const Duration _kFfHealAfter = Duration(seconds: 9); // 新引擎多久没首帧就自愈
+  static const Duration _kRetireDelay = Duration(milliseconds: 800); // 旧引擎延迟回收（先挂新、再收旧）
+  /// ★ 2026-10-11：回收**硬上限** —— 条件（新引擎上屏 / 全屏退出）一直不满足也不能永久留着（防泄漏）
+  static const Duration _kRetireMaxWait = Duration(seconds: 20);
+  int _kpCreated = 0; // 引擎创建计数（仅诊断日志用：与回收计数配对看是否漏）
+  int _kpRetired = 0; // 引擎回收完成计数
+
+  /// ★ 2026-10-11（**用户实测**："窗口内都好了，但**全屏里切集黑**"）：**当前引擎的对外通知口**。
+  ///   全屏页（`FullscreenPlayer`）是**另一条路由**、push 时抓的是**那一刻的 `KpPlayer` 实例**；
+  ///   现在切集 = 重建引擎（probe23/26 依据）⇒ 全屏页必须**跟着换实例**，否则它握着已回收的引擎 ⇒ 黑。
+  ///   用法：`_attach`（新引擎上屏）时 `kpCurrent.value = kp`；全屏页用 `ValueListenableBuilder` 监听，
+  ///   并以 `identityHashCode(kp)` 作 `ValueKey` ⇒ 引擎一变，全屏页 State 整个重建（纹理/手势/控件全跟新引擎 ✓）。
+  ///   ⚠️ 故意**不 dispose**（`PlayerWidget` 先销毁、全屏路由还挂着时，dispose 会让监听方抛"used after dispose"；
+  ///   它只持一个指针、无 native 资源 ☑️）。
+  final ValueNotifier<KpPlayer?> kpCurrent = ValueNotifier<KpPlayer?>(null);
+  bool _inheritFullscreen = false; // 重建时把"正在全屏"带给新引擎（见 _initPlayerOnce / _attach）
+
+  /// ★ 2026-10-11（**用户规格**）：**常驻倍速开关**（1X ⇄ 2X）—— 只有两档、**不写磁盘**（离开详情页回 1×）。
+  ///   ⚠️ 用 `ValueNotifier` 共享给**全屏页**（独立路由）⇒ 哪边点都同步 ✅。
+  ///   ⚠️ 换集/换源/自愈/重试之后**新引擎上屏必须重新下发**（切集 = 重建引擎）⇒ 见 [_attach] 里的 `_applyRate`。
+  ///   ⚠️ 故意**不 dispose**（同 [kpCurrent]：PlayerWidget 先销毁、全屏路由还挂着时会抛 "used after dispose"）。
+  final ValueNotifier<double> rateNotifier = ValueNotifier<double>(1.0);
+
+  /// 把"当前开关状态"下发到**当前活着的引擎**（幂等；空窗/已释放 ⇒ 静默跳过）。
+  ///   [why] 只进日志（`logConsole` 时打），便于以后定位"谁把倍速改回去了"。
+  void _applyRate(String why) {
+    final r = rateNotifier.value;
+    final kp = _kp;
+    if (kp == null || kp.isDisposed) return;
+    unawaited(kp.setRate(r));
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] 倍速 ⇒ ${r == 2.0 ? '2.0' : '1.0'}×（$why）');
+    }
+  }
+
+  void _onRateChanged() => _applyRate('开关变更');
+  /// ★ 2026-10-11（用户实测"退不出全屏"的同源修复，内嵌侧）：**最近一次上屏的引擎**。
+  ///   切集/换源会重建引擎，而 `_kp` 在"切掉旧的、还没挂新的"这段时间里是 `null`；
+  ///   此刻若手势回调（左右滑快进/亮度音量）还在跑，`swipePlayer => _kp!` 会直接**空断言崩**。
+  ///   配合 `_retireKp` 的**条件回收**（新引擎上屏前不 shutdown 旧的）⇒ 这个实例在空窗里**仍然活着** ✓
+  ///   ⇒ 手势打到它身上是"继续操作旧引擎"（不黑、不崩）；真正的回收发生在它被清空之后 ✓
+  KpPlayer? _lastEngine;
   late List<String> _sources =
       widget.sources.where((s) => s.isNotEmpty).toList();
   VoidCallback? _pauseHooked; // 挂在 switcher.pauseTick 上的监听（换 widget 时要摘）
@@ -1102,12 +1248,18 @@ class PlayerWidgetState extends State<PlayerWidget>
   @override
   void initState() {
     super.initState();
+    // ★ 2026-10-11（用户规格）：倍速开关的状态变化 ⇒ 立刻下发到当前引擎（按钮点哪儿都走这一条）
+    rateNotifier.addListener(_onRateChanged);
     // ★【常驻诊断】播放器 State 建立（同一条视频出现两次 = 内嵌播放器被整个重建过 ⇒ "画面假死"先看这条 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] PlayerWidget.initState 挂载 源=${widget.sources.length}条 poster=${widget.poster.isEmpty ? '无' : '有'} 续播=${widget.initialPosition?.inMilliseconds ?? 0}ms switcher=${widget.switcher != null}');
   }
 
   @override
-  KpPlayer get swipePlayer => _kp!;
+  // ★ 2026-10-11：切集空窗里 `_kp == null` ⇒ 退到"最近一次上屏的引擎"（它此刻还活着，见 [_lastEngine]），
+  //   空断言 `_kp!` 会在"切集瞬间还在拖手势"时直接崩 ✗
+  // ★ 2026-10-11（verify-4 **R2**）：**去掉 `!` 空断言** —— 切集空窗期 `_kp`/`_lastEngine` 都可能是 null
+  //   （回退链两个都空 ⇒ 返回 null ⇒ 手势调用点 `?.` 跳过这次操作，不崩）
+  KpPlayer? get swipePlayer => _kp ?? _lastEngine;
 
   /// 当前播放器实例（详情页写播放记录时取位置用；未初始化时为 null）
   KpPlayer? get player => _kp;
@@ -1133,7 +1285,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   }
 
   @override
-  KpPlayer get gesturePlayer => _kp!;
+  KpPlayer? get gesturePlayer => _kp ?? _lastEngine; // ★ 同 swipePlayer（R2：可空、无空断言）
 
   /// 详情页往下翻看剧照时，播放器会滑出可视区。
   /// 不保活的话 ListView 会把它整个销毁，翻回来就从头重新加载/播放。
@@ -1187,8 +1339,13 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] didUpdateWidget index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex 换片=${(widget.switcher?.index.value ?? 0) != _curIndex} 源=${widget.sources.length}条 lazy=${widget.lazyUrl != null}');
     if ((widget.switcher?.index.value ?? 0) != _curIndex) {
       _curIndex = widget.switcher?.index.value ?? 0;
-      // 换片（点"下一集"或自动下一集）：复用同一个播放器实例去开新源。
-      // 不能销毁重建——全屏页手里拿的是这个实例，销毁掉它就黑屏了。
+      // 换片（点"下一集"或自动下一集）：**重建引擎 + 新纹理**（旧的延迟回收）。
+      // ★ 2026-10-11（probe23/26 实测驱动 ✅）：原来这里是"复用同一个播放器实例去开新源"——
+      //   注释写的是"不能销毁重建——销毁掉它就黑屏了"，那是**旧库时代 + 先收后挂**的结论。
+      //   现在改成"**先挂新、再收旧**"（见 [_initPlayerOnce] 里那段 + [_retireKp]）⇒ 复用那条路才是黑的：
+      //   probe26（界面路径、复用）**16/17 次黑**（新源 Opening done 后不出帧）；probe23（每集新建）**5/5 正常**。
+      _ffHeals = 0; // 用户主动换集 ⇒ 自愈额度重置（自愈自身触发的重建不会走到这里 ✓ 防死循环）
+      _ffTimer?.cancel();
       _sources = widget.sources.where((s) => s.isNotEmpty).toList();
       _nextFired = false;
       _errShown = false;
@@ -1204,13 +1361,27 @@ class PlayerWidgetState extends State<PlayerWidget>
       _kp?.pause();
       _fetchingLazy = widget.lazyUrl != null && _sources.isEmpty;
       if (AppSettings.i.logConsole) debugPrint('[PLAY] 换片 ⇒ _initPlayer() 源=${_sources.length}条 需按需取源=$_fetchingLazy');
-      _initPlayer();
+      // ★ 状态已更新（`_curIndex`/`_sources`/`_error`/`_fetchingLazy`）⇒ 踢一帧，防"状态变了没有帧来消化"
+      //   （与 `_syncPlayingFlag`/控件那几处同一修法 ✅）
+      kickPlayerFrame();
+      // ★ 2026-10-11（**probe26 实测驱动** ✅）：这一句**必须挪出 build 期** —— `didUpdateWidget` 是在
+      //   **父级 build 期间**同步跑的，而 `_initPlayer → _initPlayerOnce` 里既有 `setState`
+      //   （:1345/:1386/:1390/:1402 等）又会 `await` 按需取源（:1342-1350，最长 6 秒）⇒ 在 build 期开跑
+      //   会把"换集"整步卡住。probe26 实测：**界面路径**切集 16/17 次命中"新源从未起播、位置恒 0、
+      //   `buffering` 永真"，而**直接调 `open`** 的对照 12/12 正常 ⇒ 差别就在"是否在 build 期同步开跑"。
+      //   首次进入本来就特意用微任务躲这个坑（见 :1260-1262 原文"不能在本元素 build 期间调用"）⇒ 与它保持一致 ✅。
+      Future.microtask(_initPlayer);
     }
   }
 
   /// 从外部换一批源并重开（详情页的「清晰度」选择用）。
-  /// 走和「换集」同一套重开流程（见 didUpdateWidget 里那段），**不重建实例** ——
-  /// 重建会让全屏页手里攥着的旧实例失效（黑屏）。
+  /// 走和「换集」同一套重开流程（见 didUpdateWidget 里那段），**同样"重建引擎 + 新纹理"**（行为一致 ✅）。
+  /// ★ 2026-10-11（probe23/26）：这里原来写的是"不重建实例——重建会让全屏页手里攥着的旧实例失效（黑屏）"。
+  ///   现在改为重建，两条护栏（**2026-10-11 晚更新**）：
+  ///     ① **先挂新、再收旧**（旧引擎延迟 [_kRetireDelay] 回收，见 [_retireKp]）；
+  ///     ② **全屏页跟随引擎变化**：`_attach` 更新 [kpCurrent] ⇒ 全屏页按 `ValueKey(引擎身份)` 整页重建
+  ///        （用户实测"全屏里切集黑" ⇒ 这条是那次修复的核心；见 [_openFullscreen]）。
+  ///   ⇒ 所以换清晰度/换集在**全屏里**也走重建，且全屏画面会跟着换到新纹理 ✅（不再回落老行为）。
   /// 传进来的列表**顺序就是尝试顺序**：选中的档放最前，失败会自动往下试。
   /// [resumeTo] 传了就在新源起播后跳到这个位置（换档保留播放进度用，走的是本类
   /// 既有的续播机制 `_restoreTo`）。
@@ -1226,6 +1397,8 @@ class PlayerWidgetState extends State<PlayerWidget>
     _autoRetryTimer = null;
     _autoRetries = 0;
     _setAutoRetrying(false);
+    _ffHeals = 0; // ★ 用户主动换源 ⇒ 自愈额度重置（同换集那条 ✓）
+    _ffTimer?.cancel();
     // ★【常驻诊断·③】换源/换档（用户点清晰度或换集走这里 ✓ 只看不改 ☠）
     if (AppSettings.i.logConsole) {
       debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
@@ -1262,6 +1435,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] PlayerWidget.dispose kp=${_kp == null ? '(无)' : identityHashCode(_kp!).toString()} 预建kp=${_prebuiltKp == null ? '(无)' : '有'} busy=$_busy 重试额度=$_autoRetries 在途=$_initRunning');
     _pauseHookedTick?.removeListener(_pauseHooked!);
     _resumeHookedTick?.removeListener(_resumeHooked!); // ★ ⑦：对称地摘掉 resume 监听 ✅
+    rateNotifier.removeListener(_onRateChanged); // ★ 倍速开关监听（与 initState 成对；notifier 本身不 dispose，见字段注释）
     _hideTimer?.cancel();
     _tapHintTimer?.cancel();
     _autoRetryTimer?.cancel();
@@ -1324,10 +1498,31 @@ class PlayerWidgetState extends State<PlayerWidget>
     //   ⚠️ 上屏（`_attach`）**仍在取源完成之后** ✓（时机与改前逐字一致 ✓ 不出现空壳播放器 ✓）。
     // ★【常驻诊断】要不要现在建引擎（true ⇒ 下面新建一个"还没上屏"的 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 预建引擎 需要=${_kp == null && _prebuiltKp == null}（缓冲=${AppSettings.i.bufferMb}MB）');
+    // ★ 2026-10-11（**probe23/26 实测驱动** ✅）：**切集/换源/重试一律"重建引擎 + 新纹理"**。
+    //   依据：probe23（新库）每集新建引擎 **5/5 正常**（1.8~4.3s 出画）；probe26（App 界面路径、**复用**引擎）
+    //   实测 **16/17 次黑**（新源 `Opening done` 后不出帧、位置恒 0）⇒ 复用那条路不可用。
+    //   ⚠️ 顺序必须"**先挂新、再收旧**"（旧引擎此刻**不** shutdown，等新引擎上屏后按 [_kRetireDelay] 延迟回收，
+    //      见 [_retireKp]）—— 旧库时代"不能销毁重建"那条注释说的是**先收后挂**的场景（那时确实会黑）。
+    //   ✅ 2026-10-11 晚：**全屏页现在也跟随重建**（`kpCurrent` 通知口 + `ValueKey(引擎身份)` ⇒ 全屏页 State 重建），
+    //      所以原来那条"全屏打开时跳过重建"的护栏**已移除**；"正在全屏"这个标记会**继承给新引擎**（[_inheritFullscreen]）。
+    final kpFullscreen = _kp?.fullscreenOpen ?? false;
+    if (_kp != null) {
+      final old = _kp!;
+      old.removeListener(_onTick); // 旧引擎不再驱动本页 UI（回收前先摘监听，避免它继续 setState）
+      _reportTimer?.cancel();
+      _kp = null; // ⇒ 下面照旧"新建 + 上屏"；`_attach` 里 old==null ⇒ 不会立刻 shutdown ✓
+      _inheritFullscreen = kpFullscreen; // 新引擎要接住"正在全屏"（详情页 didPushNext 靠它区分全屏/跳走 ✓）
+      _retireKp(old); // 延迟回收（先挂新、再收旧 ✓）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] 切集重建：旧引擎 kp=${identityHashCode(old)} 转入延迟回收；'
+            '新建计=$_kpCreated 已回收=$_kpRetired 全屏中=$kpFullscreen');
+      }
+    }
     if (_kp == null && _prebuiltKp == null) {
       _prebuiltKp = KpPlayer(bufferMb: AppSettings.i.bufferMb);
       // ⭐ 详情页/全屏都套起播参数（#5 ✓）——与短片页**同一个实现** ✓（`KpPlayer.tuneStartupQuiet` ✓）
       KpPlayer.tuneStartupQuiet(_prebuiltKp!);
+      _kpCreated++;
     }
     // 合集类：这一集还没有源 → **按需**去抓它自己的页面（点哪集抓哪集）
     // ★【常驻诊断】这次要不要按需取源（true ⇒ 先亮"正在取视频…"，最长等 6 秒 ✓）
@@ -1399,10 +1594,21 @@ class PlayerWidgetState extends State<PlayerWidget>
     try {
       for (var round = 0; round < 2; round++) {
         for (var i = 0; i < _sources.length; i++) {
+          // ★ 2026-10-11（verify-4 **#5 高**）：`kp` 是**本地缓存**的实例 —— 每次进循环先判一次
+          //   （上一轮 await 期间用户可能又换集 ⇒ 它已被转入延迟回收/已 shutdown）
+          if (kp.isDisposed) {
+            _logDisposedSkip('源循环-本轮开始', '_initPlayerOnce:1519（for i 顶部）');
+            return;
+          }
           // ★【常驻诊断】每条源的尝试都留痕（与 _openAndWait 的 host=/起播= 两条配对 ✓）
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 试源 round=$round i=$i/共${_sources.length}条');
           final ok = await _openAndWait(kp, _sources[i]);
           if (!mounted) return;
+          // ★ 2026-10-11（verify-4 #5）：**await 之后必须重判** —— 否则后面那段会继续操作一个已释放引擎
+          if (kp.isDisposed) {
+            _logDisposedSkip('源循环-试源后', '_initPlayerOnce:1527（await _openAndWait 之后）');
+            return;
+          }
           if (ok) {
             // ★【常驻诊断】这条源起播成功（后面若不跳转就直接返回了 ✓）
             if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播成功 i=$i ready=${kp.value.ready} duration=${kp.value.duration.inSeconds}s 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms');
@@ -1414,15 +1620,32 @@ class PlayerWidgetState extends State<PlayerWidget>
                 // ⚠️ 用 seekExact 而不是 seek：seek 会按 value.duration 裁剪，
                 // 万一时长还没报上来就会被裁小（表现就是"从头发"）。
                 if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播(首个源起播后的跳转) 到=${to.inMilliseconds}ms');
+                // ★ 2026-10-11（verify-4 #5）：seek 前后各判一次（await 期间可能被回收）
+                if (kp.isDisposed) {
+                  _logDisposedSkip('源循环-续播 seekExact 前', '_initPlayerOnce:1532');
+                  return;
+                }
                 await kp.seekExact(to);
+                if (kp.isDisposed) {
+                  _logDisposedSkip('源循环-续播 seekExact 后', '_initPlayerOnce:1532（await 之后）');
+                  return;
+                }
                 // 再校验一次：mpv 偶尔会把早期的 seek 丢掉，没跳过去就补一枪。
                 // 3 秒的容差是给"视频刚开始播、位置还在往上走"留的余量。
                 await Future<void>.delayed(const Duration(milliseconds: 500));
+                if (kp.isDisposed) {
+                  _logDisposedSkip('源循环-补枪前', '_initPlayerOnce:1540（500ms 等待之后）');
+                  return;
+                }
                 if (mounted &&
                     kp.value.duration > Duration.zero &&
                     kp.value.position < to - const Duration(seconds: 3)) {
                   if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播补枪(早期 seek 被丢掉) pos=${kp.value.position.inMilliseconds}ms → ${to.inMilliseconds}ms');
                   await kp.seekExact(to);
+                  if (kp.isDisposed) {
+                    _logDisposedSkip('源循环-补枪后', '_initPlayerOnce:1540（await 之后）');
+                    return;
+                  }
                 }
               } catch (_) {
                 // 续播失败不影响播放，从头放就行
@@ -1448,6 +1671,11 @@ class PlayerWidgetState extends State<PlayerWidget>
                 ))
                 .where((s) => s.isNotEmpty)
                 .toList();
+            // ★ 2026-10-11（verify-4 #5）：这个 await 之后也要判（下一轮还会用同一个 `kp`）
+            if (kp.isDisposed) {
+              _logDisposedSkip('源循环-刷新源后', '_initPlayerOnce:1560（await 刷新源之后）');
+              return;
+            }
             if (fresh.isNotEmpty) {
               if (AppSettings.i.logConsole) debugPrint('[PLAY] 刷新源拿到 ${fresh.length} 条 ⇒ 再试一轮（round 1）');
               _sources = fresh;
@@ -1519,11 +1747,27 @@ class PlayerWidgetState extends State<PlayerWidget>
         'qlen=$qlen ref=${ref.length <= 40 ? ref : ref.substring(0, 40)}');
       }
     }
+    // ★ 2026-10-11（verify-4 #6）：**入口先判** —— 已释放就**不 add/remove listener**（ChangeNotifier 在
+    //   dispose 之后 add/remove 会直接断言抛 "used after being disposed" ⇒ 那正是用户撞到的连锁起点）
+    if (kp.isDisposed) {
+      _logDisposedSkip('_openAndWait-入口(addListener)', '_openAndWait:1625');
+      return false;
+    }
     kp.addListener(listener);
     try {
+      // ★ 2026-10-11（verify-4 #6）：`addListener` 与 `open` 之间/之后都可能被回收 ⇒ 开流前再判一次
+      if (kp.isDisposed) {
+        _logDisposedSkip('_openAndWait-open', '_openAndWait:1627（开流前）');
+        return false;
+      }
       await kp.open(url, httpHeaders: {
         'User-Agent': _ua,
         'Referer': ref,
+        // ★ 2026-10-11（**可选头** ✅）：站点给的额外头（如柚子短剧的 `Cookie: eden_play_<videoId>=…` ✅）
+        //   —— 放在 UA/Referer **之后** ⇒ 同名键以站点为准 ✅。
+        //   ⚠️ `widget.httpHeaders` **就在这一刻现读**（每次 open 各读一次 ✅）—— 不在 init 缓存 ☑️
+        //   ⇒ "刷新源拿到新凭证 ⇒ 下一轮 open 带新头" ✅；默认 null ⇒ 与改前**逐字同款**（只有两项）✅。
+        ...?widget.httpHeaders,
       });
       // ⚠️ 2026-10-05：实测（curl 走代理，Pornhub）**分片**必须要"站点域名"的 Referer ——
       //    站点域 200 / 不带 404 / CDN 自身域 404；而 master、variant 不带也能 200 ✓。
@@ -1541,7 +1785,12 @@ class PlayerWidgetState extends State<PlayerWidget>
       if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播失败 ${es.length <= 120 ? es : es.substring(0, 120)}');
       return false;
     } finally {
-      kp.removeListener(listener);
+      // ★ 2026-10-11（verify-4 #6）：已释放 ⇒ **跳过 removeListener**（否则又是一次 dispose 后断言）
+      if (kp.isDisposed) {
+        _logDisposedSkip('_openAndWait-removeListener', '_openAndWait:1652');
+      } else {
+        kp.removeListener(listener);
+      }
     }
   }
 
@@ -1555,13 +1804,103 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (pb != null) unawaited(pb.shutdown());
   }
 
+  /// ★ 2026-10-11（**probe23/26 实测驱动** ✅）：**延迟回收**被替换下来的旧引擎。
+  ///   为什么延迟（不立刻 shutdown）：切集是"**先挂新、再收旧**"—— 新的 `KpPlayer` + 新纹理先交给界面，
+  ///   旧引擎还在屏上跑着最后一帧/最后几个回调 ⇒ 立刻收会闪黑、也容易和媒体库的 teardown 抢资源。
+  ///   为什么必须收：每次切换都新建引擎（probe23/26 依据）⇒ 不收就是 native 泄漏（内存/解码器/网络连接）。
+  ///   `_kpCreated`/`_kpRetired` 是**配对计数**（仅 logConsole 打开时打日志）：相等 ⇒ 没漏。
+  void _retireKp(KpPlayer old) {
+    final t0 = DateTime.now();
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] 延迟回收排期 kp=${identityHashCode(old)}；条件=≥${_kRetireDelay.inMilliseconds}ms 且'
+          '（新引擎已上屏 或 全屏已退出），最多等 ${_kRetireMaxWait.inSeconds}s');
+    }
+    // ★ 2026-10-11（**用户实测"全屏里切集 ⇒ 退不出全屏"** ⇒ 修法 **A**：全屏期间**不急着回收**）：
+    //   原来的"固定 800ms 后 shutdown"留了个空窗 —— 全屏页/手势回调还攥着这个实例，
+    //   800ms 之后它就成了"已释放引擎"⇒ 双击 seek 撞出 `used after being disposed` ⇒ 整条全屏路由卡死。
+    //   ⇒ 改成**条件回收**：必须等到 (a) 新引擎**真的上屏**（`kpCurrent` 指向了别的实例 ⇒ 全屏页已跟随换新，
+    //      见 `FullscreenPlayer.follow`/`_live`）**或** (b) 全屏已退出（`fullscreenOpen == false`，没人再攥它），
+    //      二者之一成立才回收；另有 [_kRetireMaxWait] 硬上限兜底（绝不因为条件不成立而永久泄漏）。
+    //   为什么选 A 而不是"只靠全屏页重建"：重建发生在**新引擎上屏那一刻**，切集与上屏之间有几秒空窗，
+    //   只靠重建挡不住空窗里的手势/回调（用户就是这么撞上的）⇒ A 把空窗本身消掉，最稳。
+    Timer.periodic(const Duration(milliseconds: 300), (t) {
+      final el = DateTime.now().difference(t0);
+      final newOnScreen = kpCurrent.value != null && !identical(kpCurrent.value, old);
+      final fsClosed = !old.fullscreenOpen;
+      final safe = el >= _kRetireDelay && (newOnScreen || fsClosed);
+      if (!safe && el < _kRetireMaxWait) return; // 条件未满足 ⇒ 继续等（旧引擎仍然可用 ✓）
+      t.cancel();
+      final why = newOnScreen ? '新引擎已上屏' : (fsClosed ? '全屏已退出' : '超时兜底');
+      // ★ 2026-10-11（**verify-4 R1**，复核点名"必须先修"）：**超时兜底那一支**原来会在
+      //   "全屏中切集 + 新集取源一直失败"时把引擎收掉，而 `kpCurrent` 仍指着它 ⇒ 全屏页会**继续渲染
+      //   已释放引擎的纹理**（那类异常不走手势路径，`_guardDead` 兜不住）。
+      //   ⇒ shutdown **之前**：若通知口还指着它，就置空 —— 全屏页那边把"follow 变 null"当成"引擎已死"，
+      //      立刻换成 [_FullscreenDeadExit]（下一帧自愈退出全屏），绝不会再拿它当活引擎用。
+      if (identical(kpCurrent.value, old)) {
+        kpCurrent.value = null;
+        if (AppSettings.i.logConsole) {
+          debugPrint('[PLAY] 兜底回收前把 kpCurrent 置空（原因=$why）⇒ 全屏页会自愈退出');
+        }
+      }
+      unawaited(old.shutdown());
+      if (identical(_lastEngine, old)) _lastEngine = null; // ★ 回收完成 ⇒ 手势回调不再引用它
+      _kpRetired++;
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] 延迟回收完成 kp=${identityHashCode(old)} 原因=$why（等了 ${el.inMilliseconds}ms）；'
+            '创建=$_kpCreated 回收=$_kpRetired 在册=${_kpCreated - _kpRetired}');
+      }
+    });
+  }
+
+  /// ★ 2026-10-11（probe26 自愈）：新引擎 N 秒内**没首帧/没 duration** ⇒ 自动重建一次（上限 [_kFfHealMax]）。
+  ///   依据：probe26 命中的形态就是"新源 `Opening done` 之后**久久不出帧**"（位置恒 0）⇒ 与其干等看门狗
+  ///   （9s）+ 自动重试（1.2s×5，且只在"已起播过"时判硬错），不如**直接把引擎换一套**（probe23 证明新建就正常）。
+  ///   ⚠️ 与既有 `_autoRetries`（5 次）并存 ⇒ 两者都受各自上限约束，不会无限重试。
+  void _armFirstFrameSelfHeal() {
+    _ffTimer?.cancel();
+    final kp = _kp;
+    if (kp == null) return;
+    _ffTimer = Timer(_kFfHealAfter, () {
+      if (!mounted) return;
+      if (_kp != kp) return; // 期间已经换过引擎 ⇒ 这次不管
+      final s = kp.value;
+      if (s.position > Duration.zero && s.duration > Duration.zero) return; // 正常出帧
+      if (_ffHeals >= _kFfHealMax) {
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 首帧自愈 额度用尽（$_ffHeals/$_kFfHealMax）⇒ 交给既有重试/看门狗');
+        return;
+      }
+      _ffHeals++;
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] 首帧自愈 第$_ffHeals次：${_kFfHealAfter.inSeconds}s 内无首帧'
+            '（pos=${s.position.inMilliseconds}ms dur=${s.duration.inMilliseconds}ms buffering=${s.buffering}）⇒ 重建引擎');
+      }
+      _initPlayer(); // 重建（走上面那段"切集重建"⇒ 先挂新、再收旧）
+    });
+  }
+
   void _attach(KpPlayer kp) {
     final old = _kp;
     // ★【常驻诊断】上屏换引擎：新 kp 身份 / 旧 kp 身份（旧的非空 ⇒ 下面立刻 shutdown ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] _attach 新kp=${identityHashCode(kp)} vc=${identityHashCode(kp.videoController)} 旧kp=${old == null ? '(无=首次上屏)' : identityHashCode(old).toString()} 旧kp会被shutdown=${old != null} 预建kp=${_prebuiltKp == null ? '(已交接)' : '仍持有'}');
-    if (old != null) old.shutdown();
+    if (old != null) old.shutdown(); // ⚠️ 只有"首次上屏"会走到（切集那条已把旧引擎交给延迟回收 ⇒ old==null ✓）
     _kp = kp;
+    _lastEngine = kp; // ★ 供切集空窗里的手势回调使用（见 [_lastEngine]）
+    // ★ 2026-10-11：新引擎上屏 ⇒ **通知全屏页换纹理**（全屏页用 ValueKey(引擎身份) ⇒ State 重建 ✓）
+    kpCurrent.value = kp;
+    // ★ 重建时把"正在全屏"接过来（详情页 didPushNext 靠 kp.fullscreenOpen 区分"全屏"与"跳走" ✓）
+    if (_inheritFullscreen) {
+      kp.fullscreenOpen = true;
+      _inheritFullscreen = false;
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 新引擎继承 fullscreenOpen=true（切集发生在上层是全屏时）');
+    }
     kp.addListener(_onTick);
+    // ★ 2026-10-11（用户规格第 4 条）：**新引擎上屏后必须重新下发倍速** —— 切集/换源/自愈/重试都是"重建引擎"，
+    //   不补这一枪就会静默回到 1×（开关还显示 2× ⇒ 自相矛盾）。
+    _applyRate('新引擎上屏后补下发');
+    // ★ 状态/引擎已更新 ⇒ 踢一帧（防"状态变了没有帧来消化"，与 :639 那套同一修法 ✓）
+    kickPlayerFrame();
+    // ★ 2026-10-11（probe26 自愈）：新引擎上屏后武装"首帧自愈"（9s 内没首帧/没 duration ⇒ 自动重建一次，最多 2 次）
+    _armFirstFrameSelfHeal();
     // ★ 2026-10-11（A2 ✅）：新引擎上屏时把"重连中"同步给它（预建引擎阶段可能已经排着重试 ✓）
     _pushRetrying();
     // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
@@ -1706,7 +2045,11 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (kp == null) return;
     // ⚠️ 引擎已收（`shutdown()` 里连 notifier 一起 dispose 了）⇒ **绝不能再写它** ☠
     //    （同文件可见 `_disposed` ✓；否则会抛 "used after being disposed"）
-    if (kp._disposed) return;
+    // ★ 2026-10-11（verify-4 #12）：改为同一口径的护栏 + 留痕（原来只静默 return）
+    if (kp.isDisposed) {
+      _logDisposedSkip('_pushRetrying-写 retrying', '_pushRetrying:1954');
+      return;
+    }
     final want = _autoRetrying ? _autoRetries : 0;
     if (kp.retrying.value == want) return;
     // ★ 2026-10-11（自己复核时补的护栏 ☠）：**不能在 build 期间直接写这个 notifier** ——
@@ -1893,6 +2236,14 @@ class PlayerWidgetState extends State<PlayerWidget>
   void _openFullscreen({required bool vertical}) {
     final kp = _kp;
     if (kp == null) return;
+    // ★ 2026-10-11（verify-4 ③）：**推路由前判** —— 引擎已被回收就不要再推全屏（推上去也只会黑/卡）
+    if (kp.isDisposed) {
+      _logDisposedSkip('_openFullscreen-推全屏', '_openFullscreen:2140');
+      return;
+    }
+    // ★ R1 配套：确保通知口**有值**（正常路径 `_attach` 已设过；这里只兜"万一"⇒ 免得 builder 一上来
+    //   就走"哑页面自愈"把刚进的全屏弹掉）
+    if (kpCurrent.value == null) kpCurrent.value = kp;
     // ★ 2026-10-08（用户拍板 ⑦ 配套 ✅）：**进全屏不算"跳走"** —— 全屏页也是 push 上去的路由 ☑️
     //   ⇒ 详情页必然会收到 `didPushNext`，得让它区分得出"这次是全屏"（要继续播 ✅、继续写记录 ✅），
     //   否则它会暂停 + 停写播放记录 ✗（与 ①"在播时进全屏不断播"正面冲突 ✗）。
@@ -1910,12 +2261,38 @@ class PlayerWidgetState extends State<PlayerWidget>
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 180),
           reverseTransitionDuration: const Duration(milliseconds: 180),
-          pageBuilder: (_, __, ___) => FullscreenPlayer(
-            player: kp,
-            vertical: vertical,
-            switcher: widget.switcher,
-            title: widget.title,
-            epLabels: widget.epLabels,
+          pageBuilder: (_, __, ___) => ValueListenableBuilder<KpPlayer?>(
+            // ★ 2026-10-11（**用户实测"全屏里切集黑"** ⇒ 本修法的核心）：
+            //   切集 = 重建引擎 ⇒ **全屏页必须跟着换实例**（否则它握着已回收的引擎 ⇒ 全屏黑）。
+            //   做法：监听 [kpCurrent]（`_attach` 里更新）；`ValueKey(引擎身份)` ⇒ 引擎一变、全屏页 State
+            //   **整个重建**（`Video` 用的是新 `kp.videoController` ⇒ 新纹理 ✓；手势/进度条等内部
+            //   `widget.player` 引用也一起指向新引擎 ⇒ 不会"纹理新、逻辑旧"）。
+            //   ★ verify-4 R1：**`kpCurrent` 变 null 也是"引擎已死"的一种**（兜底回收置空）⇒ 这里必须
+            //     换成一个"哑页面"去自愈退出，**不能**再回退到 push 时那个实例（它可能已被释放 ⇒ 渲染死纹理）。
+            valueListenable: kpCurrent,
+            builder: (_, cur, __) {
+              if (cur == null || cur.isDisposed) {
+                if (AppSettings.i.logConsole) {
+                  debugPrint('[PLAY] 全屏 follow 为空/已释放 ⇒ 用哑页面自愈退出（verify-4 R1）');
+                }
+                return const _FullscreenDeadExit();
+              }
+              return FullscreenPlayer(
+                // ⚠️ Key 用**对象本身**（`KpPlayer` 没重写 `==` ⇒ 按身份比较 ✓）——不用 `identityHashCode`
+                //   （哈希理论上可碰撞 ⇒ 极小概率"换引擎但 Key 没变"⇒ 全屏继续用旧纹理 ☠）
+                key: ValueKey<KpPlayer>(cur),
+                player: cur,
+                // ★ 2026-10-11（用户实测"退不出全屏"的修复）：把**当前引擎的通知口**传进去 ——
+                //   全屏页里所有引擎操作都动态取它（`_live`），构造时那个实例被回收也不会再炸 ✓
+                follow: kpCurrent,
+                // ★ 2026-10-11（用户规格第 2 条）：把**同一份倍速状态**交给全屏页 ⇒ 内嵌/竖版/横版一套控件 ✅
+                rate: rateNotifier,
+                vertical: vertical,
+                switcher: widget.switcher,
+                title: widget.title,
+                epLabels: widget.epLabels,
+              );
+            },
           ),
           transitionsBuilder: (_, anim, __, child) => FadeTransition(
             opacity: CurvedAnimation(
@@ -1938,10 +2315,13 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 已挂 whenComplete（退出那一刻复位 fullscreenOpen）');
     fut.whenComplete(() {
       // ★【常驻诊断】复位**前**的值 + 引擎是否已 shutdown（赋值语句本身一个字符未动 ✓）
-      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位前 fullscreenOpen=${kp.fullscreenOpen} 引擎已shutdown=${kp._disposed}');
-      kp.fullscreenOpen = false;
+      // ★ 2026-10-11：复位目标改为**当前引擎**（全屏期间可能已重建过 ⇒ push 时那个实例可能已被回收，
+      //   只复位它 ⇒ 新引擎的 fullscreenOpen 会永远为 true ⇒ 以后所有"跳走"都不停播 ☠）
+      final cur = kpCurrent.value ?? kp;
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位前 fullscreenOpen=${cur.fullscreenOpen} 引擎已shutdown=${cur._disposed}');
+      cur.fullscreenOpen = false;
       // ★【常驻诊断】复位**后**的值（应与上面那条配对看 ✓）
-      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位后 fullscreenOpen=${kp.fullscreenOpen}');
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 退出：whenComplete 复位后 fullscreenOpen=${cur.fullscreenOpen}');
     });
   }
 
@@ -1978,7 +2358,9 @@ class PlayerWidgetState extends State<PlayerWidget>
                     onHorizontalDragStart: swipeStart,
                     onHorizontalDragUpdate: swipeUpdate,
                     onHorizontalDragEnd: swipeEnd,
-                    // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
+                    // 长按快进：任意位置按住 = 2 倍速；**松手恢复到"当前开关状态"**（1× 或 2×）
+                    // ★ 2026-10-11（用户规格坑 1）：原来硬编码回 1.0 ⇒ 用户把开关拨到 2× 后长按一次
+                    //   就被降回 1×（与开关自相矛盾）⇒ 现在读 `rateNotifier.value` 恢复。
                     onLongPressStart: (_) {
                       // ★【常驻诊断】长按开始 = 2 倍速（触发源=长按 ✓）
                       if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按开始 触发源=长按(内嵌) ⇒ setRate(2.0) 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
@@ -1986,19 +2368,32 @@ class PlayerWidgetState extends State<PlayerWidget>
                       setState(() => _longPressing = true);
                     },
                     onLongPressEnd: (_) {
-                      // ★【常驻诊断】长按结束 = 还原 1 倍速
-                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(内嵌) ⇒ setRate(1.0) 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
-                      _kp?.setRate(1.0);
+                      final back = rateNotifier.value;
+                      // ★【常驻诊断】长按结束 = 恢复到"当前开关状态"
+                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(内嵌) ⇒ setRate(${back == 2.0 ? '2.0' : '1.0'})（回到开关状态）位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
+                      _kp?.setRate(back);
                       if (_longPressing) setState(() => _longPressing = false);
                     },
                     onLongPressCancel: () {
-                      // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样还原 1 倍速
-                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(内嵌) ⇒ setRate(1.0)');
-                      _kp?.setRate(1.0);
+                      final back = rateNotifier.value;
+                      // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样恢复到"当前开关状态"
+                      if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(内嵌) ⇒ setRate(${back == 2.0 ? '2.0' : '1.0'})（回到开关状态）');
+                      _kp?.setRate(back);
                       if (_longPressing) setState(() => _longPressing = false);
                     },
                     child: _videoSurface(kp),
                   ),
+                  // ★ 2026-10-11（用户新规格）：**倍速按钮** —— 贴右缘、垂直居中；
+                  //   **跟随"控件可见"一起显隐**（复用既有 `_controlsVisible`，**不新造计时器**）；
+                  //   只接管点击（见 [_rateButton] 说明）⇒ 不吃双击/滑动/单击手势。
+                  if (_controlsVisible)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8), // 贴边安全间距
+                        child: _rateButton(rateNotifier),
+                      ),
+                    ),
                   // 出画面前盖着 poster（首帧一到就撤，不放着不动）
                   if (widget.poster.isNotEmpty && !_started)
                     IgnorePointer(
@@ -2355,6 +2750,31 @@ class _ControlBarState extends State<_ControlBar> {
 
 /// 全屏播放页：黑底 + 左右滑动快进快退 + 左边缘滑返回（仿 iOS）/返回按钮退出。
 /// vertical=true 竖屏全屏（视频 contain 居中不拉伸），false 横屏全屏。
+/// ★ 2026-10-11（**verify-4 R1**）：全屏页的"**哑页面**" —— 当 `kpCurrent` 变 `null`（引擎被兜底回收）
+///   或它已释放时，`_openFullscreen` 的 builder 用它顶上：**完全不引用任何引擎**，
+///   只在下一帧把这条路由弹回去（自愈）。为什么不用"回退到 push 时的实例"：那个实例此时很可能已被释放
+///   ⇒ 会继续渲染**已释放引擎的纹理**（用户实报那类异常不走手势路径 ⇒ `_guardDead` 兜不住）。
+class _FullscreenDeadExit extends StatefulWidget {
+  const _FullscreenDeadExit();
+
+  @override
+  State<_FullscreenDeadExit> createState() => _FullscreenDeadExitState();
+}
+
+class _FullscreenDeadExitState extends State<_FullscreenDeadExit> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).maybePop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const ColoredBox(color: Colors.black, child: SizedBox.expand());
+}
+
 class FullscreenPlayer extends StatefulWidget {
   final KpPlayer player;
   final bool vertical;
@@ -2367,6 +2787,16 @@ class FullscreenPlayer extends StatefulWidget {
 
   /// 各集标签（与详情页选集同一份；下标同 `switcher.index`）。多集时全屏标题带"第 N 集" ✅
   final List<String> epLabels;
+
+  /// ★ 2026-10-11（**用户实测"全屏里切集 ⇒ 退不出全屏"** 的修复）：**当前引擎的实时通知口**。
+  ///   切集 = 重建引擎（probe23/26 依据）⇒ 全屏页**构造时捕获的那个实例会被延迟回收**，
+  ///   而手势/双击/长按这些回调仍挂在旧 State 上 ⇒ 打到已释放引擎 ⇒ 媒体库抛
+  ///   `A KpPlayer was used after being disposed.` ⇒ 串发框架异常 ⇒ **整条全屏路由卡死**（用户实报）。
+  ///   ⇒ 现在全屏页**每次都动态取**（见 `_live`）：`follow`（= `kpCurrent`）有新引擎就用新的。
+  final ValueListenable<KpPlayer?>? follow;
+  /// ★ 2026-10-11（**用户规格**）：**常驻倍速开关的共享状态**（与内嵌播放器同一份 ⇒ 哪边点都同步）。
+  ///   null = 老调用方/降级场景 ⇒ 全屏页退化为"只有长按 2×"的老行为 ✅。
+  final ValueNotifier<double>? rate;
   const FullscreenPlayer({
     super.key,
     required this.player,
@@ -2374,6 +2804,8 @@ class FullscreenPlayer extends StatefulWidget {
     this.switcher,
     this.title = '',
     this.epLabels = const [],
+    this.follow,
+    this.rate,
   });
 
   @override
@@ -2383,6 +2815,27 @@ class FullscreenPlayer extends StatefulWidget {
 class _FullscreenPlayerState extends State<FullscreenPlayer>
     with _SwipeSeek, _BrightnessVolume {
   bool _controls = true;
+  /// ★ 2026-10-11（verify-4 #21/#22）：本页**是否真的**给引擎挂了 `_onTick` —— 与 `dispose` 成对，
+  ///   避免"没挂成却在 dispose 里摘"（摘一个已 dispose 的 notifier 会断言抛）。
+  bool _fsListening = false;
+  /// ★ 2026-10-11（**verify-4 R3**）：`_guardDead` 的**幂等标志** —— 同帧被调多次时只排一次退场，
+  ///   否则会连弹两层路由（把详情页也弹掉）。
+  bool _popping = false;
+  /// ★ 2026-10-11（用户规格）：本页是否挂了倍速监听（与 `dispose` 成对；`widget.rate` 可能为 null）
+  bool _rateListening = false;
+
+  /// 开关变化（或进全屏时）⇒ 把当前倍速下发到**本页当前活着的引擎**（`_live`）。
+  ///   ⚠️ 走 `_live` 而不是构造实例（切集重建后构造实例可能已被回收，见 verify-4 那批护栏）。
+  void _onRateChangedFs() {
+    final n = widget.rate;
+    if (n == null) return;
+    final kp = _live;
+    if (kp.isDisposed) return;
+    unawaited(kp.setRate(n.value));
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] 全屏 倍速 ⇒ ${n.value == 2.0 ? '2.0' : '1.0'}×（开关同步/进全屏）');
+    }
+  }
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero;
   IconData? _tapHint; // 双击提示图标（快退/快进/暂停/播放）
@@ -2396,10 +2849,38 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   double _edgeDx = 0; // 边缘返回手势的累计水平位移
 
   @override
-  KpPlayer get gesturePlayer => widget.player;
+  // ★ 2026-10-11（verify-4 R2）：可空 —— 已释放 ⇒ 返回 null（调用点 `?.` 跳过），不再把死引擎交出去
+  KpPlayer? get gesturePlayer => _live.isDisposed ? null : _live;
 
   @override
-  KpPlayer get swipePlayer => widget.player;
+  KpPlayer? get swipePlayer => _live.isDisposed ? null : _live; // ★ R2：同 gesturePlayer
+
+  /// ★ 2026-10-11（用户实测"退不出全屏"的修复）：**当前活着的引擎** ——
+  ///   `follow`（`kpCurrent`，`_attach` 里随新引擎更新）优先；没有/已释放 ⇒ 退回构造时的实例。
+  ///   ⚠️ 所有引擎操作都必须走这里，**不许**直接用 `widget.player`（那正是事故点：旧实例被回收后还在收手势）。
+  KpPlayer get _live {
+    final f = widget.follow?.value;
+    if (f != null && !f.isDisposed) return f;
+    return widget.player;
+  }
+
+  /// 引擎是否已失效（切集空窗：旧的已收、新的还没上屏）⇒ 操作一律忽略 + **自愈弹回**，
+  /// 绝不再让 `used after disposed` 把整条路由带崩（用户实报"退不出全屏"）。
+  bool _guardDead() {
+    if (!_live.isDisposed) return false;
+    // ★ 2026-10-11（**verify-4 R3**）：**幂等** —— 同一个帧里可能被调两次（例如双击先判一次、
+    //   接着长按/手势又判一次）⇒ 两个 post-frame `maybePop` 会**连弹两层**（把详情页也弹掉 ☠）。
+    if (_popping) return true;
+    _popping = true;
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] ⚠️ 全屏：当前引擎已释放（切集空窗）⇒ 忽略本次操作 + 自动退出全屏（防卡死）');
+    }
+    // 自愈：把全屏路由弹回去（用户可以在窗口内继续操作；比"卡死在全屏"好得多）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).maybePop();
+    });
+    return true;
+  }
 
   @override
   void initState() {
@@ -2412,8 +2893,21 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     // ★ 2026-10-08（用户拍板 ① + ② ✅）：**跟随进入前的状态** ——
     //   在播 ⇒ 继续播（不断播 ✅）；进入前是暂停 ⇒ `autoResume()` 内部直接 return ⇒ **保持暂停** ☑️。
     //   原来是**无条件** `play()` ✗ ⇒ 暂停着进全屏也被拉起来 ✗（而且它还会清掉 `_userPaused` ✗）。
-    widget.player.autoResume();
-    widget.player.addListener(_onTick);
+    // ★ 2026-10-11（verify-4 #21/#22）：**成对护栏** —— 引擎若已被回收（切集空窗撞上"进全屏"），
+    //   既不 `autoResume()` 也不 `addListener`（ChangeNotifier 在 dispose 后两者都会断言抛）；
+    //   `_fsListening` 记住"到底挂没挂" ⇒ `dispose` 里据此决定要不要 `removeListener`（成对 ✅）。
+    if (widget.player.isDisposed) {
+      _logDisposedSkip('全屏 initState-autoResume/addListener', '_FullscreenPlayerState.initState:2711');
+    } else {
+      widget.player.autoResume();
+      widget.player.addListener(_onTick);
+      _fsListening = true;
+    }
+    // ★ 2026-10-11（用户规格第 2/4 条）：全屏页也要**跟随同一个倍速状态** ——
+    //   进全屏先按当前值下发一次（万一引擎是刚重建的）；之后开关一变就再下发（见 [_onRateChangedFs]）。
+    widget.rate?.addListener(_onRateChangedFs);
+    _rateListening = true;
+    _onRateChangedFs();
     if (widget.vertical) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     } else {
@@ -2430,7 +2924,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   void _onRouteAnimStatus(AnimationStatus s) {
     // ★【常驻诊断】全屏路由转场状态（reverse=开始退场 ⇒ 立刻恢复竖屏，与退场动画并行 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 转场状态=$s（reverse ⇒ 提前恢复竖屏）');
-    if (s == AnimationStatus.reverse) _restoreOrientation();
+    if (s == AnimationStatus.reverse) {
+      _restoreOrientation();
+    }
   }
 
   @override
@@ -2461,8 +2957,21 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     //   **删掉** ☑️。用户明确：**App 内不还原**（全屏里调好的亮度要留着 ✅ —— 详情页与全屏现在是
     //   同一份值 ✅，退出全屏再一滑不会跳回旧值 ✅）；**退出 App 的还原交给系统** ✅（不是我们的活 ✗）。
     disposeSwipe();
-    widget.player.removeListener(_onTick);
+    // ★ 2026-10-11（verify-4 #22）：**成对** —— 只有真挂过（`_fsListening`）且实例还活着才摘；
+    //   否则摘一个已 dispose 的 notifier 同样会断言（见 initState 那段的说明）
+    if (_fsListening) {
+      if (widget.player.isDisposed) {
+        _logDisposedSkip('全屏 dispose-removeListener', '_FullscreenPlayerState.dispose:2699');
+      } else {
+        widget.player.removeListener(_onTick);
+      }
+    }
     _routeAnim?.removeStatusListener(_onRouteAnimStatus);
+    // ★ 2026-10-11（用户规格）：摘掉倍速监听（与 initState 成对；notifier 本体归内嵌页，**不要 dispose**）
+    if (_rateListening) {
+      widget.rate?.removeListener(_onRateChangedFs);
+      _rateListening = false;
+    }
     // 兜底：退出路径都已在触发时恢复过，这里再保一次
     _restoreOrientation();
     super.dispose();
@@ -2473,7 +2982,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
 
   void _onTick() {
     if (!mounted) return;
-    final v = widget.player.value;
+    final v = _live.value; // ★ 动态取当前引擎（切集后 follow 立刻给新引擎 ⇒ 不再读到已回收实例）
     if (v.error != _errShown) setState(() => _errShown = v.error);
     // 播完且没有下一集：自动退出全屏（竖版/横版都适用；用户要求）
     if (v.completed) {
@@ -2493,27 +3002,28 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
 
   /// 双击：左三成退、右三成进（步长来自设置）、**中间暂停/播放**
   void _onDoubleTap() {
+    if (_guardDead()) return; // ★ 用户事故点：这次双击原本会打到"已回收引擎" ⇒ 撞出 used-after-disposed ⇒ 全屏卡死
+    final e = _live; // ★ 动态取当前引擎（不用构造时捕获的实例）
     final w = context.size?.width ?? MediaQuery.of(context).size.width;
     final dx = _lastTapPos.dx;
     // ★【常驻诊断】双击落点判定(全屏)：dx + 屏宽 + 区域（左半退 / 中间暂停播放 / 右半进 ✓）
-    if (AppSettings.i.logConsole) debugPrint('[PLAY] 双击(全屏) dx=${dx.toStringAsFixed(1)} w=${w.toStringAsFixed(1)} 区域=${dx > w * 0.35 && dx < w * 0.65 ? '中间' : (dx < w / 2 ? '左半' : '右半')} 步长=${AppSettings.i.step}s 引擎playing=${widget.player.value.playing} pos=${widget.player.value.position.inMilliseconds}ms');
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] 双击(全屏) dx=${dx.toStringAsFixed(1)} w=${w.toStringAsFixed(1)} 区域=${dx > w * 0.35 && dx < w * 0.65 ? '中间' : (dx < w / 2 ? '左半' : '右半')} 步长=${AppSettings.i.step}s 引擎playing=${e.value.playing} pos=${e.value.position.inMilliseconds}ms 引擎=#${identityHashCode(e)}');
     if (dx > w * 0.35 && dx < w * 0.65) {
-      if (widget.player.value.playing) {
+      if (e.value.playing) {
         if (AppSettings.i.logConsole) debugPrint('[PLAY] 暂停 触发源=双击中间(全屏)');
-        widget.player.pause();
+        e.pause();
         _flashTapHint(Icons.pause, 0);
       } else {
         if (AppSettings.i.logConsole) debugPrint('[PLAY] 播放 触发源=双击中间(全屏)');
-        widget.player.play();
+        e.play();
         _flashTapHint(Icons.play_arrow, 0);
       }
       return;
     }
     final back = dx < w / 2;
     final secs = AppSettings.i.step;
-    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=双击${back ? '左半(退)' : '右半(进)'}(全屏) 从=${widget.player.value.position.inMilliseconds}ms 步长=${secs}s');
-    widget.player.seek(
-        widget.player.value.position + Duration(seconds: back ? -secs : secs));
+    if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 触发源=双击${back ? '左半(退)' : '右半(进)'}(全屏) 从=${e.value.position.inMilliseconds}ms 步长=${secs}s');
+    e.seek(e.value.position + Duration(seconds: back ? -secs : secs));
     _flashTapHint(back ? Icons.fast_rewind : Icons.fast_forward,
         back ? -0.6 : 0.6);
   }
@@ -2621,7 +3131,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
 
   @override
   Widget build(BuildContext context) {
-    final kp = widget.player;
+    final kp = _live; // ★ 动态取当前引擎（全屏里切集后画面立刻跟到新纹理 ✓）
     // ★【常驻诊断·关键】视频层重建可见性(全屏)：与内嵌那条同一个 kp/vc 身份 ⇒ 只是重建、没换引擎 ✓
     //   （`_bvShow == null` 是日志自己的过滤：上下滑亮度/音量时每帧 setState，会逐帧刷屏 ✓ 见内嵌那段说明）
     if (AppSettings.i.logConsole && _bvShow == null) {
@@ -2676,25 +3186,41 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         // 长按快进：任意位置按住 = 2 倍速，松手还原 1 倍速
         onLongPressStart: (_) {
           // ★【常驻诊断】长按开始 = 2 倍速（触发源=长按 ✓）
-          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按开始 触发源=长按(全屏) ⇒ setRate(2.0) 位置=${widget.player.value.position.inMilliseconds}ms');
-          widget.player.setRate(2.0);
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按开始 触发源=长按(全屏) ⇒ setRate(2.0) 位置=${_live.value.position.inMilliseconds}ms');
+          if (_guardDead()) return;
+          _live.setRate(2.0);
           setState(() => _longPressing = true);
         },
         onLongPressEnd: (_) {
-          // ★【常驻诊断】长按结束 = 还原 1 倍速
-          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(全屏) ⇒ setRate(1.0) 位置=${widget.player.value.position.inMilliseconds}ms');
-          widget.player.setRate(1.0);
+          // ★ 2026-10-11（用户规格坑 1）：恢复到"**当前开关状态**"（1× 或 2×），不再硬编码 1.0
+          final back = widget.rate?.value ?? 1.0;
+          // ★【常驻诊断】长按结束 = 回到开关状态
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按结束 触发源=松手(全屏) ⇒ setRate(${back == 2.0 ? '2.0' : '1.0'})（回到开关状态）位置=${_live.value.position.inMilliseconds}ms');
+          _live.setRate(back); // setRate 自带"已释放 ⇒ 忽略"护栏（见 KpPlayer.setRate）✓
           if (_longPressing) setState(() => _longPressing = false);
         },
         onLongPressCancel: () {
-          // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样还原 1 倍速
-          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(全屏) ⇒ setRate(1.0)');
-          widget.player.setRate(1.0);
+          final back = widget.rate?.value ?? 1.0;
+          // ★【常驻诊断】长按被取消（手势被抢）⇒ 同样回到开关状态
+          if (AppSettings.i.logConsole) debugPrint('[PLAY] 长按取消 触发源=手势取消(全屏) ⇒ setRate(${back == 2.0 ? '2.0' : '1.0'})（回到开关状态）');
+          _live.setRate(back);
           if (_longPressing) setState(() => _longPressing = false);
         },
         child: Stack(
           children: [
             Center(child: _videoSurface(kp)),
+            // ★ 2026-10-11（用户新规格）：**同一套倍速按钮**（贴右缘、垂直居中）
+            //   **跟随全屏的"控件可见"一起显隐**（复用既有 `_controls`，**不新造计时器**）
+            //   ⇒ 内嵌/竖版全屏/横版全屏三处行为一致（同一个 [rateNotifier] 驱动 ✓）
+            //   ⚠️ 没传 rate（老调用方）⇒ 不画按钮（不 new 临时 notifier，避免每帧新建对象）
+            if (widget.rate != null && _controls)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 10), // 贴边安全间距（横屏也留）
+                  child: _rateButton(widget.rate!),
+                ),
+              ),
             // 顶部：返回 + 视频标题
             // ★ 用户要求（2026-10）：两种全屏（竖版/横屏）顶部都显示标题，且**跟随控件一起显隐** ——
             //   本块整体挂在既有的 `_controls` 上 ✅（与返回键、底部控制条**同一套**状态、同一个 3 秒

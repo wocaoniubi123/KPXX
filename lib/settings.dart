@@ -431,3 +431,84 @@ class PlayHistory extends ChangeNotifier {
   }
 }
 
+/// ★ 2026-10-12（**用户批准**："全局搜索历史：输入框下面列出搜过的词，每条带 × 删除，另有「全部删除」" ✅）：
+///   **全局搜索历史**（**一份、不分站点** ✅）。
+///
+///  · 键名：`search_history`（`SharedPreferences` 的 **StringList** ✅）
+///  · 口径（用户/lead 定 ✅）：**最近在最前** ✅ · **去重**（已存在 ⇒ 移到最前 ✅）· **上限 20 条**（超出丢最旧 ✅）·
+///    输入 **trim** ✅ · 空串不记 ✅ · **读盘缺失/损坏 ⇒ 空列表（绝不上抛 ✅）** · **写盘异步、不阻塞 UI** ✅
+///  · 加载：**惰性**（`ensureLoaded()` 由搜索页首帧调 ✅）—— 这样**不必动** `main.dart` / `main_win_dev.dart`
+///    （本轮不许碰那两个文件 ✅）；若将来要与 `PlayHistory`/`Favorites` 一样"启动即加载"，
+///    只需在那两处各加一行 `SearchHistory.i.load();` 即可 ✅（本类的 `load()` 已经自带兜错 ✅）。
+class SearchHistory extends ChangeNotifier {
+  SearchHistory._();
+  static final SearchHistory i = SearchHistory._();
+
+  static const String _kKey = 'search_history';
+  static const int maxItems = 20; // 超出淘汰最旧的（用户口径 ✅）
+
+  final List<String> _items = []; // 最近在最前 ✅
+  bool _loaded = false;
+
+  /// 只读视图（**最近在最前** ✅）
+  List<String> get items => List<String>.unmodifiable(_items);
+  bool get isEmpty => _items.isEmpty;
+  int get length => _items.length;
+
+  /// 惰性加载（幂等 ✅）—— UI 首次要用时调一次 ✅
+  Future<void> ensureLoaded() async {
+    if (_loaded) return;
+    await load();
+  }
+
+  Future<void> load() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getStringList(_kKey) ?? const <String>[];
+      _items
+        ..clear()
+        ..addAll(raw.where((s) => s.trim().isNotEmpty).take(maxItems));
+    } catch (_) {
+      // 读盘失败 / 数据损坏 ⇒ 当**空历史**（**绝不上抛** ✅ —— 与"不许抛"口径一致 ✅）
+      _items.clear();
+    }
+    _loaded = true;
+    notifyListeners();
+  }
+
+  /// 记一条：**去重（已存在 ⇒ 移到最前）** + **截断 20** ✅；空串 / 纯空白**不记** ✅
+  Future<void> add(String kw) async {
+    final k = kw.trim();
+    if (k.isEmpty) return;
+    _items.removeWhere((e) => e == k); // 去重：先删旧的 ✅
+    _items.insert(0, k); // 最近在最前 ✅
+    if (_items.length > maxItems) {
+      _items.removeRange(maxItems, _items.length); // 超出丢最旧 ✅
+    }
+    notifyListeners(); // 内存先更新（UI 立刻变 ✅）
+    await _save(); // 落盘异步（不阻塞 UI ✅）
+  }
+
+  Future<void> remove(String kw) async {
+    if (!_items.remove(kw)) return;
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> clear() async {
+    if (_items.isEmpty) return;
+    _items.clear();
+    notifyListeners();
+    await _save();
+  }
+
+  Future<void> _save() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setStringList(_kKey, _items);
+    } catch (_) {
+      // 落盘失败也不影响本次会话（内存里还在 ✅）—— **不上抛** ✅
+    }
+  }
+}
+

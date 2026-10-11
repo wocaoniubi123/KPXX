@@ -86,6 +86,37 @@ dependencies:
 dev_dependencies:
   flutter_lints: ^4.0.0
 
+# ★ 2026-10-12（用户要求 ✓："Windows 端换了 iOS 端也得换，做好备份随时回退"）
+#   **为什么换**：iOS 那份原生库从 pub 上的 1.1.4（钉 `MPV_XCFRAMEWORKS_VERSION=v0.6.0`，
+#     2023-09-24 构建）换成 media-kit 主分支的 1.1.5（钉 **v0.7.2**，2026-06-27 构建）
+#     ⇒ 两端跟进同一代 libmpv（Windows 那份 libs 另有自己的版本线，见上面 1.0.x 那行 ✓）。
+#
+#   ⚠️ **它不解决 seek** 🛢️（**已核实，别记错功**）：
+#      `libmpv-darwin-build` 的 v0.6.0 与 v0.7.2 用的是**同一份** `ffmpeg-fix-hls-mp4-seek.patch`
+#      （blob sha 两边都是 `58bffcefd983109b7ff43aee860893960f92acf6`，528 B）——
+#      v0.6.0 的 `scripts/ffmpeg/build.sh` 里就明写着 `patch -p1 <…/ffmpeg-fix-hls-mp4-seek.patch` ✓；
+#      且两边 **FFmpeg 同为 6.0**（`ffmpeg-6.0.tar.xz`）、**mpv 同为 v0.36.0**。
+#      v0.7.2 相比 v0.6.0 **只多** `ltmain-target-passthrough.patch` +
+#      `mpv-audiounit-shared-session.patch` 两条与 HLS/seek **无关**的补丁（其余 4 条 ffmpeg 补丁逐一比 sha 全同）。
+#      ⇒ 想修 seek 得另找病因（或本地 fork 自己打 xcframework），**不是换这个包能解决的**。
+#
+#   ⚠️ 为什么钉 **commit** 而不是分支名 `main`：`main` 已迁到 pub workspace
+#      （`pubspec.yaml` 里带 `resolution: workspace`，迁移提交 `b29d407a4e39` / 2026-07-02）
+#      ⇒ 作为 git 依赖不安全；**本 commit `2e35dbde9fd1`（2026-06-27）在迁移之前**，
+#      其 pubspec 无 `resolution` 字段 ✓（约束 `sdk >=2.17.0 <4.0.0` / `flutter >=3.0.0` ✓ 本机与 CI 都满足）。
+#
+#   ⚠️ 范围：**只覆盖 iOS 这一份**。**不动** `media_kit` / `media_kit_video` /
+#      `media_kit_libs_windows_video` / 其它任何依赖（该包不依赖 media_kit ⇒ 无版本约束冲突 ✓）。
+#
+#   ⚠️ 回滚 = **删掉下面整段 `dependency_overrides`** + `flutter pub get` ⇒ 回到 1.1.4 / v0.6.0 ✓
+#      （改前备份：`%TEMP%\kpxx_ios_libs_backup\`；`pubspec.yaml` sha256 `ba949d98fda1395d8f6a1a42617e8cf7d1f5e81efc22c52394260e67d86368b2`）
+dependency_overrides:
+  media_kit_libs_ios_video:
+    git:
+      url: https://github.com/media-kit/media-kit.git
+      ref: 2e35dbde9fd10bde0a63efa83868c07f5898ffb5
+      path: libs/ios/media_kit_libs_ios_video
+
 flutter:
   uses-material-design: true
   assets:

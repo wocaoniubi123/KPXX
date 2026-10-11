@@ -34,14 +34,34 @@ class XhSite extends SiteUi {
 
   final SiteFetcher _f;
 
-  /// ⚠️ 站点**有**搜索（'搜尋所有女優' 那个框 ✓），但**路径没实测过** ✗ →
-  /// **明确抛错**，不猜一个地址糊上去 ✓（猜错了会静默变成空列表，更难查 ✓）。
-// 看：搜索入口 —— 本站搜索路径未实测，这里必定抛错（打一行，避免"点了搜索没反应"查不出来）。
+  /// 搜索 = `/search/<关键词>`（**路径式**，非 `?q=` ✓ —— 2026-10-12 实测：
+  /// `?q=` 形式站点会 302 到同一页，直接写路径式更干净 ✓）；翻页 = `?page=N` ✓
+  /// （实测 `?page=2` 与第 1 页 **0 重复**、仍是 46 张卡 ✓）。
+  ///
+  /// ⚠️ **必须用桌面 UA 取**（与 [_xhList] 同一套 `_xhDesk` ✓）——实测同一 URL：
+  ///   · 站点 UA（iPhone）：`data-role=mobile-video-thumb` 容器只有 **5 个**（其余是骨架屏）；
+  ///   · 桌面 UA：`div.video-thumb--type-video` **46 个**，标题/链接 46 条齐 ✓
+  ///     （⚠️ 封面只有 8/46、时长 7/46 —— **其余 38 张卡的封面真值站方不在 HTML 里给**
+  ///      ✗：`src` 为空且 `img` 整个缺失，`data-src`/`loading` 之类也没有；
+  ///      我实测过"从 `data-previewvideo` 的 hash 路径推封面"**不可行**（构造出来的 URL 一律 403，
+  ///      因为每个缩略图的 hash 是**签名**、不是可推导的 public id ✓）⇒ **封面留空**、由 UI 兜底，
+  ///      不拿预览视频/占位图糊 ✓）。
+  ///
+  /// 卡的数据源 = **服务端渲染的 DOM**（不是 JSON、也不是 XHR —— 实测桌面 DOM 里没有
+  /// `_xhCards` 需要的那串 JSON，站点也没有返回卡片的接口；见 [domThumbCards] 的字段说明 ✓）。
+  ///
+  /// 看：搜索入口解析出几条 —— 0 条就是 `/search/` 的 DOM 选择器变了，或关键词被站点当成不存在。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} ⇒ 搜索未接通，抛错');
-    throw Exception('xHamster 搜索暂未接通（路径未实测）');
+    final sw = Stopwatch()..start();
+    final path = '/search/${Uri.encodeComponent(keyword)}'
+        '${page > 1 ? '?page=$page' : ''}';
+    final res = domThumbCards(await _f.text(path, extraHeaders: _xhDesk));
+    if (AppSettings.i.logConsole) {
+      debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page kwLen=${keyword.length} 条=${res.length} ms=${sw.elapsedMilliseconds}');
+    }
+    return res;
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
@@ -231,6 +251,60 @@ class XhSite extends SiteUi {
         cover: _xhUn(m.group(6)), // imageURL = 1280×720 大图
         meta: '',
         badge: _xhClock(int.tryParse(m.group(2) ?? '') ?? 0),
+      ));
+    }
+    return out;
+  }
+
+  /// **DOM 视频卡**（2026-10-12 新增 ✓ —— 搜索页专用）：**只认服务端渲染的
+  /// `div.video-thumb--type-video`**，与 [_xhCards]（页面 JSON）、[_xhStars]（演员 JSON）
+  /// **各走各的**、互不影响 ✓。
+  ///
+  /// 为什么搜索不能用 [_xhCards] ✗：搜索页 HTML 里**没有**那串 JSON（实测 grep 0 命中），
+  /// 而 DOM 里有 46 个真卡容器 ✓ ⇒ 搜索改从 DOM 解 ✓。
+  ///
+  /// 每张卡的取值（全部实测自 `tw.xhamster.com/search/<kw>` 的桌面 UA 响应 ✓）：
+  ///   · 链接 = 卡内 `a[data-role="thumb-link"]` 的 `href`（去域名成站内路径 ✓）
+  ///   · 标题 = 该 `a` 的 `aria-label`（空则退回 `a.video-thumb-info__name` 文本 ✓）
+  ///   · 封面 = 卡内 `img.thumb-image-container__image` 的 `src`
+  ///     （⚠️ 只有 8/46 张有；**没有 `data-src` 之类可退**，缺就留空 ✓）
+  ///   · 角标 = `[data-role="video-duration"]` 的可见文本（`15:29` / `1:02:03` ✓；7/46 有）
+  ///   · meta = `.video-thumb-views` 的可见文本（`2.1M 觀看` / `3574 次觀看` ✓；8/46 有）
+  ///   · 封面相对路径（少数卡给 `/a/...`）补成 `https://<站点>/…` ✓
+  /// 去重：按链接 ✓（与 [_xhCards] 同口径 ✓）。
+  ///
+  /// ⚠️ 本方法**有意不写 static** ✗（与 [_xhCards]/[_xhStars] 不同）—— 它要用 [_f].host
+  /// 把少数**相对封面**（`/a/...`）补成绝对地址 ✓；静态方法取不到实例成员 ✓。
+  List<Article> domThumbCards(String html) {
+    final doc = hp.parse(html);
+    final out = <Article>[];
+    final seen = <String>{};
+    for (final el in doc.querySelectorAll('div.video-thumb--type-video')) {
+      final a = el.querySelector('a[data-role="thumb-link"]');
+      final href = a?.attributes['href'] ?? '';
+      final url = href.replaceFirst(RegExp(r'^https?://[^/]+'), '');
+      if (url.isEmpty || !seen.add(url)) continue;
+      final img = el.querySelector('img[data-role="thumb-preview-img"]') ??
+          el.querySelector('img.thumb-image-container__image');
+      final src = img?.attributes['src'] ?? '';
+      // 相对封面（少数卡给 /a/...）要补站名
+      final cover = src.startsWith('/') ? 'https://${_f.host}$src' : src;
+      final title = ((a?.attributes['aria-label'] ?? '').trim().isNotEmpty
+              ? a!.attributes['aria-label']!
+              : (el.querySelector('a.video-thumb-info__name')?.text ?? ''))
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (title.isEmpty) continue;
+      out.add(Article(
+        title: title,
+        url: url,
+        cover: cover,
+        meta: (el.querySelector('.video-thumb-views')?.text ?? '')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim(),
+        badge: (el.querySelector('[data-role="video-duration"]')?.text ?? '')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim(),
       ));
     }
     return out;

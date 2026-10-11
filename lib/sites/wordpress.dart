@@ -204,6 +204,65 @@ class WpSite extends SiteUi {
       }
     }
 
+    // ★ 2026-10-12（**追加式第三分支** —— 只在上面两支都没解析到时才走 ⇒ 对另外 4 站**零影响** ✅）：
+    //   51fans1 **搜索页**用的还是同一套 `div.xqbj-list-rows`，但**标题更稳的来源是条目的
+    //   `/archives/` 链接的 `title` 属性** ✅ —— 依据（本机实测 🛢️，2026-10-12）：
+    //   · 把上面 A/B 两支**逐字复刻**跑同一份 `/search/黑料/` HTML：A=0、B 原始 4 个 / **收到 3 个**
+    //     （另 1 个条目没有 `/archives/` 链接 = 作者卡之类 ⇒ 正确跳过 ✅），
+    //     所以 51fans 现在**不是 0 条**（这条要更正 ☑️）；
+    //   · 搜索页每条是这个形状（原文）：
+    //     `<div class="xqbj-list-rows"><div class="xqbj-list-rows-image">
+    //        <a href="/archives/184460/" title="极品福利姬 鱼子酱 性爱黑料合集 …">
+    //          <div class="xqbj-list-rows-image-title text-line-ellipsis-2">…性爱<span class="highword">黑料</span>合集…</div>
+    //          …<img data-image-preview="true" z-image-loader-url="`https://…jpeg`">…`
+    //     ⇒ 标题取 `a[title]`（**命中词被 `<span class="highword">` 拆开**也不怕 ✅）、
+    //       封面再兜一层 `img[data-src]`（除 `z-image-loader-url` 之外 ✅）。
+    //   · ⚠️ 官网浏览器里能滚出 ~38 条，但**服务端 HTML 只给 ~4 条**（其余由主题 JS 追加；
+    //     `/search/<kw>/2/`、`/search/<kw>/page/2/` 实测都不通 ⇒ **没有 SSR 分页** ✅）
+    //     ⇒ 想对齐 38 条要另找它的加载接口（**本分支不做**，先保证"能出结果" ✅）。
+    if (out.isEmpty) {
+      for (final el in doc.querySelectorAll('div.xqbj-list-rows')) {
+        final a = el.querySelector('a[href*="/archives/"][title]') ??
+            el.querySelector('a[href*="/archives/"]');
+        if (a == null) continue;
+        final attrTitle =
+            (a.attributes['title'] ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        final textTitle =
+            (el.querySelector('.xqbj-list-rows-image-title')?.text ?? '')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim();
+        final title = attrTitle.isNotEmpty ? attrTitle : textTitle;
+        if (title.isEmpty) continue;
+        final img = el.querySelector('img[z-image-loader-url]') ??
+            el.querySelector('img[data-src]');
+        final cover = (img?.attributes['z-image-loader-url'] ??
+                img?.attributes['data-src'] ??
+                '')
+            .replaceAll('`', '')
+            .trim();
+        // 时间口径与上面 B 支**完全一致**（移动端文案更全 ⇒ 优先）
+        var meta = (el
+                    .querySelector('.xqbj-list-rows-bottom-tags-text.is-mobile')
+                    ?.text ??
+                '')
+            .trim();
+        if (meta.isEmpty || metaDate(meta).isEmpty) {
+          final desk = (el
+                      .querySelector('.xqbj-list-rows-bottom-tags-text.is-desktop')
+                      ?.text ??
+                  '')
+              .trim();
+          if (desk.isNotEmpty) meta = desk;
+        }
+        out.add(Article(
+          title: title,
+          url: _toRelPath(a.attributes['href'] ?? ''),
+          cover: cover,
+          meta: metaDate(meta),
+        ));
+      }
+    }
+
     // 去重（同页重复卡片）
     final seen = <String>{};
     return [

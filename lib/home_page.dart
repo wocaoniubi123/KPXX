@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding, SchedulerPhase;
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import 'base/site_ui.dart';
@@ -1384,6 +1387,9 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // ★ 2026-10-12（**用户批准**）：搜索历史**惰性加载**（幂等 ✅）—— 这样**不必动**
+    //   `main.dart` / `main_win_dev.dart`（本轮不许碰 ✅；内部已兜错，读盘异常 ⇒ 空历史 ✅）
+    unawaited(SearchHistory.i.ensureLoaded());
     if (_focusScheduled) return;
     _focusScheduled = true;
     final anim = ModalRoute.of(context)?.animation;
@@ -1406,18 +1412,67 @@ class _SearchPageState extends State<SearchPage> {
     super.dispose();
   }
 
+  /// ★ 2026-10-12（**防复发兜底 + 统一入口** ✅ —— 依据用户实报"还是转圈" + 堆栈原文：
+  ///   `#3 _SearchPageState._search (home_page.dart:1439)` ← 那句 `setState(() => _searched = true)`
+  ///   `#4 _SearchPageState._pageView.<closure>` · `#5 RowsGrid.build.<closure>` · … `#19 RenderObject.layout`
+  ///   ⇒ 根因**类别** = `_search` 在 **build/布局期**被调到 ⇒ 里面的 `setState` 抛
+  ///   `setState() or markNeedsBuild() called during build` ⇒ `_search` **当场中断**
+  ///   （没发请求、没置 `_done`、没走 `finally`）⇒ 尾部**永久转圈** ☠）
+  ///
+  /// ★ **统一入口**：**帧后再发起搜索/续页** —— 绝不在 build/布局期调 `_search` ✅
+  ///   （唯一这类调用点 = `RowsGrid` 的 `tail()`，它会在 build 期被 `performRebuild` 构造 ✅）
+  void _searchLater({bool more = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_done && !_loading) _search(more: more);
+    });
+  }
+
+  /// ★ **安全 setState（防复发兜底）**：**帧内（build/布局/绘制）绝不直接 `setState`** ——
+  ///   ① 先把字段同步落地（无副作用 ✅）② 把"标脏重画"排到**帧后** ✅；帧外则原样 `setState`（行为不变 ✅）
+  ///   ⇒ 即使**将来又有人**在 build 期误调 `_search`，也**不会再抛**那条异常、不会再"永久转圈" ✅
+  void _safeSet(VoidCallback fn) {
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    final inFrame = phase == SchedulerPhase.persistentCallbacks ||
+        phase == SchedulerPhase.midFrameMicrotasks;
+    if (!inFrame) {
+      setState(fn);
+      return;
+    }
+    fn(); // 字段先落地（同步 ✅）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
   Future<void> _search({bool more = false}) async {
     final kw = _ctl.text.trim();
+    // ★【常驻诊断·搜索】入口一条（用户报"搜不到 / 底部一直转"先看这条 ✓）——**只读，不参与任何判断** ☠
+    //   ⚠️ 关键词**只打长度**（不打全文 ☠ 沿用既有口径 ✓）
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SEARCH] 入口 more=$more kwLen=${kw.length} page=$_page '
+          'loading=$_loading done=$_done results=${_results.length}');
+    }
     if (kw.isEmpty || _loading || (!more && _kw == kw && _results.isNotEmpty)) {
+      // ★【常驻诊断·搜索】**哪一道守卫提前挡下** —— 一眼分清"根本没发请求"还是"发了没置 done" ✓
+      if (AppSettings.i.logConsole) {
+        final why =
+            kw.isEmpty ? 'kwEmpty' : (_loading ? 'loading' : 'sameKwNoMore');
+        debugPrint('[SEARCH] 守卫拦下 why=$why ⇒ 未发请求（page=$_page done=$_done）');
+      }
       return;
     }
     if (!more) {
       _results.clear();
       _page = 1;
       _done = false;
+      // ★ 2026-10-12（**用户批准**）：**提交搜索时记历史** ✅ ——
+      //   回车 / 点「搜索」/ 点历史胶囊 **都走这里** ✅；**续页（`more=true`）不记** ✅；
+      //   空串/纯空白由 [SearchHistory.add] 自己忽略 ✅；落盘异步、不阻塞 ✅
+      unawaited(SearchHistory.i.add(kw));
     }
     _kw = kw;
-    setState(() => _searched = true);
+    // ★ 2026-10-12：走安全版（帧内不裸 setState ✅ —— 见 [_safeSet] 的来由）
+    _safeSet(() => _searched = true);
     _loading = true;
     final reqPage = _page; // ★ 诊断用：本次请求的页码（下面成功时 `_page++` 会改掉它 ⇒ 先存一份 ✓ 不参与任何判断 ☠）
     try {
@@ -1439,11 +1494,26 @@ class _SearchPageState extends State<SearchPage> {
         }
         _page++;
       }
-    } catch (_) {
+      // ★【常驻诊断·搜索】返回结论：空 ⇒ done / 非空 ⇒ 翻页（只读 ✓）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] 返回 page=$reqPage n=${next.length} '
+            '${next.isEmpty ? '⇒ 空 ⇒ done=true' : '⇒ page→$_page'} '
+            '（results=${_results.length}）');
+      }
+    } catch (e) {
+      // ★【常驻诊断·搜索】异常**也打出来**（原来 `catch (_)` 全吞 ⇒ 外部看不见 ✓）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] 异常 ⇒ done=true：$e');
+      }
       _done = true;
     } finally {
       _loading = false;
-      if (mounted) setState(() {});
+      // ★【常驻诊断·搜索】收尾现场（"底部还在转"就看这里 done 到底有没有变 true ✓）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] 收尾 loading=false page=$_page done=$_done '
+            'results=${_results.length}');
+      }
+      if (mounted) _safeSet(() {}); // ★ 2026-10-12：帧内也不裸 setState ✅（见 [_safeSet]）
     }
   }
 
@@ -1453,6 +1523,103 @@ class _SearchPageState extends State<SearchPage> {
     return ListenableBuilder(
       listenable: AppBg.i,
       builder: (context, _) => _pageView(context),
+    );
+  }
+
+  /// ★ 2026-10-12（**用户批准**）：搜索历史一排 —— `Wrap` 胶囊（关键词 + **×**）+ 行末**「全部删除」** ✅
+  ///   · 点**胶囊本体** ⇒ **立刻用该词搜**（并把它移到最前 ✅）
+  ///   · 点 **×** ⇒ **只删这一条**（**不触发搜索** ✅ —— × 是独立的 `InkWell`，命中它不会落到本体 ✅）
+  ///   · 「全部删除」= **行末小字**（不醒目 ✅ 不二次确认 ✅，用户口径 ✅）
+  Widget _historyStrip() {
+    final his = SearchHistory.i.items;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('搜索历史', style: TextStyle(fontSize: 12, color: kTxtSub)),
+              const Spacer(),
+              InkWell(
+                onTap: () {
+                  if (AppSettings.i.logConsole) {
+                    debugPrint('[SEARCH] 历史「全部删除」（原 ${his.length} 条）');
+                  }
+                  unawaited(SearchHistory.i.clear());
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child:
+                      Text('全部删除', style: TextStyle(fontSize: 12, color: kTxtSub)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [for (final kw in his) _historyChip(kw)],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 一条历史胶囊（**本体 = 搜** / **× = 删**）—— 两个**独立 `InkWell`** ✅
+  Widget _historyChip(String kw) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F0F2),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(9)),
+            onTap: () {
+              // ★ 点本体 = **立刻用该词搜** + 移到最前 ✅
+              //   ⚠️ 关键词**留在输入框里** ✅（用户口径；现有行为也是这样 ✅）
+              _ctl.text = kw;
+              unawaited(SearchHistory.i.add(kw));
+              if (AppSettings.i.logConsole) {
+                debugPrint('[SEARCH] 点历史词（kwLen=${kw.length}）⇒ 立刻搜');
+              }
+              _search();
+            },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(9, 5, 4, 5),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 140),
+                child: Text(
+                  kw,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      const TextStyle(fontSize: 12, color: Color(0xFF444444)),
+                ),
+              ),
+            ),
+          ),
+          InkWell(
+            borderRadius:
+                const BorderRadius.horizontal(right: Radius.circular(9)),
+            onTap: () {
+              // ★ 点 × = **只删这一条**（**不搜索** ✅）
+              if (AppSettings.i.logConsole) {
+                debugPrint('[SEARCH] 删历史词（kwLen=${kw.length}）');
+              }
+              unawaited(SearchHistory.i.remove(kw));
+            },
+            child: const Padding(
+              padding: EdgeInsets.fromLTRB(2, 5, 8, 5),
+              child: Icon(Icons.close, size: 13, color: Color(0xFF888888)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1474,6 +1641,39 @@ class _SearchPageState extends State<SearchPage> {
             hintText: '输入关键词即可搜索',
             hintStyle:
                 Theme.of(context).textTheme.bodyLarge?.copyWith(color: kTxtSub),
+            // ★ 2026-10-12（**用户口径**："搜索输入框内最后加一点 ×，可以清空输入框里输入的内容" ✅）：
+            //   · **只在用户点 × 时清空** —— 除此以外**任何时机都不自动清空** ☠
+            //     （用户明确要求"搜完要能看到自己搜的关键词" ⇒ 提交搜索 / 翻页 / 失焦 **一律不动输入框** ✅）；
+            //   · 显隐：**输入框有内容才显示** —— `_ctl` 是 `ValueListenable` ⇒ 用 builder 跟随
+            //     （**不在 build 期 setState** ✅，与正下方历史胶囊那套写法完全一致 ✅）；
+            //   · 点击：只 `_ctl.clear()` + 把焦点要回来（键盘/光标不丢 ✅），**不触发搜索** ✅；
+            //     清空后历史胶囊会因"输入框为空"**自然重新显示** —— 现有逻辑，属预期 ✅ 不去禁它；
+            //   · 尺寸/配色：小图标（18）+ 主题次要色 `kTxtSub` ✅（输入框压在背景图上 ⇒ 跟明暗翻 ✅）；
+            //   · 不影响任何其它逻辑（结果/分页/`tail`/搜索历史/提交 全部一字未动 ✅）。
+            suffixIcon: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _ctl,
+              builder: (context, v, _) {
+                // 空 ⇒ 不出 ×（也不占位）
+                if (v.text.isEmpty) return const SizedBox.shrink();
+                return IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  color: kTxtSub,
+                  tooltip: '清空',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: () {
+                    if (AppSettings.i.logConsole) {
+                      debugPrint(
+                          '[SEARCH] 点 × 清空输入框（原 kwLen=${_ctl.text.length}）');
+                    }
+                    _ctl.clear(); // ★ 用户点 × ⇒ **只**清输入框内容
+                    _focus.requestFocus(); // 焦点要回来（键盘不丢；不碰任何其它状态 ✅）
+                  },
+                );
+              },
+            ),
           ),
           onSubmitted: (_) => _search(),
         ),
@@ -1484,6 +1684,21 @@ class _SearchPageState extends State<SearchPage> {
       ),
       body: Column(
         children: [
+          // ★ 2026-10-12（**用户批准**）：**全局搜索历史** —— 位置 = **输入框下面** ✅
+          //   显示时机（用户口径 ✅）：**输入框为空时显示**；**一有输入就隐藏**（不挤占结果区 ✅）；
+          //   **无历史 ⇒ 什么都不画**（不占位 ✅）。
+          //   实现：`_ctl` 是 `ValueListenable`（文本变化天然重建 ✅，不用额外 setState）+ 监听存储 ✅
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _ctl,
+            builder: (context, v, _) {
+              if (v.text.trim().isNotEmpty) return const SizedBox.shrink();
+              return ListenableBuilder(
+                listenable: SearchHistory.i,
+                builder: (context, _) =>
+                    SearchHistory.i.isEmpty ? const SizedBox.shrink() : _historyStrip(),
+              );
+            },
+          ),
           // Hanime1：搜索页顶部也有筛选行（照站点四个下拉）
           if (_api.ui?.hasFilterRow ?? false)
             HnFilterBar(
@@ -1508,6 +1723,13 @@ class _SearchPageState extends State<SearchPage> {
                         masonry: _api.ui?.masonry ?? false,
                         count: _results.length,
                         tail: () {
+                          // ★【常驻诊断·搜索】`tail` 每次被**构造**时一条（"底部一直转圈"就看这行的
+                          //   `done=` 到底有没有变 true ✓）——**只读**，不改任何分支 ☠
+                          if (AppSettings.i.logConsole) {
+                            debugPrint('[SEARCH] tail 被构造 done=$_done loading=$_loading '
+                                'results=${_results.length} '
+                                '⇒ 返回${_done ? '「没有更多了」' : '转圈并请求续页'}');
+                          }
                           if (_done) {
                             // 到底就明说，别一直空转圈（之前 done 后圈还一直转，
                             // 看起来像"卡住了"）
@@ -1519,7 +1741,17 @@ class _SearchPageState extends State<SearchPage> {
                                           color: kTxtSub, fontSize: 12))),
                             );
                           }
-                          _search(more: true);
+                          // ★ 2026-10-12（**用户实测**"搜索完了底部一直在转圈圈，没了就没了怎么还转" ⇒ 已修 ✅）：
+                          //   **实测根因**（本机探针复现，有日志 + Flutter 异常为证 🛢️）：`tail()` 会在
+                          //   **build 期**被构造（`ListView.builder` 的 delegate 变化 ⇒
+                          //   `SliverMultiBoxAdaptorElement.performRebuild`；SDK `sliver.dart:953-963`/`:969+`，
+                          //   `SliverChildBuilderDelegate.shouldRebuild => true` SDK `scroll_delegate.dart:579`）
+                          //   ⇒ 原来这里**同步**调 `_search(more:true)` ⇒ 它第一句 `setState(() => _searched = true)`
+                          //   在 build 期触发 ⇒ 抛 `setState() or markNeedsBuild() called during build`
+                          //   ⇒ **续页整段中断**（没发请求、没置 `_done`、没走 finally）
+                          //   ⇒ `_done` 永远 false ⇒ `tail` 永远返回转圈 ⇒ **永久转圈** ☠
+                          //   ⇒ 修法：走**统一入口** `_searchLater`（帧后再发起 ✅ 见该方法注释）
+                          _searchLater(more: true);
                           return const Padding(
                             padding: EdgeInsets.all(16),
                             child: Center(

@@ -20,6 +20,7 @@ import 'sites/madou.dart';
 import 'sites/wordpress.dart';
 import 'sites/xhamster.dart';
 import 'sites/yeguodj.dart';
+import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅）
 import 'sites.dart';
 
 /// 站点抓取层。按 [SiteEntry.template] 分派到各站模板的解析规则：
@@ -99,6 +100,9 @@ class Api {
         // 野果短剧（2026-10-08 ✅）：**自管整页**（三主 tab / 分区行 / 5 组筛选在站点文件里 ✅）；
         // 详情走本站解析 ✅（`YeguoSite.detail` ✅），通用详情页照常 ✅
         SiteTemplate.yeguodj => _ygSite,
+        // 柚子短剧（2026-10-11 ✅）：**自管整页**（首页 / 剧库 两 tab 在站点文件里 ✅）；
+        // 详情走本站解析 ✅（`YouziSite.detail` ✅ —— 含每集现取的播放凭证 ✅），通用详情页照常 ✅
+        SiteTemplate.youzidj => _yzSite,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
@@ -135,6 +139,9 @@ class Api {
 
   /// 野果短剧 **本站专属实现**（2026-10-08 ✅）—— 同一份取数底座 `_f` ✅
   late final YeguoSite _ygSite = YeguoSite(_f);
+
+  /// 柚子短剧 **本站专属实现**（2026-10-11 ✅）—— 同一份取数底座 `_f` ✅
+  late final YouziSite _yzSite = YouziSite(_f);
 
   /// 切回「短片」tab 时让下一次取数重新随机（`home_page` 会调 ✓；原方法随段搬去了 XhSite ✗）
 
@@ -280,6 +287,18 @@ class Api {
   /// 真去抓某一集的源（去重与缓存入口见 [videoSourcesAt]）
   Future<List<String>> _fetchSourcesAt(String url) async {
     final sw = Stopwatch()..start(); // ★ 取源诊断：只计时 ✓（不动请求/解析路径 ☠）
+    // ★ 2026-10-11（**新增 · 通用钩子** ✅）：**先问站点**能不能自己按地址取源 ——
+    //   非 null = 本站自己解决了（自己发请求、自己解析 ✓）⇒ **跳过**下面的 GET + sourcesFromHtml ✓；
+    //   默认实现返回 null ✓（见 `SiteUi.fetchSources`）⇒ **未覆写的站点逐字走老路** ✓、行为零变化 ✓。
+    //   为什么要它：有的站取源**只能 POST 现取**（柚子短剧 ✓ —— 播放票 15 分钟一换 ✓）。
+    final ownPre = await _ui?.fetchSources(url);
+    if (ownPre != null) {
+      if (AppSettings.i.logConsole) {
+        debugPrint(
+        '[SRC] 站=${site.name} 分支=站点自有(按地址) n=${ownPre.length} ms=${sw.elapsedMilliseconds}');
+      }
+      return ownPre;
+    }
     final html = await _fetchText(url);
     final out = <String>[];
     // ⚠️ 站点专属的解析已**下放各站** ✓（见 SiteUi.sourcesFromHtml ✓）——

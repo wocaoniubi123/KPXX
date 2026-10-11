@@ -72,20 +72,28 @@ class HuangguoSite extends SiteUi {
     return detail(url);
   }
 
-  /// 搜索（**单页**：页面上没有分页入口 ✓；原 `Api.search` 的 case body 原样搬来 ✓）
-// 看：搜索解析出几条 —— 0 条就是 /search/?keyword= 的卡片选择器变了（本站搜索只有单页）。
-@override
+  /// 搜索（★ 2026-10-12 **接上真分页 + 限定结果区** ✅ —— 用户实报"搜「高」比官网少很多"）
+  ///
+  /// 【依据（本机实测 🛢️，2026-10-12）】
+  ///   · 官网**支持真分页**：`?keyword=<kw>&page=<n>` 实测 200、`<title>… - 第2页</title>`、另一批卡 ✅；
+  ///     站方自己的跳页模板 = `/search/video/<kw>/{page}/` ✅（页面里 `data-jump-tpl` ✅）；
+  ///   · 官网自己写着 **`data-track-search-total="105"` + `data-pages="6"`**（关键词「高」）✅
+  ///     ⇒ 原来那句"本站搜索无翻页、`page>1` 直接返回空"是**错的** ☠（当时只看了有没有 `<a href=…page=…>` 链接）；
+  ///   · 结果卡**只在 `div.hg-search-results` 里**取：页面上另有**隐藏的「搜索建议」面板**
+  ///     （`hg-search-suggest__guess`）也含 4 张同样的卡 ⇒ 全页选择器会多收 4 张 ✅
+  ///     （取不到结果区时**回退全页**，行为与改动前一致，不会更差 ✅）。
+  // 看：搜索解析出几条 —— 0 条就是 /search/?keyword= 的卡片选择器变了；每页应为 20（官网口径）。
+  @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final sw = Stopwatch()..start();
-    if (page > 1) {
-      if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page ⇒ 本站搜索无翻页，返回 0 条');
-      return [];
-    }
     final kw = Uri.encodeComponent(keyword);
-    final html = await _f.text('/search/?keyword=$kw');
-    final res = parseCards(hp.parse(html));
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    final p = page <= 1 ? 1 : page;
+    final html = await _f.text('/search/?keyword=$kw&page=$p');
+    final doc = hp.parse(html);
+    final scope = doc.querySelector('div.hg-search-results');
+    final res = scope == null ? parseCards(doc) : parseCardsIn(scope);
+    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$p kwLen=${keyword.length} 解析出 ${res.length} 条 结果区=${scope != null} ms=${sw.elapsedMilliseconds}');
     return res;
   }
 
@@ -400,9 +408,20 @@ class HuangguoSite extends SiteUi {
 
 
   /// 详情页里的卡片（相关推荐 / 标签页 / 搜索结果都是这套结构）
-  List<Article> parseCards(Document doc) {
+  List<Article> parseCards(Document doc) =>
+      _cardsFrom(doc.querySelectorAll('div.hg-drama-card'));
+
+  /// ★ 2026-10-12（**搜索页专用**）：**只在结果区里取卡** ✅ ——
+  ///   依据（本机实测 🛢️）：搜索页除了 `div.hg-search-results`（含 `div.hg-card-grid`）里的**真结果**，
+  ///   还另有一块**隐藏的「搜索建议」面板** (`section.hg-search-suggest__section` → `div.hg-search-suggest__guess`)，
+  ///   里面**也是** `div.hg-drama-card` ⇒ 用全页选择器会**多收 4 张**（实测「高」：全页 24 张 vs 结果区 20 张 ✅）。
+  List<Article> parseCardsIn(Element scope) =>
+      _cardsFrom(scope.querySelectorAll('div.hg-drama-card'));
+
+  /// 卡片解析主体（`parseCards` / `parseCardsIn` 共用，**逻辑一字未改** ✅）
+  List<Article> _cardsFrom(Iterable<Element> els) {
     final out = <Article>[];
-    for (final el in doc.querySelectorAll('div.hg-drama-card')) {
+    for (final el in els) {
       final a = el.querySelector('a.hg-drama-card__cover-link') ??
           el.querySelector('a[href^="/video/"]');
       if (a == null) continue;

@@ -11,6 +11,7 @@ import 'sites/pornhub.dart';
 import 'sites/xhamster.dart';
 import 'sites/xhamsterlive.dart';
 import 'sites/yeguodj.dart';
+import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅）
 
 import 'package:flutter/material.dart';
 
@@ -125,6 +126,13 @@ enum SiteTemplate {
   /// （底座唯一使用点 = `home_page.dart:580` 那句 `sitePage` ✅ —— 那里**不认站名** ✅）。
   /// 详情**仍走通用详情页** ✅：本站只提供解析（`YeguoSite.detail` ✅）与元信息行 ✅。
   yeguodj,
+
+  /// 柚子短剧（youzidj.com，2026-10-11 新增 ✅）—— **第三个"自管整页"的站点** ✅
+  /// （前两个 = xhamsterlive / 野果短剧 ✅）：两主 tab（首页 / 剧库）+ 5 个分区行（每区带「更多」）
+  /// + 剧库 8 分类 × 2 排序（**不互斥** ✅）+ 分页 —— 全是站点专有版式
+  /// ⇒ 整页在 `lib/sites/youzidj.dart` 的 `YzHomePage` ✅（底座只判断"要不要用" ✅ 不认站名 ✅）。
+  /// 详情走通用详情页 ✅（本站只给解析 + 每集现取的播放凭证 ✅）。
+  youzidj,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -310,6 +318,8 @@ const List<SiteEntry> kSites = [
   // ⚠️ 黄果短剧（kSite06 ✓）—— **用户指定挪到野果之后** ✅（就挪这一行 ☑️ ——
   //   它的档案本身在 `lib/sites/huangguo.dart:571`，那边**一个字都没改** ✗ ✅）
   kSite06,
+  // 柚子短剧（kSite16 ✅ 2026-10-11 新增）：**用户指定插在「黄果短剧」之后 = 点播宫格最后一格** ✅
+  kSite16,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,

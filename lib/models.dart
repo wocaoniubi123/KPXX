@@ -54,11 +54,21 @@ class ArticleVideo {
   /// 自带视频的条目为 null，逻辑完全不变。
   final String? lazyUrl;
 
+  /// ★ 2026-10-11（**新增 · 可选** ✅）：这一集播放时**额外要带的请求头**（默认 null ⇒ 所有站点零变化 ✅）。
+  ///
+  /// 用途：取流**需要 cookie / 额外头**的站点（柚子短剧 ✅ —— 取 `master.m3u8` 必须带
+  ///   `Cookie: eden_play_<videoId>=…`，不带 ⇒ **403** ✅ 实测）。
+  /// ⚠️ 值常带**时效** ⇒ 由站点在 `detail()` 里现取现填 ✅；播放器**每次 `open` 现读** ✅
+  ///   （不在 `initState` 缓存 ☑️）⇒ "刷新源拿到新凭证 ⇒ 下一轮 open 带新头" ✅。
+  /// ⚠️ 合并位置：播放器把它**并到** UA/Referer 之后（同名键以这里为准 ✅）。
+  final Map<String, String>? headers;
+
   ArticleVideo({
     required this.label,
     required this.ordinal,
     required this.sources,
     this.lazyUrl,
+    this.headers,
   });
 }
 
