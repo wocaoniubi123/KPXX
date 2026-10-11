@@ -100,6 +100,8 @@
 //  ⚠️ **绝不打 cookie 值、也绝不打带凭证的地址** ☠（本项目既有口径 ✅）。
 
 import 'dart:convert';
+// ★ 2026-10-12（用户裁定"按平台选路"✅）：判 `Platform.isIOS` —— iOS 走整段、其它平台照旧只走分片 ✅
+import 'dart:io' show Platform;
 
 // ⚠️ 本站要**自己画整页**（两主 tab / 分区行 / 分类胶囊 / 分页）⇒ 必须 import material ✅
 import 'package:flutter/material.dart';
@@ -272,14 +274,19 @@ class YouziSite extends SiteUi {
   ///   · 冷却期内被调到 ⇒ 直接跳过 + 日志 `跳过(429冷却 Ns)` ✅
   ///
   /// ★ 2026-10-12（**用户拍板"只走分片"** ✅ —— 一句话口径：**"柚子只走分片。就这样"**）：
-  ///   · **一律 `mode=mse`**（拿 `master.m3u8` 当源）✅
+  ///   · **Windows / 其它平台**：**一律 `mode=mse`**（拿 `master.m3u8` 当源）✅ —— **行为一字未变** ✅
   ///   · 依据：**分片实测比整段快 1.5~5 倍且更稳**（同集同窗口：分片 1329~3649 KB/s
   ///     vs 单文件 98~1723 KB/s ✅）；**新库下 fMP4 HLS 能跳**（4.1~7.0s 恢复、1× ✅）
-  ///   · **代价（如实记）**：**旧库（iOS 现状）下 fMP4 HLS 远跳会坏** ☑️ —— 用户已拍板接受 ✅
-  ///   · 因此**删掉**了 2026-10-11 那套"native 票 + 2 字节探测 + 按大小选路"（`_probeMp4` /
-  ///     `_kNativeMaxBytes` / `_mb` 均已删除 ✅ 不留死代码 ☑️）；那套当时是为绕开"整段太大卡 00:00" ✅
-  ///   · ⇒ **请求数下降**：每集 **1 次 POST**（原来 2~3 次：native 票 + 探测 + 可能的 mse 票 ✅），
-  ///     而且**不再额外探测**（每集少 1 次 2 字节请求 ✅）
+  ///   · 代价（当时如实记）：**旧库（iOS 现状）下 fMP4 HLS 远跳会坏** ☑️
+  ///
+  /// ★★ 2026-10-12 晚（**用户新裁定：按平台选路** ✅ —— 覆盖上一条的"一律 mse"）：
+  ///   · **iOS ⇒ `mode=native`（整段 MP4）** ✅：真机实测 🛢️ **分片根本加载不了** ⇒ 播放器**重试 5 次
+  ///     后闪退**（崩溃日志 `EXC_BAD_ACCESS / SIGSEGV 空指针`，栈顶 `mpv_wait_event` = media_kit 原生
+  ///     事件线程）⇒ iOS 上"分片"这条路**直接不可用** ☠ ⇒ 改走整段 ✅
+  ///   · 另有 **"真 MP4"确认**（[_confirmMp4]）：probe11 实测过**同名 `…native-current.mp4` 实际回的是
+  ///     HLS 清单** 🛢️ ⇒ 不确认 ⇒ iOS 上再走一遍失败+重试+闪退 ☠ ⇒ 确认不是真 MP4 就**回落 mse** ✅
+  ///   · ⚠️ 之前那套"按大小选路"（`_probeMp4`/`_kNativeMaxBytes`/`_mb`）**没复活** ☑️ ——
+  ///     这次只有一条平台分支（iOS 试 native ⇒ 不行回落 mse）✅，Windows 完全不进这段 ✅
   Future<({String url, String cookie})?> _playback(String videoId) async {
     final cool = _coolLeft();
     if (cool > 0) {
@@ -290,15 +297,82 @@ class YouziSite extends SiteUi {
     }
     final acc = await _ensureAccount();
     if (acc == null) return null;
-    // 只走 mse ✅（2026-10-12 用户拍板）
-    final t = await _ticket(videoId, acc);
+    // ★ 2026-10-12（**用户裁定：按平台选路** ✅）：
+    //   · **iOS ⇒ `mode=native`（整段 MP4）**：真机实测 🛢️ **分片（mse）根本加载不了** ⇒ 播放器
+    //     **重试 5 次后闪退**（崩溃日志 `EXC_BAD_ACCESS / SIGSEGV 空指针`，栈顶 **`mpv_wait_event`**
+    //     = media_kit 的**原生事件线程**）⇒ iOS 必须走整段 ✅
+    //   · **其它平台（Windows）⇒ 完全保持现状**：只走分片 ✅（用户原话"柚子只走分片。就这样"仍有效 ✅
+    //     —— 分片实测快 1.5~5 倍且更稳 ✅）⇒ **Windows 路径一行行为不改** ✅
+    //   · ⚠️ iOS 还要做一次 **"真 MP4"确认**（[_confirmMp4]）：probe11 实测过**同名
+    //     `…native-current.mp4` 实际回的是 HLS 清单** 🛢️ ⇒ 不确认就播 ⇒ iOS 上会再走一遍
+    //     "加载失败 + 重试 5 次 ⇒ 闪退"那条链 ☠
+    //   · 确认失败 / 探测异常 ⇒ **回落 `mode=mse`**（能试就试，最后的兜底 ✅）
+    var mode = 'mse';
+    if (Platform.isIOS) {
+      final tn = await _ticket(videoId, acc, 'native');
+      if (tn != null &&
+          await _confirmMp4(videoId, tn.url,
+              cookie: 'eden_account=$acc; eden_play_$videoId=${tn.cookie}')) {
+        headersOf(videoId)['Cookie'] =
+            'eden_account=$acc; eden_play_$videoId=${tn.cookie}';
+        return (url: tn.url, cookie: tn.cookie);
+      }
+      mode = 'mse'; // native 拿不到票 / 不是真 MP4 ⇒ 回落分片 ✅
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=回落mse vid=${_vid8(videoId)}');
+      }
+    }
+    final t = await _ticket(videoId, acc, mode);
     if (t == null) return null;
     // 票写进 headersOf（**原地更新** ✅ —— 见那个方法的说明 ✅）
     headersOf(videoId)['Cookie'] = 'eden_account=$acc; eden_play_$videoId=${t.cookie}';
     return (url: t.url, cookie: t.cookie);
   }
 
-  /// ② 的**单次取票**（**2026-10-12 起固定 `mode=mse`** ✅ —— 用户拍板"只走分片"）：成功 ⇒ `{url, cookie}` ✅
+  /// ★ 2026-10-12（**用户裁定 ✅**）：**"真 MP4"确认** —— 拿 native 票后对地址发**一次**
+  ///   `Range: bytes=0-1`，判 `206` + `content-type` 含 `video/mp4` + 正文**不像 M3U** ✅
+  ///
+  /// 依据 🛢️（probe11 实测）：**同名 `…native-current.mp4` 曾出现"实际是 HLS 清单"**
+  ///   ⇒ iOS 上不确认就直接播 ⇒ 再走一遍"加载失败 + 重试 5 次 ⇒ **闪退**"那条链 ☠
+  ///   ⇒ 这里宁可**保守**：**不是 206 / content-type 不带 video/mp4 / 正文像 M3U / 异常** ⇒
+  ///     一律当"非真 MP4" ⇒ 调用方回落 `mode=mse` ✅（少一次误播 vs 少一次崩溃，取前者 ✅）。
+  ///
+  /// 头：与播放器给媒体源的一致口径（UA ✅ + `Cookie`（两票）✅ + Range ✅；Referer = **媒体自身域名** ✅）。
+  /// 日志：只打 vid 前 8 字 / 码 / content-type / 是否像 M3U —— **不打地址、不打 cookie** ☠
+  Future<bool> _confirmMp4(String videoId, String url,
+      {required String cookie}) async {
+    try {
+      final u = Uri.parse(url);
+      final r = await _f.client
+          .get(u, headers: {
+            'User-Agent': Site.ua,
+            'Cookie': cookie,
+            'Range': 'bytes=0-1',
+            'Referer': '${u.scheme}://${u.host}/', // 与播放器"媒体自身域名"口径一致 ✅
+          })
+          .timeout(_kApiTimeout);
+      final body = utf8.decode(r.bodyBytes, allowMalformed: true);
+      final ct = (r.headers['content-type'] ?? '').toLowerCase();
+      final likeM3u = body.trimLeft().startsWith('#EXT') || body.contains('EXTM3U');
+      final ok = r.statusCode == 206 && ct.contains('video/mp4') && !likeM3u;
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=native 探测='
+            '${ok ? '真MP4' : '非MP4'} vid=${_vid8(videoId)} code=${r.statusCode} '
+            'ctype=${ct.isEmpty ? '无' : ct} len=${r.bodyBytes.length} '
+            '像M3U=${likeM3u ? '是' : '否'}');
+      }
+      return ok;
+    } catch (e) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=native 探测=异常'
+            '（当非MP4 ⇒ 回落mse）vid=${_vid8(videoId)}：$e');
+      }
+      return false;
+    }
+  }
+
+  /// ② 的**单次取票**（★ 2026-10-12 恢复 `mode` 参数 ✅ —— iOS 走 `native`、其它平台 `mse`，
+  /// 由 [_playback] 按平台选路 ✅）：成功 ⇒ `{url, cookie}` ✅
   ///
   /// ⚠️ 403/429 口径与日志跟原来**同一套** ✅（403 不停手 ✅、429 记冷却 ✅）。
   ///
@@ -313,15 +387,16 @@ class YouziSite extends SiteUi {
   ///     `a.series-episode-link[href]` 抄下来 ✅，不自己拼 ☑️）；查不到才退 `$_kBase/`（兜底 ❓**未实测** ☑️）。
   ///   · ⚠️ `bootstrap` 那一步**不加 Referer** ✅：本机实测"只带 Origin"就 200 ✅；缺 Origin ⇒ **403
   ///     `请求来源无效，请刷新页面后重试`** ✅（实锤 ⇒ `Origin` 必须留 ✅）。
-  Future<({String url, String cookie})?> _ticket(String videoId, String acc) async {
+  Future<({String url, String cookie})?> _ticket(
+      String videoId, String acc, String mode) async {
     final sw = Stopwatch()..start();
     try {
       final r = await _f.client
           .post(
-            // ★ 2026-10-12（用户拍板 ✅）：**固定 `mode=mse`**（分片，快 1.5~5 倍且更稳 ✅）；
-            //   `mode=native`（整段 MP4）那条已按用户口径弃用 ☑️（代价：旧库 iOS 下远跳会坏 ✅）。
+            // ★ 2026-10-12（用户裁定 ✅）：`mode` 由**平台**决定（iOS=`native` / 其它=`mse` ✅）
+            //   —— 见 [_playback] 那段"按平台选路"说明 ✅。
             //   ⚠️ 响应只有 `url` + `expires_at`（实测 ✅ —— `mse` 也没有 `startup` ✅）⇒ 只读 `url` ✅。
-            Uri.parse('$_kBase/api/playback/$videoId?mode=mse'),
+            Uri.parse('$_kBase/api/playback/$videoId?mode=$mode'),
             headers: {
               'User-Agent': Site.ua,
               'Origin': _kBase,
@@ -353,8 +428,9 @@ class YouziSite extends SiteUi {
         if (srvErr.length > 40) srvErr = srvErr.substring(0, 40);
       }
       if (AppSettings.i.logConsole) {
-        // ⚠️ 只打 vid 前 8 字 / mode / 码 / 字节 / ms / 站方错因 —— **不打 cookie、不打地址** ☠
-        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} mode=mse（本站只走分片）'
+        // ⚠️ 只打 vid 前 8 字 / 平台 / 选路 / 码 / 字节 / ms / 站方错因 —— **不打 cookie、不打地址** ☠
+        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} '
+            '平台=${Platform.isIOS ? 'iOS' : '其它'} 选路=$mode '
             'code=${r.statusCode} len=${r.bodyBytes.length} '
             'play=${pc == null ? '无' : '有(len=${pc.length})'} ms=${sw.elapsedMilliseconds}'
             '${srvErr.isEmpty ? '' : ' 站方说=「$srvErr」'}'

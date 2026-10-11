@@ -36,30 +36,34 @@ class XhSite extends SiteUi {
 
   /// 搜索 = `/search/<关键词>`（**路径式**，非 `?q=` ✓ —— 2026-10-12 实测：
   /// `?q=` 形式站点会 302 到同一页，直接写路径式更干净 ✓）；翻页 = `?page=N` ✓
-  /// （实测 `?page=2` 与第 1 页 **0 重复**、仍是 46 张卡 ✓）。
+  /// （实测 `?page=2` 与第 1 页 **0 重复**、仍是 46 张卡 ✓）。第 1 页不带 `?page=` ✓。
   ///
   /// ⚠️ **必须用桌面 UA 取**（与 [_xhList] 同一套 `_xhDesk` ✓）——实测同一 URL：
-  ///   · 站点 UA（iPhone）：`data-role=mobile-video-thumb` 容器只有 **5 个**（其余是骨架屏）；
-  ///   · 桌面 UA：`div.video-thumb--type-video` **46 个**，标题/链接 46 条齐 ✓
-  ///     （⚠️ 封面只有 8/46、时长 7/46 —— **其余 38 张卡的封面真值站方不在 HTML 里给**
-  ///      ✗：`src` 为空且 `img` 整个缺失，`data-src`/`loading` 之类也没有；
-  ///      我实测过"从 `data-previewvideo` 的 hash 路径推封面"**不可行**（构造出来的 URL 一律 403，
-  ///      因为每个缩略图的 hash 是**签名**、不是可推导的 public id ✓）⇒ **封面留空**、由 UI 兜底，
-  ///      不拿预览视频/占位图糊 ✓）。
+  ///   · 站点 UA（iPhone）：`data-role=mobile-video-thumb` 容器只有 **5 个**；
+  ///   · 桌面 UA：**46 张卡**，且封面/时长/标题 **46 条全带** ✓
   ///
-  /// 卡的数据源 = **服务端渲染的 DOM**（不是 JSON、也不是 XHR —— 实测桌面 DOM 里没有
-  /// `_xhCards` 需要的那串 JSON，站点也没有返回卡片的接口；见 [domThumbCards] 的字段说明 ✓）。
+  /// ⚠️ **卡的真源是页内 JSON，不是 DOM**（见 [initialsThumbCards] ✓）：
+  ///   DOM 里只有**前 7~8 张**带 `<img data-role="thumb-preview-img">`（其余是骨架屏、
+  ///   连 `src` 都没有）⇒ 只走 DOM 会**大面积缺封面** ✗（2026-10-12 用户实测反馈的根因 ✓）。
   ///
-  /// 看：搜索入口解析出几条 —— 0 条就是 `/search/` 的 DOM 选择器变了，或关键词被站点当成不存在。
+  /// 解析顺序：**JSON 优先** ✓；JSON 解不出（页面结构变了）才回落 DOM ✓
+  /// —— 留兜底的理由：DOM 那条路是"服务端已渲染的标题+链接"，**至少能出卡**，
+  /// 比整页 0 条强；两条都空 ⇒ 返回空（调用方照旧显示失败态 ✓ 不静默）。
+  ///
+  /// 看：搜索入口解析出几条、走哪条路 —— 0 条就是 JSON 与 DOM 两条都变了。
 @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final sw = Stopwatch()..start();
     final path = '/search/${Uri.encodeComponent(keyword)}'
         '${page > 1 ? '?page=$page' : ''}';
-    final res = domThumbCards(await _f.text(path, extraHeaders: _xhDesk));
+    final html = await _f.text(path, extraHeaders: _xhDesk);
+    final viaJson = initialsThumbCards(html);
+    final res = viaJson.isNotEmpty ? viaJson : domThumbCards(html);
     if (AppSettings.i.logConsole) {
-      debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page kwLen=${keyword.length} 条=${res.length} ms=${sw.elapsedMilliseconds}');
+      debugPrint('[LIST] ${_f.site.name} 入口=搜索 页=$page kwLen=${keyword.length} '
+          '条=${res.length} 源=${viaJson.isNotEmpty ? 'JSON' : 'DOM(兜底)'} '
+          'ms=${sw.elapsedMilliseconds}');
     }
     return res;
   }
@@ -256,22 +260,94 @@ class XhSite extends SiteUi {
     return out;
   }
 
-  /// **DOM 视频卡**（2026-10-12 新增 ✓ —— 搜索页专用）：**只认服务端渲染的
-  /// `div.video-thumb--type-video`**，与 [_xhCards]（页面 JSON）、[_xhStars]（演员 JSON）
-  /// **各走各的**、互不影响 ✓。
+  /// **页内 JSON 视频卡**（2026-10-12 新增 ✓ —— 搜索的**主**解析，封面 46/46 ✓）。
   ///
-  /// 为什么搜索不能用 [_xhCards] ✗：搜索页 HTML 里**没有**那串 JSON（实测 grep 0 命中），
-  /// 而 DOM 里有 46 个真卡容器 ✓ ⇒ 搜索改从 DOM 解 ✓。
+  /// 位置与边界（**实测原文**）：搜素页尾部有一个
+  /// `<script id='initials-script'>window.initials={…};</script>` ✓ —— 与「短片」页
+  /// （[_xhMomentsFromHtml] ✓）**同一套写法**，但**键不同**：这里是
+  /// `window.initials.searchResult.videoThumbProps[]`（**实测 46 项，逐项都带
+  /// `pageURL` / `imageURL` / `thumbURL` / `title` / `duration`(秒) / `views` ✓**），
+  /// 「短片」页是 `layoutPage.videoListProps.videoThumbProps` ⇒ **两条路各解各的** ✓。
   ///
-  /// 每张卡的取值（全部实测自 `tw.xhamster.com/search/<kw>` 的桌面 UA 响应 ✓）：
-  ///   · 链接 = 卡内 `a[data-role="thumb-link"]` 的 `href`（去域名成站内路径 ✓）
-  ///   · 标题 = 该 `a` 的 `aria-label`（空则退回 `a.video-thumb-info__name` 文本 ✓）
-  ///   · 封面 = 卡内 `img.thumb-image-container__image` 的 `src`
-  ///     （⚠️ 只有 8/46 张有；**没有 `data-src` 之类可退**，缺就留空 ✓）
-  ///   · 角标 = `[data-role="video-duration"]` 的可见文本（`15:29` / `1:02:03` ✓；7/46 有）
-  ///   · meta = `.video-thumb-views` 的可见文本（`2.1M 觀看` / `3574 次觀看` ✓；8/46 有）
-  ///   · 封面相对路径（少数卡给 `/a/...`）补成 `https://<站点>/…` ✓
-  /// 去重：按链接 ✓（与 [_xhCards] 同口径 ✓）。
+  /// ⚠️ **不能拿 [_xhCards] 的正则来啃这页** ✗（实测 0 命中）：那份 JSON 的键顺序是
+  /// `"id" → "duration"(数字) → …"title"…"pageURL"…"thumbURL"…"imageURL"` 连排，
+  /// 而搜索页这份的字段集合/顺序都不一样 ⇒ 用 `jsonDecode` 结构化解 ✓ 不打正则 ✓。
+  ///
+  /// ⚠️ **窗口切取法**：不手撸大括号匹配 ✗（字符串里的 `{`/`}` 会翻车 ☠）——
+  /// 取 `id="initials-script"` 到 `</script>` 之间的**整段**、按 `=` **切一刀**取右侧
+  /// （`window.initials=` 后面就是纯 JSON、以 `}` 收尾 ✓），再交给 `jsonDecode` ✓。
+  ///
+  /// 字段口径与既有分支一致 ✓：`imageURL` 是 **1280×720 大图**（同 [_xhCards] ✓）、
+  /// 秒数走 [_xhClock] ✓、`pageURL` 去域名成站内路径 ✓、按链接去重 ✓。
+  static List<Article> initialsThumbCards(String html) {
+    // ① 窗口：id="initials-script" → 最近的 </script>
+    final i = html.indexOf('id="initials-script"');
+    final k = i >= 0 ? i : html.indexOf("id='initials-script'");
+    if (k < 0) return const [];
+    final e = html.indexOf('</script>', k);
+    if (e < 0) return const [];
+    final body = html.substring(k, e);
+    // ② 锚在 `window.initials=` 上再切一刀（⚠️ 直接找第一个 `=` 会切到 `id=` 上 ☠
+    //    —— `id="initials-script"` 里的那个等号，实测会整段错位 ⇒ JSON 必解析失败 ✗）
+    final wi = body.indexOf('window.initials');
+    if (wi < 0) return const [];
+    final eq = body.indexOf('=', wi);
+    if (eq < 0) return const [];
+    // ⚠️ 取到 `</script>` 为止 ⇒ 尾部会多一个 `;`（实测原文以 `}}};` 收尾 ✓）
+    //    —— **必须先剥掉** ☠：jsonDecode 对尾部残留会抛 `Extra data`（实测两页都这样 ✗），
+    //    不像某些实现那样容忍 ⇒ 这里显式 rtrim 分号 ✓
+    final raw = body.substring(eq + 1).trim().replaceFirst(RegExp(r';\s*$'), '');
+    if (!raw.startsWith('{')) return const [];
+    // ③ 结构化解（不手撸括号 ✓）
+    Object? root;
+    try {
+      root = jsonDecode(raw);
+    } catch (_) {
+      return const [];
+    }
+    if (root is! Map) return const [];
+    final sr = root['searchResult'];
+    if (sr is! Map) return const [];
+    final list = sr['videoThumbProps'];
+    if (list is! List) return const [];
+    final out = <Article>[];
+    final seen = <String>{};
+    for (final it in list) {
+      if (it is! Map) continue;
+      final m = Map<String, dynamic>.from(it);
+      final url = '${m['pageURL'] ?? ''}'
+          .replaceFirst(RegExp(r'^https?://[^/]+'), '');
+      final title = ('${m['title'] ?? ''}').replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (url.isEmpty || title.isEmpty || !seen.add(url)) continue;
+      final img = '${m['imageURL'] ?? ''}';
+      out.add(Article(
+        title: title,
+        url: url,
+        // imageURL = 1280×720 大图（同 [_xhCards] 口径 ✓）；缺失才退回 thumbURL（526×298 ✓）
+        cover: img.isNotEmpty ? img : '${m['thumbURL'] ?? ''}',
+        meta: '',
+        badge: _xhClock((m['duration'] as num?)?.toInt() ?? 0),
+      ));
+    }
+    return out;
+  }
+
+  /// **DOM 视频卡**（2026-10-12 新增 ✓ —— 搜索的**兜底**解析：JSON 解不出时才走 ✓）：
+  /// **只认服务端渲染的 `div.video-thumb--type-video`**，与 [_xhCards]（页面 JSON）、
+  /// [_xhStars]（演员 JSON）、[initialsThumbCards]（搜索页 JSON）**各走各的**、互不影响 ✓。
+  ///
+  /// ⚠️ **为什么只是兜底**（实测）：这一页 DOM 里只有**前 7~8 张**卡带
+  /// `<img data-role="thumb-preview-img">`，其余 38 张是骨架屏 —— `img` 元素整个缺失、
+  /// 连 `src` 都是空的，`data-src`/`loading` 之类也没有 ⇒ **封面/时长会大面积缺** ✗；
+  /// 真值在页内 JSON 里（见 [initialsThumbCards] ✓）。留着它的价值 = 标题+链接**能出卡** ✓
+  /// （比整页 0 条强），且 JSON 解析一旦因站点改版失效时还有一条退路 ✓。
+  ///
+  /// 每张卡的取值（同实测）：链接 = `a[data-role="thumb-link"]` 的 `href`（去域名成站内路径 ✓）；
+  /// 标题 = 该 `a` 的 `aria-label`（空则退回 `a.video-thumb-info__name` 文本 ✓）；
+  /// 封面 = `img.thumb-image-container__image` 的 `src`（**8/46 有**，缺就留空 ✓）；
+  /// 角标 = `[data-role="video-duration"]` 的可见文本（`15:29` ✓，**7/46 有**）；
+  /// meta = `.video-thumb-views` 的可见文本（`2.1M 觀看` ✓，**8/46 有**）；
+  /// 封面相对路径（`/a/...`）补成 `https://<站点>/…` ✓。去重按链接 ✓（与 [_xhCards] 同口径 ✓）。
   ///
   /// ⚠️ 本方法**有意不写 static** ✗（与 [_xhCards]/[_xhStars] 不同）—— 它要用 [_f].host
   /// 把少数**相对封面**（`/a/...`）补成绝对地址 ✓；静态方法取不到实例成员 ✓。

@@ -12,4 +12,8 @@
 ///      ⇒ 正因每段只 0~9，去点后才**永远递增** ✓（见 `.github/workflows/ios.yml` 构建那步 ✓）。
 /// ★ 2026-10-12：**1.3.0 → 1.3.1**（第一次 1.3.0 构建失败在 `Framework 'Mpv' not found`；
 ///   修法 = CI 关闭 SwiftPM 回到 CocoaPods ⇒ 按"每次云推送 +1"规则，本次推 **1.3.1** ✓）
-const String kAppVersion = '1.3.1';
+/// ★ 2026-10-12：**1.3.1 → 1.3.2**（柚子**按平台选路**：iOS 走整段 native（带 2 字节"真 MP4"确认、
+///   否则回落分片），**Windows 行为不变**（只走分片）；起因 = iOS 真机分片打不开 ⇒ 重试 5 次 ⇒ 闪退
+///   （崩溃日志：EXC_BAD_ACCESS/SIGSEGV 空指针，栈顶 `mpv_wait_event`）；另含 xHamster 搜索改读
+///   页面 `window.initials` JSON（封面/时长 46/46/46，原 DOM 只有 8/7）✓）
+const String kAppVersion = '1.3.2';
