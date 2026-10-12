@@ -502,14 +502,23 @@ jobs:
           lock = pathlib.Path('packages.lock.nix')
           s = lock.read_text()
           assert 'libplacebo = {' not in s, 'libplacebo already in packages.lock.nix'
-          # indentation-agnostic: reuse whatever indent the "mpv = {" entry uses
-          anchor = re.search(r'(?m)^(\s*)mpv = \{\n', s)
+          # Robust anchor -- MUST match BOTH real input shapes:
+          #   (a) upstream file:               '  mpv = {\n'
+          #   (b) AFTER the version-pin step:  '  mpv = {  version = "0.41.0";'
+          #       ^ that step's `re.subn(r'(?m)^\s*version\s*=...')` swallows the newline that preceded
+          #         the version line and joins it onto the "= {" line (reproduced locally; this is what
+          #         made the CI dry_run fail with the old newline-requiring anchor).
+          # So: do NOT require a newline after "{", and capture the indent with [ \t]* only
+          # (`\s*` could swallow newlines and corrupt the inserted indentation).
+          anchor = re.search(r'(?m)^([ \t]*)mpv = \{', s)
           assert anchor, 'anchor "mpv = {" not found in packages.lock.nix'
+          assert s[anchor.start():].startswith(anchor.group(1) + 'mpv = {'), 'anchor sanity check failed'
           ind = anchor.group(1)
           entry = ('%slibplacebo = {\n%s  version = "%s";\n%s  url = "%s";\n%s  sha256 = "%s";\n%s};\n'
                    % (ind, ind, version, ind, url, ind, sha, ind))
           lock.write_text(s[:anchor.start()] + entry + s[anchor.start():])
-          print('packages.lock.nix: added libplacebo entry (version=%s, indent=%d)' % (version, len(ind)))
+          print('packages.lock.nix: added libplacebo entry (version=%s, indent=%d, anchor_line=%r)'
+                % (version, len(ind), s[anchor.start():anchor.start() + 40]))
 
           pkgdir = pathlib.Path('nix/packages/mk-pkg-libplacebo')
           pkgdir.mkdir(parents=True, exist_ok=True)
