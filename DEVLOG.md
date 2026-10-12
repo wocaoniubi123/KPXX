@@ -113,6 +113,26 @@
 
 ---
 
+## ⛔⛔ 第三条写死的规则（**不可协商** ✗）
+
+# **换/升原生库（libmpv 等）时，必须同步核对「上层组件支持到哪版」。**
+
+- 本项目真发生过（**2026-10-12** ☠）：把 Windows 的 **libmpv 手动换成 mpv 0.41**，而**媒体件仍停在 `media_kit` 1.1.11** ——
+  上游对齐的 mpv 是 **0.36**（🛢️ `media_kit_video` 1.1.2 原文 "**bump mpv headers to 0.36.0**"）⇒ **版本窗口错配**
+- **症状特征（记牢，能省两天）** ✓：
+  · **「有进度没画面」= 渲染层没接上**（不是"播不起来"；"播不起来"会表现为 `ok=false`）✓
+  · **新建引擎正常、复用同一引擎换源黑** ⇒ **十有八九 = 原生库与媒体件不匹配** ✗
+- **正解**：把上层组件升到跟得上新库的版本（本例：`media_kit` **1.1.11 → 1.2.6** 即修 ✅ ——
+  它 1.2.0 的 `FIX: video_player black screen` + `open()` 改用 `loadlist` 正是这条）
+- **升级纪律** ✓：
+  · **升之前先查目标版本的真实依赖**（用 pub.dev API 取 pubspec，**别看 changelog 猜**）——
+    例：`media_kit_video 1.3.1` 要 `volume_controller ^3.0.2` + `screen_brightness_* ^2.0.0`，
+    与本仓**为 iOS 兼容钉着**的两条冲突 ⇒ **不动钉、停在 1.2.5** ✓
+  · **上界必须挡住 BREAKING**：本项目写 `media_kit_video: '>=1.2.5 <1.4.0'`（2.0.x 移除了 `volume_controller`/`screen_brightness` 依赖 ✗）
+  · **iOS 与 Windows 共用同一份 `pubspec.yaml`** ⇒ 任何媒体件升级**都要在 iOS 侧回归一次**（出一次包 + 真机跑）✓
+
+---
+
 ## 一、项目概况
 
 自用内容聚合 iOS App（Flutter）· **13 个站 / 10 个 `SiteTemplate`** · 仓库 `wocaoniubi123/KPXX`（**PUBLIC**）·

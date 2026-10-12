@@ -12,6 +12,7 @@ import 'sites/xhamster.dart';
 import 'sites/xhamsterlive.dart';
 import 'sites/yeguodj.dart';
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（Nuxt blob + 分区行）✅
+import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅；2026-10-12 删过一次，当天按用户要求恢复 ✅）
 
 import 'package:flutter/material.dart';
 
@@ -126,6 +127,14 @@ enum SiteTemplate {
   /// （底座唯一使用点 = `home_page.dart:580` 那句 `sitePage` ✅ —— 那里**不认站名** ✅）。
   /// 详情**仍走通用详情页** ✅：本站只提供解析（`YeguoSite.detail` ✅）与元信息行 ✅。
   yeguodj,
+
+  /// 柚子短剧（youzidj.com，2026-10-11 新增 ✅）—— **第三个"自管整页"的站点** ✅
+  /// （前两个 = xhamsterlive / 野果短剧 ✅）：两主 tab（首页 / 剧库）+ 5 个分区行（每区带「更多」）
+  /// + 剧库 8 分类 × 2 排序（**不互斥** ✅）+ 分页 —— 全是站点专有版式
+  /// ⇒ 整页在 `lib/sites/youzidj.dart` 的 `YzHomePage` ✅（底座只判断"要不要用" ✅ 不认站名 ✅）。
+  /// 详情走通用详情页 ✅（本站只给解析 + 每集现取的播放凭证 ✅）。
+  /// ★ 2026-10-12：当天删过一次，**同日按用户要求恢复** ✅（理由：cookie 兜底与媒体件两条都已修好 ⇒ 复测）
+  youzidj,
 
   /// ★ 荔枝短剧（liz01.com，2026-10-12 新增 ✅）—— **自管整页**（第六个 ✅）：
   ///   首页 = `__NUXT_DATA__`（Nuxt3 devalue blob）里的 `topicName + dramas[]` **分区行**；
@@ -331,6 +340,9 @@ const List<SiteEntry> kSites = [
   kSite06,
   // ★ 荔枝短剧（kSite18 ✅ 2026-10-12 新增，自管整页）—— 放在黄果之后 ✅（默认可见，无任何隐藏 ✅）
   kSite18,
+  // 柚子短剧（kSite16 ✅ 2026-10-11 新增；2026-10-12 删过当天恢复）：**用户指定"点播宫格最后一格"** ✅
+  //   —— 所以放在**最末**（荔枝之后）才符合"最后一格"的口径 ✅
+  kSite16,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,
