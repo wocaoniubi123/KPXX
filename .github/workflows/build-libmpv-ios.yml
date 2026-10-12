@@ -522,6 +522,32 @@ jobs:
       #     会把自己所属的 `lib/python3.x/site-packages` 追加到 `PYTHONPATH` ⇒ meson 用 `import('python').find_installation()`
       #     找到的 python3 就能 `import jinja2`。✅ nixpkgs 里该包确实存在：
       #     `pkgs/development/python-modules/jinja2/default.nix`（`pname = "jinja2"`, version 3.1.6）。
+      #
+      #   *** 2026-10-12 第八版：补齐缺的三方头（Vulkan-Headers / fast_float）+ .gitmodules 全枚举 ***
+      #   失败原文 🛢️（run 38208927531）：
+      #     `FAILED: src/libplacebo.338.dylib.p/vulkan_stubs.c.o` → `src/include/libplacebo/vulkan.h:21:10:
+      #      fatal error: 'vulkan/vulkan.h' file not found`
+      #     `FAILED: src/libplacebo.338.dylib.p/convert.cc.o` → `static assertion failed … <fast_float/fast_float.h> is required`
+      #   ⇒ 病根同前：**GitHub tarball 不含子模块**。
+      #   **`.gitmodules`（v6.338.2）全枚举 + 逐个判定**（原文 6 条，逐条给依据）：
+      #   | 子模块 | 必需? | 我们怎么满足 | 依据 |
+      #   | `demos/3rdparty/nuklear` (Immediate-Mode-UI/Nuklear) | ❌ 不用 | 已 `-Ddemos=false` | demos 是独立开关；CI 从未报它 |
+      #   | `3rdparty/glad` (Dav1dde/glad) | ❌ 不用 | 已 `-Dopengl=disabled` | 上轮已修，本轮 CI 未复发 ✅ |
+      #   | `3rdparty/jinja` (pallets/jinja) | ✅ 要 | 上轮已用 nixpkgs `python3Packages.jinja2` | `tools/glsl_preproc/templates.py:1 import jinja2`；本轮 CI 未复发 ✅ |
+      #   | `3rdparty/markupsafe` (pallets/markupsafe) | ✅ 要（jinja2 的运行时依赖） | **nixpkgs 的 jinja2 自带 markupsafe** | 本轮 CI 已实测过 shader 预处理阶段 ✅（jinja2+markupsafe 都 import 成功） |
+      #   | `3rdparty/Vulkan-Headers` (KhronosGroup) | ✅ **要** | **本轮**：`pkgs.vulkan-headers` + `-isystem` | 🛢️ `src/include/libplacebo/vulkan.h:21` 是**无条件** `#include <vulkan/vulkan.h>`（没有 `#if`）⇒ 即使 `-Dvulkan=disabled` 也躲不开；`vulkan_stubs.c` 无条件下编译 ⇒ CI 原文 |
+      #   | `3rdparty/fast_float` (fastfloat/fast_float) | ✅ **要** | **本轮**：`pkgs.fast-float` + `-isystem` | 🛢️ `src/convert.cc:22` `#if __has_include(<fast_float/fast_float.h>)` + 否则落到 `static_assert(…, "Not implemented!")` 硬报错；`src/meson.build:235-237` 只在子模块目录存在时才加该 include ⇒ CI 原文 |
+      #   ⇒ **6 条全部有结论，没有第 7 个"还差的头"** ✅
+      #   **为什么用显式 `-isystem` 而不是只放进 `buildInputs`** 🛢️：查 cc-wrapper 原文
+      #     `pkgs/build-support/cc-wrapper/add-flags.sh`，每个 input 的编译 flags **只从** `<input>/nix-support/{cc-cflags,libc-cflags,cc-cflags-before}` 读，
+      #     **没有"扫描 `$dep/include`"这回事**；而这两个包是 header-only（libplacebo 也不会去 `dependency('fast_float')`——它只看 `../3rdparty/...`）
+      #     ⇒ 唯一可靠做法是把 include 路径显式喂给编译器。`NIX_CFLAGS_COMPILE` 是 cc-wrapper 认的标准入口（C），
+      #     `convert.cc` 是 **C++** ⇒ 同时给 `NIX_CXXFLAGS_COMPILE`（两个都写，免得再赌它俩是否互通）。
+      #   ✅ nixpkgs 存在性（本机核实过文件）：`pkgs/by-name/vu/vulkan-headers/package.nix`、
+      #     `pkgs/by-name/fa/fast-float/package.nix`（pname=fast-float, 8.3.1, CMake）⇒ attr 名 `pkgs.vulkan-headers` / `pkgs.fast-float` ✅
+      #     🔍 装的路径：fast_float 上游 CMake 把 `include/fast_float/` 整目录装进 `include/` ⇒ `${pkgs.fast-float}/include/fast_float/fast_float.h`；
+      #        vulkan-headers 提供 `include/vulkan/vulkan.h`（这是它唯一的用途）——两条都未在本机跑 nix 验证，标 🔍。
+      #   ⚠️ **没有改 libplacebo 源码**（按你要求走"提供头"这条路）。
       - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
         run: |
           set -euo pipefail
@@ -591,6 +617,13 @@ jobs:
               inherit src;
               dontUnpack = true;
               enableParallelBuilding = true;
+              # Headers that libplacebo normally takes from its git submodules
+              # (3rdparty/Vulkan-Headers, 3rdparty/fast_float) -- absent in the GitHub tarball.
+              # Header-only packages have no .pc file, and the nixpkgs cc-wrapper only reads
+              # per-input nix-support/*-cflags files (it does NOT scan $dep/include), so we make
+              # them visible explicitly via NIX_CFLAGS_COMPILE / NIX_CXXFLAGS_COMPILE.
+              env.NIX_CFLAGS_COMPILE = "-isystem ${pkgs.vulkan-headers}/include -isystem ${pkgs.fast-float}/include";
+              env.NIX_CXXFLAGS_COMPILE = "-isystem ${pkgs.vulkan-headers}/include -isystem ${pkgs.fast-float}/include";
               nativeBuildInputs = [
                 pkgs.meson
                 pkgs.ninja
