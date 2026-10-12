@@ -20,11 +20,15 @@ dependencies:
   cupertino_http: '>=1.5.0 <2.0.0'
   # 播放器引擎换成 libmpv（FFmpeg）：缓冲区大小可配、HLS 跳转由 FFmpeg 处理，
   # 替代 iOS 原生 AVPlayer（其缓冲/seek 容差在 iOS 上无法配置，长视频跳转会卡死）
-  # 版本要钉住：media_kit_video 1.3.x 会拉 volume_controller 3.x，
-  # 那个用了 Flutter 3.29+ 的 FlutterSceneLifeCycleDelegate，3.24 编译不过。
-  # 1.2.5 走 volume_controller ^2.0.7（老版本，兼容 3.24）。
+  # 版本要钉住（★ 2026-10-12 更新口径，原注释已过时 ☠）：
+  #   · **media_kit 已升到 1.2.6**（🛢️ 修"复用档切集黑屏"：1.2.0 的 `FIX: video_player black screen`
+  #     + `open()` 改用 `loadlist` 重写 —— 配 libmpv 0.41 实测复用档恢复正常）；
+  #   · **media_kit_video 仍停在 1.2.5**：1.3.1 要求 `volume_controller ^3.0.2` + `screen_brightness_* ^2.0.0`，
+  #     而本仓为 iOS 兼容**钉着** `volume_controller >=2.0.7 <3.0.0` / `screen_brightness >=0.2.2+1 <0.3.0`
+  #     ⇒ 两条独立硬冲突（pub 求解器正确拒绝）⇒ **要升 1.3.1 必须先放开那两条钉、并回归 iOS 构建** ☑️
+  #   · ⚠️ **旧注释里"Flutter 3.24 编不过"那条前提已过期**：本仓现在是 **Flutter 3.47.6**（CI 实锤）☑️
   media_kit: '>=1.1.11 <1.3.0'
-  media_kit_video: '>=1.2.5 <1.4.0'
+  media_kit_video: '>=1.2.5 <1.4.0'   # 上界 <1.4.0：把 BREAKING 的 2.0.x（移除 volume_controller/screen_brightness 依赖）挡在外 ✅
   media_kit_libs_ios_video: ^1.1.3
   # ★ 2026-10-09（Windows 桌面开发链路 ✓ 用户要求"Windows 也能播"）：
   #   media_kit 在**每个平台**都要一个"带原生库"的伴生包 ✓ —— iOS 那套在上面（`..._ios_video` ✓）；
