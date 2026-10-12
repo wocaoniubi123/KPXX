@@ -548,6 +548,39 @@ jobs:
       #     🔍 装的路径：fast_float 上游 CMake 把 `include/fast_float/` 整目录装进 `include/` ⇒ `${pkgs.fast-float}/include/fast_float/fast_float.h`；
       #        vulkan-headers 提供 `include/vulkan/vulkan.h`（这是它唯一的用途）——两条都未在本机跑 nix 验证，标 🔍。
       #   ⚠️ **没有改 libplacebo 源码**（按你要求走"提供头"这条路）。
+      #
+      #   *** 2026-10-12 第九版：换法补头 —— 把两个"子模块目录"实体化到源码树里 ***
+      #   失败原文 🛢️（run 后仍**逐字相同**）⇒ **第八版的 `env.NIX_CFLAGS_COMPILE/NIX_CXXFLAGS_COMPILE` 零效果**：
+      #     `src/include/libplacebo/vulkan.h:21:10: fatal error: 'vulkan/vulkan.h' file not found`
+      #     `src/convert.cc:83:23: error: static assertion failed … <fast_float/fast_float.h> is required`
+      #   🔍 原因（有依据）：配方 cross-file 用的是 **Xcode 的 clang**，**不认** nixpkgs cc-wrapper 的
+      #     `NIX_CFLAGS_COMPILE`/`NIX_CXXFLAGS_COMPILE`；日志里也没有任何 `-isystem` 痕迹。
+      #     ⇒ **那两行已删除**（已证伪；留着会误导后来人以为它在起作用）。
+      #   **两处条件包含的原文（本次逐字复核，用于对齐复制路径）**：
+      #     `src/vulkan/meson.build`:
+      #        8| vulkan_headers_dir = thirdparty/'Vulkan-Headers'
+      #        9| vulkan_headers_inc = include_directories()
+      #       10| if fs.is_dir(vulkan_headers_dir/'include')          <-- 只看"目录在不在"
+      #       11|   vulkan_headers = declare_dependency()
+      #       12|   vulkan_headers_inc = include_directories('../../3rdparty/Vulkan-Headers/include')
+      #       14|   registry_xml = vulkan_headers_dir/'registry/vk.xml'
+      #     `src/meson.build`:
+      #      235| fast_float_inc = include_directories()
+      #      236| if fs.is_dir('../3rdparty/fast_float/include')     <-- 同样只看目录
+      #      237|   fast_float_inc = include_directories('../3rdparty/fast_float/include')
+      #      247|   include_directories: [ inc, vulkan_headers_inc, fast_float_inc, xxhash_inc ],
+      #   ⇒ 路径解析（相对 meson 文件所在目录）：两个 `include_directories` 都落在
+      #     **`<源码根>/3rdparty/Vulkan-Headers/include`** 与 **`<源码根>/3rdparty/fast_float/include`** ⇐ 与下面 cp 的目标**逐字对齐** ✅
+      #   ✅ `registry/vk.xml` **不需要**：它只在 `if vulkan_build.allowed()` 里被 `utils_gen.py` 用（L46-51），
+      #     而我们 `-Dvulkan=disabled` ⇒ 那段不执行（`else: sources += 'vulkan/stubs.c'`，L57-59）。
+      #   ✅ 两个包的安装布局已核实（**读上游 CMake 原文**，不再是 🔍）：
+      #     Vulkan-Headers: `install(DIRECTORY ".../include/vulkan" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})`
+      #       ⇒ `${pkgs.vulkan-headers}/include/vulkan/*.h` ✅（nixpkgs 包是 cmake 构建，无额外搬动）
+      #     fast_float:     `install(DIRECTORY ".../include/fast_float" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})`
+      #       ⇒ `${pkgs.fast-float}/include/fast_float/*.h` ✅
+      #   ⚠️ 仍未改 libplacebo 源码 ✅（只是把 `3rdparty/` 目录"补"出来，等价于 `git submodule update --init` 的效果）。
+      #   ❓ 未验证：nixpkgs 的 fast-float 是 8.3.1，而 libplacebo 6.338.2 是 2024 年的 ⇒ 头版本比它新；
+      #     `fast_float::from_chars` 是稳定 API，我判断能编过，但**没有依据**，标 ❓（若真不兼容，会在该处报编译错误，一轮可定位）。
       - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
         run: |
           set -euo pipefail
@@ -621,9 +654,10 @@ jobs:
               # (3rdparty/Vulkan-Headers, 3rdparty/fast_float) -- absent in the GitHub tarball.
               # Header-only packages have no .pc file, and the nixpkgs cc-wrapper only reads
               # per-input nix-support/*-cflags files (it does NOT scan $dep/include), so we make
-              # them visible explicitly via NIX_CFLAGS_COMPILE / NIX_CXXFLAGS_COMPILE.
-              env.NIX_CFLAGS_COMPILE = "-isystem ${pkgs.vulkan-headers}/include -isystem ${pkgs.fast-float}/include";
-              env.NIX_CXXFLAGS_COMPILE = "-isystem ${pkgs.vulkan-headers}/include -isystem ${pkgs.fast-float}/include";
+              # them visible by materializing the 3rdparty/ submodule dirs in a writable copy
+              # of the source tree (see configurePhase). env.NIX_CFLAGS_COMPILE was tried first
+              # and had ZERO effect under the recipe's Xcode-clang cross-file (CI output was
+              # byte-identical), so it was removed -- do not bring it back.
               nativeBuildInputs = [
                 pkgs.meson
                 pkgs.ninja
@@ -632,7 +666,17 @@ jobs:
                 pkgs.python3Packages.jinja2
               ];
               configurePhase = \'\'
-                meson setup build $src \\
+                # The GitHub tarball has no git submodules. libplacebo only enables those
+                # include dirs when the directories exist, checked at configure time:
+                #   src/vulkan/meson.build:10  if fs.is_dir(vulkan_headers_dir/'include')
+                #   src/meson.build:236        if fs.is_dir('../3rdparty/fast_float/include')
+                # so materialize them (nixpkgs header packages) in a writable copy of $src.
+                cp -a $src src
+                chmod -R u+w src
+                mkdir -p src/3rdparty/Vulkan-Headers/include src/3rdparty/fast_float/include
+                cp -a ${pkgs.vulkan-headers}/include/vulkan src/3rdparty/Vulkan-Headers/include/
+                cp -a ${pkgs.fast-float}/include/fast_float src/3rdparty/fast_float/include/
+                meson setup build src \\
                   --native-file ${nativeFile} \\
                   --cross-file ${crossFile} \\
                   --prefix=$out \\
