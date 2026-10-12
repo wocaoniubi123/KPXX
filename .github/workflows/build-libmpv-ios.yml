@@ -498,6 +498,30 @@ jobs:
       #   （注：原先标 ❓ 的 `xxhash`/`unwind` required 问题，本轮已在 `src/meson.build` 查实：
       #     `unwind = dependency('libunwind', required: get_option('unwind'))`、`xxhash = dependency('libxxhash', required: get_option('xxhash'))`
       #     ⇒ 都跟随各自的 `auto` 选项 ⇒ **不会硬失败** ✅；`lcms`/`libdovi` 同理。）
+      #
+      #   *** 2026-10-12 第七版：补齐构建期 Python 依赖（本轮缺 jinja2）***
+      #   失败原文 🛢️（run 38208233347）：
+      #     `…/mk-pkg-libplacebo-source-6.338.2/tools/glsl_preproc/templates.py:1: import jinja2`
+      #     `ModuleNotFoundError: No module named 'jinja2'` ⇒ `ninja: build stopped`（已过 meson setup、进了编译阶段）
+      #   **构建期 Python 脚本全量排查**（`git/trees/v6.338.2?recursive=1` 列出全部 6 个 .py，逐个读 import）：
+      #   | 文件 | 三方 import（其余均为 stdlib 或同目录本地模块） |
+      #   | `tools/glsl_preproc/templates.py` | **`import jinja2`**（第 1 行；就是本轮报错处） |
+      #   | `tools/glsl_preproc/{main,macros,statement,variables}.py` | 无（只有 `sys`/`argparse`/`re` + `from variables/templates/statement import`） |
+      #   | `src/vulkan/utils_gen.py` | `import jinja2`（但 vulkan 已 `-Dvulkan=disabled` ⇒ 不会跑） |
+      #   ⇒ **三方依赖只有 `jinja2` 一个** ✅（没有 mako/pygments 之类）
+      #   **这些工具什么时候跑** 🛢️：`tools/meson.build` L1 无条件 `subdir('glsl_preproc')`；
+      #     `src/shaders/meson.build` L15-22 对 11 个 shader 源逐个 `custom_target(command: glsl_preproc, …)` —— **无条件**。
+      #   ⇒ **没有"关掉预处理"的官方开关** ❓（唯一的旋钮是 `tools/glsl_preproc/meson.build` L1 的
+      #     `strip_arg = get_option('debug') ? [] : ['--strip']`，那是"是否 strip 输入"，不是开关）
+      #     ⇒ 结论：**必须提供 jinja2**，没有绕过的路。
+      #   **nativeBuildInputs 复核**：`meson`/`ninja`/`pkg-config` 原来就有 ✅；**`python3` 原来没有** ——
+      #     而 libplacebo 构建期确实会调 python（shader 预处理、glad 检查、vulkan utils_gen）
+      #     ⇒ 本轮补 `pkgs.python3` + `pkgs.python3Packages.jinja2`（写成和配方其它包一致的 `pkgs.` 前缀风格；
+      #     配方里 `pkgs.python3` 的既有写法见 mk-pkg-mbedtls / mk-pkg-mpv）。
+      #   🔍 jinja2 的可见性机制（依据，但本机无法跑 nix 验证）：nixpkgs 的 `python3Packages.*` 带 python setup hook，
+      #     会把自己所属的 `lib/python3.x/site-packages` 追加到 `PYTHONPATH` ⇒ meson 用 `import('python').find_installation()`
+      #     找到的 python3 就能 `import jinja2`。✅ nixpkgs 里该包确实存在：
+      #     `pkgs/development/python-modules/jinja2/default.nix`（`pname = "jinja2"`, version 3.1.6）。
       - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
         run: |
           set -euo pipefail
@@ -571,6 +595,8 @@ jobs:
                 pkgs.meson
                 pkgs.ninja
                 pkgs.pkg-config
+                pkgs.python3
+                pkgs.python3Packages.jinja2
               ];
               configurePhase = \'\'
                 meson setup build $src \\
