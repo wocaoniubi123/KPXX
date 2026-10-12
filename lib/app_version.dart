@@ -16,4 +16,10 @@
 ///   否则回落分片），**Windows 行为不变**（只走分片）；起因 = iOS 真机分片打不开 ⇒ 重试 5 次 ⇒ 闪退
 ///   （崩溃日志：EXC_BAD_ACCESS/SIGSEGV 空指针，栈顶 `mpv_wait_event`）；另含 xHamster 搜索改读
 ///   页面 `window.initials` JSON（封面/时长 46/46/46，原 DOM 只有 8/7）✓）
-const String kAppVersion = '1.3.2';
+/// ★ 2026-10-12：**1.3.2 → 1.3.3**（① **柚子 iOS 取不到 cookie** 的两段式兜底：`set-cookie` 大小写
+///   不敏感 + 多值合并，仍无 ⇒ 站点内自建 `dart:io HttpClient` 重发（只在"有响应但没 cookie"时触发
+///   ⇒ Windows 永不触发）—— 起因 = 真机日志 `cookie=无 ⇒ 没票 ⇒ 0 条源 ⇒ 重试 5 次`
+///   （iOS 走 NSURLSession 读不到 `Set-Cookie`）；② **全屏倍速按钮不灵敏**修法 A：把按钮移出那个大
+///   `GestureDetector` 子树、改成兄弟层（与内嵌同构）⇒ 不再等双击超时 ≈300ms
+///   ⚠️ 平台选路（iOS 走整段）已按用户要求**回滚**，仍只走分片 ✓）
+const String kAppVersion = '1.3.3';

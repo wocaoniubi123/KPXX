@@ -100,8 +100,9 @@
 //  ⚠️ **绝不打 cookie 值、也绝不打带凭证的地址** ☠（本项目既有口径 ✅）。
 
 import 'dart:convert';
-// ★ 2026-10-12（用户裁定"按平台选路"✅）：判 `Platform.isIOS` —— iOS 走整段、其它平台照旧只走分片 ✅
-import 'dart:io' show Platform;
+// ★ 2026-10-12（**iOS 修** ✅）：回退用的**站点内自建** `dart:io HttpClient`（只给 bootstrap/取票两条用 ✅，
+//   公共 fetch/config **不动** ☑️ —— iOS 仍走 NSURLSession 读系统代理/VPN ✅）。用前缀防与 material 撞名 ✅
+import 'dart:io' as io;
 
 // ⚠️ 本站要**自己画整页**（两主 tab / 分区行 / 分类胶囊 / 分页）⇒ 必须 import material ✅
 import 'package:flutter/material.dart';
@@ -229,31 +230,110 @@ class YouziSite extends SiteUi {
   /// 日志用：videoId 只留前 8 字（uuid 太长 ☑️；**只是给日志看**，不参与任何判断 ✅）
   static String _vid8(String vid) => vid.length <= 8 ? vid : vid.substring(0, 8);
 
+  /// ★ 2026-10-12（**iOS 修 ①** ✅）：把响应头里的 `set-cookie` **大小写不敏感 + 多值合并**地取出来 ✅
+  ///
+  /// 【依据 🛢️（真机日志 1.3.2，只有手机端犯）】`①bootstrap code=200 len=119 cookie=无` ⇒ 取票失败 ⇒
+  ///   **0 条源** ⇒ 播放器"重试 5 次" ☠；PC（走 `dart:io`）同一请求**正常拿到** ⇒ 矛头指向 iOS 的
+  ///   `cupertino_http`（NSURLSession）那一侧读头的方式 ✅。
+  ///
+  /// 【NSURLSession 侧两种可能，都堵掉 ✅】
+  ///   ① 头名回的是 `Set-Cookie`（大写 S/C），而原来按 `r.headers['set-cookie']` 取 ⇒ **大小写敏感取不到** ☠；
+  ///   ② 多个 `Set-Cookie` 需要**拼接**才看得全（原写法只看得见一个/看不见 ☠）。
+  ///   ⇒ 这里**先把所有 key `toLowerCase()` 再比对**，命中的值用 `", "` **拼起来**，再交给 [_cookieValue] ✅
+  ///     （⚠️ 拼接只是"多值合并"；**真正的取值仍按 [_cookieValue] 的 `;`/`,` 规则**，所以不会把
+  ///      `Expires=Wed, 21 Oct …` 里那个逗号误当分隔 ☠ —— 见那个方法的注释 ✅）
+  static String _setCookieOf(Map<String, String> headers) {
+    final vals = <String>[];
+    headers.forEach((k, v) {
+      if (k.toLowerCase() == 'set-cookie' && v.isNotEmpty) vals.add(v);
+    });
+    return vals.join(', ');
+  }
+
+  /// ★ 2026-10-12（**iOS 修 ②：兜底** ✅）：用**站点内自建**的 `dart:io HttpClient` **重发一次**同一请求 ✅
+  ///
+  /// 【为什么要它】真机上"大小写不敏感"那招**也可能无效**（NSURLSession 就是不给这个头 ☠）⇒
+  ///   `dart:io` 的 `HttpClient` 一定回 `Set-Cookie` ✅ ⇒ 用它兜。
+  ///
+  /// 【为什么只回退 **bootstrap / 按集取票** 这两条】整个站点里**只有这两条要从 `Set-Cookie` 读值** ✅；
+  ///   其它请求（列表 / 详情 / 分片）**一条都不动** ☑️ —— 公共 `fetch.dart`/`config.dart` 也不动 ✅，
+  ///   因为 iOS 走 NSURLSession 是**为了读系统代理/VPN** ✅（这条要保留 ☑️）。
+  ///
+  /// 【触发条件】**只在"站点客户端已经回话、但没抠到 cookie"时才走** ✅ ⇒
+  ///   **Windows 正常路径永不触发**（它的 `dart:io` 客户端本来就能拿到 cookie ✅）⇒ 已验证的 PC 行为不变 ✅。
+  ///
+  /// 【口径】头/体由调用方传入（与主路径**共用同一份 Map** ⇒ 逐字一致 ✅）；用完 **`close(force: true)`** ✅；
+  ///   返回 `(code, setCookie, body)`，异常 ⇒ null（调用方照原"失败"路径走 ✅）。**日志不打地址、不打 cookie** ☠
+  Future<({int code, String setCookie, List<int> body})?> _postViaIo(
+      String path, Map<String, String> headers, String body) async {
+    final c = io.HttpClient();
+    try {
+      final req = await c.postUrl(Uri.parse('$_kBase$path'));
+      headers.forEach((k, v) => req.headers.set(k, v));
+      req.add(utf8.encode(body));
+      final res = await req.close().timeout(_kApiTimeout);
+      // ⚠️ 体必须读完（否则连接不回收 ☑️）
+      final bytes = await res.fold<List<int>>(<int>[], (a, b) => a..addAll(b));
+      // `dart:io` 的 `HttpHeaders` 本身大小写不敏感（MultiMap）⇒ 直接 join ✅
+      final sc = res.headers['set-cookie']?.join(', ') ?? '';
+      return (code: res.statusCode, setCookie: sc, body: bytes);
+    } catch (e) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] ${_f.site.name} 回落 dart:io 请求异常（当失败 ✅）：$e');
+      }
+      return null;
+    } finally {
+      c.close(force: true); // ★ 用完即关（不留连接/不泄漏 ☠）
+    }
+  }
+
   /// ① 账号 cookie（`eden_account`）：拿不到 ⇒ null（调用方记日志 ✅ 不静默 ☑️）
   Future<String?> _ensureAccount() async {
     final cur = _acc;
     if (cur != null && cur.isNotEmpty) return cur;
     final sw = Stopwatch()..start();
+    // ★ 2026-10-12（iOS 修 ✅）：两条请求**共用同一份头** ⇒ 主路径与 dart:io 回退**逐字一致** ✅
+    final hdrs = <String, String>{
+      'User-Agent': Site.ua,
+      'Origin': _kBase,
+      'Content-Type': 'application/json',
+    };
     try {
       final r = await _f.client
           .post(
             Uri.parse('$_kBase/api/account/bootstrap'),
-            headers: {
-              'User-Agent': Site.ua,
-              'Origin': _kBase,
-              'Content-Type': 'application/json',
-            },
+            headers: hdrs,
             body: '{}',
           )
           .timeout(_kApiTimeout);
-      final v = _cookieValue(r.headers['set-cookie'] ?? '', 'eden_account');
-      if (AppSettings.i.logConsole) {
-        // ⚠️ 只打"有没有 + 长度"，**不打值** ☠
-        debugPrint('[SRC] ${_f.site.name} ①bootstrap code=${r.statusCode} '
-            'len=${r.bodyBytes.length} cookie=${v == null ? '无' : '有(len=${v.length})'} '
-            'ms=${sw.elapsedMilliseconds}');
+      var code = r.statusCode;
+      var len = r.bodyBytes.length;
+      // ★ iOS 修 ①：**大小写不敏感 + 多值合并**（见 [_setCookieOf]）
+      var v = _cookieValue(_setCookieOf(r.headers), 'eden_account');
+      var src = '头(不敏感)';
+      if (v == null) {
+        // ★ iOS 修 ②：兜底重发（只在这一条"客户端已回话但没 cookie"时 ✅ —— Windows 不进这里 ✅）
+        final fb = await _postViaIo('/api/account/bootstrap', hdrs, '{}');
+        if (fb != null) {
+          code = fb.code;
+          len = fb.body.length;
+          v = _cookieValue(fb.setCookie, 'eden_account');
+          src = v == null ? '回落dart:io(仍无)' : '回落dart:io';
+          if (AppSettings.i.logConsole) {
+            debugPrint('[SRC] ${_f.site.name} 回退 bootstrap code=${fb.code} '
+                '有cookie=${v != null}');
+          }
+        } else {
+          src = '回落dart:io(失败)';
+        }
       }
-      if (r.statusCode != 200 || v == null) return null;
+      if (AppSettings.i.logConsole) {
+        // ⚠️ 只打"有没有 + 长度 + 来源"，**不打值** ☠
+        debugPrint('[SRC] ${_f.site.name} ①bootstrap code=$code '
+            'len=$len cookie=${v == null ? '无' : '有(len=${v.length})'} '
+            '来源=$src ms=${sw.elapsedMilliseconds}');
+      }
+      if (code != 200 || v == null) return null;
       _acc = v;
       return v;
     } catch (e) {
@@ -274,19 +354,14 @@ class YouziSite extends SiteUi {
   ///   · 冷却期内被调到 ⇒ 直接跳过 + 日志 `跳过(429冷却 Ns)` ✅
   ///
   /// ★ 2026-10-12（**用户拍板"只走分片"** ✅ —— 一句话口径：**"柚子只走分片。就这样"**）：
-  ///   · **Windows / 其它平台**：**一律 `mode=mse`**（拿 `master.m3u8` 当源）✅ —— **行为一字未变** ✅
+  ///   · **一律 `mode=mse`**（拿 `master.m3u8` 当源）✅
   ///   · 依据：**分片实测比整段快 1.5~5 倍且更稳**（同集同窗口：分片 1329~3649 KB/s
   ///     vs 单文件 98~1723 KB/s ✅）；**新库下 fMP4 HLS 能跳**（4.1~7.0s 恢复、1× ✅）
-  ///   · 代价（当时如实记）：**旧库（iOS 现状）下 fMP4 HLS 远跳会坏** ☑️
-  ///
-  /// ★★ 2026-10-12 晚（**用户新裁定：按平台选路** ✅ —— 覆盖上一条的"一律 mse"）：
-  ///   · **iOS ⇒ `mode=native`（整段 MP4）** ✅：真机实测 🛢️ **分片根本加载不了** ⇒ 播放器**重试 5 次
-  ///     后闪退**（崩溃日志 `EXC_BAD_ACCESS / SIGSEGV 空指针`，栈顶 `mpv_wait_event` = media_kit 原生
-  ///     事件线程）⇒ iOS 上"分片"这条路**直接不可用** ☠ ⇒ 改走整段 ✅
-  ///   · 另有 **"真 MP4"确认**（[_confirmMp4]）：probe11 实测过**同名 `…native-current.mp4` 实际回的是
-  ///     HLS 清单** 🛢️ ⇒ 不确认 ⇒ iOS 上再走一遍失败+重试+闪退 ☠ ⇒ 确认不是真 MP4 就**回落 mse** ✅
-  ///   · ⚠️ 之前那套"按大小选路"（`_probeMp4`/`_kNativeMaxBytes`/`_mb`）**没复活** ☑️ ——
-  ///     这次只有一条平台分支（iOS 试 native ⇒ 不行回落 mse）✅，Windows 完全不进这段 ✅
+  ///   · **代价（如实记）**：**旧库（iOS 现状）下 fMP4 HLS 远跳会坏** ☑️ —— 用户已拍板接受 ✅
+  ///   · 因此**删掉**了 2026-10-11 那套"native 票 + 2 字节探测 + 按大小选路"（`_probeMp4` /
+  ///     `_kNativeMaxBytes` / `_mb` 均已删除 ✅ 不留死代码 ☑️）；那套当时是为绕开"整段太大卡 00:00" ✅
+  ///   · ⇒ **请求数下降**：每集 **1 次 POST**（原来 2~3 次：native 票 + 探测 + 可能的 mse 票 ✅），
+  ///     而且**不再额外探测**（每集少 1 次 2 字节请求 ✅）
   Future<({String url, String cookie})?> _playback(String videoId) async {
     final cool = _coolLeft();
     if (cool > 0) {
@@ -297,82 +372,15 @@ class YouziSite extends SiteUi {
     }
     final acc = await _ensureAccount();
     if (acc == null) return null;
-    // ★ 2026-10-12（**用户裁定：按平台选路** ✅）：
-    //   · **iOS ⇒ `mode=native`（整段 MP4）**：真机实测 🛢️ **分片（mse）根本加载不了** ⇒ 播放器
-    //     **重试 5 次后闪退**（崩溃日志 `EXC_BAD_ACCESS / SIGSEGV 空指针`，栈顶 **`mpv_wait_event`**
-    //     = media_kit 的**原生事件线程**）⇒ iOS 必须走整段 ✅
-    //   · **其它平台（Windows）⇒ 完全保持现状**：只走分片 ✅（用户原话"柚子只走分片。就这样"仍有效 ✅
-    //     —— 分片实测快 1.5~5 倍且更稳 ✅）⇒ **Windows 路径一行行为不改** ✅
-    //   · ⚠️ iOS 还要做一次 **"真 MP4"确认**（[_confirmMp4]）：probe11 实测过**同名
-    //     `…native-current.mp4` 实际回的是 HLS 清单** 🛢️ ⇒ 不确认就播 ⇒ iOS 上会再走一遍
-    //     "加载失败 + 重试 5 次 ⇒ 闪退"那条链 ☠
-    //   · 确认失败 / 探测异常 ⇒ **回落 `mode=mse`**（能试就试，最后的兜底 ✅）
-    var mode = 'mse';
-    if (Platform.isIOS) {
-      final tn = await _ticket(videoId, acc, 'native');
-      if (tn != null &&
-          await _confirmMp4(videoId, tn.url,
-              cookie: 'eden_account=$acc; eden_play_$videoId=${tn.cookie}')) {
-        headersOf(videoId)['Cookie'] =
-            'eden_account=$acc; eden_play_$videoId=${tn.cookie}';
-        return (url: tn.url, cookie: tn.cookie);
-      }
-      mode = 'mse'; // native 拿不到票 / 不是真 MP4 ⇒ 回落分片 ✅
-      if (AppSettings.i.logConsole) {
-        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=回落mse vid=${_vid8(videoId)}');
-      }
-    }
-    final t = await _ticket(videoId, acc, mode);
+    // 只走 mse ✅（2026-10-12 用户拍板）
+    final t = await _ticket(videoId, acc);
     if (t == null) return null;
     // 票写进 headersOf（**原地更新** ✅ —— 见那个方法的说明 ✅）
     headersOf(videoId)['Cookie'] = 'eden_account=$acc; eden_play_$videoId=${t.cookie}';
     return (url: t.url, cookie: t.cookie);
   }
 
-  /// ★ 2026-10-12（**用户裁定 ✅**）：**"真 MP4"确认** —— 拿 native 票后对地址发**一次**
-  ///   `Range: bytes=0-1`，判 `206` + `content-type` 含 `video/mp4` + 正文**不像 M3U** ✅
-  ///
-  /// 依据 🛢️（probe11 实测）：**同名 `…native-current.mp4` 曾出现"实际是 HLS 清单"**
-  ///   ⇒ iOS 上不确认就直接播 ⇒ 再走一遍"加载失败 + 重试 5 次 ⇒ **闪退**"那条链 ☠
-  ///   ⇒ 这里宁可**保守**：**不是 206 / content-type 不带 video/mp4 / 正文像 M3U / 异常** ⇒
-  ///     一律当"非真 MP4" ⇒ 调用方回落 `mode=mse` ✅（少一次误播 vs 少一次崩溃，取前者 ✅）。
-  ///
-  /// 头：与播放器给媒体源的一致口径（UA ✅ + `Cookie`（两票）✅ + Range ✅；Referer = **媒体自身域名** ✅）。
-  /// 日志：只打 vid 前 8 字 / 码 / content-type / 是否像 M3U —— **不打地址、不打 cookie** ☠
-  Future<bool> _confirmMp4(String videoId, String url,
-      {required String cookie}) async {
-    try {
-      final u = Uri.parse(url);
-      final r = await _f.client
-          .get(u, headers: {
-            'User-Agent': Site.ua,
-            'Cookie': cookie,
-            'Range': 'bytes=0-1',
-            'Referer': '${u.scheme}://${u.host}/', // 与播放器"媒体自身域名"口径一致 ✅
-          })
-          .timeout(_kApiTimeout);
-      final body = utf8.decode(r.bodyBytes, allowMalformed: true);
-      final ct = (r.headers['content-type'] ?? '').toLowerCase();
-      final likeM3u = body.trimLeft().startsWith('#EXT') || body.contains('EXTM3U');
-      final ok = r.statusCode == 206 && ct.contains('video/mp4') && !likeM3u;
-      if (AppSettings.i.logConsole) {
-        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=native 探测='
-            '${ok ? '真MP4' : '非MP4'} vid=${_vid8(videoId)} code=${r.statusCode} '
-            'ctype=${ct.isEmpty ? '无' : ct} len=${r.bodyBytes.length} '
-            '像M3U=${likeM3u ? '是' : '否'}');
-      }
-      return ok;
-    } catch (e) {
-      if (AppSettings.i.logConsole) {
-        debugPrint('[SRC] ${_f.site.name} 平台=iOS 选路=native 探测=异常'
-            '（当非MP4 ⇒ 回落mse）vid=${_vid8(videoId)}：$e');
-      }
-      return false;
-    }
-  }
-
-  /// ② 的**单次取票**（★ 2026-10-12 恢复 `mode` 参数 ✅ —— iOS 走 `native`、其它平台 `mse`，
-  /// 由 [_playback] 按平台选路 ✅）：成功 ⇒ `{url, cookie}` ✅
+  /// ② 的**单次取票**（**2026-10-12 起固定 `mode=mse`** ✅ —— 用户拍板"只走分片"）：成功 ⇒ `{url, cookie}` ✅
   ///
   /// ⚠️ 403/429 口径与日志跟原来**同一套** ✅（403 不停手 ✅、429 记冷却 ✅）。
   ///
@@ -387,40 +395,63 @@ class YouziSite extends SiteUi {
   ///     `a.series-episode-link[href]` 抄下来 ✅，不自己拼 ☑️）；查不到才退 `$_kBase/`（兜底 ❓**未实测** ☑️）。
   ///   · ⚠️ `bootstrap` 那一步**不加 Referer** ✅：本机实测"只带 Origin"就 200 ✅；缺 Origin ⇒ **403
   ///     `请求来源无效，请刷新页面后重试`** ✅（实锤 ⇒ `Origin` 必须留 ✅）。
-  Future<({String url, String cookie})?> _ticket(
-      String videoId, String acc, String mode) async {
+  Future<({String url, String cookie})?> _ticket(String videoId, String acc) async {
     final sw = Stopwatch()..start();
+    // ★ 2026-10-12（iOS 修 ✅）：主路径与 dart:io 回退**共用同一份头** ⇒ 逐字一致 ✅
+    //   （⚠️ 这里**保持 `mode=mse` 不变** ✅ —— 平台选路已回滚，仍是"只走分片" ✅）
+    final hdrs = <String, String>{
+      'User-Agent': Site.ua,
+      'Origin': _kBase,
+      'Content-Type': 'application/json',
+      // ★ 站方新要求（2026-10-11 ✅）：Referer = **该集页面**（浏览器同款 ✅）
+      'Referer': _epUrl[videoId] ?? '$_kBase/',
+      // ⚠️ ② 只需要账号 cookie（实测 ✅）；播放 cookie 是这一步**发下来**的 ✅
+      'Cookie': 'eden_account=$acc',
+    };
     try {
       final r = await _f.client
           .post(
-            // ★ 2026-10-12（用户裁定 ✅）：`mode` 由**平台**决定（iOS=`native` / 其它=`mse` ✅）
-            //   —— 见 [_playback] 那段"按平台选路"说明 ✅。
+            // ★ 2026-10-12（用户拍板 ✅）：**固定 `mode=mse`**（分片，快 1.5~5 倍且更稳 ✅）；
+            //   `mode=native`（整段 MP4）那条已按用户口径弃用 ☑️（代价：旧库 iOS 下远跳会坏 ✅）。
             //   ⚠️ 响应只有 `url` + `expires_at`（实测 ✅ —— `mse` 也没有 `startup` ✅）⇒ 只读 `url` ✅。
-            Uri.parse('$_kBase/api/playback/$videoId?mode=$mode'),
-            headers: {
-              'User-Agent': Site.ua,
-              'Origin': _kBase,
-              'Content-Type': 'application/json',
-              // ★ 站方新要求（2026-10-11 ✅）：Referer = **该集页面**（浏览器同款 ✅）
-              'Referer': _epUrl[videoId] ?? '$_kBase/',
-              // ⚠️ ② 只需要账号 cookie（实测 ✅）；播放 cookie 是这一步**发下来**的 ✅
-              'Cookie': 'eden_account=$acc',
-            },
+            Uri.parse('$_kBase/api/playback/$videoId?mode=mse'),
+            headers: hdrs,
             body: '{}',
           )
           .timeout(_kApiTimeout);
-      final pc = _cookieValue(r.headers['set-cookie'] ?? '', 'eden_play_$videoId');
+      var code = r.statusCode;
+      List<int> bodyBytes = r.bodyBytes;
+      // ★ iOS 修 ①：**大小写不敏感 + 多值合并**（见 [_setCookieOf]）
+      var pc = _cookieValue(_setCookieOf(r.headers), 'eden_play_$videoId');
+      var src = '头(不敏感)';
+      if (pc == null) {
+        // ★ iOS 修 ②：兜底重发（只在"客户端已回话但没 cookie"时 ✅ —— Windows 不进这里 ✅）
+        final fb = await _postViaIo(
+            '/api/playback/$videoId?mode=mse', hdrs, '{}');
+        if (fb != null) {
+          code = fb.code;
+          bodyBytes = fb.body;
+          pc = _cookieValue(fb.setCookie, 'eden_play_$videoId');
+          src = pc == null ? '回落dart:io(仍无)' : '回落dart:io';
+          if (AppSettings.i.logConsole) {
+            debugPrint('[SRC] ${_f.site.name} 回退 取票 code=${fb.code} '
+                '有cookie=${pc != null} vid=${_vid8(videoId)}');
+          }
+        } else {
+          src = '回落dart:io(失败)';
+        }
+      }
       // ★ 修 S3：403 **不再**停手（只为"这一集没票" ✅）；429 记冷却窗口（到点自动恢复 ✅）
-      final is403 = r.statusCode == 403;
-      final is429 = r.statusCode == 429;
+      final is403 = code == 403;
+      final is429 = code == 429;
       if (is429) _coolUntil = DateTime.now().add(_kCool);
       // ★ 2026-10-11：**把站方那句错因打出来** ✅（`404 作品尚未上线` / `401 请刷新页面以恢复账户`
       //   这类误报要能一眼看见 ☑️）—— 只取响应体里的 `error` 字段（**不含 cookie/地址** ✅，
       //   截 40 字防刷屏 ✅）；**不做判断分支**：仍走现有"该集无源"路径 ✅
       var srvErr = '';
-      if (r.statusCode != 200) {
+      if (code != 200) {
         try {
-          final b = jsonDecode(utf8.decode(r.bodyBytes));
+          final b = jsonDecode(utf8.decode(bodyBytes));
           srvErr = (b is Map) ? '${b['error'] ?? ''}'.trim() : '';
         } catch (_) {
           // 体不是 JSON（或为空）⇒ 没话可说 ✅ 不静默：上面 code= 那行已经打了 ✅
@@ -428,16 +459,16 @@ class YouziSite extends SiteUi {
         if (srvErr.length > 40) srvErr = srvErr.substring(0, 40);
       }
       if (AppSettings.i.logConsole) {
-        // ⚠️ 只打 vid 前 8 字 / 平台 / 选路 / 码 / 字节 / ms / 站方错因 —— **不打 cookie、不打地址** ☠
-        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} '
-            '平台=${Platform.isIOS ? 'iOS' : '其它'} 选路=$mode '
-            'code=${r.statusCode} len=${r.bodyBytes.length} '
+        // ⚠️ 只打 vid 前 8 字 / mode / 来源 / 码 / 字节 / ms / 站方错因 —— **不打 cookie、不打地址** ☠
+        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} mode=mse（本站只走分片）'
+            '来源=$src '
+            'code=$code len=${bodyBytes.length} '
             'play=${pc == null ? '无' : '有(len=${pc.length})'} ms=${sw.elapsedMilliseconds}'
             '${srvErr.isEmpty ? '' : ' 站方说=「$srvErr」'}'
             '${is429 ? ' ⇒ 429(冷却 ${_kCool.inSeconds}s)' : (is403 ? ' ⇒ 403(该集无票)' : '')}');
       }
-      if (r.statusCode != 200 || pc == null) return null;
-      final j = jsonDecode(utf8.decode(r.bodyBytes));
+      if (code != 200 || pc == null) return null;
+      final j = jsonDecode(utf8.decode(bodyBytes));
       final u = (j is Map) ? '${j['url'] ?? ''}'.trim() : '';
       if (u.isEmpty) return null;
       return (url: _abs(u), cookie: pc);

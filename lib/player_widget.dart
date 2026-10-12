@@ -3139,8 +3139,17 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
     }
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
+      // ★ 2026-10-11（**修法 A**，用户已批准）：外层再套一层 `Stack`，把**倍速按钮挪成下面这个 GestureDetector 的
+      //   **兄弟层**（与内嵌同构）—— `Stack` 命中测试**从后往前、命中即截断** ⇒ 点在按钮上时，
+      //   下面那个大 GestureDetector（注册了 `onTap`/`onDoubleTap`/拖动/长按）**根本不参与**这次点击的竞技场
+      //   ⇒ 不再等"双击识别器占场（Flutter `kDoubleTapTimeout` ≈300ms）" ⇒ 手感与内嵌一致 ✅。
+      //   ⚠️ 下面 GestureDetector 的注册项**一行未动**（双击跳 / 下滑音量亮度 / 边缘返回 / 长按 2× 原样 ✅）；
+      //   ⚠️ 按钮仍在**视频之上**；它与顶/底栏**几何上不重叠** ⇒ 绘制顺序的细微变化无视觉差 ✅
+      //   （⚠️ 最小改动：内层大块的缩进**未重排**，避免无谓 diff）
+      body: Stack(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
         onTap: _toggleControls,
         onDoubleTapDown: (d) => _lastTapPos = d.localPosition,
         onDoubleTap: _onDoubleTap,
@@ -3209,18 +3218,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         child: Stack(
           children: [
             Center(child: _videoSurface(kp)),
-            // ★ 2026-10-11（用户新规格）：**同一套倍速按钮**（贴右缘、垂直居中）
-            //   **跟随全屏的"控件可见"一起显隐**（复用既有 `_controls`，**不新造计时器**）
-            //   ⇒ 内嵌/竖版全屏/横版全屏三处行为一致（同一个 [rateNotifier] 驱动 ✓）
-            //   ⚠️ 没传 rate（老调用方）⇒ 不画按钮（不 new 临时 notifier，避免每帧新建对象）
-            if (widget.rate != null && _controls)
-              Align(
-                alignment: Alignment.centerRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 10), // 贴边安全间距（横屏也留）
-                  child: _rateButton(widget.rate!),
-                ),
-              ),
+            // ★ 2026-10-11（修法 A）：**倍速按钮已从此处移出** —— 原来它在这个 Stack 里 ⇒ 等于挂在
+            //   大 GestureDetector（上面那个）**子树内** ⇒ 点击要跟 `onTap`/`onDoubleTap` 抢竞技场 ⇒ 慢。
+            //   现在它搬去**外层 Stack**、作为那个 GestureDetector 的**兄弟层**（见本 build 末尾）。
             // 顶部：返回 + 视频标题
             // ★ 用户要求（2026-10）：两种全屏（竖版/横屏）顶部都显示标题，且**跟随控件一起显隐** ——
             //   本块整体挂在既有的 `_controls` 上 ✅（与返回键、底部控制条**同一套**状态、同一个 3 秒
@@ -3382,6 +3382,20 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
             ),
           ],
         ),
+          ),
+          // ★ 2026-10-11（**修法 A**）：**倍速按钮 = 大 GestureDetector 的兄弟层**（与内嵌 `:2389-2395` 同构）——
+          //   位置/尺寸/间距/显隐条件**逐字保持**（贴右缘 `right:10`、42×42、`_controls` 一起显隐）；
+          //   它仍是**最后一个 child** ⇒ 画在最上层（下方是视频）⇒ 与顶/底栏不重叠、无视觉差 ✅；
+          //   命中落在它身上时**截断** Stack 反向命中 ⇒ 下面那个 GestureDetector 不参与竞技场 ✅。
+          if (widget.rate != null && _controls)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 10), // 与原来完全一致
+                child: _rateButton(widget.rate!),
+              ),
+            ),
+        ],
       ),
     );
   }
