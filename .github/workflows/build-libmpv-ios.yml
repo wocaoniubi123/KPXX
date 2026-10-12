@@ -581,6 +581,33 @@ jobs:
       #   ⚠️ 仍未改 libplacebo 源码 ✅（只是把 `3rdparty/` 目录"补"出来，等价于 `git submodule update --init` 的效果）。
       #   ❓ 未验证：nixpkgs 的 fast-float 是 8.3.1，而 libplacebo 6.338.2 是 2024 年的 ⇒ 头版本比它新；
       #     `fast_float::from_chars` 是稳定 API，我判断能编过，但**没有依据**，标 ❓（若真不兼容，会在该处报编译错误，一轮可定位）。
+      #
+      #   *** 2026-10-12 第十版：Vulkan 头只搬了一半 ⇒ 改成"整棵 include/ 一起搬" ***
+      #   失败原文 🛢️（run 38210936150）：
+      #     `../src/3rdparty/Vulkan-Headers/include/vulkan/vulkan_core.h:8404:10:
+      #      fatal error: 'vk_video/vulkan_video_codec_h264std.h' file not found`
+      #   🔍 病根：第九版只搬了 `include/vulkan/`，**漏了同级的 `include/vk_video/`**（`vulkan_core.h` 会 include 它）。
+      #   ✅[实锤] 上一轮也有好消息（监控日志确认）：`fast_float` 那处**已修好**
+      #     —— 编译器吃到了 `3rdparty/fast_float/include/fast_float/fast_float.h`，`convert.cc` 不再报 `static_assert`。
+      #   **`${pkgs.vulkan-headers}/include` 的完整清单（依据：上游源码树 + CMake install 规则）**：
+      #     · GitHub tree @ `vulkan-sdk-1.4.357.0`（= nixpkgs `version = "1.4.357.0"` 对应的 rev，nixpkgs 用
+      #       `rev = "vulkan-sdk-${version}"`）里 `include/` 下**只有两个顶层条目**：
+      #       `include/vulkan/`（38 个文件）、`include/vk_video/`（12 个文件）
+      #     · 上游 `CMakeLists.txt` L96-97 原文：
+      #         install(DIRECTORY ".../include/vk_video" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} ...)
+      #         install(DIRECTORY ".../include/vulkan"   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR} ...)
+      #       ⇒ 装出来就是 `${out}/include/{vulkan,vk_video}`，与源码树一致
+      #     · ⚠️ 另有一个**可能**出现在 `include/` 顶层的文件：C++ named module（`Vulkan-HppModule` 的
+      #       `FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}`，L107-111），仅当
+      #       `VULKAN_HEADERS_ENABLE_MODULE=ON` 时安装；nixpkgs 在 Darwin 上显式
+      #       `cmakeFlags = [ "-DVULKAN_HEADERS_ENABLE_MODULE=OFF" ]`（package.nix 原文）⇒ 我们这里**没有**它。
+      #     ⇒ **"整棵 include/. 一起搬"这个写法本身就能覆盖"我列不全"的情况**（这是本轮返工的核心）✅
+      #   **`${pkgs.fast-float}/include` 清单**：tree @ v8.3.1 显示只有 `include/fast_float/`（含 `fast_float.h` + 9 个内部头）
+      #     —— 同样改成整棵搬，保持一致、避免同类坑 ✅
+      #   ⚠️ 关于日志里那条 `Building without any graphics API … most of its functionality will be missing or impaired`：
+      #     **它是警告不是错误，不会导致构建失败** ✅。依据 🛢️：libplacebo `src/meson.build` L169-174 原文用的是
+      #     `warning(...)` 而不是 `error(...)`；而且 CI 实测**已经带着它跑过了 configure 并进入编译阶段**
+      #     （这次失败是编译中段的缺头，不是它）。→ 但它确实意味着 libplacebo 没有任何图形后端（见文末运行期风险）。
       - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
         run: |
           set -euo pipefail
@@ -674,8 +701,13 @@ jobs:
                 cp -a $src src
                 chmod -R u+w src
                 mkdir -p src/3rdparty/Vulkan-Headers/include src/3rdparty/fast_float/include
-                cp -a ${pkgs.vulkan-headers}/include/vulkan src/3rdparty/Vulkan-Headers/include/
-                cp -a ${pkgs.fast-float}/include/fast_float src/3rdparty/fast_float/include/
+                # Copy the WHOLE include/ tree, not individual subdirs: the first attempt copied
+                # only include/vulkan and then vulkan_core.h pulled in 'vk_video/...' (missing).
+                # Vulkan-Headers installs include/ = {vulkan/ (38 files), vk_video/ (12 files)};
+                # fast_float installs include/ = {fast_float/}. Copying "<pkg>/include/." covers
+                # both known and any future sibling dirs.
+                cp -a ${pkgs.vulkan-headers}/include/. src/3rdparty/Vulkan-Headers/include/
+                cp -a ${pkgs.fast-float}/include/. src/3rdparty/fast_float/include/
                 meson setup build src \\
                   --native-file ${nativeFile} \\
                   --cross-file ${crossFile} \\
