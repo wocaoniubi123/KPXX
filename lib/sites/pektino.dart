@@ -26,14 +26,94 @@ class PektinoSite extends SiteUi {
 
   final SiteFetcher _f;
 
-  /// 搜索 = 把输入当分类名传同一个接口（实测：搜 anime 出 50 条 ✓；原 `Api.search` 原样搬来 ✓）
-// 看：搜索解析出几条 —— 0 条就是 /api/media 把分类名当关键词没结果（或接口字段变了）。
-@override
+  // ★ 2026-10-12（用户拍板"**做**"）：**关键词 → tag code 映射**（搜索 = 按标签搜索 ✅）
+  //
+  // 🛢️ 本机实测（2026-10-12）：
+  //   · **独立标签接口 = `GET /api/tags`**（明文 JSON **数组**，26 KB ✅；recon 未见此接口 ⇒ 本机实测拿到 ✅）
+  //     元素 = `{id, name, code, is_language, name_en, name_zh_cn, name_ko, …}`；
+  //     首个元素 = `{"id":2,"name":"素人","code":"shirouto","is_language":false,"name_en":"Amateur"}` ✅
+  //   · 数据接口**只认 `code`**（`/api/media?category=<code>`）；传**本地化名** ⇒ `total=0` ☠
+  //     （实测：`category=素人` ⇒ total=0；`category=shirouto` ⇒ **total=327** ✅）
+  //   · `tag=` / `keyword=` / `q=` / `search=` ⇒ **被忽略**（与空 category 相同）✅
+  //   ⇒ 所以：**输入词先映射成 code，再走原来那条"借分类"的路** ✅
+  //
+  // 【缓存】整张表一次请求 26 KB ⇒ **同一会话只取一次** ✅（[_tagTable]）。
+  //   拉失败**不写缓存**（下次搜索还能再试 ✅）；失败/空表 ⇒ 返回空表，调用方按"无匹配"处理 ✅
+  List<Map<String, dynamic>>? _tagTable;
+
+  Future<List<Map<String, dynamic>>> _tags() async {
+    final cached = _tagTable;
+    if (cached != null) return cached;
+    try {
+      final j = jsonDecode(await _f.text('/api/tags'));
+      final list = <Map<String, dynamic>>[];
+      if (j is List) {
+        for (final e in j) {
+          if (e is Map) list.add(Map<String, dynamic>.from(e));
+        }
+      }
+      if (list.isNotEmpty) _tagTable = list; // ← 成功才缓存 ✅
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] ${_f.site.name} 标签表拉取 ${list.length} 条（缓存='
+            '${_tagTable != null ? '写' : '无'}）');
+      }
+      return list;
+    } catch (e) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] ${_f.site.name} 标签表拉取失败（不缓存）：$e');
+      }
+      return const <Map<String, dynamic>>[];
+    }
+  }
+
+  /// 关键词 ⇒ **tag code**（三级匹配，🛢️ 字段名全来自实测 ✅）
+  ///   ① `code`（**大小写不敏感**：`Shirouto` / `shirouto` 都中 ✅）
+  ///   ② `name_en`（`Amateur` ✅）  ③ `name`（`素人` ✅）
+  ///   ⇒ 都匹配不到 ⇒ **空串** ⇒ 调用方走"**无匹配标签**"（**不静默 0 条** ✅ 站点口径 ✅）
+  String _tagCodeOf(String kw, List<Map<String, dynamic>> tags) {
+    final k = kw.trim().toLowerCase();
+    if (k.isEmpty) return '';
+    String low(Object? v) => '${v ?? ''}'.trim().toLowerCase();
+    for (final t in tags) {
+      // ① 先精确匹配 code ✅
+      if (low(t['code']) == k) return '${t['code']}'.trim();
+    }
+    for (final t in tags) {
+      // ② 再 name_en ✅
+      if (low(t['name_en']) == k) return '${t['code']}'.trim();
+    }
+    for (final t in tags) {
+      // ③ 再 name（本地化名）✅
+      if (low(t['name']) == k) return '${t['code']}'.trim();
+    }
+    return '';
+  }
+
+  /// 搜索 = **按标签搜索**（真站口径：`SearchAction → /search?tag={term}` ✅）
+  ///   ★ 2026-10-12：**先做"关键词 → tag code"映射**，再把 code 当 `category` 传原接口 ✅
+  ///   ⇒ 输入「素人」命中 `shirouto` ⇒ 走 `category=shirouto`（= total 327 那一套 ✅）；
+  ///     输入不存在的词 ⇒ **无匹配标签** ⇒ 返回空 + **打站点原文日志** ✅
+  ///   ⚠️ 空态**文案**：底座搜索页显示的是它自己的「无结果」（`home_page.dart:1719` 写死 ☠）——
+  ///     站点那句「「<词>」に一致するタグは見つかりませんでした」**没有地方注入**（改它要动公共区 ⇒ 不许 ✅）
+  ///     ⇒ 所以站点原文走**日志**，界面文案仍是底座那句 ✅（见回报 ✅）
+  @override
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final sw = Stopwatch()..start();
-    final res = await list('all', keyword, page: page);
-    if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    final tags = await _tags();
+    final code = _tagCodeOf(keyword, tags);
+    if (code.isEmpty) {
+      // 🛢️ 站点页面原文：「<词>」に一致するタグは見つかりませんでした（= 无匹配标签 ✅）
+      debugPrint('[SEARCH] ${_f.site.name} 入口=search 词=$keyword ⇒ '
+          '「$keyword」に一致するタグは見つかりませんでした（表 ${tags.length} 条）'
+          '⇒ 0 条 ms=${sw.elapsedMilliseconds}');
+      return const <Article>[];
+    }
+    final res = await list('all', code, page: page);
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SEARCH] ${_f.site.name} 入口=search 词=$keyword ⇒ code=$code '
+          '页=$page 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
+    }
     return res;
   }
 
