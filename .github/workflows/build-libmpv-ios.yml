@@ -674,6 +674,42 @@ jobs:
           "$XCODE_PATH/Contents/Developer/usr/bin/xcodebuild" -version
           echo "xcode_path=$XCODE_PATH" >> "$GITHUB_OUTPUT"
 
+      # ★ 2026-10-12 第六版：让 Nix 看得见"新生成的文件"
+      #   失败原文 🛢️（run 38206332339，在求值 `mk-out-archive-xcframeworks-ios-universal-video-default` 时）：
+      #     `error: Path 'nix/packages/mk-pkg-libplacebo/default.nix' in the repository
+      #      "/Users/runner/work/KPXX/KPXX/recipe" is not tracked by Git.
+      #      To make it visible to Nix, run: git -C "…/recipe" add -N "nix/packages/mk-pkg-libplacebo/default.nix"`
+      #   机制：**Nix 对 git flake 源只认"已跟踪"的文件**。本轮我们**新建**了
+      #     `nix/packages/mk-pkg-libplacebo/default.nix`（untracked）⇒ **eval 期就被拒**，编译根本没开始。
+      #     前几轮改写的是**已跟踪文件**（mk-pkg-mpv / mk-out-libs / packages.lock.nix），所以这个问题一直没暴露。
+      #   为什么用 `git add -A`，而不是"只 add 那一个文件"或 Nix 提示的 `-N`：
+      #     · Nix 只报**第一个** untracked 文件 ⇒ 以后再新增文件就会以"一轮炸一个"的方式白烧 CI；
+      #       `-A` 把"新建 + 修改"一次性全部纳入索引，堵死这一类。
+      #     · **不用 `-N`（intent-to-add）的原因**：`git add -N` 只登记**路径**，索引里的 blob 是**空的**；
+      #       而 `-A` 会把**真实内容**一并写进索引 ⇒ 不管 Nix 是从工作区还是从索引取内容，
+      #       拿到的都是真文件，不存在"读到空 blob"的歧义。
+      #       （这里是 CI 里对上游 v0.7.3 的**本地克隆**，暂存只影响本次运行、**不会推回上游** ⇒ `-A` 无副作用。）
+      #   ⚠️ 位置：必须在 Build（`nix develop -c make … nix build`）**之前**。
+      #   ⚠️ 诊断输出用 `sed -n '1,20p'` 而**不是** `| head -20`：`head` 会提前退出触发 SIGPIPE，
+      #      配合上面的 `set -o pipefail` 会把这一步判失败。
+      #   ⚠️ run 块内**一律 ASCII**（见最前面的 ASCII 自检步骤）：所以下面那句道歉式的
+      #      "防御 dubious ownership" 注释也写英文。
+      - name: 让 Nix 看得见新生成的文件（git add -A，必须在 nix build 之前）
+        run: |
+          set -euo pipefail
+          cd recipe
+          # defensive: git "dubious ownership" check for a nested repo; non-fatal on purpose
+          git config --global --add safe.directory "$PWD" || true
+          echo '--- recipe git status BEFORE add (first 20) ---'
+          git status --porcelain | sed -n '1,20p'
+          git add -A
+          echo '--- recipe git status AFTER add (first 20) ---'
+          git status --porcelain | sed -n '1,20p'
+          echo '--- new package file now known to the index ---'
+          git ls-files nix/packages/mk-pkg-libplacebo
+          echo '--- staged file list (first 20) ---'
+          git diff --cached --name-only | sed -n '1,20p'
+
       - name: Build（只编 target，不编全矩阵）
         if: ${{ !inputs.dry_run }}
         working-directory: recipe
