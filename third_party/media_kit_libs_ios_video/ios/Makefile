@@ -22,7 +22,9 @@ MPV_XCFRAMEWORKS_VERSION=libmpv-ios-0.41.0-ffmpeg7.1
 #     ② 那次 Release 的 notes 里 `sha256：` 那一行
 #   没替换的话，下面的 `shasum -a 256 -c` 会**当场校验失败**（这是故意的：宁可构建红掉，
 #   也不要静默用错包）。
-MPV_XCFRAMEWORKS_SHA256SUM=REPLACE_WITH_SHA256_FROM_build-libmpv-ios_workflow
+# ✅ 已回填（2026-10-12）：来源 = 自编 workflow run 38214484349 的日志
+#   `===== SHA256: eb31927e…54eb1 =====`（Release `libmpv-ios-0.41.0-ffmpeg7.1`，资产 21,001,770 B）
+MPV_XCFRAMEWORKS_SHA256SUM=eb31927e51099f558d130f418f731cfe3363d7d9edd5e0c735ddbcfa63554eb1
 
 .cache/xcframeworks/libmpv-xcframeworks-${MPV_XCFRAMEWORKS_VERSION}-ios-universal.tar.gz:
 	mkdir -p .cache/xcframeworks

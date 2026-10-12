@@ -31,4 +31,14 @@
 ///   · `[SRC] 分片速率 首字节=…ms 读满1MB=…ms 速率=…MB/s`（**读满 1MB 即掐断**，不下整片；
 ///     ⚠️ 分片忽略 `Range` ⇒ 远跳=整片重下，这就是 iOS 远跳 10s+ 的原因）
 ///   ⚠️ 以上**全部 `logConsole` 门控**（开关关 ⇒ 不插值、不打印、不发那次 1MB 测速请求 ✓）
-const String kAppVersion = '1.3.4';
+/// ★ 2026-10-12：**1.3.4 → 1.3.5**（**iOS 换上自编的 libmpv 0.41.0 + ffmpeg 7.1 + libplacebo 6.338.2**）：
+///   · 由来：官方 darwin 预编译天花板 = mpv 0.36.0 / ffmpeg 6.0；MPVKit 那套是 `Lib*` 名 + **静态库**
+///     （`DynamicLibrary.open('Mpv.framework/Mpv')` 加载不了）⇒ 只能自编，且**必须保留动态框架名 `Mpv`**
+///   · 产物：`libmpv-xcframeworks_libmpv-ios-0.41.0-ffmpeg7.1_ios-universal-video-default.tar.gz`
+///     （Release `libmpv-ios-0.41.0-ffmpeg7.1`，含 `Mpv.xcframework` + `Placebo.xcframework`）
+///   · 接入：`third_party/media_kit_libs_ios_video`（1.1.4 布局、**无 Package.swift** ⇒ 走 CocoaPods 的
+///     `system("make")`；**sha256 已回填**）+ `dependency_overrides` 指 path
+///   · 目的：验掉"手机端起播 6~7s / 远跳 10~19s"是否**旧库**所致（PC 同代码只用 2.6s / 3.5s）✓
+///   ⚠️ 本版 libplacebo 三个图形后端全关（vulkan 无 / d3d11 非 iOS / opengl 缺 glad 子模块）⇒
+///     若真机"能播但不出画"，解法是实体化 glad 打开 GL 后端（仍不降级）✓
+const String kAppVersion = '1.3.5';
