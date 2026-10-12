@@ -1,0 +1,246 @@
+name: Build libmpv iOS xcframework (self-built)
+
+# ★ 2026-10-12（用户拍板"直接 B，一步到位"）
+#   目的：自己编一份 iOS 用的 libmpv xcframework，**保留动态框架名 `Mpv`**（media_kit 硬编码要它：
+#     `media_kit/lib/src/player/native/core/native_library.dart` 里 iOS/macOS 的库名是
+#     `Mpv.framework/Mpv`，且走 `DynamicLibrary.open(...)` ⇒ 必须是【动态】框架）。
+#
+#   为什么不用现成的：
+#     · 官方 media-kit/libmpv-darwin-build 的预编译已到天花板：v0.6.0 / v0.7.2 / v0.7.3
+#       全是 `mpv 0.36.0` + `ffmpeg 6.0`（依据：各 tag 的 `packages.lock.nix` 原文）
+#     · mpvkit/MPVKit（活跃，mpv 0.41.0 / ffmpeg n9.0.2）不能用：框架名是 `Lib*`（不是 `Mpv`），
+#       且其 `Libmpv.xcframework` 内层是 `!<arch>` **静态归档**（实测 Mach-O 头），
+#       `DynamicLibrary.open` 加载不了；依赖族也与官方那套不同，无法混搭。
+#
+#   做法 = 复用官方**配方**（nix + patches），只升 ffmpeg / mpv 两个版本号 ⇒ 产物形态/命名与官方一致。
+#
+#   产物名（由官方 nix 公式决定，原文：`archiveBaseName = "libmpv-${format}_${version}_${os}-${arch}-${variant}-${flavor}"`）：
+#     `libmpv-xcframeworks_<VERSION>_ios-universal-video-default.tar.gz`
+#   ⚠️ `<VERSION>` 会**同时**用作 Release 的 tag 与资产文件名的一部分 ——
+#      因为下游 `third_party/media_kit_libs_ios_video/ios/Makefile` 的下载 URL 是手写的固定串。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本串：既进产物文件名，也当 Release tag（改这里要同步改 third_party 里的 Makefile URL）"
+        required: true
+        default: "libmpv-ios-0.41.0-ffmpeg7.1"
+      ffmpeg_version:
+        description: "FFmpeg 版本（对应 https://ffmpeg.org/releases/ffmpeg-<ver>.tar.xz）"
+        required: true
+        default: "7.1"
+      mpv_version:
+        description: "mpv 版本（不带 v 前缀，对应 https://github.com/mpv-player/mpv/archive/refs/tags/v<ver>.tar.gz）"
+        required: true
+        default: "0.41.0"
+      dry_run:
+        description: "只准备不构建（校验版本改行是否生效，不编、不发 Release）"
+        type: boolean
+        default: false
+
+# 发 Release 要写权限（与仓库现有的 ios.yml 同款做法）
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # 与官方 ci.yaml 一致：macos-15（arm64）。官方注释原文指向 macos-15-arm64 runner 说明
+    runs-on: macos-15
+    env:
+      VERSION: ${{ inputs.version }}
+      FFMPEG_VERSION: ${{ inputs.ffmpeg_version }}
+      MPV_VERSION: ${{ inputs.mpv_version }}
+      RECIPE_REPO: media-kit/libmpv-darwin-build
+      # 钉 tag（不用 main）：可复现。v0.7.3 = 2026-09-14，官方最新
+      RECIPE_REF: v0.7.3
+      # 只编 media_kit 需要的那一个目标（官方 Makefile 注释给的属性名格式：
+      #   `mk-out-archive-libs-macos-universal-video-default`）⇒ 不编全矩阵，省时间
+      TARGET: mk-out-archive-xcframeworks-ios-universal-video-default
+      ASSET_NAME: libmpv-xcframeworks_${{ inputs.version }}_ios-universal-video-default.tar.gz
+
+    steps:
+      - name: Platform info
+        run: |
+          printf "%-16s %s\n" "ProductName:"    "$(/usr/bin/sw_vers -productName)"
+          printf "%-16s %s\n" "ProductVersion:" "$(/usr/bin/sw_vers -productVersion)"
+          printf "%-16s %s\n" "Arch:"           "$(uname -m)"
+
+      - name: Checkout 官方配方（钉 tag）
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.RECIPE_REPO }}
+          ref: ${{ env.RECIPE_REF }}
+          path: recipe
+
+      # 与官方 ci.yaml 同款：DeterminateSystems 的 nix 安装器 + magic-nix-cache
+      - uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            sandbox = true
+            sandbox-fallback = false
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v13
+        with:
+          use-flakehub: false
+
+      - name: Nix version
+        run: nix --version
+
+      # ★ 只改 packages.lock.nix 里 ffmpeg / mpv 两段的 version + url + sha256（共 6 行）
+      #   sha256 官方**不给**（实测 https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz.sha256 → 404）
+      #     ⇒ 用 `nix-prefetch-url --type sha256 <url>` 现算（nix 接受 base32 形式的 sha256）
+      #   （mpv 走 GitHub tarball，更没有官方 sha，同样现算）
+      - name: 改版本 pin（ffmpeg / mpv）
+        run: |
+          set -euo pipefail
+          cd recipe
+          FF_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          MPV_URL="https://github.com/mpv-player/mpv/archive/refs/tags/v${MPV_VERSION}.tar.gz"
+          echo "ffmpeg url = $FF_URL"
+          echo "mpv    url = $MPV_URL"
+          FF_SHA=$(nix-prefetch-url --type sha256 "$FF_URL")
+          MPV_SHA=$(nix-prefetch-url --type sha256 "$MPV_URL")
+          echo "ffmpeg sha256(base32) = $FF_SHA"
+          echo "mpv    sha256(base32) = $MPV_SHA"
+          FF_VERSION="$FFMPEG_VERSION" MPV_VERSION="$MPV_VERSION" \
+          FF_URL="$FF_URL" MPV_URL="$MPV_URL" FF_SHA="$FF_SHA" MPV_SHA="$MPV_SHA" \
+          python3 - <<'PY'
+          import os, re, pathlib
+          p = pathlib.Path('packages.lock.nix')
+          s = p.read_text()
+          def patch_block(s, key, version, url, sha):
+              # 只在该属性的花括号块内替换 version / url / sha256 三行
+              pat = re.compile(r'(?ms)^(\s*' + key + r'\s*=\s*\{)(.*?)(^\s*\};)')
+              m = pat.search(s)
+              assert m, f'找不到 {key} 块'
+              body = m.group(2)
+              body2, n1 = re.subn(r'(?m)^\s*version\s*=\s*"[^"]*";', f'  version = "{version}";', body, count=1)
+              body2, n2 = re.subn(r'(?m)^\s*url\s*=\s*"[^"]*";',     f'  url = "{url}";',         body2, count=1)
+              body2, n3 = re.subn(r'(?m)^\s*sha256\s*=\s*"[^"]*";',  f'  sha256 = "{sha}";',      body2, count=1)
+              assert n1 == n2 == n3 == 1, f'{key}: 替换数 version={n1} url={n2} sha256={n3}'
+              return s[:m.start(2)] + body2 + s[m.end(2):]
+          s = patch_block(s, 'ffmpeg', os.environ['FF_VERSION'], os.environ['FF_URL'], os.environ['FF_SHA'])
+          s = patch_block(s, 'mpv',    os.environ['MPV_VERSION'], os.environ['MPV_URL'], os.environ['MPV_SHA'])
+          p.write_text(s)
+          print('--- 改后 ffmpeg / mpv 段 ---')
+          for key in ('ffmpeg', 'mpv'):
+              m = re.search(r'(?ms)^\s*' + key + r'\s*=\s*\{.*?^\s*\};', s)
+              print(m.group(0))
+          PY
+          # 自证：三处都必须是新版本（一处不对就当场失败）
+          grep -q "ffmpeg-${FFMPEG_VERSION}.tar.xz" packages.lock.nix
+          grep -q "tags/v${MPV_VERSION}.tar.gz"     packages.lock.nix
+          echo "✅ 版本 pin 已改"
+
+      # ★ patch 分流（triage）：升级 ffmpeg 6.0→7.x / mpv 0.36→0.41 后，某些 patch 的上下文
+      #   可能对不上。做法：
+      #     · `ffmpeg-fix-hls-mp4-seek.patch`（**用户最在意的 HLS fMP4 seek 修复**）⇒ **保持硬失败**，
+      #        打不上就让这轮构建红掉，绝不让它被静默丢掉
+      #     · 其余 patch ⇒ 改成"打不上就 WARN 继续"，这样一轮就能把"谁能打上"全摸清
+      #   （依据：官方把 4 条 ffmpeg patch 写在 `nix/packages/mk-pkg-ffmpeg/default.nix` 的
+      #     `patchedSource = pkgs.runCommand ... ''patch -p1 <...>''`，mpv 的在 `mk-pkg-mpv/default.nix`）
+      - name: patch 分流（非关键 patch 容忍失败，关键 patch 保持硬失败）
+        run: |
+          set -euo pipefail
+          cd recipe
+          python3 - <<'PY'
+          import pathlib, re
+          MANDATORY = 'ffmpeg-fix-hls-mp4-seek.patch'
+          files = ['nix/packages/mk-pkg-ffmpeg/default.nix', 'nix/packages/mk-pkg-mpv/default.nix']
+          line_re = re.compile(r'^(\s*)patch -p1 <(\$\{\.\./\.\./\.\./patches/([A-Za-z0-9_.\-]+)\})\s*$')
+          for f in files:
+              p = pathlib.Path(f)
+              out, wrapped, kept = [], [], []
+              for line in p.read_text().splitlines(keepends=True):
+                  m = line_re.match(line.rstrip('\n'))
+                  if m and m.group(3) != MANDATORY:
+                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "WARN-PATCH-FAILED: {m.group(3)}")\n')
+                      wrapped.append(m.group(3))
+                  else:
+                      out.append(line)
+                      if m: kept.append(m.group(3))
+              p.write_text(''.join(out))
+              print(f'{f}: 容忍={wrapped}  硬失败={kept}')
+          PY
+          echo '--- 改后 ffmpeg patch 段 ---'
+          sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-ffmpeg/default.nix | head -20
+          echo '--- 改后 mpv patch 段 ---'
+          sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-mpv/default.nix | head -20
+
+      - name: Xcode path
+        id: xcode_path
+        run: |
+          # 官方 ci.yaml 硬编码这个路径；macos-15 runner 上它存在。不存在就退回到当前选中的 Xcode
+          if [ -d /Applications/Xcode_16.1.0.app ]; then
+            XCODE_PATH=$(realpath /Applications/Xcode_16.1.0.app)
+          else
+            XCODE_PATH=$(dirname "$(dirname "$(xcode-select -p)")")
+          fi
+          "$XCODE_PATH/Contents/Developer/usr/bin/xcodebuild" -version
+          echo "xcode_path=$XCODE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build（只编 target，不编全矩阵）
+        if: ${{ !inputs.dry_run }}
+        working-directory: recipe
+        env:
+          XCODE_PATH: ${{ steps.xcode_path.outputs.xcode_path }}
+        run: |
+          nix develop -c make XCODE_PATH="$XCODE_PATH" VERSION="$VERSION" TARGET="$TARGET"
+
+      - name: 取产物 + 打 SHA256
+        if: ${{ !inputs.dry_run }}
+        id: asset
+        run: |
+          set -euo pipefail
+          cd recipe
+          ls -la result/ || true
+          # nix build 的 result 是指向 store 的符号链接，里面的 tar.gz 才是资产
+          ASSET=$(find -L result -maxdepth 1 -name "$ASSET_NAME" -print -quit)
+          if [ -z "$ASSET" ]; then
+            echo "::error::没找到产物 $ASSET_NAME —— result/ 里实际是："; find -L result -maxdepth 3 -name '*.tar.gz' || true; exit 1
+          fi
+          cp "$ASSET" .
+          BYTES=$(stat -f%z "./$ASSET_NAME")
+          SHA=$(shasum -a 256 "./$ASSET_NAME" | awk '{print $1}')
+          {
+            echo "### libmpv iOS 产物"
+            echo ""
+            echo "- 文件：\`$ASSET_NAME\`"
+            echo "- 字节：\`$BYTES\`"
+            echo "- sha256：\`$SHA\`"
+            echo ""
+            echo "把这个 sha256 回填到 \`third_party/media_kit_libs_ios_video/ios/Makefile\` 的 \`MPV_XCFRAMEWORKS_SHA256SUM\`。"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+          echo "asset_bytes=$BYTES" >> "$GITHUB_OUTPUT"
+          echo "asset_sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "===== SHA256: $SHA ====="
+
+      - name: Upload artifact（留一份，便于先手工核对再发 Release）
+        if: ${{ !inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-ios-xcframework
+          if-no-files-found: error
+          path: recipe/${{ steps.asset.outputs.asset_name }}
+
+      # 与仓库现有 ios.yml 同款：用 gh 发，不引第三方 action
+      # ⚠️ 必须显式 -R "${{ github.repository }}"：本步骤 cwd 在 `recipe/`（官方配方那个仓库），
+      #    不指定的话 gh 会把 Release 发到 media-kit/libmpv-darwin-build 去（我们没有写权限 ⇒ 必失败）
+      - name: 发到 Releases（tag = 版本串）
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd recipe
+          gh release create "$VERSION" "${{ steps.asset.outputs.asset_name }}" \
+            -R "${{ github.repository }}" \
+            --title "$VERSION" \
+            --notes "自编 libmpv iOS xcframework（mpv $MPV_VERSION / ffmpeg $FFMPEG_VERSION，动态 \`Mpv\`）
+          产物：\`${{ steps.asset.outputs.asset_name }}\`
+          字节：\`${{ steps.asset.outputs.asset_bytes }}\`
+          sha256：\`${{ steps.asset.outputs.asset_sha256 }}\`
+          配方：$RECIPE_REPO @ $RECIPE_REF（只改 packages.lock.nix 的 ffmpeg/mpv 版本）"
+          echo "已发布 Release: $VERSION"

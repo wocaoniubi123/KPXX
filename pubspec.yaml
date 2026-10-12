@@ -111,11 +111,27 @@ dev_dependencies:
 #   ⚠️ 回滚 = **删掉下面整段 `dependency_overrides`** + `flutter pub get` ⇒ 回到 1.1.4 / v0.6.0 ✓
 #      （改前备份：`%TEMP%\kpxx_ios_libs_backup\`；`pubspec.yaml` sha256 `ba949d98fda1395d8f6a1a42617e8cf7d1f5e81efc22c52394260e67d86368b2`）
 dependency_overrides:
+  # ★ 2026-10-12（用户拍板"直接 B，一步到位"）：改成 vendor 进**本仓库**的那份
+  #   （`third_party/media_kit_libs_ios_video/`），不再指 media-kit 的 git。
+  #
+  #   为什么弃用上面那条 git override（media-kit@`2e35dbde`）🛢️：
+  #     那份带 `ios/media_kit_libs_ios_video/Package.swift` ⇒ Flutter 把它判成"**支持 SPM**"
+  #     （实证：失败 run 38175637422 的"不支持 SPM 插件"清单里**唯独少了它**，成功那轮有 6 项含它）
+  #     ⇒ 不再走 CocoaPods 路径 ⇒ podspec 里那句 `system("make")`（**唯一**负责产出
+  #     `ios/Frameworks/Mpv.xcframework` 的步骤）不执行 ⇒ 归档链接期
+  #     `Error (Xcode): Framework 'Mpv' not found`。
+  #
+  #   vendor 那份 = 上游 1.1.4 的**老布局**（`ios/Classes/**` + 老式 podspec，**故意没有
+  #     `Package.swift`**），只有 `ios/Makefile` 的下载地址指向**我们自己 Release 的自编产物**
+  #     （保留**动态** `Mpv` 框架名；目标 mpv 0.41.0 / ffmpeg 7.x —— 官方预编译停在
+  #      mpv 0.36/ffmpeg 6.0，MPVKit 是 `Libmpv` + 静态库，两者都用不了）。
+  #   ⚠️ 自编产物由 `.github/workflows/build-libmpv-ios.yml` 产出；它的 sha256 **必须**回填进
+  #      `third_party/media_kit_libs_ios_video/ios/Makefile` 的 `MPV_XCFRAMEWORKS_SHA256SUM`
+  #      （现在还是占位值 ⇒ 没回填的话 iOS 构建会**故意**在 shasum 校验那一步红掉）。
+  #   ⚠️ 回滚 = **删掉下面整段 `dependency_overrides`** + `flutter pub get`
+  #      ⇒ 回到 pub.dev 的 1.1.4（mpv 0.36.0 / ffmpeg 6.0，但能编过）
   media_kit_libs_ios_video:
-    git:
-      url: https://github.com/media-kit/media-kit.git
-      ref: 2e35dbde9fd10bde0a63efa83868c07f5898ffb5
-      path: libs/ios/media_kit_libs_ios_video
+    path: third_party/media_kit_libs_ios_video
 
 flutter:
   uses-material-design: true

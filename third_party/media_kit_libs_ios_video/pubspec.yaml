@@ -1,0 +1,52 @@
+name: media_kit_libs_ios_video
+description: iOS package providing video (& audio) native libraries for package:media_kit.
+version: 1.1.5
+homepage: https://github.com/media-kit/media-kit.git
+repository: https://github.com/media-kit/media-kit.git
+
+# ★ 2026-10-12（用户拍板"直接 B，一步到位"）：这份是 **fork 进本仓库** 的副本
+#   来源 = pub.dev `media_kit_libs_ios_video 1.1.4` 的**布局**（`ios/Classes/**` + `ios/Makefile` +
+#   老式 podspec），**故意不带 `Package.swift`**：
+#   🛢️ 带 `Package.swift` ⇒ Flutter 把它判成"支持 SPM" ⇒ 走 SPM 集成 ⇒ podspec 的
+#      `system("make")` 不再执行 ⇒ `ios/Frameworks/*.xcframework` 不生成 ⇒ 链接期
+#      `Error (Xcode): Framework 'Mpv' not found`（run 38175637422 的实测症状）。
+#   ⚠️ 唯一与上游 1.1.4 不同的地方在 `ios/Makefile`：下载地址改成**我们自己 Release 的资产**
+#      （自编、保留动态 `Mpv` 框架名、mpv 0.41.0 / ffmpeg 7.x）。
+#
+# environment:
+#   sdk: ">=2.17.0 <4.0.0"
+#   flutter: ">=3.0.0"
+
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+  # This section identifies this Flutter project as a plugin project.
+  # The 'pluginClass' specifies the class (in Java, Kotlin, Swift, Objective-C, etc.)
+  # which should be registered in the plugin registry. This is required for
+  # using method channels.
+  # The Android 'package' specifies package in which the registered class is.
+  # This is required for using method channels.
+  # The 'ffiPlugin' specifies that native code should be built and bundled.
+  # This is required for using `dart:ffi`.
+  # All these are used by the tooling to maintain consistency when
+  # adding or updating assets for this project.
+  plugin:
+    platforms:
+      ios:
+        pluginClass: MediaKitLibsIosVideoPlugin
