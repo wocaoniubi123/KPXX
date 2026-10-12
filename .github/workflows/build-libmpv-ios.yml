@@ -520,6 +520,31 @@ jobs:
               print('  %s [%d]:' % (gname, len(opts)))
               for k, v in opts:
                   print('    -D%s=%s' % (k, v))
+
+          # ---- fix: make the recipe's iOS option groups apply to the iOS SIMULATOR slice too ----
+          # Recipe original (mk-pkg-mpv/default.nix L247-257) appends IOS_OPTIONS/IOS_VIDEO_OPTIONS
+          # only under `elif [ "${os}" == "${oses.ios}" ]`, but nix/utils/constants/oses.nix defines
+          #   { macos = "macos"; ios = "ios"; iossimulator = "iossimulator"; }
+          # so `iossimulator` is a DISTINCT value and the iossimulator slice never gets those groups:
+          #   - audiounit / ios-gl stayed at their DISABLE_ALL_OPTIONS value (disabled) -> no iOS audio
+          #   - avfoundation was never passed -> default 'auto' -> ENABLED -> audio/out/ao_avfoundation.m
+          #     gets compiled -> uses APIs marked API_UNAVAILABLE(ios) -> build fails
+          # We extend the branch condition instead of duplicating values into DISABLE_ALL_OPTIONS:
+          # that keeps every option passed exactly once per *effective* group (macOS untouched) and
+          # lets the proven DISABLE_ALL -> COMMON/IOS override order do its job (see the preflight
+          # step: meson takes the LAST -D for a repeated option; CI proved it with `gl : enabled`).
+          lines2 = pathlib.Path(P).read_text().splitlines(keepends=True)
+          hit = [i for i, ln in enumerate(lines2) if 'oses.ios' in ln and 'oses.macos' not in ln]
+          assert len(hit) == 1, 'expected exactly 1 line testing oses.ios, got %d' % len(hit)
+          if 'oses.iossimulator' in lines2[hit[0]]:
+              print('iOS branch already covers iossimulator, nothing to do')
+          else:
+              old = '[ "${os}" == "${oses.ios}" ]'
+              assert old in lines2[hit[0]], 'unexpected branch form: %r' % lines2[hit[0]]
+              lines2[hit[0]] = lines2[hit[0]].replace(
+                  old, old + ' || [ "${os}" == "${oses.iossimulator}" ]')
+              pathlib.Path(P).write_text(''.join(lines2))
+              print('iOS branch extended to iossimulator: %s' % lines2[hit[0]].strip())
           PY
 
       # ★ 2026-10-12 第五版：B 方案 —— 给配方补 libplacebo 依赖（用户拍板"全部要最新的"）
@@ -882,6 +907,61 @@ jobs:
           if ff_bad:
               sys.exit('FAIL: ffmpeg option(s) not declared in the recipe meson.options: ' + ', '.join(ff_bad))
           print('  OK: every ffmpeg -D option is declared in the recipe meson.options')
+          PY
+
+      # ★ 先验护栏 2：模拟配方的选项拼装，断言 iOS 目标最终真的拿到必需项（秒级失败）
+      #   背景 🛢️（run 38213223214）：我们打印的 IOS_OPTIONS 是对的，但 meson 的
+      #   "User defined options" 里 `audounit : disabled` / `ios-gl : disabled` / 没有 avfoundation
+      #   ⇒ 因为配方（L247-257）只在 `os == oses.ios` 时追加 IOS_*，而 iossimulator 是独立取值。
+      #   本步骤按配方的拼装顺序"模拟算出"iOS target 的最终 -D 列表并断言必需项。
+      #   关于"重复 -D"：**本配方是故意用重复覆盖的**（DISABLE_ALL 先关、COMMON/IOS 后开），
+      #   meson 取**最后一个** —— CI 实测证据：DISABLE_ALL 里 `gl=disabled`，而 User defined options
+      #   最终是 `gl : enabled`（COMMON_VIDEO 的值）✅。所以这里断言的是"**按顺序解析后的最终值**"，
+      #   并把所有"被覆盖过的选项"打印出来供人工复核；不是简单地禁止重复（那会误报配方自身的设计）。
+      - name: 先验：iOS 目标的最终 -D 列表（必需项 + 覆盖关系）
+        run: |
+          set -euo pipefail
+          cd recipe
+          python3 - <<'PY'
+          import pathlib, re, sys
+          P = pathlib.Path('nix/packages/mk-pkg-mpv/default.nix')
+          txt = P.read_text()
+          def group(name):
+              m = re.search(r'(?ms)^\s*' + name + r'=\((.*?)^\s*\)', txt)
+              assert m, 'array %s not found in %s' % (name, P)
+              return re.findall(r'-D([A-Za-z0-9_-]+)=([^ `\n]*)', m.group(1))
+          G = {n: group(n) for n in ['DISABLE_ALL_OPTIONS', 'COMMON_OPTIONS', 'COMMON_VIDEO_OPTIONS',
+                                     'MACOS_OPTIONS', 'MACOS_VIDEO_OPTIONS', 'IOS_OPTIONS', 'IOS_VIDEO_OPTIONS']}
+          # structural check: the branch must cover BOTH ios and iossimulator
+          bl = [ln for ln in txt.splitlines() if 'oses.ios' in ln and 'oses.macos' not in ln]
+          assert len(bl) == 1, 'expected 1 line testing oses.ios, got %d' % len(bl)
+          if 'oses.iossimulator' not in bl[0]:
+              sys.exit('FAIL: iOS branch does not cover iossimulator -> IOS_*/IOS_VIDEO_* would NOT be '
+                       'passed to the iossimulator slice (branch: %s)' % bl[0].strip())
+          # simulate the recipe assembly for os=iossimulator, variant=video:
+          #   DISABLE_ALL + COMMON + COMMON_VIDEO + IOS_OPTIONS + IOS_VIDEO_OPTIONS
+          final = (G['DISABLE_ALL_OPTIONS'] + G['COMMON_OPTIONS'] + G['COMMON_VIDEO_OPTIONS']
+                   + G['IOS_OPTIONS'] + G['IOS_VIDEO_OPTIONS'])
+          resolved, overridden = {}, []
+          for k, v in final:
+              if k in resolved and resolved[k] != v:
+                  overridden.append('%s: %s -> %s' % (k, resolved[k], v))
+              resolved[k] = v
+          print('final effective -D list for os=iossimulator variant=video (%d passed, %d unique):'
+                % (len(final), len(resolved)))
+          for k, v in final:
+              print('  -D%s=%s' % (k, v))
+          print('overridden options (DISABLE_ALL first, later group wins): %d' % len(overridden))
+          for o in overridden:
+              print('  ' + o)
+          required = {'audiounit': 'enabled', 'avfoundation': 'disabled', 'ios-gl': 'enabled',
+                      'gl': 'enabled', 'plain-gl': 'enabled', 'libmpv': 'true'}
+          bad = ['%s=%s expected %s' % (k, resolved.get(k, '(absent)'), v)
+                 for k, v in required.items() if resolved.get(k) != v]
+          if bad:
+              sys.exit('FAIL: required iOS options not effective: ' + '; '.join(bad))
+          print('  OK: required iOS options are effective (%s)'
+                % ', '.join('%s=%s' % (k, v) for k, v in required.items()))
           PY
 
       - name: Xcode path
