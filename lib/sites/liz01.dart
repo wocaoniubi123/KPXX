@@ -136,12 +136,6 @@ class Liz01Site extends SiteUi {
     MapEntry('like', '点赞最多'),
   ];
 
-  /// topic 的 `tab` ⇒ `drama/list` 的 `sort`（选了子分类时用 ✅）
-  ///   ⚠️ `random`（随机推荐）在 `drama/list` 上**没有实测值** ☑️ ⇒ 返回空 ⇒ **不传该参数**
-  ///      （= 默认序；**不猜** ✅ 与"照实"口径一致 ✅）
-  static String sortOfTopicTab(String tab) =>
-      switch (tab) { 'new' => 'latest', 'hot' || 'fav' || 'like' => tab, _ => '' };
-
   // ===== ★ 2026-10-12 分类快照（**来源 = 2026-10-12 recon-5 逐节点实测 108 个**）=====
   //
   // 【地址形态（🛢️ 实测）】`GET /category?categoryId=<id>` ⇒ 200 + 真卡；
@@ -230,22 +224,6 @@ class Liz01Site extends SiteUi {
       ]),
     ]),
   ];
-
-  /// 三级题材（**卡数 ≥3 的那 14 个** ✅；括号里是 recon-5 实测卡数）
-  /// ⚠️ 按**通道 id 段**分侧（原创 3xx / 精选 4xx —— recon 给的分段 ✅）⇒ 该层归属是 🔍 推断 ✅
-  static const List<LzCat> kThemes = [
-    LzCat(390, '都市(34)'), LzCat(391, '商战(3)'), LzCat(395, '动作(4)'),
-    LzCat(397, '现言(10)'), LzCat(399, '甜宠(39)'), LzCat(400, '青春(5)'),
-    LzCat(402, '家庭(10)'), LzCat(408, '古装(5)'), LzCat(415, '玄幻(4)'),
-    LzCat(416, '仙侠(3)'),
-    LzCat(438, '都市(3)'), LzCat(450, '家庭(10)'), LzCat(454, '男同(8)'),
-    LzCat(477, '都市(3)'),
-  ];
-
-  /// 某通道下的三级题材（按 id 段分 ✅）
-  static List<LzCat> themesOf(int channelIndex) => kThemes
-      .where((t) => channelIndex == 0 ? t.id < 400 : t.id >= 400)
-      .toList();
 
   @override
   bool get relatedAsGrid => true;
@@ -786,36 +764,6 @@ class Liz01Site extends SiteUi {
       debugPrint('[LIST] ${_f.site.name} 入口=$entry ⇒ blob 里没有 page 口袋 ⇒ 0 条');
     }
     return null;
-  }
-
-  /// 分类列表（**query 式** ✅）：`/category?categoryId=<id>`；
-  ///   `page > 1` ⇒ `/category/page/<n>/?categoryId=<id>` ✅（⚠️ `?…&page=` **无效** ☠ 实测）
-  Future<({List<Article> items, int total, bool hasMore})> categoryItems(
-      int categoryId, int page, String entry) async {
-    final sw = Stopwatch()..start();
-    final p = page <= 1
-        ? '/category?categoryId=$categoryId'
-        : '/category/page/$page/?categoryId=$categoryId';
-    try {
-      final html = await _f.text(p);
-      final a = _nuxt(html);
-      if (a == null) return (items: const <Article>[], total: 0, hasMore: false);
-      final bag = _pageBag(a, '$entry 页=$page id=$categoryId');
-      // ★ 首屏（页 1）同步解好封面（max=4 ≈1.3s ✅）；翻页仍异步 + tick 重建 ✅
-      if (page <= 1 && bag != null) {
-        await warmCoversSync(bag.items, max: 4);
-      }
-      if (AppSettings.i.logConsole) {
-        debugPrint('[LIST] ${_f.site.name} 入口=$entry 页=$page 路径=$p '
-            'ms=${sw.elapsedMilliseconds}');
-      }
-      return bag ?? (items: const <Article>[], total: 0, hasMore: false);
-    } catch (e) {
-      if (AppSettings.i.logConsole) {
-        debugPrint('[LIST] ${_f.site.name} 入口=$entry id=$categoryId 异常：$e');
-      }
-      return (items: const <Article>[], total: 0, hasMore: false);
-    }
   }
 
   // ===== ★ 2026-10-12 排行榜取数（🛢️ 卡结构与首页**不同**：`{rankNo, drama{…}, …}` ✅）=====
