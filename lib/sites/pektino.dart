@@ -328,6 +328,7 @@ const SiteEntry kSite08 = SiteEntry(
     name: 'Pektino',
     template: SiteTemplate.pektino,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/pektino.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['pektino.com'],
     // 主分类（顶部导航）**只有 4 个**：每日 / 每周 / 每月 / 所有时间
     //（站点还有个"收藏"页，要登录，未接）。

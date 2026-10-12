@@ -1640,6 +1640,7 @@ const SiteEntry kSite15 = SiteEntry(
   name: '野果短剧',
   template: SiteTemplate.yeguodj,
   iconUrl: '/favicon.ico',
+  assetIcon: 'assets/site_icons/yeguodj.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
   hosts: ['yeguodj.com'],
   portraitCovers: true, // 封面 3:4 竖图 ✅
   // 仅"首字色块"兜底用（有 iconUrl 时用不到 ✅）

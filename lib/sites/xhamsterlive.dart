@@ -1268,5 +1268,6 @@ const SiteEntry kSiteLive = SiteEntry(
   group: SiteGroup.live,
   hosts: ['zh.xhamsterlive.com'],
   iconUrl: '/favicon.ico', // 实测 200（image/png 1861B ✓）
+  assetIcon: 'assets/site_icons/xhamsterlive.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
   color: Color(0xFFE03131),
 );

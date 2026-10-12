@@ -225,6 +225,7 @@ const SiteEntry kSite11 = SiteEntry(
     name: '快猫',
     template: SiteTemplate.kmsvip,
     iconUrl: '/pc/favicon.ico',
+    assetIcon: 'assets/site_icons/kmsvip.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['kmsvip.xyz'],
     portraitCovers: true,
     categories: [

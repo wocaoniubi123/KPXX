@@ -765,6 +765,7 @@ const SiteEntry kSite13 = SiteEntry(
     name: 'Pornhub',
     template: SiteTemplate.pornhub,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/pornhub.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['cn.pornhub.com'],
     categories: [
       SiteTab('/', '首页'),

@@ -515,6 +515,7 @@ const SiteEntry kSite02 = SiteEntry(
     name: '每日大赛',
     template: SiteTemplate.wordpress,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/mrds.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['www.mrds66.com'],
     categories: [
       SiteTab('mrds', '每日大赛'),
@@ -546,6 +547,7 @@ const SiteEntry kSite03 = SiteEntry(
     name: '91吃瓜',
     template: SiteTemplate.wordpress,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/91chigua.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     // 2026-09-29 实测：/category/zxcghl/ 会 302 到 www.91cg1.com 后返回 30 篇文章（同模板站）
     hosts: ['91cg1.com', 'www.91cg1.com'],
     categories: [
@@ -581,6 +583,7 @@ const SiteEntry kSite04 = SiteEntry(
     name: '911爆料网',
     template: SiteTemplate.wordpress,
     iconUrl: '/favicon-v4.ico',
+    assetIcon: 'assets/site_icons/911bl.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     // 2026-09-29 实测：/category/jrgb/ 会跳到 CloudFront 域名后返回 52 篇文章（同模板站）
     hosts: ['911bl.com', 'd3gn4v6ng8b20o.cloudfront.net'],
     categories: [
@@ -619,6 +622,7 @@ const SiteEntry kSite05 = SiteEntry(
     name: '51fans',
     template: SiteTemplate.wordpress, // 同 WordPress 系（/category/{slug}/ + DPlayer），解析器兼容其卡片结构
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/51fans.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['51fans1.com'],
     // 顺序 = 站点导航（#navbar 里的「全部分类」组）原顺序，别自己排：
     // 51fans首页、51fans热门、今日更新、我的订阅、网黄精选、国产专栏、原创投稿、

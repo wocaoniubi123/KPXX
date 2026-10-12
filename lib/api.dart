@@ -20,7 +20,7 @@ import 'sites/madou.dart';
 import 'sites/wordpress.dart';
 import 'sites/xhamster.dart';
 import 'sites/yeguodj.dart';
-import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅）
+import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（自管整页 ✅）
 import 'sites.dart';
 
 /// 站点抓取层。按 [SiteEntry.template] 分派到各站模板的解析规则：
@@ -100,9 +100,8 @@ class Api {
         // 野果短剧（2026-10-08 ✅）：**自管整页**（三主 tab / 分区行 / 5 组筛选在站点文件里 ✅）；
         // 详情走本站解析 ✅（`YeguoSite.detail` ✅），通用详情页照常 ✅
         SiteTemplate.yeguodj => _ygSite,
-        // 柚子短剧（2026-10-11 ✅）：**自管整页**（首页 / 剧库 两 tab 在站点文件里 ✅）；
-        // 详情走本站解析 ✅（`YouziSite.detail` ✅ —— 含每集现取的播放凭证 ✅），通用详情页照常 ✅
-        SiteTemplate.youzidj => _yzSite,
+        // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（首页分区行在站点文件里 ✅）
+        SiteTemplate.liz01 => _lzSite,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
@@ -140,8 +139,8 @@ class Api {
   /// 野果短剧 **本站专属实现**（2026-10-08 ✅）—— 同一份取数底座 `_f` ✅
   late final YeguoSite _ygSite = YeguoSite(_f);
 
-  /// 柚子短剧 **本站专属实现**（2026-10-11 ✅）—— 同一份取数底座 `_f` ✅
-  late final YouziSite _yzSite = YouziSite(_f);
+  /// 荔枝短剧 **本站专属实现**（2026-10-12 ✅，自管整页）—— 同一份取数底座 `_f` ✅
+  late final Liz01Site _lzSite = Liz01Site(_f);
 
   /// 切回「短片」tab 时让下一次取数重新随机（`home_page` 会调 ✓；原方法随段搬去了 XhSite ✗）
 

@@ -410,6 +410,7 @@ const SiteEntry kSite10 = SiteEntry(
     iconUrl:
         'https://assets-cdn77.xvideos-cdn.com/v3/img/skins/default/logo/xv.white.32.png',
     hosts: ['www.xvideos.com'],
+    assetIcon: 'assets/site_icons/xvideos.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     // 主分类 = **站点顶部导航**（照站点中文版）：最佳影片 / 分类 / 頻道 / 色情明星。
     // 其余导航项经核对不上：「RED 视频」是外站(xvideos.red 付费网站)、
     // 「现场直播摄影机/约会/女友/遊戲」是 zline0 广告外链、「簡介」(/profileslist)

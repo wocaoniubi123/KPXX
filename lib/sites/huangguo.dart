@@ -598,6 +598,7 @@ const SiteEntry kSite06 = SiteEntry(
     name: '黄果短剧',
     template: SiteTemplate.huangguo,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/huangguo.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['huangguoai.com'],
     // 封面是 3:4 竖图
     portraitCovers: true,

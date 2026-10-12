@@ -314,7 +314,23 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   Duration? _resumeFrom() {
     try {
       final r = PlayHistory.i.find(widget.site.name, widget.baseUrl);
-      if (r == null || r.position <= Duration.zero) return null;
+      if (r == null || r.position <= Duration.zero) {
+        // ★ 2026-10-12（**用户口径 · 分级读取** ✅）：播放记录没有 ⇒ **回落到收藏自己那份进度** ——
+        //   用户原话："如果有收藏就存 2 份，播放记录一份，收藏一份。省得冲突，记录进度的时候判断一下
+        //   这个视频有没有进收藏" ⇒ 删掉播放记录后收藏里**仍显示进度**，那点进去就必须**续播到那个位置**
+        //   （否则又回到"显示有进度、播却从 0"的不一致 ☠）。
+        //   实现：`Favorites.i.find`（`favorites.dart:150` 新增的**只读**取法 ✅）
+        //   · 判据用收藏自己的 `hasProgress`（= `duration > 0`，`favorites.dart:66` ✅）——
+        //     老收藏（没有 `'p'/'d'` 字段）⇒ false ⇒ 不续 ✅（旧数据兼容，绝不崩 ✅）；
+        //   · "不能续"的两条与记录那条**同口径**：位置为 0 ⇒ 不续；**只剩 ≤5 秒** ⇒ 不续 ✅
+        //     （收藏没有 `finished` 字段 ⇒ 用 5 秒阈值兜 ☑️）。
+        final f = Favorites.i.find(widget.site.name, widget.baseUrl);
+        if (f == null || !f.hasProgress || f.position <= Duration.zero) {
+          return null;
+        }
+        if ((f.duration - f.position) <= const Duration(seconds: 5)) return null;
+        return f.position;
+      }
       if (r.finished) return null;
       if (r.duration > Duration.zero &&
           (r.duration - r.position) <= const Duration(seconds: 5)) {
@@ -552,7 +568,12 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       // 集号来自 PlayRecord.videoIndex ✓（和 d.videos 同一套下标 ✓，建 switcher 时就应用 → **不会闪第 1 集** ✓）。
       final wantIdx = widget.initialVideoIndex > 0
           ? widget.initialVideoIndex
-          : (PlayHistory.i.find(widget.site.name, widget.baseUrl)?.videoIndex ?? 0);
+          : (PlayHistory.i.find(widget.site.name, widget.baseUrl)?.videoIndex ??
+              // ★ 2026-10-12（**同一套分级读取** ✅）：播放记录没有 ⇒ 回落到**收藏自己那份**集号 ——
+              //   必须与 `_resumeFrom()` 成对：位置取自收藏时，集号也得取自同一条，
+              //   否则会"位置是第 3 集的、却从第 1 集开始播" ☠。
+              Favorites.i.find(widget.site.name, widget.baseUrl)?.videoIndex ??
+              0);
       if (wantIdx > 0 && wantIdx < d.videos.length) {
         sw.index.value = wantIdx;
       }

@@ -45,6 +45,14 @@ class FavoritesPage extends StatelessWidget {
         ],
       ),
       body: ListenableBuilder(
+        // ★ 2026-10-12（**用户最终口径** ✅）：收藏页**只**监听收藏自己 ——
+        //   "如果有收藏就存 2 份，播放记录一份，收藏一份。省得冲突，记录进度的时候判断一下
+        //    这个视频有没有进收藏" ⇒ 收藏那份**独立于播放记录**：**删掉播放记录也不清它** ✅
+        //   （所以这里**不合并监听 `PlayHistory.i`** —— 那是本轮先按"单一真源"做过、随后按用户口径
+        //     **回退**掉的做法 ☑️）。
+        //   两处保持一致的时机 = **写进度那一次**（`detail_page.dart:472` `Favorites.i.touch(...)`，
+        //   与 `PlayHistory.i.touch` 同一处、同一份 pos/dur ✅）；
+        //   续播的**分级读取**在详情页：`_resumeFrom()` / `wantIdx`（记录没有 ⇒ 用收藏那份 ✅）。
         listenable: Favorites.i,
         builder: (context, _) {
           final list = Favorites.i.items; // 最近观看降序（判据在 favorites.dart 的 _byRecency ✅）
@@ -63,8 +71,15 @@ class FavoritesPage extends StatelessWidget {
             // ★ 甲方案：行布局与播放记录**同一个** MediaRow（样式只此一份 ✅）
             itemBuilder: (context, i) {
               final it = list[i];
-              // ★ 2026-10-10：有进度数据才画进度（老收藏 / 还没播过的 ⇒ false，
-              //   行的样子与加进度之前**完全一致** ✅ —— 显示规范：缺则隐藏）
+              // ★ 2026-10-12（**用户最终口径** ✅ · 回退本轮先做的"单一真源"那版）：
+              //   进度读**收藏自己那份快照**（`'p'/'d'` 字段，`favorites.dart:35-36/58-66` ✅）——
+              //   用户原话："如果有收藏就存 2 份…记录进度的时候判断一下这个视频有没有进收藏"
+              //   ⇒ **两处各存一份、写进度时同步**（同步点 = `detail_page.dart:472` `Favorites.i.touch`，
+              //     只更新已存在的收藏、绝不新建/删除 ✅）；
+              //   ⇒ **删掉播放记录时不动收藏这份** ⇒ 收藏页**继续显示进度**（用户要的 ✅），
+              //     而点进去**也能续播到同一位置**（详情页 `_resumeFrom()` 的分级读取 ✅）
+              //     ⇒ 显示与行为**一致** ✅。
+              //   ⚠️ 老收藏（没有 `'p'/'d'`）⇒ `hasProgress = false` ⇒ 不画进度、不显示"已看 …" ✅（旧数据兼容 ✅）。
               final hasProg = it.hasProgress;
               return MediaRow(
                 key: ValueKey(it.key), // 稳定身份：增删一条时别把整列封面重挂载
@@ -73,8 +88,9 @@ class FavoritesPage extends StatelessWidget {
                 // ★ 2026-10-10（用户要求 ✅）：进度条 + 进度小字 —— 与播放记录行用
                 //   **同一个** `playProgressBar` / `playProgressText` ⇒ 外观格式逐项一致 ✅
                 //   （含 `已看 47% · 1:26 / 3:01` ✅）。
-                //   ⚠️ 数据来自**收藏自己**（`it.position` / `it.duration` ☠ 不跨读 PlayHistory）
-                //      ⇒ 用户验收口径："删掉播放记录后，收藏里的进度依然显示" ✅
+                //   ⚠️ 数据来自**收藏自己那份快照**（`it.position` / `it.duration` ✅ —— 口径见上面
+                //      itemBuilder 开头那段 2026-10-12 的说明）⇒ **删掉播放记录后这里照样显示进度** ✅
+                //      （用户要的效果）—— 详情页会用 `_resumeFrom()` 的分级读取**续播到同一位置** ✅。
                 //   ☑️ 收藏没有 finished 字段 ⇒ 恒传 false（进度条恒橙、不标"已看完"）
                 progress: hasProg
                     ? playProgressBar(value: it.progress, finished: false)

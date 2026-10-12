@@ -7,10 +7,11 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'favorites.dart';
 import 'favorites_page.dart';
-import 'fetched_image.dart';
 import 'home_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
+// ★ 2026-10-12（用户新需求 ✅）：站点管理页 + **站点展示清单的唯一读取口** `visibleSitesOf` ✅
+import 'site_admin.dart';
 import 'site_error_log.dart'; // ★ 接管里写日志用它 ✓（日志页读的就是同一记录器 ⇒ 自动可见 ✓）
 import 'sites.dart';
 import 'sites/xhamsterlive.dart';
@@ -221,7 +222,32 @@ class _RootPageState extends State<RootPage> {
           SettingsPage(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
+      bottomNavigationBar: GestureDetector(
+        // ★ 2026-10-12（**用户口径 · 最终** ✅）：**长按底栏「设置」tab ⇒ 进「站点管理」** ——
+        //   用户原话："底栏tab长按点播进入站点管理界面…" ⇒ **当日更正**：长按的是**「设置」**那一格
+        //   （**不是**「点播」；本处**只保留这一个入口** ☑️ 点播那边没有任何长按逻辑 ✅）。
+        //   实现要点：
+        //   ① `BottomNavigationBar` 本身**没有长按回调** ⇒ 在它**外面**套一层只申明"长按"的手势层：
+        //      只注册 `onLongPressStart` ⇒ **单击仍由底栏自己的 `onTap` 处理，原行为一字不变** ✅
+        //      （单击/长按是两套手势识别器，由手势竞技场分流 ☑️）。
+        //   ② 只有按下的点落在**第 4 格「设置」**里才进管理页（宽度按 `items.length` 等分判断 ✅
+        //      —— 四格：点播(0)/直播(1)/收藏(2)/设置(3)）；其余三格**长按什么都不做** ✅。
+        behavior: HitTestBehavior.translucent,
+        onLongPressStart: (d) {
+          const n = 4; // 底栏格数（点播/直播/收藏/设置 ✅）
+          const settingsSlot = 3; // 第 4 格 = 「设置」（0 起）
+          final w = MediaQuery.sizeOf(context).width;
+          final i = (d.globalPosition.dx / (w / n)).floor();
+          if (i != settingsSlot) return; // 只有「设置」那一格能进站点管理 ✅
+          if (AppSettings.i.logConsole) {
+            debugPrint('[SITE] 长按底栏「设置」⇒ 进站点管理');
+          }
+          Navigator.of(context).push(MaterialPageRoute(
+            settings: const RouteSettings(name: '站点管理'),
+            builder: (_) => const PageBg(child: SiteManagePage()),
+          ));
+        },
+        child: BottomNavigationBar(
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
         type: BottomNavigationBarType.fixed,
@@ -252,6 +278,7 @@ class _RootPageState extends State<RootPage> {
             label: '设置',
           ),
         ],
+        ),
       ),
     );
   }
@@ -275,14 +302,20 @@ class ModuleGridPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 同上：宫格图标名读 kTxt，整页要跟着背景明暗重建
+    // ★ 2026-10-12（用户新需求 ✅）：**同时监听 `AppSettings.i`** —— 站点管理里改开关/拖动顺序
+    //   ⇒ 这一页**立刻**增减/重排（顺序与过滤在 `_grid` 里现算 ✅；`Listenable.merge` 同款用法见
+    //   `detail_page.dart` 的 `Listenable.merge([AppBg.i, …])` ✅）。单击行为一字未动 ✅。
     return ListenableBuilder(
-      listenable: AppBg.i,
+      listenable: Listenable.merge([AppBg.i, AppSettings.i]),
       builder: (context, _) => _grid(context),
     );
   }
 
   Widget _grid(BuildContext context) {
-    final sites = kSites.where((e) => e.group == SiteGroup.module).toList();
+    // ★ 2026-10-12（用户新需求 ✅）：**站点展示清单走唯一读取口** `visibleSitesOf`（`site_admin.dart`）——
+    //   它 = 组内自定义顺序（`orderedSitesOf`，含"新站点追加在后"✅）+ 去掉被隐藏的站点 ✅
+    //   （原来这里是写死的 `kSites.where(...)` ⇒ 换掉后开关/拖动才可能对首页生效 ✅）
+    final sites = visibleSitesOf(SiteGroup.module);
     return Scaffold(
       // 透明：让根层的背景图从这里透出来（顶栏也是透明的，见 theme）
       backgroundColor: Colors.transparent,
@@ -329,14 +362,18 @@ class LiveGridPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 同「点播」页：宫格图标名读 kTxt，整页跟着背景明暗重建 ✓
+    // ★ 2026-10-12（用户新需求 ✅）：**同时监听 `AppSettings.i`**（站点管理的开关/顺序 ⇒ 本页立刻生效 ✅）
     return ListenableBuilder(
-      listenable: AppBg.i,
+      listenable: Listenable.merge([AppBg.i, AppSettings.i]),
       builder: (context, _) => _grid(context),
     );
   }
 
   Widget _grid(BuildContext context) {
-    final sites = kSites.where((e) => e.group == SiteGroup.live).toList();
+    // ★ 2026-10-12（用户新需求 ✅）：**站点展示清单走唯一读取口** `visibleSitesOf`（`site_admin.dart`）
+    //   —— 它 = 组内自定义顺序（`orderedSitesOf`，含"新站点追加在后"✅）+ 去掉被隐藏的站点 ✅
+    //   （原来这里是写死的 `kSites.where(...)` ⇒ 换掉后开关/拖动才可能对首页生效 ✅）
+    final sites = visibleSitesOf(SiteGroup.live);
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -386,12 +423,13 @@ class _SiteTile extends StatelessWidget {
             height: 62,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              // 有 logo 时用浅底 + contain（避免宽 logo 被裁掉），没 logo 时用首字色块
-              color: entry.iconUrl.isEmpty ? entry.color : Colors.white,
+              // 有**内置**图标时用浅底 + contain（避免宽 logo 被裁掉），没有时用首字色块
+              // ★ 2026-10-12（用户口径 ✅）：图标**只走内置资源** ⇒ 不再有"联网取 favicon"那条路
+              color: entry.assetIcon.isEmpty ? entry.color : Colors.white,
               borderRadius: BorderRadius.circular(13),
               border: Border.all(color: const Color(0x14000000)),
             ),
-            child: entry.iconUrl.isEmpty
+            child: entry.assetIcon.isEmpty
                 ? Center(
                     child: Text(
                       entry.name.isEmpty ? '?' : entry.name.substring(0, 1),
@@ -404,13 +442,8 @@ class _SiteTile extends StatelessWidget {
                   )
                 : Padding(
                     padding: const EdgeInsets.all(9),
-                    child: FetchedImage(
-                      url: entry.iconUrl.startsWith('/')
-                          ? 'https://${entry.hosts.isNotEmpty ? entry.hosts.first : ''}${entry.iconUrl}'
-                          : entry.iconUrl,
-                      fit: BoxFit.contain,
-                      memWidth: 160,
-                    ),
+                    // ★ 本地资源、**零网络** ✅（`assets/site_icons/xxx.png`，128×128 透明底）
+                    child: Image.asset(entry.assetIcon, fit: BoxFit.contain),
                   ),
           ),
           const SizedBox(height: 6),

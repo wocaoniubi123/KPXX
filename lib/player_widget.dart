@@ -1358,6 +1358,9 @@ class PlayerWidgetState extends State<PlayerWidget>
   static const Duration _kRetireDelay = Duration(milliseconds: 800); // 旧引擎延迟回收（先挂新、再收旧）
   /// ★ 2026-10-11：回收**硬上限** —— 条件（新引擎上屏 / 全屏退出）一直不满足也不能永久留着（防泄漏）
   static const Duration _kRetireMaxWait = Duration(seconds: 20);
+  /// ★ 2026-10-11（**复用档取证**，只读标记）：本次切集/换源走的是"复用"档吗？
+  ///   仅用于在源循环里补一行诊断日志（`logConsole` 下），**不参与任何判据、不改行为** ✅
+  bool _reuseSwitch = false;
   int _kpCreated = 0; // 引擎创建计数（仅诊断日志用：与回收计数配对看是否漏）
   int _kpRetired = 0; // 引擎回收完成计数
 
@@ -1702,6 +1705,19 @@ class PlayerWidgetState extends State<PlayerWidget>
     //      见 [_retireKp]）—— 旧库时代"不能销毁重建"那条注释说的是**先收后挂**的场景（那时确实会黑）。
     //   ✅ 2026-10-11 晚：**全屏页现在也跟随重建**（`kpCurrent` 通知口 + `ValueKey(引擎身份)` ⇒ 全屏页 State 重建），
     //      所以原来那条"全屏打开时跳过重建"的护栏**已移除**；"正在全屏"这个标记会**继承给新引擎**（[_inheritFullscreen]）。
+    // ★ 2026-10-11（**用户拍板：新增两档开关** `AppSettings.i.switchRebuildEngine`）：
+    //   · **开（默认，安全档）** = 下面那段"**销毁重建**"**原样执行**（当年修"切集黑屏"就是靠它 ✅）
+    //   · **关（实验性）** = "**复用引擎**"：切集**不新建、不回收** ⇒ 后面的源循环直接命中 `var kp = _kp;`
+    //     在**同一个引擎**上 `open` 新源（= 旧行为；少付一遍"打开"成本，但**部分站点可能黑屏** ☠）
+    //   ⚠️ 两档**共用**下面的"预建引擎"与源循环；**守卫一律保留**（`_live`/`_guardDead`/`isDisposed`/
+    //      `_popping`/`_lastEngine`/`_retireKp` 全在原处，不因复用档而删 ✅）
+    final rebuildEngine = AppSettings.i.switchRebuildEngine;
+    if (AppSettings.i.logConsole) {
+      debugPrint('[PLAY] 模式=${rebuildEngine ? '重建' : '复用'} 切集/换源：当前 kp='
+          '${_kp == null ? '(无)' : identityHashCode(_kp!).toString()}');
+    }
+    if (rebuildEngine) {
+    _reuseSwitch = false; // ★ 2026-10-11（复用档取证用；只读标记，不改任何行为）
     final kpFullscreen = _kp?.fullscreenOpen ?? false;
     if (_kp != null) {
       final old = _kp!;
@@ -1713,6 +1729,22 @@ class PlayerWidgetState extends State<PlayerWidget>
       if (AppSettings.i.logConsole) {
         debugPrint('[PLAY] 切集重建：旧引擎 kp=${identityHashCode(old)} 转入延迟回收；'
             '新建计=$_kpCreated 已回收=$_kpRetired 全屏中=$kpFullscreen');
+      }
+    }
+    } else {
+      // ★ 复用档：**什么都不做**（不摘监听、不停上报、不置空、不回收）—— 引擎继续被本页驱动 ✅
+      //   ★ 2026-10-11（**用户报"复用档切集黑屏"后的取证**）：这里是 **"只加日志"** 的取证点 ——
+      //     把"三步"的真实入参打出来，下次一眼能看出是"三步走错"还是"打开了但不出帧"：
+      //       · `pause`  = **上游已发**（`didUpdateWidget`/`switchSources` 里那句"旧源先停住"）
+      //       · `open`   = 走 `_openAndWait → KpPlayer.open`，**内部固定 `play: true`**（`player_widget.dart:707`）
+      //       · `stop`   = **历史（≤1.2.9）与现在都没有用过**（两边一致，`grep .stop(` 0 命中）
+      //     ⚠️ 本分支**只读**：不 stop、不 play、不 attach（与 ≤1.2.9 那条路逐字等价 ✅）
+      _reuseSwitch = true;
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp='
+            '${_kp == null ? '(无·由下面预建引擎补上)' : identityHashCode(_kp!).toString()}');
+        debugPrint('[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 '
+            'attach=不发（同实例同纹理）');
       }
     }
     if (_kp == null && _prebuiltKp == null) {
@@ -1801,6 +1833,15 @@ class PlayerWidgetState extends State<PlayerWidget>
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 试源 round=$round i=$i/共${_sources.length}条');
           final ok = await _openAndWait(kp, _sources[i]);
           if (!mounted) return;
+          // ★ 2026-10-11（**复用档取证，只加日志**）：把"打开了但没出帧"这一形**直接打出来** ——
+          //   用户报"复用档切集黑屏"时，没有这条就只能靠猜（logConsole 关着时连 `模式=` 都没有 ☠）。
+          //   判读：`ok=true` 但 时长/位置 都是 0 ⇒ **打开成功却不出帧**（= 复用档黑屏那一形）；
+          //          `ok=false` ⇒ 属于"打不开"（票/网络/源），是另一类问题。
+          if (AppSettings.i.logConsole && _reuseSwitch) {
+            debugPrint('[PLAY] 复用取证 i=$i ok=$ok 时长=${kp.value.duration.inMilliseconds}ms '
+                '位置=${kp.value.position.inMilliseconds}ms 缓冲=${kp.value.buffering} err=${kp.value.error} '
+                '（时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）');
+          }
           // ★ 2026-10-11（verify-4 #5）：**await 之后必须重判** —— 否则后面那段会继续操作一个已释放引擎
           if (kp.isDisposed) {
             _logDisposedSkip('源循环-试源后', '_initPlayerOnce:1527（await _openAndWait 之后）');

@@ -3,6 +3,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ★ 2026-10-12（**用户决定** ✅ · 原话："柚子短剧还是删了吧。手机端播不了，都是问题。就这么决定了。删除柚子短剧"）：
+//   **"柚子短剧默认隐藏"的那套特例逻辑已随站点一起删除** ☑️ ——
+//   现在"站点入口显示"回到常规口径：**默认全可见**，只有用户在站点管理里手动关掉的才会隐藏 ✅
+//   （⚠️ 用户盘上已有的 `site_hidden` / `site_hidden_default_v1_applied` 键**我们不动** —— 留着无害 ✅）。
+
 /// 应用设置（双击快进秒数、播放缓冲大小）。
 /// 单例 + ChangeNotifier：设置页改完，播放器下次用的时候就能取到新值。
 class AppSettings extends ChangeNotifier {
@@ -53,6 +58,72 @@ class AppSettings extends ChangeNotifier {
   bool _logConsole = false;
   bool get logConsole => _logConsole;
 
+  /// ★ 2026-10-11（**用户拍板**）：**切集时是否"销毁重建"播放引擎**（**默认 false = 复用引擎**）。
+  ///   · 关（**默认**）= **复用同一个引擎**、只换源 —— 少付一遍"打开"成本（切集更快）；部分站点可能黑屏 ☠
+  ///   · 开 = 每次切集新建 `KpPlayer` + 新纹理，旧引擎延迟回收 —— 更稳（当年修"**切集黑屏**"就是靠它 ✅），
+  ///     但每次切集要重新"打开"（更慢）☑️
+  ///   ⚠️ **语义纪律（2026-10-11 用户要求改默认值）**：本次**只改"默认值"** ——
+  ///      **盘上已存的值一律优先**（老用户手动开过 ⇒ 仍按他存的那个走，**绝不强制覆盖** ☠）。
+  ///      三条路径见下面 `load()`：无键 ⇒ 用默认（false）；键=true ⇒ 保持 true；键=false ⇒ 保持 false ✅
+  ///   持久化照 `_kAutoNext` 逐行对齐（`SharedPreferences` = 本仓库既有做法 ✅）；**改了立刻生效**（下一次切集读新值）。
+  static const String _kSwitchRebuildEngine = 'switch_rebuild_engine';
+  bool _switchRebuildEngine = false; // ★ 2026-10-11：默认 true → **false**（用户口径："设置默认关闭"）
+  bool get switchRebuildEngine => _switchRebuildEngine;
+
+  // ===========================================================================
+  // ★ 2026-10-12（**用户新需求** ✅ · 站点管理）：**站点展示清单**（只管"入口显示" + "组内顺序"）
+  //
+  // 【用户原话】"底栏tab长按点播进入站点管理界面，站点用列表显示，点播分组，直播分组。
+  //   站点后面加个开关（开显示站点按钮入口，关隐藏按钮入口）长按列表站点可以在分组内上下移动，
+  //   必须要灵敏。改完站点管理首页实时生效"
+  // 【影响面】**只影响入口按钮**（首页 5 列宫格 / 直播宫格）的**显示与顺序** ✅ ——
+  //   **不动**站点数据、不动收藏、不动播放记录（隐藏一个站≠删任何东西 ✅）。
+  // 【键名（本文件风格 `_kXxx` ✅；对外暴露名字给读取口/管理页用）】
+  //   · [siteHiddenKey] `'site_hidden'` = JSON 字符串数组，存**被隐藏的站点名** ——
+  //     存"隐藏"而不是"显示"：这样**新增站点默认可见** ✅（升级/加站绝不会被历史配置藏起来 ☑️）
+  //   · [siteOrderKey] `'site_order'` = JSON 字符串 Map，形如 `{"module":[站名…],"live":[站名…]}`（组内顺序 ✅）
+  // 【默认值】两个键都**读不到 / 解析失败 ⇒ 空** ⇒ 常规口径：**全站可见 + `kSites` 原顺序** ✅
+  //   （⚠️ 2026-10-12：原来还有一条"柚子短剧一次性默认隐藏"的特例逻辑 —— 已随**柚子站点整体删除**
+  //     一起去掉 ☑️；**"新增站点默认可见"原则回到常规、不再有任何默认隐藏** ✅）
+  static const String siteHiddenKey = 'site_hidden';
+  static const String siteOrderKey = 'site_order';
+
+  final Set<String> _hiddenSites = <String>{};
+  final Map<String, List<String>> _siteOrder = <String, List<String>>{};
+
+  Set<String> get hiddenSites => _hiddenSites;
+  bool isSiteHidden(String name) => _hiddenSites.contains(name);
+
+  /// 组内自定义顺序（没存过 ⇒ 空表 ⇒ 调用方按 `kSites` 原顺序走 ✅）
+  List<String> siteOrderOf(String group) => _siteOrder[group] ?? const <String>[];
+
+  /// 开/关一个站点的**入口显示**：先改内存 + `notifyListeners`（首页/直播页**立刻**生效 ✅）再异步落盘 ✅
+  /// ⚠️ 落盘失败只吞掉（本次会话照常 ✅）——与既有几个 setter 同口径 ☑️
+  Future<void> setSiteHidden(String name, bool hidden) async {
+    final had = _hiddenSites.contains(name);
+    if (had == hidden) return; // 值没变 ⇒ 不白通知、不白写盘 ✅
+    if (hidden) {
+      _hiddenSites.add(name);
+    } else {
+      _hiddenSites.remove(name);
+    }
+    notifyListeners();
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(siteHiddenKey, jsonEncode(_hiddenSites.toList()));
+    } catch (_) {}
+  }
+
+  /// 存一组的新顺序（[names] = 该组**全部**站点的名字，顺序即界面顺序 ✅）
+  Future<void> setSiteOrder(String group, List<String> names) async {
+    _siteOrder[group] = List<String>.of(names);
+    notifyListeners();
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(siteOrderKey, jsonEncode(_siteOrder));
+    } catch (_) {}
+  }
+
   /// 档位显示名：1024 显示成 1G
   static String bufferLabel(int mb) => mb >= 1024 ? '1G' : '${mb}MB';
 
@@ -86,6 +157,51 @@ class AppSettings extends ChangeNotifier {
         _logConsole = lc;
         changed = true;
       }
+      // ★ 2026-10-11：切集是否重建引擎（**读不到 ⇒ 保默认 false** ☑️ —— 与上面 lc 同款"判 null"口径；
+      //   ⚠️ **已存在的键优先**：键=true 仍 true、键=false 仍 false，本次改默认值**不覆盖盘上值** ✅）
+      final sre = sp.getBool(_kSwitchRebuildEngine);
+      if (sre != null && sre != _switchRebuildEngine) {
+        _switchRebuildEngine = sre;
+        changed = true;
+      }
+      // ★ 2026-10-12（站点管理）：读"隐藏集合 + 组内顺序"——
+      //   · `site_order`：**读不到 / 解析失败 / 类型不对 ⇒ 保持空** ⇒ `kSites` 原顺序 ✅（绝不写坏已有配置 ☑️）
+      //   · `site_hidden`：① **先**按盘上的值读（键不存在 / 解析失败 ⇒ 空集 ✅）
+      //                    ② **再**看标记键 [siteDefaultHiddenSeededKey] 决定要不要做"一次性强制"（见下）
+      final hs = sp.getString(siteHiddenKey);
+      if (hs != null && hs.isNotEmpty) {
+        try {
+          final arr = jsonDecode(hs);
+          if (arr is List) {
+            final set = <String>{for (final x in arr) '$x'};
+            if (set.length != _hiddenSites.length ||
+                !set.containsAll(_hiddenSites)) {
+              _hiddenSites
+                ..clear()
+                ..addAll(set);
+              changed = true;
+            }
+          }
+        } catch (_) {}
+      }
+      // ⚠️ 2026-10-12：这里原来还有一段"**一次性强制柚子默认隐藏**"（标记键 `site_hidden_default_v1_applied`）
+      //   —— 已随**柚子站点整体删除**一起去掉 ✅（用户决定："柚子短剧还是删了吧…删除柚子短剧"）。
+      //   ⇒ 现在 `site_hidden` **只认用户在站点管理里的手动开关**，不再有任何"默认隐藏"注入 ✅
+      //   ⇒ 用户盘上若还留着那两个旧键（`site_hidden` / `site_hidden_default_v1_applied`）**我们不动**：
+      //     前者照旧被读（用户在管理页关掉的站仍然隐藏 ✅），后者**不再被读**（成了无害的历史残留 ✅）。
+      final so = sp.getString(siteOrderKey);
+      if (so != null && so.isNotEmpty) {
+        try {
+          final m = jsonDecode(so);
+          if (m is Map) {
+            _siteOrder.clear();
+            m.forEach((k, v) {
+              if (v is List) _siteOrder['$k'] = <String>[for (final x in v) '$x'];
+            });
+            changed = true;
+          }
+        } catch (_) {}
+      }
       if (changed) notifyListeners();
     } catch (_) {
       // 读失败保持默认值
@@ -111,6 +227,20 @@ class AppSettings extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setBool(_kAutoNext, v);
+    } catch (_) {
+      // 存失败也不影响本次会话使用
+    }
+  }
+
+  /// ★ 2026-10-11（用户拍板）：切集"销毁重建 ⇄ 复用引擎"开关的写入口
+  ///   （照 [setAutoNext] 逐行对齐：先改内存 + `notifyListeners` ⇒ 再异步落盘 ⇒ 失败不影响本次会话 ✅）。
+  Future<void> setSwitchRebuildEngine(bool v) async {
+    if (v == _switchRebuildEngine) return;
+    _switchRebuildEngine = v;
+    notifyListeners(); // ⇒ 播放器那边"下一次切集"立刻按新值走（无需重启 ✅）
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setBool(_kSwitchRebuildEngine, v);
     } catch (_) {
       // 存失败也不影响本次会话使用
     }

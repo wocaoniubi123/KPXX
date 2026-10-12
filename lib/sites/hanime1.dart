@@ -545,6 +545,7 @@ const SiteEntry kSite09 = SiteEntry(
     iconUrl:
         'https://vdownload.hembed.com/image/icon/tab_logo.png?secure=EJYLwnrDlidVi_wFp3DaGw==,4867726124',
     hosts: ['hanime1.me'],
+    assetIcon: 'assets/site_icons/hanime1.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅；原图 51×75 竖版 ⇒ 等比贴进 128×128、不拉伸）
     // 封面是竖版（实测 268×394）→ 竖屏封面站
     portraitCovers: true,
     // 主分类 = 首页分类 tabs（照站点原序，10 个）。

@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter; // ★ 玻璃卡片：BackdropFilter 的模糊（material 不导出它，必须显式 import）
 import 'package:flutter/material.dart';
 import 'app_version.dart';
 import 'error_log_page.dart';
@@ -132,6 +133,56 @@ class SettingsPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _head(icon: Icons.play_circle_outline, title: '播放'),
+          // ★ 2026-10-11（**用户拍板**）：切集"销毁重建 ⇄ 复用引擎"开关 —— 与下面那条**同款**（`_row` +
+          //   `Switch.adaptive` + `_orange`），不加大按钮、不醒目化 ✅
+          //   ★ 2026-10-11 改默认值：**默认 = 关（复用引擎）**（用户口径"切集时重建播放引擎设置默认关闭"）
+          //     ⇒ 副标题同步改为如实口径（把"默认"挪到"关=复用"那一侧）；**标题/控件/样式/位置/间距/玻璃卡片一字未动** ✅
+          //   ⚠️ 盘上已存的值优先：老用户手动开过 ⇒ 开关显示与播放行为仍按他存的那个走 ✅
+          // ★ 2026-10-11（用户要求：**只调顺序**）：本条 = "播放"分组**第一个**（其下依次：硬件解码、播放缓冲大小）✅
+          _row(
+            title: '切集时重建播放引擎',
+            sub: '关=复用引擎、切集更快（默认）；开=销毁重建、更稳但每次切集要重新打开（更慢）',
+            trailing: Switch.adaptive(
+              value: AppSettings.i.switchRebuildEngine,
+              activeTrackColor: _orange,
+              onChanged: (v) {
+                if (AppSettings.i.logConsole) debugPrint('[UI] 切集重建引擎=${v ? "on" : "off"}');
+                AppSettings.i.setSwitchRebuildEngine(v);
+              },
+            ),
+          ),
+          _divider(),
+          // ⚠️ 用户 2026-10-05 拍板：**解码方式**三选一 ✓（改的是**播放器的硬件解码** ✓ 影响**所有站点** ✓）
+          _row(
+            title: '硬件解码',
+            sub: '播放器的硬件解码方式（影响所有站点）',
+          ),
+          _seg(
+            values: AppSettings.hwdecOptions,
+            selected: AppSettings.i.hwdec,
+            label: (v) => AppSettings.hwdecLabels[v],
+            onPick: (v) {
+              if (AppSettings.i.logConsole) debugPrint('[UI] 硬解=$v'); // ★ 诊断（出处 `settings_page.dart:172` ✓）
+              AppSettings.i.setHwdec(v);
+            },
+          ),
+          _note('自动＝按引擎默认；硬解失败会自动回落软解；软解最兼容、最吃 CPU。改完重进视频生效'),
+          _divider(),
+          _row(
+            title: '播放缓冲大小',
+            sub: '越大越抗卡、拖动越顺，但更吃内存',
+          ),
+          _seg(
+            values: AppSettings.bufferOptions,
+            selected: AppSettings.i.bufferMb,
+            label: AppSettings.bufferLabel,
+            onPick: (v) {
+              if (AppSettings.i.logConsole) debugPrint('[UI] 缓冲=$v'); // ★ 诊断（出处 `settings_page.dart:159` ✓）
+              AppSettings.i.setBufferMb(v);
+            },
+          ),
+          _note('改完重进视频生效；1G 在低内存机型上可能被杀进程'),
+          _divider(),
           _row(
             title: '快进 / 快退',
             sub: '双击画面左侧后退、右侧快进，一次跳转的时长',
@@ -158,37 +209,6 @@ class SettingsPage extends StatelessWidget {
               },
             ),
           ),
-          _divider(),
-          _row(
-            title: '播放缓冲大小',
-            sub: '越大越抗卡、拖动越顺，但更吃内存',
-          ),
-          _seg(
-            values: AppSettings.bufferOptions,
-            selected: AppSettings.i.bufferMb,
-            label: AppSettings.bufferLabel,
-            onPick: (v) {
-              if (AppSettings.i.logConsole) debugPrint('[UI] 缓冲=$v'); // ★ 诊断（出处 `settings_page.dart:159` ✓）
-              AppSettings.i.setBufferMb(v);
-            },
-          ),
-          _note('改完重进视频生效；1G 在低内存机型上可能被杀进程'),
-          _divider(),
-          // ⚠️ 用户 2026-10-05 拍板：**解码方式**三选一 ✓（改的是**播放器的硬件解码** ✓ 影响**所有站点** ✓）
-          _row(
-            title: '硬件解码',
-            sub: '播放器的硬件解码方式（影响所有站点）',
-          ),
-          _seg(
-            values: AppSettings.hwdecOptions,
-            selected: AppSettings.i.hwdec,
-            label: (v) => AppSettings.hwdecLabels[v],
-            onPick: (v) {
-              if (AppSettings.i.logConsole) debugPrint('[UI] 硬解=$v'); // ★ 诊断（出处 `settings_page.dart:172` ✓）
-              AppSettings.i.setHwdec(v);
-            },
-          ),
-          _note('自动＝按引擎默认；硬解失败会自动回落软解；软解最兼容、最吃 CPU。改完重进视频生效'),
         ],
       ),
     );
@@ -349,9 +369,64 @@ class SettingsPage extends StatelessWidget {
 
   // ---------------- 复用的小零件 ----------------
 
-  /// 卡片：**没有背景色**，只有子节点的内边距（背景图直接透出来）。
-  /// 卡片间距由 ListView 里的 SizedBox(height: 14) 给（同模拟器 .scard 的 margin-bottom）
-  Widget _card({required Widget child}) => child;
+  /// 卡片：**iOS「inset grouped」分组框 + 玻璃质感**（用户 2026-10-11 要求："① 玻璃质感半透明（毛玻璃模糊）
+  ///   ② 圆角再大一点"）。
+  ///   ✅ **结构 = 只"包住"内容**：`ClipRRect > BackdropFilter > DecoratedBox > child`
+  ///      —— **绝不引入覆盖层**、**绝不**成为上层兄弟层；`_head` 仍留在各组 children 首位（**无 `head:` 参数**）✅
+  ///   ✅ **命中测试不变（三个 widget 都 `hitTestSelf == false`，不吃点击）**，依据：
+  ///        · `ClipRRect`  → `RenderClipRRect` 是 **`RenderProxyBox`** 系（只裁剪绘制，不 opaque）
+  ///        · `BackdropFilter` → `RenderBackdropFilter` 同属 **`RenderProxyBox`** 系（只影响绘制/合成）
+  ///        · `DecoratedBox` → `RenderDecoratedBox` 同属 **`RenderProxyBox`**（对比：`ColoredBox` 用的是
+  ///          `RenderProxyBoxWithHitTestBehavior(behavior: opaque)` ⇒ **它才吃点击** ☠ —— 本卡片**没用**它）
+  ///      ⇒ 子节点的 `GestureDetector`/`Switch`/`_seg` 命中区**逐字不变** ✅
+  ///   ✅ **不加 margin / padding**（守"间距细节不动"）；**圆角 18**（12 → 18：玻璃卡片比实心卡片更适合大圆角；
+  ///      18 与 iOS inset-grouped 的观感一致，20 会显得偏"药丸"⇒ 取 18）
+  ///   ✅ 颜色（**都从本页既有色系取，只改透明度**，未自造新色号）：
+  ///        · 半透明白底 `Colors.white` @ **0.38**（介于 0.3~0.5 档中段：既能透出背景/模糊，又不糊字）
+  ///        · 浅色半透明细边 `Colors.white` @ **0.35**、0.5px（玻璃感的关键；**不再用** 黑 0.1）
+  ///        · 模糊 `ImageFilter.blur(sigmaX: 14, sigmaY: 14)`（12~18 档取中）
+  ///   ⚠️ 顺序调整（切集重建 → 硬件解码 → 播放缓冲大小 → 快进/快退 → 自动播放下一集）**保留** ✅
+  Widget _card({required Widget child}) {
+    // ★ 用户 2026-10-12："边框可以加阴影吗。现在纯白背景都看不出框了"
+    //   ⇒ 阴影必须画在 **ClipRRect 外面**（否则会被裁剪掉）⇒ 最外层再套一个 DecoratedBox 专门画阴影
+    //   ⇒ 纯白底上靠这圈阴影就能看出卡片边界；深色/照片底上仍靠里面那圈白边 ✅
+    //   ⚠️ 外层也是 `DecoratedBox`（`hitTestSelf == false`，不吃点击）✅
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 14,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(26), // ★ 用户"再圆一点"：18 → 26（必须包住 BackdropFilter，否则圆角外也会被糊）
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4), // ★ 用户"毛玻璃再低一点"：8 → 4（之前"有点糊"）
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12), // ★ 用户"让卡片有点存在感"：0.00 → 0.12（淡淡的底）
+              borderRadius: BorderRadius.circular(26), // ★ 与 ClipRRect 保持一致（18 → 26）
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.5), // ★ 用户"白边加一点"：0.28 → 0.5（深色底上靠它定边界）
+                width: 0.5,
+              ),
+            ),
+            // ★ 用户 2026-10-12："分组的底部距离跟分组标题的顶部距离设置一样"
+            //   ⇒ 标题上方的间距 = `_head` 自己的 `fromLTRB(16, 14, 16, 2)` 的 **14**
+            //   ⇒ 卡片底部补一个 **14** 的底部内边距（此前是 0 ⇒ 末行文字贴着卡片底边/圆角，"文字快被挡住"）
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: child, // ★ 只包住：命中测试照旧落在子节点上（四个 widget 都不吃点击）
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   /// 诊断入口：**错误日志**（用户 2026-10-03 要求 ✓ —— 点开就能看 / 能清 / 能复制 ✓）
   Widget _logCard(BuildContext context) {

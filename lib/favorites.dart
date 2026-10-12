@@ -147,6 +147,14 @@ class Favorites extends ChangeNotifier {
   /// 是否已收藏（详情页那颗星就是问它 ✅）
   bool contains(String site, String url) => _m.containsKey('$site|$url');
 
+  /// ★ 2026-10-12（用户口径 ✅："如果有收藏就存 2 份，播放记录一份，收藏一份…记录进度的时候判断一下
+  ///   这个视频有没有进收藏"）—— 取出这条收藏（没有 ⇒ null）✅ **只读**，不改任何状态 ✅。
+  ///
+  /// 用途 = 详情页**续播的分级读取**：**播放记录没有时**回落到收藏自己那份进度/集号 ✅
+  ///   （`detail_page.dart` 的 `_resumeFrom()` 与 `wantIdx` ✅）⇒ 删掉播放记录后，收藏里
+  ///   **仍显示进度、点进去也能续播到那个位置** ✅（用户要的效果）。
+  FavoriteItem? find(String site, String url) => _m['$site|$url'];
+
   /// 这条上次真正落盘时的 `lastViewAt`（`touch` 的节流判断，同 `PlayHistory._savedSec` 的做法 ✅）
   final Map<String, int> _savedMs = {};
 

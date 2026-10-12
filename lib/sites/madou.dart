@@ -324,6 +324,7 @@ const SiteEntry kSite12 = SiteEntry(
     name: '麻豆社',
     template: SiteTemplate.madou,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/madou.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['madou.club'],
     portraitCovers: false,
     showRelated: true,

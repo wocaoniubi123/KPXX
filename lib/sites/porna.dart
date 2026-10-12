@@ -739,6 +739,7 @@ const SiteEntry kSite07 = SiteEntry(
     name: '91porna',
     template: SiteTemplate.porna,
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/91porna.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['91porna.com'],
     // 顺序 = 站点导航原顺序（首页、91视频、91短视频、黑料吃瓜、AI成人、日本AV、
     // 91动漫、精选合集、色情小说、91品牌），已接入的排前面、按站点相对顺序；

@@ -1503,6 +1503,7 @@ const SiteEntry kSite14 = SiteEntry(
     template: SiteTemplate.xhamster,
     // 站点自己的 favicon（sim 的 /icon 会代抓）
     iconUrl: '/favicon.ico',
+    assetIcon: 'assets/site_icons/xhamster.png', // ★ 2026-10-12 内置图标（抓一次、零网络 ✅）
     hosts: ['tw.xhamster.com'],
     // 相关推荐：移动版页面里**没有 DOM 卡片**（`div.m-related-container` 是"正在載入..."
     // 空壳），但静态 HTML 里有一整段 JSON（Vue props），每条带 pageURL/title/thumbURL/
