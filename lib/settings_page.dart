@@ -141,7 +141,9 @@ class SettingsPage extends StatelessWidget {
           // ★ 2026-10-11（用户要求：**只调顺序**）：本条 = "播放"分组**第一个**（其下依次：硬件解码、播放缓冲大小）✅
           _row(
             title: '切集时重建播放引擎',
-            sub: '关=复用引擎、切集更快（默认）；开=销毁重建、更稳但每次切集要重新打开（更慢）',
+            // ★ 2026-10-12（**用户要求，照原文**）：
+            //   `关=复用引擎、切集更快(默认)` / `开=销毁重建、更稳但是更慢`（第一行**去掉行尾分号** ✅）
+            sub: '关=复用引擎、切集更快(默认)\n开=销毁重建、更稳但是更慢',
             trailing: Switch.adaptive(
               value: AppSettings.i.switchRebuildEngine,
               activeTrackColor: _orange,
