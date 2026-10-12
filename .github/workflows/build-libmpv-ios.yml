@@ -415,7 +415,36 @@ jobs:
       #     这不是选项问题，是"配方缺一个依赖包" => 需要 lead/用户决策
       #     （给配方加 libplacebo 包 / 维持 mpv 0.36 / 自己打补丁把 libplacebo 变回可选）。
       #     **本轮受"不许动版本 pin 机制"约束，不擅自改 mpv 版本。**
-      - name: 改写配方里 mpv 的 meson 选项（去掉目标版本已不存在的 11 个）
+      #
+      #   *** 2026-10-12 第十一版：把 iOS 上不该编的 macOS 专属 AO 关掉（avfoundation）***
+      #   失败原文 🛢️（CI）：`audio/out/ao_coreaudio_properties.h:32: error: unknown type name 'AudioObjectID'`
+      #     （同样报 AudioObjectPropertyScope / AudioObjectPropertySelector）+
+      #     `audio/out/ao_avfoundation.m:253: 'setAudioOutputDeviceUniqueID:' is unavailable: not available on iOS`
+      #     + `11 errors generated. FAILED: libmpv.2.dylib.p/audio_out_ao_avfoundation.m.o`
+      #   **根因（读 mpv 0.41 meson.build 原文坐实）**：
+      #     L805  `audiounit_opt = get_option('audiounit').require(darwin)`        <-- audiounit 有平台守卫
+      #     L818  `avfoundation = dependency('appleframeworks', modules: ['CoreMedia','AVFoundation'],`
+      #     L819  `                          required: get_option('avfoundation'))` <-- **完全没有 .require(darwin)**
+      #     L821-824 `if features['avfoundation'] → sources += files('audio/out/ao_avfoundation.m')`
+      #     ⇒ iOS 的 SDK 里 CoreMedia/AVFoundation **都在** ⇒ 选项默认 `auto` 解析成 **enabled** ⇒ 编 ao_avfoundation.m ⇒ 撞 iOS 不存在的 API ❌
+      #     ⇒ 而且 `ao_coreaudio_properties.h` 那个错也是它带出来的：L841-842 `if features['avfoundation']
+      #       → sources += files('audio/out/ao_coreaudio_properties.c')`，且 ao_avfoundation.m 会 include 该头。
+      #   **修复：`-Davfoundation=disabled`（只加这一条，加在 IOS_OPTIONS 里）** ✅
+      #     · `coreaudio` 对 iOS **本来就已经是关的**（DISABLE_ALL_OPTIONS 里有，且 MACOS_OPTIONS 只在 os==macos 时追加）✅ 无需再动
+      #     · 关掉后 `HAVE_AVFOUNDATION=0` ⇒ `ao_coreaudio_utils.c` / `ao_coreaudio_chmap.c` 里
+      #       `#if HAVE_COREAUDIO || HAVE_AVFOUNDATION` 的 AudioObject* 段（utils.c L31/38/135、chmap.c L198/535）一并编掉 ✅
+      #       —— 这两处是"剩下 7 个文件"里最可能接着炸的地方，一次清掉；`ao_coreaudio_properties.c` 也不再被编 ✅
+      #     · **`audiounit` 保留**（它是 iOS 的音频输出；代码里带断言，缺了就直接红，防止误关）✅
+      #   ❓ **我判断"不该动"的一处（按规矩报出来，没动）**：`macos-10-15-4/11/11-3/12-features` 这 4 个选项
+      #     现在是默认 `auto`（我第九版把旧名 10-11/10-12-2/10-14 删了，0.41 的新名没设）。
+      #     依据 mpv 0.41 meson.build L1605-1627：它们用 `macos_sdk_version.version_compare('>= …')` 判定，
+      #     而 `macos_sdk_version` 由 `TOOLS/macos-sdk-version.py` 在 `if darwin` 下提供（iOS 也走这个分支）
+      #     ⇒ 实际会读到 macOS SDK 版本（≥12）⇒ 这些 feature **当前是"开着"的**。
+      #     但**消费者**（GitHub code search 查实）只有：`osdep/mac/*.swift`、`video/out/cocoa_cb_common.swift`
+      #     （我们都不编）以及 `osdep/mac/compat.h` —— 而 **compat.h 确实会被编到**（`ao_coreaudio_utils.c:29` 里 include 它）。
+      #     所以"把它们显式关掉"虽然看着像恢复配方原意，但会**改变一个正在被编的头的行为**，属于没有依据的改动
+      #     ⇒ **我不动，仅标 ❓ 报你**。（若你要我关，我照做，但那条需要单独一轮验证。）
+      - name: 改写配方里 mpv 的 meson 选项（去掉目标版本已不存在的 11 个；iOS 关 avfoundation）
         run: |
           set -euo pipefail
           cd recipe
@@ -448,6 +477,49 @@ jobs:
                   n += 1
                   print('  -D%s=%s' % (m.group(1), m.group(2)))
           print('total -D options left in that array: %d' % n)
+
+          # ---- iOS: turn off AOs that upstream never guarded on darwin ----
+          # avfoundation (mpv 0.41 meson.build L818-824) has NO `.require(darwin)` -- unlike
+          # audiounit (L805, `get_option('audiounit').require(darwin)`). On iOS the AVFoundation +
+          # CoreMedia frameworks exist, so the option default 'auto' resolves to ENABLED and
+          # audio/out/ao_avfoundation.m gets compiled -- it uses `setAudioOutputDeviceUniqueID:`
+          # (API_UNAVAILABLE(ios,...)) and pulls in the macOS-only AudioObject* API through
+          # ao_coreaudio_properties.h => iOS build fails.
+          # coreaudio is ALREADY off for iOS (it is in DISABLE_ALL_OPTIONS and MACOS_OPTIONS only
+          # applies when os == macos), so only avfoundation needs adding.
+          # audiounit is left enabled on purpose: it is the iOS audio output.
+          # With avfoundation off, HAVE_AVFOUNDATION becomes 0 and the AudioObject* blocks in
+          # ao_coreaudio_utils.c / ao_coreaudio_chmap.c (both `#if HAVE_COREAUDIO || HAVE_AVFOUNDATION`)
+          # compile out as well -- no further option changes are needed here.
+          t = pathlib.Path(P).read_text().splitlines(keepends=True)
+          s = next(i for i, ln in enumerate(t) if re.match(r'^\s*IOS_OPTIONS=\(\s*$', ln))
+          e = next(j for j in range(s + 1, len(t)) if re.match(r'^\s*\)\s*$', t[j]))
+          cur = [re.match(r'^\s*-D([A-Za-z0-9_-]+)=', ln).group(1)
+                 for ln in t[s + 1:e] if re.match(r'^\s*-D', ln)]
+          assert 'audiounit' in cur, 'audiounit missing from IOS_OPTIONS: refusing to touch it'
+          if 'avfoundation' in cur:
+              print('IOS_OPTIONS: avfoundation already present, nothing to do')
+          else:
+              ind = re.match(r'^(\s*)-D', next(ln for ln in t[s + 1:e] if re.match(r'^\s*-D', ln))).group(1)
+              t.insert(s + 1, ind + '-Davfoundation=disabled `# AVFoundation audio output: macOS-only API, '
+                               'upstream has no .require(darwin) guard => must be off for iOS`\n')
+              pathlib.Path(P).write_text(''.join(t))
+              print('IOS_OPTIONS: added -Davfoundation=disabled')
+          print('--- FINAL list of options passed to mpv for ios (all groups, in order) ---')
+          tt = pathlib.Path(P).read_text().splitlines()
+          for gname in ['DISABLE_ALL_OPTIONS', 'COMMON_OPTIONS', 'COMMON_VIDEO_OPTIONS', 'MACOS_OPTIONS',
+                        'MACOS_VIDEO_OPTIONS', 'IOS_OPTIONS', 'IOS_VIDEO_OPTIONS']:
+              ms = [i for i, ln in enumerate(tt) if re.match(r'^\s*' + gname + r'=\(\s*$', ln)]
+              if not ms:
+                  print('  %s = (not found)' % gname)
+                  continue
+              gs = ms[0]
+              ge = next(j for j in range(gs + 1, len(tt)) if re.match(r'^\s*\)\s*$', tt[j]))
+              opts = [re.match(r'^\s*-D([A-Za-z0-9_-]+)=([^ `]*)', ln).groups()
+                      for ln in tt[gs + 1:ge] if re.match(r'^\s*-D', ln)]
+              print('  %s [%d]:' % (gname, len(opts)))
+              for k, v in opts:
+                  print('    -D%s=%s' % (k, v))
           PY
 
       # ★ 2026-10-12 第五版：B 方案 —— 给配方补 libplacebo 依赖（用户拍板"全部要最新的"）
