@@ -477,12 +477,27 @@ jobs:
       #   | vulkan | feature=auto | **-Dvulkan=disabled** | iOS 无 Vulkan；mpv 侧本来就是 `-Dvulkan=disabled` => libplacebo 带不带都行；关掉可免 MoltenVK |
       #   | vk-proc-addr | feature=auto | **disabled** | 只对 vulkan 有意义 |
       #   | d3d11 | feature=auto | **disabled** | Windows 专用 |
-      #   | opengl / gl-proc-addr / glslang / shaderc / lcms / dovi / libdovi / unwind / xxhash | feature=auto | **保持 auto（不传）** | 🛢️ meson `auto` 语义 = "找到就用、找不到就跳过"，**不可能因缺依赖而配置失败**；我们只要"能满足链接"，auto 最稳（显式 disabled 反而可能关掉本可用的后端） |
-      #   ❓ 未定项（如实标，未猜）：`xxhash` / `unwind` 是"可选"还是"必需"，我**没查实** —— 它们的 required 写在
-      #     `src/meson.build`，我只核了顶层 `meson.build`（顶层只有 `meson.override_dependency('libplacebo', ...)`）。
-      #     因为保持 `auto`，若它们确实必需且系统里没有，配置阶段会点名报错，一轮即可定位。
-      #     同理 `opengl` 若在 iOS 交叉环境 auto 解析不到，libplacebo 会退化成"无 GPU 后端"——**仍能满足 mpv 链接**
-      #     （gpu-next 是运行期才用），符合"只要求链接"的口径。
+      #   | opengl | feature=auto | **-Dopengl=disabled** | 🛢️ CI 原文：`src/opengl/include/glad/meson.build:11:2: ERROR: Problem encountered:
+      #           glad (required: >= 2.0, found: none) was not found in PYTHONPATH or ``3rdparty``` —— libplacebo 的 GL 支持要
+      #           `3rdparty/glad` **子模块**，而我们的源码是 **GitHub tarball（不含子模块）** + nix 沙箱**无网** ⇒ 必失败 |
+      #   | gl-proc-addr / glslang / shaderc / lcms / dovi / libdovi / unwind / xxhash | feature=auto | **保持 auto（不传）** | 🛢️ meson `auto` = "找到就用、找不到就跳过" ⇒ **不可能因缺依赖而配置失败**。CI 已实测 `shaderc found: NO` / `d3d11.h: NO` 都只是继续往下走，`xxhash`/`unwind` 也没报错 ⇒ 无需再显式关 |
+      #   ✅ 关 opengl 的**前提已逐条核实**（你点名要核的那条）：
+      #     · libplacebo `src/meson.build` L169-174 原文：`if not (components.get('vulkan') or components.get('opengl') or components.get('d3d11'))`
+      #       ⇒ 里面只有 **`warning('Building without any graphics API…')`**，**不是 error** ⇒ 三后端全关不会中止配置。
+      #     · `src/opengl/meson.build` L1 `opengl_build = get_option('opengl')` / L11 `components.set('opengl', opengl_build.allowed())`
+      #       ⇒ 传 disabled 后 `subdir('include/glad')` 不会进入 ⇒ 那个 glad 报错不再触发。
+      #     · **mpv 侧不会链接失败** 🛢️：mpv 0.41 `video/out/gpu_next/context.c` 的 GL 路径守卫是
+      #       `#if HAVE_GL && defined(PL_HAVE_OPENGL)`（L143、L214）⇒ libplacebo 无 OpenGL 时 `PL_HAVE_OPENGL` 未定义
+      #       ⇒ **不会引用 `pl_opengl_create`**，所以链接不缺符号。
+      #   ❓ **但有个运行期后果必须让你知道（我没有擅自动，只报）**：mpv 0.41 已**移除 `vo=gpu`**，只剩 `gpu-next`（吃 libplacebo）
+      #     ⇒ 而 libplacebo 现在**一个图形后端都没有**（vulkan：iOS 无；d3d11：Windows；opengl：本轮关）
+      #     ⇒ **构建/链接能过，但 iOS 上能不能真的出画存疑**。无 OpenGL 时 mpv 走 `#elif HAVE_GL` 分支
+      #     （context.c L172 —— **该分支原文我没读，标 ❓**）。
+      #     备选（均未验证，供决策）：给 libplacebo 补 `glad`（python 模块；nixpkgs 里可能有 `python3Packages.glad2`，
+      #     但"该包是否存在 / CLI 是否与 6.338.2 期望一致"我**没查实**）⇒ 保住 GL 后端 ⇒ 运行期更完整。
+      #   （注：原先标 ❓ 的 `xxhash`/`unwind` required 问题，本轮已在 `src/meson.build` 查实：
+      #     `unwind = dependency('libunwind', required: get_option('unwind'))`、`xxhash = dependency('libxxhash', required: get_option('xxhash'))`
+      #     ⇒ 都跟随各自的 `auto` 选项 ⇒ **不会硬失败** ✅；`lcms`/`libdovi` 同理。）
       - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
         run: |
           set -euo pipefail
@@ -568,7 +583,8 @@ jobs:
                   -Dfuzz=false \\
                   -Dvulkan=disabled \\
                   -Dvk-proc-addr=disabled \\
-                  -Dd3d11=disabled
+                  -Dd3d11=disabled \\
+                  -Dopengl=disabled
               \'\';
               buildPhase = \'\'
                 meson compile -vC build
