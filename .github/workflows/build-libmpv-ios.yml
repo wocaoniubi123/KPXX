@@ -200,7 +200,45 @@ jobs:
       #      **再按它的输出自动决定**这条 patch 是"移除"还是"降级为容忍" ——
       #      一轮 CI 同时完成"取证 + 适配"，不必人工再改一次文件。
       #
-      #   其余 patch 一律容忍档（`--forward --fuzz=5 || WARN`），一轮摸清谁能打上。
+      #   其余 patch 一律容忍档（`--forward --fuzz=5 || WARN`）。
+      #
+      #   ===== 2026-10-12 第三版：7 条 patch 一次性判清（依据 = 逐条下载 7.1 / 0.41 源码 grep，见下表）=====
+      #   | 补丁                            | 干什么                                                        | 目标版本已内含? | 符号还在?（会不会编不过）                                                            | 处置 |
+      #   |---------------------------------|---------------------------------------------------------------|-----------------|--------------------------------------------------------------------------------------|------|
+      #   | ffmpeg-fix-hls-mp4-seek         | fMP4-HLS seek 时重置 init segment                               | 已内含          | -                                                                                    | 移除（自证自动） |
+      #   | ffmpeg-fix-vp9-hwaccel          | 拆出独立 vp9_videotoolbox 解码器 + Intel 上换 superframe bsf        | 未内含          | **编不过**：FF_CODEC_CAP_ALLOCATE_PROGRESS 在 7.1 里已不存在                              | **移除（无条件）** |
+      #   | ffmpeg-fix-ios-hdr-texture      | iOS 上 10bit 不走 P010 走 BGRA（GLES 无 10bit 纹理）+ 32BGRA 非 full-range 也能映射 | 未内含 | 都在（videotoolbox_best_pixel_format L1143、P010 L1180、BGRA 表项 L52）                    | 保留容忍 |
+      #   | ffmpeg-fix-dash-base-url-escape | DASH baseUrl 做 XML 转义                                        | 未内含          | 都在（原语句 dashdec.c L774；xmlEncodeSpecialChars 是 libxml2 API）                       | 保留容忍 |
+      #   | mpv-fix-missing-objc            | meson 里补 add_languages('objc')（Apple 编 .m 需要）               | 未内含          | 无新符号                                                                              | 保留容忍 |
+      #   | mpv-audiounit-shared-session    | AudioUnit AO 加引用计数式 AVAudioSession + 新选项                  | 未内含          | -（CI 已证**打不上**）                                                                  | 保留容忍 |
+      #   | mpv-remove-libass               | 去掉 libass 依赖                                                | 未内含          | 无新符号                                                                              | 保留容忍（**且见下**） |
+      #
+      #   逐条依据（都是对 7.1 / 0.41 真源码 grep 出来的）：
+      #   · vp9：FF_CODEC_CAP_ALLOCATE_PROGRESS 在 7.1 libavcodec/codec_internal.h **0 命中**
+      #     （与 CI 原文 vp9.c:1887:33 error: use of undeclared identifier 'FF_CODEC_CAP_ALLOCATE_PROGRESS' 吻合）；
+      #     且 ff_vp9_videotoolbox_decoder 在 7.1 的 vp9.c / allcodecs.c **均 0 命中**（上游没并它）。
+      #     => **移除它不丢 VP9 硬解**：7.1 的通用 ff_vp9_decoder 里**本来就有**
+      #        #if CONFIG_VP9_VIDEOTOOLBOX_HWACCEL / HWACCEL_VIDEOTOOLBOX(vp9)（vp9.c L1871-1873）。
+      #        该补丁真正做的事是"把 VT 从通用解码器拆成独立 vp9_videotoolbox 解码器" => 我们不需要。
+      #   · hdr-texture：7.1 的 videotoolbox_best_pixel_format 里 return AV_PIX_FMT_P010;(L1180) 附近
+      #     **没有** TARGET_OS_IPHONE 分支（该文件里 3 处 TARGET_OS_IPHONE 在 L790/919/927，与此无关）；
+      #     hwcontext_videotoolbox.c L52 仍是 { kCVPixelFormatType_32BGRA, true, AV_PIX_FMT_BGRA }
+      #     => 补丁两个 hunk 的上下文都还在，能干净打上、符号齐。
+      #   · dash：7.1 dashdec.c 里 xmlEncodeSpecialChars **0 命中**、原语句 xmlNodeSetContent(node, root_url); 仍在 L774
+      #     => 能干净打上。（注：我们的内容只走 HLS，这条价值低；但它既然能干净打上，按规矩**不擅自动它**。）
+      #   · missing-objc：0.41 的 meson.build 里 add_languages('objc') **0 命中** => 仍需要。
+      #   · audiounit-shared-session：0.41 的 ao_audiounit.m 里补丁引入的 acquire_audio_session / use_count **0 命中**，
+      #     且 CI 实测前向失败 => 保留容忍。它在官方 **v0.6.0**（我们现用那版）的 patch 列表里**本来就没有**
+      #     （v0.6.0 = 6 条 / v0.7.2 = 8 条）=> 丢它**不构成回退**。
+      #   · remove-libass：nix/packages/mk-pkg-mpv/default.nix 原文表明它**只在 audio 变体下执行**：
+      #       if [ "${variant}" == "${variants.audio}" ]; then ... patch -p1 <...mpv-remove-libass.patch ...
+      #     而我们编的是 ...-video-default => **variant=video => 那条 if 不成立 => 这条 patch 根本不会被执行**（inert）。
+      #     目标行虽都还在（能干净打上），但对我们等于空操作 => 保持原样（容忍档），不额外动手。
+      #
+      #   ★ "下一条会编不过的"排查结论：除 vp9 外，**没有**发现"能打上但引用符号已消失"的补丁
+      #     （hdr / dash 的目标符号逐一在 7.1 里确认存在；missing-objc / remove-libass 不引入新符号；
+      #      audiounit 是打不上而非编不过）。❓ 未纳入本表的只有 ltmain-target-passthrough.patch
+      #     —— 它不作用在这两个 nix 文件上（是 libtool 系的包用的），本流程不重写它，也**没审计**它。
       #
       #   ⚠️ `mpv-audiounit-shared-session.patch` 上一轮**实测打不上**（mpv 0.36→0.41 变动）。影响面：
       #     · 它是什么 🛢️（patch 原文）：**非上游的自定义改动**，给 mpv 的 AudioUnit AO
@@ -270,13 +308,17 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: patch 分流（hls 那条按自证结果自动移除/降级；其余容忍）
+      - name: patch 分流（hls 按自证结果自动移除/降级；vp9 无条件移除；其余容忍）
         run: |
           set -euo pipefail
           cd recipe
           HLS_PRESENT='${{ steps.hls_fix.outputs.present }}' python3 - <<'PY'
           import os, pathlib, re
           HLS = 'ffmpeg-fix-hls-mp4-seek.patch'
+          # Patches removed unconditionally (see the audit table in the comment block above this step):
+          #   vp9-hwaccel cannot compile against ffmpeg >= 7.1 (FF_CODEC_CAP_ALLOCATE_PROGRESS was removed)
+          #   and is not needed: the vanilla ff_vp9_decoder in 7.1 already carries HWACCEL_VIDEOTOOLBOX(vp9).
+          REMOVE_ALWAYS = {'ffmpeg-fix-vp9-hwaccel.patch'}
           present = os.environ.get('HLS_PRESENT') == 'true'
           print(f'hls fix already contained (from self-check step) = {present}')
           files = ['nix/packages/mk-pkg-ffmpeg/default.nix', 'nix/packages/mk-pkg-mpv/default.nix']
@@ -286,6 +328,7 @@ jobs:
               p = pathlib.Path(f)
               out, wrapped, removed = [], [], []
               had_hls = False
+              seen_remove_always = set()
               file_matched = 0
               for line in p.read_text().splitlines(keepends=True):
                   m = line_re.match(line.rstrip('\n'))
@@ -296,7 +339,13 @@ jobs:
                   name = m.group(3)
                   if name == HLS:
                       had_hls = True
-                  if name == HLS and present:
+                  if name in REMOVE_ALWAYS:
+                      seen_remove_always.add(name)
+                  if name in REMOVE_ALWAYS:
+                      # cannot compile on the new version and not needed => drop it (see the audit table)
+                      out.append(f'{m.group(1)}echo "NOTE: skip {name} -- removed: does not compile against the new ffmpeg (FF_CODEC_CAP_ALLOCATE_PROGRESS gone) and is not needed"\n')
+                      removed.append(name)
+                  elif name == HLS and present:
                       # already upstream (ffmpeg >= 7.1) => drop the patch, leave a log line in the nix build log
                       out.append(f'{m.group(1)}echo "NOTE: skip {name} -- already contained in ffmpeg >= 7.1 (see the self-check step)"\n')
                       removed.append(name)
@@ -309,6 +358,9 @@ jobs:
               total_matched += file_matched
               p.write_text(''.join(out))
               print(f'{f}: processed={file_matched} removed={removed} tolerant={wrapped}')
+              # every REMOVE_ALWAYS patch that exists in this file MUST have been removed
+              assert seen_remove_always <= set(removed), \
+                  f'{f}: REMOVE_ALWAYS patch not removed: {sorted(seen_remove_always - set(removed))}'
               # the assertion must branch on whether THIS file actually contains the hls patch
               # (behavior test on the dev machine caught the unconditional version crashing on the mpv file)
               if had_hls:
