@@ -60,6 +60,56 @@ jobs:
       ASSET_NAME: libmpv-xcframeworks_${{ inputs.version }}_ios-universal-video-default.tar.gz
 
     steps:
+      # ★ ASCII 自检（**放最前面，目的是快速失败**，别再浪费一次 7 分钟的真编）
+      #   依据 🛢️（上一轮 CI 原文）：
+      #     `/Users/runner/work/_temp/576f701a-….sh: line 4: FF_URL<坏字节>: unbound variable`
+      #     `##[error]Process completed with exit code 1.`
+      #   触发点：那句 `echo "下载 $FF_URL（约 11MB，只这一次）"` —— **`$FF_URL` 紧跟全角括号「（」**，
+      #   runner 写临时 .sh 时那个字节被损坏 ⇒ bash 把坏字节当成变量名的一部分 ⇒ unbound variable。
+      #   （同文件其它中文在日志里都完整，说明不是整体乱码，而是"变量紧邻非 ASCII"这种组合触发。）
+      #   ⇒ 铁律：**中文/全角只准出现在 `name:` / YAML 注释 / 文档里；`run:` 块内一律 ASCII**。
+      #   这道自检读的就是本文件，run 块里任何一个字节 > 127 就当场红并打印行号/列号。
+      - name: 本仓库 checkout（只为下面那道 ASCII 自检读本 workflow 文件）
+        uses: actions/checkout@v4
+        with:
+          path: self
+
+      - name: ASCII 自检（run 块内不得出现非 ASCII 字节）
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, sys
+          p = 'self/.github/workflows/build-libmpv-ios.yml'
+          lines = open(p, encoding='utf-8').read().replace('\r\n', '\n').split('\n')
+          bad = []
+          i = 0
+          while i < len(lines):
+              m = re.match(r'^(\s*)run:\s*\|\s*$', lines[i])
+              if m:
+                  base = len(m.group(1))
+                  j = i + 1
+                  while j < len(lines):
+                      ln = lines[j]
+                      if ln.strip() == '':
+                          j += 1
+                          continue
+                      if len(ln) - len(ln.lstrip(' ')) <= base:
+                          break
+                      for k, ch in enumerate(ln):
+                          if ord(ch) > 127:
+                              bad.append((j + 1, k + 1, 'U+%04X' % ord(ch)))
+                      j += 1
+                  i = j
+              else:
+                  i += 1
+          print('run-block non-ASCII characters: %d' % len(bad))
+          for ln_no, col, cp in bad[:50]:
+              print('  line %d col %d %s' % (ln_no, col, cp))
+          if bad:
+              sys.exit('FAIL: run blocks must be pure ASCII (runner mangles non-ASCII bytes placed right after shell variables)')
+          print('OK: every run block is pure ASCII')
+          PY
+
       - name: Platform info
         run: |
           printf "%-16s %s\n" "ProductName:"    "$(/usr/bin/sw_vers -productName)"
@@ -110,28 +160,28 @@ jobs:
           p = pathlib.Path('packages.lock.nix')
           s = p.read_text()
           def patch_block(s, key, version, url, sha):
-              # 只在该属性的花括号块内替换 version / url / sha256 三行
+              # replace only version / url / sha256 inside this attribute block
               pat = re.compile(r'(?ms)^(\s*' + key + r'\s*=\s*\{)(.*?)(^\s*\};)')
               m = pat.search(s)
-              assert m, f'找不到 {key} 块'
+              assert m, f'block not found: {key}'
               body = m.group(2)
               body2, n1 = re.subn(r'(?m)^\s*version\s*=\s*"[^"]*";', f'  version = "{version}";', body, count=1)
               body2, n2 = re.subn(r'(?m)^\s*url\s*=\s*"[^"]*";',     f'  url = "{url}";',         body2, count=1)
               body2, n3 = re.subn(r'(?m)^\s*sha256\s*=\s*"[^"]*";',  f'  sha256 = "{sha}";',      body2, count=1)
-              assert n1 == n2 == n3 == 1, f'{key}: 替换数 version={n1} url={n2} sha256={n3}'
+              assert n1 == n2 == n3 == 1, f'{key}: replaced version={n1} url={n2} sha256={n3}'
               return s[:m.start(2)] + body2 + s[m.end(2):]
           s = patch_block(s, 'ffmpeg', os.environ['FF_VERSION'], os.environ['FF_URL'], os.environ['FF_SHA'])
           s = patch_block(s, 'mpv',    os.environ['MPV_VERSION'], os.environ['MPV_URL'], os.environ['MPV_SHA'])
           p.write_text(s)
-          print('--- 改后 ffmpeg / mpv 段 ---')
+          print('--- ffmpeg / mpv blocks after patch ---')
           for key in ('ffmpeg', 'mpv'):
               m = re.search(r'(?ms)^\s*' + key + r'\s*=\s*\{.*?^\s*\};', s)
               print(m.group(0))
           PY
-          # 自证：三处都必须是新版本（一处不对就当场失败）
+          # self-check: all three lines must be the new version; fail loudly otherwise
           grep -q "ffmpeg-${FFMPEG_VERSION}.tar.xz" packages.lock.nix
           grep -q "tags/v${MPV_VERSION}.tar.gz"     packages.lock.nix
-          echo "✅ 版本 pin 已改"
+          echo "OK: version pins updated"
 
       # ★ patch 分流（triage）—— 2026-10-12 **第二版**（依据 = 上一轮 CI 的实测 + 本机复核）
       #
@@ -175,48 +225,48 @@ jobs:
           set -euo pipefail
           cd recipe
           FF_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-          echo "下载 $FF_URL（约 11MB，只这一次）"
+          echo "downloading $FF_URL (about 11MB, once only)"
           curl -L --fail --silent --show-error -o "$RUNNER_TEMP/ff.tar.xz" "$FF_URL"
           mkdir -p "$RUNNER_TEMP/ffsrc"
           tar -xJf "$RUNNER_TEMP/ff.tar.xz" -C "$RUNNER_TEMP/ffsrc" "ffmpeg-${FFMPEG_VERSION}/libavformat/hls.c"
-          rm -f "$RUNNER_TEMP/ff.tar.xz"   # 解出来就够了，别占 runner 磁盘
+          rm -f "$RUNNER_TEMP/ff.tar.xz"   # already extracted; do not waste runner disk
           HLS="$RUNNER_TEMP/ffsrc/ffmpeg-${FFMPEG_VERSION}/libavformat/hls.c"
           test -f "$HLS"
-          echo "hls.c = $(wc -c < "$HLS") 字节"
-          echo "hls_read_seek 起于: $(grep -nF 'static int hls_read_seek' "$HLS" | head -1)"
+          echo "hls.c bytes = $(wc -c < "$HLS")"
+          echo "hls_read_seek starts at: $(grep -nF 'static int hls_read_seek' "$HLS" | head -1)"
 
-          # 从 patch 里提取"新增行"（^+ 且非 +++）当特征串，去掉前后空白
+          # extract the '+' lines of the patch (excluding '+++') as feature strings, trimmed
           grep -E '^\+[^+]' patches/ffmpeg-fix-hls-mp4-seek.patch \
             | sed -e 's/^+//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
             | grep -v '^$' > "$RUNNER_TEMP/features.txt"
           TOTAL=$(wc -l < "$RUNNER_TEMP/features.txt" | tr -d ' ')
-          echo "特征串条数 = $TOTAL"
+          echo "feature strings = $TOTAL"
           HIT=0
           while IFS= read -r feat; do
             if grep -nF -- "$feat" "$HLS" > "$RUNNER_TEMP/hit.txt"; then
               HIT=$((HIT + 1))
-              echo "  ✅ 命中 $(head -1 "$RUNNER_TEMP/hit.txt")"
-              echo "     特征串: $feat"
+              echo "  HIT $(head -1 "$RUNNER_TEMP/hit.txt")"
+              echo "      feature: $feat"
             else
-              echo "  ☠ 未命中: $feat"
+              echo "  MISS: $feat"
             fi
           done < "$RUNNER_TEMP/features.txt"
 
           if [ "$TOTAL" -gt 0 ] && [ "$HIT" -eq "$TOTAL" ]; then
-            echo "✅ 结论：ffmpeg ${FFMPEG_VERSION} **已内含**该 fMP4-HLS seek 修复（特征串 $HIT/$TOTAL 全命中）"
+            echo "VERDICT: ffmpeg ${FFMPEG_VERSION} ALREADY CONTAINS the fMP4-HLS seek fix (features $HIT/$TOTAL all hit)"
             echo "present=true" >> "$GITHUB_OUTPUT"
             {
-              echo "### fMP4-HLS seek 自证"
-              echo "- ffmpeg ${FFMPEG_VERSION} 的 \`libavformat/hls.c\`：特征串 **$HIT/$TOTAL 全命中**"
-              echo "- 判定：**已内含** ⇒ 该 patch 会被自动移除（不再打）"
+              echo "### fMP4-HLS seek self-check"
+              echo "- ffmpeg ${FFMPEG_VERSION} libavformat/hls.c: feature strings $HIT/$TOTAL all hit"
+              echo "- verdict: ALREADY CONTAINED => that patch will be removed automatically"
             } >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "☠ 结论：**未内含**（命中 $HIT/$TOTAL）⇒ fMP4-HLS seek 修复将缺失，需另行评估"
+            echo "VERDICT: NOT contained ($HIT/$TOTAL) => the fMP4-HLS seek fix would be MISSING, needs separate evaluation"
             echo "present=false" >> "$GITHUB_OUTPUT"
             {
-              echo "### fMP4-HLS seek 自证"
-              echo "- ffmpeg ${FFMPEG_VERSION} 的 \`libavformat/hls.c\`：特征串 **$HIT/$TOTAL 命中**"
-              echo "- 判定：**未内含** ☠ ⇒ 这条 patch 降级为容忍档，构建继续，但 **seek 修复可能缺失**"
+              echo "### fMP4-HLS seek self-check"
+              echo "- ffmpeg ${FFMPEG_VERSION} libavformat/hls.c: feature strings $HIT/$TOTAL hit"
+              echo "- verdict: NOT contained => patch downgraded to tolerant; build continues but SEEK FIX MAY BE MISSING"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -228,7 +278,7 @@ jobs:
           import os, pathlib, re
           HLS = 'ffmpeg-fix-hls-mp4-seek.patch'
           present = os.environ.get('HLS_PRESENT') == 'true'
-          print(f'hls 修复是否已内含（来自自证步骤）= {present}')
+          print(f'hls fix already contained (from self-check step) = {present}')
           files = ['nix/packages/mk-pkg-ffmpeg/default.nix', 'nix/packages/mk-pkg-mpv/default.nix']
           line_re = re.compile(r'^(\s*)patch -p1 <(\$\{\.\./\.\./\.\./patches/([A-Za-z0-9_.\-]+)\})\s*$')
           total_matched = 0
@@ -247,43 +297,43 @@ jobs:
                   if name == HLS:
                       had_hls = True
                   if name == HLS and present:
-                      # ffmpeg >= 7.1 已内含 ⇒ 整条删掉，换成一行日志（会进 nix 构建日志，便于复核）
-                      out.append(f'{m.group(1)}echo "NOTE: skip {name} —— ffmpeg >= 7.1 已内含该 fMP4-HLS seek 修复（见本 workflow 的「自证」步骤）"\n')
+                      # already upstream (ffmpeg >= 7.1) => drop the patch, leave a log line in the nix build log
+                      out.append(f'{m.group(1)}echo "NOTE: skip {name} -- already contained in ffmpeg >= 7.1 (see the self-check step)"\n')
                       removed.append(name)
                   elif name == HLS:
-                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "SEEK-FIX-MISSING: {name} 打不上且 {HLS} 未内含 ⇒ fMP4-HLS seek 修复缺失")\n')
+                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "SEEK-FIX-MISSING: {name} cannot apply and ffmpeg 7.1 does not contain it => seek fix missing")\n')
                       wrapped.append(name)
                   else:
                       out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "WARN-PATCH-FAILED: {name}")\n')
                       wrapped.append(name)
               total_matched += file_matched
               p.write_text(''.join(out))
-              print(f'{f}: 处理={file_matched} 条 ⇒ 移除={removed}  容忍={wrapped}')
-              # ⚠️ 断言必须**按"这个文件里到底有没有 hls patch"分支**：
-              #    hls patch 只在 ffmpeg 那个文件里，mpv 文件里没有 ⇒ 不能无条件断言
-              #    （这是本机做行为验证时抓出来的真 bug：无条件断言会在 mpv 文件上抛 AssertionError）
+              print(f'{f}: processed={file_matched} removed={removed} tolerant={wrapped}')
+              # the assertion must branch on whether THIS file actually contains the hls patch
+              # (behavior test on the dev machine caught the unconditional version crashing on the mpv file)
               if had_hls:
                   assert (HLS in removed) if present else (HLS in wrapped), \
-                      f'{f}: 含 hls patch 但处理不符合预期（present={present}）'
+                      f'{f}: has hls patch but handling mismatch (present={present})'
               else:
                   assert HLS not in removed and HLS not in wrapped, \
-                      f'{f}: 本不含 hls patch 却动了它'
-                  print(f'  （{f} 本来就没有 hls patch，跳过该断言 —— 正常）')
-              assert file_matched == len(removed) + len(wrapped), f'{f}: 处理条数对不上'
-          # ⚠️ 这条自检必须在**重写之前**统计（用来统计的 line_re 只认原始形态的 `patch -p1 <...>` 行；
-          #    重写后它们已被包进 `(... || echo ...)`，再用这个正则就恒为 0 —— 这也是行为验证抓出来的）
-          print(f'自检：共处理 {total_matched} 条 patch 行（若为 0 说明正则没匹配上，务必查）')
-          assert total_matched > 0, '正则一条都没匹配到 ⇒ triage 静默失效，必须修'
+                      f'{f}: does not have hls patch but it was touched'
+                  print(f'  ({f} has no hls patch -> that assertion skipped, expected)')
+              assert file_matched == len(removed) + len(wrapped), f'{f}: count mismatch'
+          # this self-check must count BEFORE the rewrite: the regex only matches the original
+          # `patch -p1 <...>` form, after rewriting they are wrapped and this would always be 0
+          print(f'self-check: processed {total_matched} patch lines (0 means the regex missed everything)')
+          assert total_matched > 0, 'regex matched nothing: triage would be silently broken, must fix'
           PY
-          echo '--- 改后 ffmpeg patch 段 ---'
+          echo '--- ffmpeg patch section after patch ---'
           sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-ffmpeg/default.nix | head -20
-          echo '--- 改后 mpv patch 段 ---'
+          echo '--- mpv patch section after patch ---'
           sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-mpv/default.nix | head -20
 
       - name: Xcode path
         id: xcode_path
         run: |
-          # 官方 ci.yaml 硬编码这个路径；macos-15 runner 上它存在。不存在就退回到当前选中的 Xcode
+          # official ci.yaml hardcodes this path; it exists on macos-15 runners.
+          # fall back to the currently selected Xcode if it is missing
           if [ -d /Applications/Xcode_16.1.0.app ]; then
             XCODE_PATH=$(realpath /Applications/Xcode_16.1.0.app)
           else
@@ -307,22 +357,22 @@ jobs:
           set -euo pipefail
           cd recipe
           ls -la result/ || true
-          # nix build 的 result 是指向 store 的符号链接，里面的 tar.gz 才是资产
+          # nix build result is a symlink into the store; the tar.gz inside it is the asset
           ASSET=$(find -L result -maxdepth 1 -name "$ASSET_NAME" -print -quit)
           if [ -z "$ASSET" ]; then
-            echo "::error::没找到产物 $ASSET_NAME —— result/ 里实际是："; find -L result -maxdepth 3 -name '*.tar.gz' || true; exit 1
+            echo "::error::asset $ASSET_NAME not found -- actual .tar.gz files under result/:"; find -L result -maxdepth 3 -name '*.tar.gz' || true; exit 1
           fi
           cp "$ASSET" .
           BYTES=$(stat -f%z "./$ASSET_NAME")
           SHA=$(shasum -a 256 "./$ASSET_NAME" | awk '{print $1}')
           {
-            echo "### libmpv iOS 产物"
+            echo "### libmpv iOS asset"
             echo ""
-            echo "- 文件：\`$ASSET_NAME\`"
-            echo "- 字节：\`$BYTES\`"
-            echo "- sha256：\`$SHA\`"
+            echo "- file: \`$ASSET_NAME\`"
+            echo "- bytes: \`$BYTES\`"
+            echo "- sha256: \`$SHA\`"
             echo ""
-            echo "把这个 sha256 回填到 \`third_party/media_kit_libs_ios_video/ios/Makefile\` 的 \`MPV_XCFRAMEWORKS_SHA256SUM\`。"
+            echo "Copy this sha256 into \`third_party/media_kit_libs_ios_video/ios/Makefile\` MPV_XCFRAMEWORKS_SHA256SUM."
           } >> "$GITHUB_STEP_SUMMARY"
           echo "asset_name=$ASSET_NAME" >> "$GITHUB_OUTPUT"
           echo "asset_bytes=$BYTES" >> "$GITHUB_OUTPUT"
@@ -350,9 +400,9 @@ jobs:
           gh release create "$VERSION" "${{ steps.asset.outputs.asset_name }}" \
             -R "${{ github.repository }}" \
             --title "$VERSION" \
-            --notes "自编 libmpv iOS xcframework（mpv $MPV_VERSION / ffmpeg $FFMPEG_VERSION，动态 \`Mpv\`）
-          产物：\`${{ steps.asset.outputs.asset_name }}\`
-          字节：\`${{ steps.asset.outputs.asset_bytes }}\`
-          sha256：\`${{ steps.asset.outputs.asset_sha256 }}\`
-          配方：$RECIPE_REPO @ $RECIPE_REF（只改 packages.lock.nix 的 ffmpeg/mpv 版本）"
-          echo "已发布 Release: $VERSION"
+            --notes "self-built libmpv iOS xcframework (mpv $MPV_VERSION / ffmpeg $FFMPEG_VERSION, dynamic \`Mpv\`)
+          asset: \`${{ steps.asset.outputs.asset_name }}\`
+          bytes: \`${{ steps.asset.outputs.asset_bytes }}\`
+          sha256: \`${{ steps.asset.outputs.asset_sha256 }}\`
+          recipe: $RECIPE_REPO @ $RECIPE_REF (only packages.lock.nix ffmpeg/mpv versions changed)"
+          echo "release published: $VERSION"
