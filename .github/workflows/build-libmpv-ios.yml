@@ -381,6 +381,277 @@ jobs:
           echo '--- mpv patch section after patch ---'
           sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-mpv/default.nix | head -20
 
+      # ★ 2026-10-12 第四版：mpv 0.41 的 meson 选项适配
+      #   依据 🛢️（CI 原文）：`mk-pkg-mpv-iossimulator-arm64-video> ERROR: Unknown options: "libplacebo,
+      #     macos-10-11-features, macos-10-12-2-features, macos-10-14-features, rpi, rpi-mmal, sdl2,
+      #     stdatomic, ta-leak-report, vaapi-x-egl, win32-internal-pthreads"`
+      #   —— 这 11 个名字正好等于"配方传的选项" 与 0.41 `meson.options`（105 个 option 名）的**差集**
+      #   （配方侧 = `nix/packages/mk-pkg-mpv/default.nix` 的 `DISABLE_ALL_OPTIONS` 数组；
+      #     目标侧 = https://raw.githubusercontent.com/mpv-player/mpv/v0.41.0/meson.options）
+      #
+      #   逐条映射（选项 | 0.41 是否存在 | 改名? | 对 iOS 产物有用? | 处理）：
+      #   | ta-leak-report          | 否 | 无对应（0.41 新增的是 disable-packet-pool，语义不同） | 无（开发用途） | 删除 |
+      #   | sdl2                    | 否 | 已拆成 sdl2-video / sdl2-audio / sdl2-gamepad（三者 0.41 都在，配方**已各自单独传 =disabled**） | 无（桌面输出） | 删除 |
+      #   | stdatomic               | 否 | 无对应 | 无 | 删除 |
+      #   | win32-internal-pthreads | 否 | 0.41 的叫 win32-threads | 无（Windows 专用） | 删除（**不改名**：给 iOS 传 Windows 选项没意义） |
+      #   | libplacebo              | 否 | 选项被移除（但见下警告） | 见下 | 删除（选项没了；但 0.41 把 libplacebo 变成硬依赖） |
+      #   | rpi / rpi-mmal          | 否 | 无对应（树莓派支持已移除） | 无 | 删除 |
+      #   | vaapi-x-egl             | 否 | 无对应（0.41 只有 vaapi-drm / vaapi-wayland / vaapi-win32 / vaapi-x11） | 无（Linux） | 删除 |
+      #   | macos-10-11-features    | 否 | 0.41 换代为 macos-10-15-4 / macos-11 / macos-11-3 / macos-12-features —— **不是改名，是最低版本抬了** | 无（我们编 iOS，部署目标 13.0） | 删除 |
+      #   | macos-10-12-2-features  | 否 | 同上 | 无 | 删除 |
+      #   | macos-10-14-features    | 否 | 同上 | 无 | 删除 |
+      #   => **没有一条需要"改名保留"**：11 条全是桌面/历史平台相关，原本都被设成 disabled/false；
+      #      0.41 里它们连选项都不存在 => 删掉等价于"该特性在这个版本已不存在"。
+      #
+      #   *** 本轮解决不了、必须让 lead/用户知道的问题 *** 🛢️
+      #     mpv 0.41 `meson.build` L29 原文：`libplacebo = dependency('libplacebo', version: '>=6.338.2',`
+      #     下一行是 `default_options: [...]` —— **没有 `required:` 参数** => meson 默认 **required=true**
+      #     => libplacebo 是**硬依赖**；且 0.41 里 `get_option('libplacebo')` **0 命中**（选项被彻底移除，无法禁用）。
+      #     对照 mpv **0.36.0**（我们现用版）原文：`required: get_option('libplacebo')`
+      #     + `features += {'libplacebo': libplacebo.found()}`
+      #     => **0.36 是最后一个"libplacebo 可选"的版本；0.37 起（含 0.37/0.38/0.39/0.40/0.41）全是硬依赖**。
+      #     而本配方**不构建 libplacebo**（没有 mk-pkg-libplacebo，产物框架清单里也没有 Placebo）
+      #     => **选项改完之后的下一关必然是 `Dependency libplacebo ... not found`**。
+      #     这不是选项问题，是"配方缺一个依赖包" => 需要 lead/用户决策
+      #     （给配方加 libplacebo 包 / 维持 mpv 0.36 / 自己打补丁把 libplacebo 变回可选）。
+      #     **本轮受"不许动版本 pin 机制"约束，不擅自改 mpv 版本。**
+      - name: 改写配方里 mpv 的 meson 选项（去掉目标版本已不存在的 11 个）
+        run: |
+          set -euo pipefail
+          cd recipe
+          python3 - <<'PY'
+          import pathlib, re
+          P = 'nix/packages/mk-pkg-mpv/default.nix'
+          unknown = ['libplacebo', 'macos-10-11-features', 'macos-10-12-2-features',
+                     'macos-10-14-features', 'rpi', 'rpi-mmal', 'sdl2', 'stdatomic',
+                     'ta-leak-report', 'vaapi-x-egl', 'win32-internal-pthreads']
+          lines = pathlib.Path(P).read_text().splitlines(keepends=True)
+          start = next(i for i, ln in enumerate(lines) if re.match(r'^\s*DISABLE_ALL_OPTIONS=\(\s*$', ln))
+          end = next(j for j in range(start + 1, len(lines)) if re.match(r'^\s*\)\s*$', lines[j]))
+          body = lines[start + 1:end]
+          kept, dropped = [], []
+          for ln in body:
+              m = re.match(r'^\s*-D([A-Za-z0-9_-]+)=', ln)
+              if m and m.group(1) in unknown:
+                  dropped.append(m.group(1))
+                  continue
+              kept.append(ln)
+          assert sorted(dropped) == sorted(unknown), 'dropped set mismatch: %s' % sorted(dropped)
+          lines[start + 1:end] = kept
+          pathlib.Path(P).write_text(''.join(lines))
+          print('removed %d unknown options: %s' % (len(dropped), dropped))
+          print('--- options still passed to mpv (DISABLE_ALL_OPTIONS array) ---')
+          n = 0
+          for ln in kept:
+              m = re.match(r'^\s*-D([A-Za-z0-9_-]+)=([^ `]*)', ln)
+              if m:
+                  n += 1
+                  print('  -D%s=%s' % (m.group(1), m.group(2)))
+          print('total -D options left in that array: %d' % n)
+          PY
+
+      # ★ 2026-10-12 第五版：B 方案 —— 给配方补 libplacebo 依赖（用户拍板"全部要最新的"）
+      #   依据 🛢️：mpv 0.41 `meson.build` L29 `libplacebo = dependency('libplacebo', version: '>=6.338.2', ...)`
+      #     无 `required:`（默认必需）且 `get_option('libplacebo')` 0 命中（无法禁用）；
+      #     而配方不构建 libplacebo => 必然停在 `Dependency libplacebo found: NO`。
+      #
+      #   *** 配方机制（读源码得来，用于判断"要写哪几个文件"）***
+      #   · 一个依赖包 = `nix/packages/mk-pkg-<name>/default.nix`：`stdenvNoCC.mkDerivation` + meson，
+      #     `--native-file`/`--cross-file` 交叉编译、`--prefix=$out`；依赖用 `buildInputs = [ 其它 mk-pkg-* ]`
+      #     （nixpkgs 的 pkg-config wrapper 会把它们的 `lib/pkgconfig` 加进 PKG_CONFIG_PATH => meson 能 `dependency()` 到）。
+      #     样板：mk-pkg-dav1d = `inherit src; dontUnpack=true;` + `meson setup build $src`（我们照它，不打补丁）
+      #   · **框架清单自动推导，不用手改** 🛢️：`mk-out-frameworks/ios/build-ios.sh` 原文
+      #     `find ${DEPS} -name "*.dylib" | while read DYLIB; do FRAMEWORK_NAME=$(basename $DYLIB .dylib | sed 's/\.[0-9]*$//' | sed 's/^lib//')`
+      #     => `libplacebo.dylib` 自动成为 `Placebo.framework` ✅（首字母还会被 tr 大写）
+      #   · 但**聚集清单要手加**：`mk-out-libs/default.nix` 的 `deps = [ mpv ffmpeg mbedtls ... ]`
+      #     只有列进去的包，其 dylib 才会被 `find $dep/lib -name '*.dylib'` 拷进 build
+      #   · 我们自己的 media_kit 侧**不用改** ✅：`third_party/.../ios/Makefile` 只解包、
+      #     podspec 用通配 `Frameworks/*.xcframework` => 多出的 `Placebo.xcframework` 会被一起 vendor；
+      #     `Mpv` 对它 `@rpath/libplacebo.dylib` 的依赖会被 build-ios.sh 后面的
+      #     "update dylib dep paths" 段改写成 framework 路径（同一套"文件名→框架名"推导）
+      #
+      #   *** libplacebo 最小配置（依据 = v6.338.2 meson_options.txt 原文 + mpv 侧约束）***
+      #   | 选项 | 6.338.2 默认 | 处理 | 依据 |
+      #   | demos | **boolean=true** | **必须 -Ddemos=false** | 默认 true！会去编 demo 程序（还需 GLFW/SDL 之类），我们只要库 |
+      #   | tests/bench/fuzz | boolean=false | 显式 false | 默认已 false；写死防上游改默认 |
+      #   | vulkan | feature=auto | **-Dvulkan=disabled** | iOS 无 Vulkan；mpv 侧本来就是 `-Dvulkan=disabled` => libplacebo 带不带都行；关掉可免 MoltenVK |
+      #   | vk-proc-addr | feature=auto | **disabled** | 只对 vulkan 有意义 |
+      #   | d3d11 | feature=auto | **disabled** | Windows 专用 |
+      #   | opengl / gl-proc-addr / glslang / shaderc / lcms / dovi / libdovi / unwind / xxhash | feature=auto | **保持 auto（不传）** | 🛢️ meson `auto` 语义 = "找到就用、找不到就跳过"，**不可能因缺依赖而配置失败**；我们只要"能满足链接"，auto 最稳（显式 disabled 反而可能关掉本可用的后端） |
+      #   ❓ 未定项（如实标，未猜）：`xxhash` / `unwind` 是"可选"还是"必需"，我**没查实** —— 它们的 required 写在
+      #     `src/meson.build`，我只核了顶层 `meson.build`（顶层只有 `meson.override_dependency('libplacebo', ...)`）。
+      #     因为保持 `auto`，若它们确实必需且系统里没有，配置阶段会点名报错，一轮即可定位。
+      #     同理 `opengl` 若在 iOS 交叉环境 auto 解析不到，libplacebo 会退化成"无 GPU 后端"——**仍能满足 mpv 链接**
+      #     （gpu-next 是运行期才用），符合"只要求链接"的口径。
+      - name: 给配方补 libplacebo 依赖（B 方案：新增包 + 接线；框架清单自动推导不用改）
+        run: |
+          set -euo pipefail
+          cd recipe
+          LIBPLACEBO_VERSION="6.338.2"
+          LIBPLACEBO_URL="https://github.com/haasn/libplacebo/archive/refs/tags/v${LIBPLACEBO_VERSION}.tar.gz"
+          echo "libplacebo url = $LIBPLACEBO_URL"
+          LIBPLACEBO_SHA=$(nix-prefetch-url --type sha256 "$LIBPLACEBO_URL")
+          echo "libplacebo sha256(base32) = $LIBPLACEBO_SHA"
+          LP_VERSION="$LIBPLACEBO_VERSION" LP_URL="$LIBPLACEBO_URL" LP_SHA="$LIBPLACEBO_SHA" python3 - <<'PY'
+          import os, pathlib, re, textwrap
+
+          version = os.environ['LP_VERSION']
+          url = os.environ['LP_URL']
+          sha = os.environ['LP_SHA']
+
+          lock = pathlib.Path('packages.lock.nix')
+          s = lock.read_text()
+          assert 'libplacebo = {' not in s, 'libplacebo already in packages.lock.nix'
+          # indentation-agnostic: reuse whatever indent the "mpv = {" entry uses
+          anchor = re.search(r'(?m)^(\s*)mpv = \{\n', s)
+          assert anchor, 'anchor "mpv = {" not found in packages.lock.nix'
+          ind = anchor.group(1)
+          entry = ('%slibplacebo = {\n%s  version = "%s";\n%s  url = "%s";\n%s  sha256 = "%s";\n%s};\n'
+                   % (ind, ind, version, ind, url, ind, sha, ind))
+          lock.write_text(s[:anchor.start()] + entry + s[anchor.start():])
+          print('packages.lock.nix: added libplacebo entry (version=%s, indent=%d)' % (version, len(ind)))
+
+          pkgdir = pathlib.Path('nix/packages/mk-pkg-libplacebo')
+          pkgdir.mkdir(parents=True, exist_ok=True)
+          (pkgdir / 'default.nix').write_text(textwrap.dedent('''
+            {
+              pkgs ? import ../../utils/default/pkgs.nix,
+              os ? import ../../utils/default/os.nix,
+              arch ? pkgs.callPackage ../../utils/default/arch.nix { },
+            }:
+
+            let
+              name = "libplacebo";
+              packageLock = (import ../../../packages.lock.nix).${name};
+              inherit (packageLock) version;
+
+              callPackage = pkgs.lib.callPackageWith { inherit pkgs os arch; };
+              nativeFile = callPackage ../../utils/native-file/default.nix { };
+              crossFile = callPackage ../../utils/cross-file/default.nix { };
+
+              pname = import ../../utils/name/package.nix name;
+              src = callPackage ../../utils/fetch-tarball/default.nix {
+                name = "${pname}-source-${version}";
+                inherit (packageLock) url sha256;
+              };
+            in
+
+            pkgs.stdenvNoCC.mkDerivation {
+              name = "${pname}-${os}-${arch}-${version}";
+              pname = pname;
+              inherit version;
+              inherit src;
+              dontUnpack = true;
+              enableParallelBuilding = true;
+              nativeBuildInputs = [
+                pkgs.meson
+                pkgs.ninja
+                pkgs.pkg-config
+              ];
+              configurePhase = \'\'
+                meson setup build $src \\
+                  --native-file ${nativeFile} \\
+                  --cross-file ${crossFile} \\
+                  --prefix=$out \\
+                  -Ddemos=false \\
+                  -Dtests=false \\
+                  -Dbench=false \\
+                  -Dfuzz=false \\
+                  -Dvulkan=disabled \\
+                  -Dvk-proc-addr=disabled \\
+                  -Dd3d11=disabled
+              \'\';
+              buildPhase = \'\'
+                meson compile -vC build
+              \'\';
+              installPhase = \'\'
+                meson install -C build
+              \'\';
+            }
+          ''').lstrip('\n'))
+          print('created nix/packages/mk-pkg-libplacebo/default.nix')
+
+          ol = pathlib.Path('nix/packages/mk-out-libs/default.nix')
+          t = ol.read_text()
+          assert 'mk-pkg-libplacebo' not in t, 'mk-out-libs already wired'
+          a = re.search(r'(?m)^(\s*)ffmpeg = callPackage \.\./mk-pkg-ffmpeg/default\.nix \{ \};\n', t)
+          assert a, 'mk-out-libs: ffmpeg callPackage line not found'
+          t = t[:a.end()] + '%slibplacebo = callPackage ../mk-pkg-libplacebo/default.nix { };\n' % a.group(1) + t[a.end():]
+          b = re.search(r'(?m)^(\s*)mpv\n(\s*)ffmpeg\n(\s*)mbedtls\n', t)
+          assert b, 'mk-out-libs: deps trio not found'
+          t = t[:b.end()] + '%slibplacebo\n' % b.group(3) + t[b.end():]
+          ol.write_text(t)
+          print('mk-out-libs: wired libplacebo into callPackage + deps')
+
+          mp = pathlib.Path('nix/packages/mk-pkg-mpv/default.nix')
+          m = mp.read_text()
+          assert 'mk-pkg-libplacebo' not in m, 'mk-pkg-mpv already wired'
+          c = re.search(r'(?m)^(\s*)ffmpeg = callPackage \.\./mk-pkg-ffmpeg/default\.nix \{ \};\n', m)
+          assert c, 'mk-pkg-mpv: ffmpeg callPackage line not found'
+          m = m[:c.end()] + '%slibplacebo = callPackage ../mk-pkg-libplacebo/default.nix { };\n' % c.group(1) + m[c.end():]
+          d = re.search(r'(?m)^(\s*)\[ ffmpeg \]\n', m)
+          assert d, 'mk-pkg-mpv: "[ ffmpeg ]" line not found'
+          assert re.search(r'(?m)^\s*\+\+ pkgs\.lib\.optionals \(variant == "video"\) \[\n', m), \
+              'mk-pkg-mpv: the "++ optionals (variant == video)" continuation line not found'
+          # replace ONLY that single line: slice to d.start() .. d.end() (end of "[ ffmpeg ]\n"),
+          # so the following "++ ..." line is preserved. (The first version sliced to d.end(1) and
+          # left a duplicate "[ ffmpeg ]" line behind, which is invalid nix -- caught by the local
+          # behavior test against the real recipe file.)
+          m = m[:d.start()] + '%s[ ffmpeg libplacebo ]\n' % d.group(1) + m[d.end():]
+          mp.write_text(m)
+          print('mk-pkg-mpv: wired libplacebo into buildInputs')
+
+          print('--- mk-pkg-mpv buildInputs after ---')
+          mm = mp.read_text()
+          idx = mm.find('buildInputs =')
+          print(mm[idx:idx + 150])
+          lp_lines = [ln for ln in mm.splitlines() if 'libplacebo' in ln]
+          print('--- mk-pkg-mpv libplacebo lines after (%d) ---' % len(lp_lines))
+          for ln in lp_lines:
+              print('  ' + ln)
+          print('--- mk-out-libs libplacebo lines after ---')
+          lp2 = [ln for ln in ol.read_text().splitlines() if 'libplacebo' in ln]
+          for ln in lp2:
+              print('  ' + ln)
+          PY
+          echo '--- new package head ---'
+          head -20 nix/packages/mk-pkg-libplacebo/default.nix
+          echo '--- lock entry ---'
+          grep -A4 'libplacebo = {' packages.lock.nix
+
+      # ★ 先验护栏：在真正 nix build 之前做静态校验 => 秒级失败，别再花 8 分钟才发现
+      - name: 先验：-D 选项名必须存在于目标版本
+        run: |
+          set -euo pipefail
+          cd recipe
+          python3 - <<'PY'
+          import os, pathlib, re, sys, urllib.request
+          MPV = os.environ['MPV_VERSION']
+          def declared(text):
+              return set(re.findall(r"^\s*option\(\s*'([^']+)'", text, re.M))
+          def passed(text):
+              return set(re.findall(r'^\s*-D([A-Za-z0-9_-]+)=', text, re.M))
+          url = 'https://raw.githubusercontent.com/mpv-player/mpv/v%s/meson.options' % MPV
+          txt = urllib.request.urlopen(url, timeout=60).read().decode('utf-8', 'replace')
+          decl = declared(txt)
+          got = passed(pathlib.Path('nix/packages/mk-pkg-mpv/default.nix').read_text())
+          bad = sorted(got - decl)
+          print('mpv %s: declared=%d passed=%d unknown=%d' % (MPV, len(decl), len(got), len(bad)))
+          print('  passed: ' + ', '.join(sorted(got)))
+          if bad:
+              print('  UNKNOWN: ' + ', '.join(bad))
+              sys.exit('FAIL: mpv option(s) not declared in %s' % url)
+          print('  OK: every mpv -D option exists in mpv %s meson.options' % MPV)
+          ff_opt = pathlib.Path('nix/packages/mk-pkg-ffmpeg/meson.options').read_text()
+          ff_decl = declared(ff_opt)
+          ff_got = passed(pathlib.Path('nix/packages/mk-pkg-ffmpeg/default.nix').read_text())
+          ff_bad = sorted(ff_got - ff_decl)
+          print('ffmpeg: declared=%s passed=%s unknown=%d' % (sorted(ff_decl), sorted(ff_got), len(ff_bad)))
+          if ff_bad:
+              sys.exit('FAIL: ffmpeg option(s) not declared in the recipe meson.options: ' + ', '.join(ff_bad))
+          print('  OK: every ffmpeg -D option is declared in the recipe meson.options')
+          PY
+
       - name: Xcode path
         id: xcode_path
         run: |
