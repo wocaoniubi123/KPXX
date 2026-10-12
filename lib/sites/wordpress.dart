@@ -473,6 +473,9 @@ const SiteEntry kSite01 = SiteEntry(
     name: '51吃瓜',
     template: SiteTemplate.wordpress,
     iconUrl: '/favicon.ico',
+    // ★ 2026-10-12：**内置图标**（用户提供了本站 favicon.ico 90x90 ⇒ 转 128x128 PNG ✅）
+    //   —— 站点图标一律只走内置资源、不联网取（`main.dart`/`site_admin.dart` 已无 `FetchedImage` ✅）
+    assetIcon: 'assets/site_icons/51chigua.png',
     // 用户要求：51吃瓜 详情页不显示「相关推荐」（它那个热闻区是纯文字链）
     showRelated: false,
     // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
