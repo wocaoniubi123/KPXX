@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert' show utf8; // ★ probe32 A：只读 HLS 清单事实（仅 logConsole 时用）
+import 'dart:io' show HttpClient; // ★ probe32 A：只读 HLS 清单事实（仅 logConsole 时用）
 
 // ValueListenable 不在 material.dart 的导出里，要单独引
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -204,6 +206,8 @@ class KpPlayer extends ValueNotifier<KpState> {
         // ★【常驻诊断】只打**首次** position>0（首帧 ✓）⇒ 防刷屏 ☠；`_everStarted` 是既有字段 ✓ 不改它的用法 ✓
         if (v > Duration.zero && !_everStarted) {
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 首帧 position=${v.inMilliseconds}ms');
+          // ★ probe32 A：④ 首帧时刻（只在 logConsole 时记）
+          if (AppSettings.i.logConsole) _tFrameMs ??= _nowMs();
           // ★ 2026-10-11（B2 ✅）：记下"位置首次真的推进"的时刻 ⇒ 起播保护期从这一刻算 ✅
           //   （`open()` 会清空它 ⇒ 每条源各自重新拥有保护期 ✓）
           _startedAtMs = DateTime.now().millisecondsSinceEpoch;
@@ -215,6 +219,8 @@ class KpPlayer extends ValueNotifier<KpState> {
       _p.stream.duration.listen((v) {
         if (v > Duration.zero && value.duration <= Duration.zero) {
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 时长=${v.inSeconds}s（首次拿到 ✓）');
+          // ★ probe32 A：③ 拿到 duration 的时刻（= ready 判据那一刻；只在 logConsole 时记）
+          if (AppSettings.i.logConsole) _tDurMs ??= _nowMs();
         }
         value = value.copyWith(duration: v);
       }),
@@ -248,6 +254,8 @@ class KpPlayer extends ValueNotifier<KpState> {
         if (v != value.buffering) {
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 缓冲 ${v ? '起' : '止'}');
         }
+        // ★ probe32 A：⑤ 首次缓冲结束（true→false）
+        if (!v && AppSettings.i.logConsole) _tBufEndMs ??= _nowMs();
         value = value.copyWith(buffering: v);
       }),
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
@@ -291,10 +299,23 @@ class KpPlayer extends ValueNotifier<KpState> {
       //   拿它当错误会误报；只有真的卡住时才把它作为附注带出来）
       _p.stream.log.listen((log) {
         if (log.level == 'fatal') _lastFatal = '${log.prefix}: ${log.text}';
+        // ★ probe32 A：② 首个 mpv 事件（日志流第一条；只在 logConsole 时记）
+        if (AppSettings.i.logConsole) _tMpvMs ??= _nowMs();
       }),
     ];
+    // ★ probe32 A：把**我们下发的全部 mpv 参数**打一行（只读；logConsole 关着时什么都不做）
+    _logMpvParams(bufferMb);
     // 卡住看门狗：播放中位置连续 9 秒不前进 → 判为卡住（真卡住才提示）
     _stallTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // ★ probe32 A（只读）：里程碑齐了 / 到点 20s ⇒ 打**一行**分段计时汇总（只一次；不做任何别的事）
+      if (AppSettings.i.logConsole && !_tLogged) {
+        final done = _tDurMs != null && _tBufEndMs != null;
+        final timeout = _tOpenMs != null && _nowMs() - _tOpenMs! > 20000;
+        if (done || timeout) {
+          _tLogged = true;
+          unawaited(_logTiming(done ? '里程碑齐(时长+缓冲止)' : '20s 到点(部分值)')); // async（要读 hwdec-current）
+        }
+      }
       final s = value;
       // 恢复判断必须在下面那行早退**之前**：error 一旦置上，早退每轮都命中，
       // 后面的逻辑全都不会执行 —— 放到 else 分支里等于永远不清。
@@ -421,6 +442,60 @@ class KpPlayer extends ValueNotifier<KpState> {
 
   bool _everStarted = false; // 是否已经播起来过（用于区分"起播失败"和"播放中的网络抖动"）
   Timer? _stallTimer;
+
+  // ★ 2026-10-11（**probe32 A：只读分段计时** —— 用户要让 iPhone 侧日志能定位"6~7 秒花在哪"）：
+  //   ⚠️ **只在 `logConsole` 打开时**才记录/打印（生产路径零开销、零行为变化）；**不打地址/cookie**。
+  int? _tOpenMs; // ① `open()` 提交时刻（= "--建/--open 提交" 的起点）
+  int? _tMpvMs; // ② 首个 mpv 事件（日志流里第一条）
+  int? _tDurMs; // ③ 拿到 duration（= 我们的 ready 判据；与"起播成功"同一刻）
+  int? _tFrameMs; // ④ 首帧（position 首次 >0；`started`）
+  int? _tBufEndMs; // ⑤ 首次缓冲结束（buffering true→false）
+  bool _tLogged = false; // 汇总只打一行
+  int _nowMs() => DateTime.now().millisecondsSinceEpoch;
+
+  /// 逐条列出**我们下发给 mpv 的全部参数**（只读、仅 logConsole）—— 便于判断"是不是预读/探测在拖起播"。
+  ///   ⚠️ 除下面这些，media_kit 内部还会自己设（`vo=libmpv`、`http-header-fields`=站点头等）—— 那些**不在我们代码里**。
+  void _logMpvParams(int bufferMb) {
+    if (!AppSettings.i.logConsole) return;
+    final hw = AppSettings.i.hwdec;
+    debugPrint('[PLAY] mpv参数 bufferSize=${bufferMb}MB logLevel=error '
+        'demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 '
+        'cache-pause-initial=no network-timeout=20 '
+        'stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,'
+        'reconnect_on_network_error=1,reconnect_on_http_error=5xx '
+        'hwdec=${hw == 1 ? 'auto' : (hw == 2 ? 'no' : '(不下发·上游默认)')} '
+        'referrer=(每源现设·不进日志) '
+        '｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）');
+  }
+
+  /// 一行汇总（只打一次；里程碑没到齐就在 `_stallTimer` 里到点打部分值 —— 绝不阻塞流程）。
+  /// ⚠️ 口径：`时长` = 首次拿到 duration（= ready）；`ready` 与它同刻（不再单独计时）；
+  ///   `缓冲止` = 首次 `buffering=false`（起播后往往会立刻 true 一次 ⇒ 看它更贴近"能连续放"）。
+  /// ★ 2026-10-11（用户批"补日志并出 1.3.4"）：**同时打出 mpv 当前解码方式**（`hwdec-current`）——
+  ///   判"iPhone 上 6~7s 是不是软解在拖"。读法：media_kit 的 `NativePlayer.getProperty`（**已核：存在**，
+  ///   见 `media_kit …/native/player/real.dart` 的 `Future<String> getProperty(String)`）；
+  ///   拿不到（非 NativePlayer / 超时 / 异常）⇒ 打 `（拿不到）`，**不硬编** ✅。
+  Future<String> _mpvProp(String name) async {
+    try {
+      final plat = _p.platform;
+      if (plat is NativePlayer) {
+        return await plat.getProperty(name).timeout(const Duration(seconds: 2));
+      }
+    } catch (_) {}
+    return '（拿不到）';
+  }
+
+  Future<void> _logTiming(String why) async {
+    if (!AppSettings.i.logConsole) return;
+    final hw = await _mpvProp('hwdec-current');
+    if (!AppSettings.i.logConsole) return; // async ⇒ 用前再判一次（同 `_logHlsFacts` 口径）
+    int d(int? t) => (t == null || _tOpenMs == null) ? -1 : t - _tOpenMs!;
+    debugPrint('[PLAY] 计时 kp=${identityHashCode(this)} why=$why '
+        'open提交=${_tOpenMs == null ? -1 : 0}ms '
+        '首事件=${d(_tMpvMs)}ms 时长=${d(_tDurMs)}ms 首帧=${d(_tFrameMs)}ms 缓冲止=${d(_tBufEndMs)}ms '
+        'hwdec-current=$hw');
+  }
+
   Duration _lastPos = Duration.zero;
   int _stuckMs = 0;
   /// **首帧前**的长兜底计时（毫秒）：只在"已 open 成功（`ready` ✓）但还没首帧"时累加 ✓。
@@ -475,11 +550,133 @@ class KpPlayer extends ValueNotifier<KpState> {
   /// ≥500ms 时才更新，所以它保留的是"上一条源播到的真实进度"。
   Duration get lastKnownPosition => _lastPos;
 
+  /// ★ probe32 A（**只读**）：取到票后顺手看一眼 **m3u8 事实**（≤3 个请求、几 KB）——
+  ///   直接量化"分片多大 / 远跳要下多少数据"，用于判断"起播 6~7s"是不是在等清单/首片。
+  ///   ⚠️ 只在 `logConsole` 打开时跑；**fire-and-forget**（调用方不 await ⇒ 不阻塞开流）；任何异常静默。
+  ///   打一行：`[SRC] 分片列表 段数=… 平均段长=…s 总时长=…s 首段字节=… 列表字节=…`
+  ///   ⚠️ **不打地址/cookie**（只打数字）✅
+  Future<void> _logHlsFacts(String url, Map<String, String> hdrs) async {
+    if (!AppSettings.i.logConsole) return;
+    final c = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    try {
+      Future<String> get(String u) async {
+        final rq = await c.getUrl(Uri.parse(u));
+        hdrs.forEach(rq.headers.set);
+        final r = await rq.close().timeout(const Duration(seconds: 8));
+        return r.transform(utf8.decoder).join();
+      }
+
+      final master = await get(url);
+      final variants = RegExp(r'#EXT-X-STREAM-INF').allMatches(master).length;
+      // ⚠️ 用 multiLine: true + trim（别在正则里塞 `\r\n` —— 分析器会报"invalid regexp"）
+      final vUri = RegExp(r'^([^#]\S*\.m3u8)', multiLine: true)
+          .firstMatch(master)
+          ?.group(1)
+          ?.trim();
+      if (vUri == null) {
+        // ★ 2026-10-11（用户批"补开关"）：与本文件其它 `[SRC]`/`[PLAY]` 日志**同款** —— 只有 logConsole
+        //   打开时才插值+打印（⚠️ 本方法是 async：入口那一道判断之后 logConsole 可能被关掉 ⇒ 这里**再判一次**）
+        if (AppSettings.i.logConsole) {
+          debugPrint('[SRC] 分片列表 变体=$variants 无变体行（不是 master？）列表字节=${master.length}');
+        }
+        return;
+      }
+      final vAbs = vUri.startsWith('http') ? vUri : '${url.substring(0, url.lastIndexOf('/') + 1)}$vUri';
+      final vs = await get(vAbs);
+      final segs = RegExp(r'^([^#]\S*\.(?:m4s|ts|mp4))', multiLine: true)
+          .allMatches(vs)
+          .map((m) => m.group(1)!.trim())
+          .toList();
+      final durs = RegExp(r'#EXTINF:([\d.]+)')
+          .allMatches(vs)
+          .map((m) => double.tryParse(m.group(1)!) ?? 0)
+          .toList();
+      final sum = durs.fold<double>(0, (a, b) => a + b);
+      final target = RegExp(r'#EXT-X-TARGETDURATION:(\d+)').firstMatch(vs)?.group(1) ?? '?';
+      var firstBytes = -1;
+      if (segs.isNotEmpty) {
+        final sAbs = segs.first.startsWith('http')
+            ? segs.first
+            : '${vAbs.substring(0, vAbs.lastIndexOf('/') + 1)}${segs.first}';
+        try {
+          final rq = await c.getUrl(Uri.parse(sAbs));
+          hdrs.forEach(rq.headers.set);
+          rq.headers.set('Range', 'bytes=0-0');
+          final r = await rq.close().timeout(const Duration(seconds: 8));
+          final cr = r.headers.value('content-range');
+          firstBytes = int.tryParse(RegExp(r'/(\d+)$').firstMatch(cr ?? '')?.group(1) ?? '') ??
+              (r.contentLength > 0 ? r.contentLength : -1);
+          await r.drain<void>();
+        } catch (_) {}
+      }
+      // ★ 2026-10-11（用户批"补日志并出 1.3.4"）：**首个分片实测速率** —— 用来区分"网络吞吐慢"还是"解析/解码慢"。
+      //   ⚠️ 分片**忽略 `Range`**（probe32 实测：带 Range 也回 `200` 整片）⇒ 做法是 **流式读到 1MB 就 break**，
+      //      再 `client.close(force: true)` 掐断，**绝不下整片**（首片实测 ~6.3MB ⇒ 不下它）✅
+      //   ⚠️ 只在 `logConsole` 打开时才发这次请求（async ⇒ 用前再判一次；异常拦掉并打一行）✅
+      var fbMs = -1;
+      var oneMbMs = -1;
+      var gotBytes = 0;
+      if (AppSettings.i.logConsole && segs.isNotEmpty) {
+        final sAbs = segs.first.startsWith('http')
+            ? segs.first
+            : '${vAbs.substring(0, vAbs.lastIndexOf('/') + 1)}${segs.first}';
+        final sw = Stopwatch()..start();
+        final c2 = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+        try {
+          final rq = await c2.getUrl(Uri.parse(sAbs));
+          hdrs.forEach(rq.headers.set);
+          final r = await rq.close().timeout(const Duration(seconds: 8));
+          fbMs = sw.elapsedMilliseconds; // 首字节耗时（响应头到手）
+          await for (final chunk in r) {
+            gotBytes += chunk.length;
+            if (gotBytes >= 1024 * 1024) break; // ★ 读满 1MB 立即停
+            if (sw.elapsedMilliseconds > 15000) break; // 保险丝：最多 15s
+          }
+          oneMbMs = sw.elapsedMilliseconds;
+        } catch (e) {
+          if (AppSettings.i.logConsole) {
+            final es = '$e';
+            debugPrint('[SRC] 分片速率 异常=${es.length <= 60 ? es : es.substring(0, 60)}');
+          }
+        } finally {
+          c2.close(force: true); // ★ 掐断（剩余数据不再收）
+        }
+        if (AppSettings.i.logConsole) {
+          final mb = gotBytes / 1048576.0;
+          final sec = (oneMbMs - fbMs) / 1000.0;
+          final spd = (sec > 0 && mb > 0) ? mb / sec : 0.0;
+          debugPrint('[SRC] 分片速率 首字节=${fbMs}ms 读满1MB=${oneMbMs}ms '
+              '实收=${mb.toStringAsFixed(2)}MB 速率=${spd.toStringAsFixed(2)}MB/s（dart:io 直连·读满即掐断）');
+        }
+      }
+      // ★ 2026-10-11（用户批"补开关"）：同款 —— 只有 logConsole 打开时才插值+打印（async ⇒ 再判一次）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SRC] 分片列表 变体=$variants 段数=${segs.length} '
+            '平均段长=${segs.isEmpty ? '?' : (sum / segs.length).toStringAsFixed(1)}s '
+            '总时长=${sum.toStringAsFixed(1)}s TARGET=$target '
+            '首段字节=$firstBytes 列表字节=${vs.length}');
+      }
+    } catch (e) {
+      // 只读探针：失败什么都不做（不打错误、不影响播放）
+    } finally {
+      c.close(force: true);
+    }
+  }
+
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
   Future<void> open(String url, {Map<String, String>? httpHeaders}) {
     // ★ 2026-10-11（**用户实测**：全屏卡死 + "切集偶尔也弹"同类异常；依据 verify-4 审计表 #6）：
     //   本方法原来缺"已释放"护栏（另外 6 个公开操作早就有）⇒ 补上，与它们口径一致（忽略 + 留痕，不抛）。
     if (_disposed) return _skip('open');
+    // ★ probe32 A：**每条源各自重新计时**（只读；logConsole 关着时这段等于不存在）
+    if (AppSettings.i.logConsole) {
+      _tOpenMs = _nowMs();
+      _tMpvMs = null;
+      _tDurMs = null;
+      _tFrameMs = null;
+      _tBufEndMs = null;
+      _tLogged = false;
+    }
     // 换源前先清掉上一次的错误标记：否则上一个源失败留下的 error=true
     // 会让下一个源一挂上就被判失败，整条兜底链直接失效
     //
@@ -1759,6 +1956,15 @@ class PlayerWidgetState extends State<PlayerWidget>
       if (kp.isDisposed) {
         _logDisposedSkip('_openAndWait-open', '_openAndWait:1627（开流前）');
         return false;
+      }
+      // ★ probe32 A（只读、不阻塞）：HLS 源 ⇒ 顺手把清单事实打一行（变体数/段数/平均段长/首段字节）。
+      //   ⚠️ **不 await**（fire-and-forget）⇒ 与开流并行、绝不影响起播时序 ✅；logConsole 关着时整段不存在 ✅
+      if (AppSettings.i.logConsole && url.contains('.m3u8')) {
+        unawaited(kp._logHlsFacts(url, {
+          'User-Agent': _ua,
+          'Referer': ref,
+          ...?widget.httpHeaders,
+        }));
       }
       await kp.open(url, httpHeaders: {
         'User-Agent': _ua,
