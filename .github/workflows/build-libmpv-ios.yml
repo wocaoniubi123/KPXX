@@ -133,35 +133,147 @@ jobs:
           grep -q "tags/v${MPV_VERSION}.tar.gz"     packages.lock.nix
           echo "✅ 版本 pin 已改"
 
-      # ★ patch 分流（triage）：升级 ffmpeg 6.0→7.x / mpv 0.36→0.41 后，某些 patch 的上下文
-      #   可能对不上。做法：
-      #     · `ffmpeg-fix-hls-mp4-seek.patch`（**用户最在意的 HLS fMP4 seek 修复**）⇒ **保持硬失败**，
-      #        打不上就让这轮构建红掉，绝不让它被静默丢掉
-      #     · 其余 patch ⇒ 改成"打不上就 WARN 继续"，这样一轮就能把"谁能打上"全摸清
-      #   （依据：官方把 4 条 ffmpeg patch 写在 `nix/packages/mk-pkg-ffmpeg/default.nix` 的
-      #     `patchedSource = pkgs.runCommand ... ''patch -p1 <...>''`，mpv 的在 `mk-pkg-mpv/default.nix`）
-      - name: patch 分流（非关键 patch 容忍失败，关键 patch 保持硬失败）
+      # ★ patch 分流（triage）—— 2026-10-12 **第二版**（依据 = 上一轮 CI 的实测 + 本机复核）
+      #
+      #   上一轮 CI 实况 🛢️（监控从全量日志取的原文）：
+      #     `mk-pkg-ffmpeg-patched-source> patching file libavformat/hls.c`
+      #     `Reversed (or previously applied) patch detected!  Assume -R? [n]`
+      #     `1 out of 1 hunk ignored -- saving rejects to file libavformat/hls.c.rej`
+      #     ⇒ 唯一那条"硬失败"patch（ffmpeg-fix-hls-mp4-seek）反而把构建搞红了。
+      #   本机复核（下载 ffmpeg-7.1.tar.xz，只解出 libavformat/hls.c 看）🛢️：
+      #     · `hls_read_seek` 起于 **L2440**；该修复恰在 **L2510-L2511**：
+      #         L2510  /* Reset the init segment so it's re-fetched and served appropiately */
+      #         L2511  pls->cur_init_section = NULL;
+      #       —— **逐字命中，连原 patch 里 "appropiately" 这个拼写错误都一模一样**
+      #     ⇒ 结论：**ffmpeg ≥ 7.1 已内含该 fMP4-HLS seek 修复**。
+      #   ⚠️ 但不只信我这台机器：**下面先让 CI 自己再证一遍**（"自证"步骤），
+      #      **再按它的输出自动决定**这条 patch 是"移除"还是"降级为容忍" ——
+      #      一轮 CI 同时完成"取证 + 适配"，不必人工再改一次文件。
+      #
+      #   其余 patch 一律容忍档（`--forward --fuzz=5 || WARN`），一轮摸清谁能打上。
+      #
+      #   ⚠️ `mpv-audiounit-shared-session.patch` 上一轮**实测打不上**（mpv 0.36→0.41 变动）。影响面：
+      #     · 它是什么 🛢️（patch 原文）：**非上游的自定义改动**，给 mpv 的 AudioUnit AO
+      #       (`audio/out/ao_audiounit.m`) 加"**引用计数式** AVAudioSession 管理"
+      #       （pthread 锁 + `audiounit_session_use_count`，acquire/release 成对），
+      #       并把原先内联的 `setCategory:Playback` / `setMode:MoviePlayback` / `setActive:YES|NO`
+      #       换成 `acquire_audio_session()` / `release_audio_session()`，
+      #       另外**新增一个选项** `audiounit-skip-session-management`。
+      #     · 打不上 ⇒ 退回 mpv **原生**行为（就是该 patch 的 `-` 那几行：init 里直接设会话、
+      #       uninit 里 `setActive:NO` + `NotifyOthersOnDeactivation`），
+      #       **没有** `MixWithOthers`、**没有**引用计数、**没有**那个选项。
+      #     · 选项缺失的影响 = **0** 🛢️：`audiounit-skip-session-management` 在**本仓库**与
+      #       media_kit 全家族（media_kit / media_kit_video / media_kit_libs_ios_video /
+      #       media_kit_libs_windows_video）**全部 0 命中** —— 没有任何代码在设它。
+      #     · 会话行为的差异 **不构成回退** 🛢️：这条 patch 在官方 **v0.6.0**（我们**现在**就在用的那版）
+      #       的 patch 列表里**本来就没有**（v0.6.0 = 6 条，v0.7.2 = 8 条，多出来的正是它 + ltmain）
+      #       ⇒ 丢它 = 与现状持平。
+      #     · ❓ 未验证：多实例并发播放时"引用计数缺失"会不会真出问题 —— 没测过，**不猜**。
+      - name: 自证：ffmpeg 7.1 是否已内含 fMP4-HLS seek 修复（只取证，不改构建行为）
+        id: hls_fix
         run: |
           set -euo pipefail
           cd recipe
-          python3 - <<'PY'
-          import pathlib, re
-          MANDATORY = 'ffmpeg-fix-hls-mp4-seek.patch'
+          FF_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          echo "下载 $FF_URL（约 11MB，只这一次）"
+          curl -L --fail --silent --show-error -o "$RUNNER_TEMP/ff.tar.xz" "$FF_URL"
+          mkdir -p "$RUNNER_TEMP/ffsrc"
+          tar -xJf "$RUNNER_TEMP/ff.tar.xz" -C "$RUNNER_TEMP/ffsrc" "ffmpeg-${FFMPEG_VERSION}/libavformat/hls.c"
+          rm -f "$RUNNER_TEMP/ff.tar.xz"   # 解出来就够了，别占 runner 磁盘
+          HLS="$RUNNER_TEMP/ffsrc/ffmpeg-${FFMPEG_VERSION}/libavformat/hls.c"
+          test -f "$HLS"
+          echo "hls.c = $(wc -c < "$HLS") 字节"
+          echo "hls_read_seek 起于: $(grep -nF 'static int hls_read_seek' "$HLS" | head -1)"
+
+          # 从 patch 里提取"新增行"（^+ 且非 +++）当特征串，去掉前后空白
+          grep -E '^\+[^+]' patches/ffmpeg-fix-hls-mp4-seek.patch \
+            | sed -e 's/^+//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+            | grep -v '^$' > "$RUNNER_TEMP/features.txt"
+          TOTAL=$(wc -l < "$RUNNER_TEMP/features.txt" | tr -d ' ')
+          echo "特征串条数 = $TOTAL"
+          HIT=0
+          while IFS= read -r feat; do
+            if grep -nF -- "$feat" "$HLS" > "$RUNNER_TEMP/hit.txt"; then
+              HIT=$((HIT + 1))
+              echo "  ✅ 命中 $(head -1 "$RUNNER_TEMP/hit.txt")"
+              echo "     特征串: $feat"
+            else
+              echo "  ☠ 未命中: $feat"
+            fi
+          done < "$RUNNER_TEMP/features.txt"
+
+          if [ "$TOTAL" -gt 0 ] && [ "$HIT" -eq "$TOTAL" ]; then
+            echo "✅ 结论：ffmpeg ${FFMPEG_VERSION} **已内含**该 fMP4-HLS seek 修复（特征串 $HIT/$TOTAL 全命中）"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### fMP4-HLS seek 自证"
+              echo "- ffmpeg ${FFMPEG_VERSION} 的 \`libavformat/hls.c\`：特征串 **$HIT/$TOTAL 全命中**"
+              echo "- 判定：**已内含** ⇒ 该 patch 会被自动移除（不再打）"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "☠ 结论：**未内含**（命中 $HIT/$TOTAL）⇒ fMP4-HLS seek 修复将缺失，需另行评估"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### fMP4-HLS seek 自证"
+              echo "- ffmpeg ${FFMPEG_VERSION} 的 \`libavformat/hls.c\`：特征串 **$HIT/$TOTAL 命中**"
+              echo "- 判定：**未内含** ☠ ⇒ 这条 patch 降级为容忍档，构建继续，但 **seek 修复可能缺失**"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: patch 分流（hls 那条按自证结果自动移除/降级；其余容忍）
+        run: |
+          set -euo pipefail
+          cd recipe
+          HLS_PRESENT='${{ steps.hls_fix.outputs.present }}' python3 - <<'PY'
+          import os, pathlib, re
+          HLS = 'ffmpeg-fix-hls-mp4-seek.patch'
+          present = os.environ.get('HLS_PRESENT') == 'true'
+          print(f'hls 修复是否已内含（来自自证步骤）= {present}')
           files = ['nix/packages/mk-pkg-ffmpeg/default.nix', 'nix/packages/mk-pkg-mpv/default.nix']
           line_re = re.compile(r'^(\s*)patch -p1 <(\$\{\.\./\.\./\.\./patches/([A-Za-z0-9_.\-]+)\})\s*$')
+          total_matched = 0
           for f in files:
               p = pathlib.Path(f)
-              out, wrapped, kept = [], [], []
+              out, wrapped, removed = [], [], []
+              had_hls = False
+              file_matched = 0
               for line in p.read_text().splitlines(keepends=True):
                   m = line_re.match(line.rstrip('\n'))
-                  if m and m.group(3) != MANDATORY:
-                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "WARN-PATCH-FAILED: {m.group(3)}")\n')
-                      wrapped.append(m.group(3))
-                  else:
+                  if not m:
                       out.append(line)
-                      if m: kept.append(m.group(3))
+                      continue
+                  file_matched += 1
+                  name = m.group(3)
+                  if name == HLS:
+                      had_hls = True
+                  if name == HLS and present:
+                      # ffmpeg >= 7.1 已内含 ⇒ 整条删掉，换成一行日志（会进 nix 构建日志，便于复核）
+                      out.append(f'{m.group(1)}echo "NOTE: skip {name} —— ffmpeg >= 7.1 已内含该 fMP4-HLS seek 修复（见本 workflow 的「自证」步骤）"\n')
+                      removed.append(name)
+                  elif name == HLS:
+                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "SEEK-FIX-MISSING: {name} 打不上且 {HLS} 未内含 ⇒ fMP4-HLS seek 修复缺失")\n')
+                      wrapped.append(name)
+                  else:
+                      out.append(f'{m.group(1)}(patch -p1 --forward --fuzz=5 <{m.group(2)} || echo "WARN-PATCH-FAILED: {name}")\n')
+                      wrapped.append(name)
+              total_matched += file_matched
               p.write_text(''.join(out))
-              print(f'{f}: 容忍={wrapped}  硬失败={kept}')
+              print(f'{f}: 处理={file_matched} 条 ⇒ 移除={removed}  容忍={wrapped}')
+              # ⚠️ 断言必须**按"这个文件里到底有没有 hls patch"分支**：
+              #    hls patch 只在 ffmpeg 那个文件里，mpv 文件里没有 ⇒ 不能无条件断言
+              #    （这是本机做行为验证时抓出来的真 bug：无条件断言会在 mpv 文件上抛 AssertionError）
+              if had_hls:
+                  assert (HLS in removed) if present else (HLS in wrapped), \
+                      f'{f}: 含 hls patch 但处理不符合预期（present={present}）'
+              else:
+                  assert HLS not in removed and HLS not in wrapped, \
+                      f'{f}: 本不含 hls patch 却动了它'
+                  print(f'  （{f} 本来就没有 hls patch，跳过该断言 —— 正常）')
+              assert file_matched == len(removed) + len(wrapped), f'{f}: 处理条数对不上'
+          # ⚠️ 这条自检必须在**重写之前**统计（用来统计的 line_re 只认原始形态的 `patch -p1 <...>` 行；
+          #    重写后它们已被包进 `(... || echo ...)`，再用这个正则就恒为 0 —— 这也是行为验证抓出来的）
+          print(f'自检：共处理 {total_matched} 条 patch 行（若为 0 说明正则没匹配上，务必查）')
+          assert total_matched > 0, '正则一条都没匹配到 ⇒ triage 静默失效，必须修'
           PY
           echo '--- 改后 ffmpeg patch 段 ---'
           sed -n '/patchedSource/,/^  *$/p' nix/packages/mk-pkg-ffmpeg/default.nix | head -20
