@@ -63,4 +63,11 @@
 ///   · 本验证版**只保**：播放/暂停 · 拖进度(seek) · 切集(换源) · 时长/位置/缓冲读数 ✅
 ///     （倍速/全屏/手势/续播/播放记录**暂不可用**，进入时打一行说明 ✅）
 ///   · 站点点文件 **0 改动** ✅；未提交的"公共层媒体中转/并行预取"那套已**用户要求回滚**（存 stash）✗
-const String kAppVersion = '1.3.7';
+/// ★ 2026-10-13：**1.3.7 → 1.3.8**（**App 内容与 1.3.7 完全相同** ✅ —— 只是**换签名渠道**）：
+///   · 起因：1.3.7 的云构建倒在 `Xcode archive`：`Signing certificate is invalid … may have been
+///     revoked or expired`（旧证书 `Z8J7VYHQZF` 被吊销/失效 ☠，与代码无关 ✅）
+///   · 做法：换上用户提供的新证书（团队 **`UFDTSTTH8B`** ⇒ 能签的 App ID = 描述文件里写死的
+///     **`app.snow8459.moonstone4810`**）⇒ CI 的 `TEAM_ID` / `BUNDLE_ID` 与两处写死的替换同步改 ✅
+///   ⚠️ **后果（须知）**：bundle id 变了 ⇒ 手机上**是一个新 App**（不覆盖旧的 KPXX；
+///     旧的收藏/设置/播放记录**不会迁移** ☠）
+const String kAppVersion = '1.3.8';
