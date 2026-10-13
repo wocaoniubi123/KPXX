@@ -44,6 +44,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' as io; // ★ iOS 判断（`io.Platform.isIOS`）—— 只为"iOS 不装 shim"这一条 ✅
 
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter/widgets.dart'; // 也带出 debugPrint ⇒ 不必再单独 import foundation ✓（analyze 实测 ✓）
@@ -65,6 +66,14 @@ import 'player_widget.dart'; // ★ KpPlayer.startupVolumeOverride（与 dev 入
 /// 为什么要装：`VideoPlayerPlatform.instance` 默认是 placeholder（见文件头 ✓），
 /// 而**桌面 dev 侧没有别的注册途径**（pub 上没有 `video_player_windows` ✓）。
 void installMediaKitVideoPlayerPlatform() {
+  // ★★ 2026-10-13（**用户拍板：iOS 换 AVPlayer 验证版** ✅ · **本单最关键的一条**）：
+  //   **iOS 上绝对不许装这个 shim** —— 它会把官方 AVPlayer 实现（`video_player_avfoundation`）
+  //   从 `VideoPlayerPlatform.instance` 上**顶掉** ⇒ iOS 的 AVPlayer 验证就白做了 ☠
+  //   （Windows/dev 侧照旧装 ✅ —— 那条路正是靠它把 `video_player` 接口接到 libmpv 的 ✅）
+  if (io.Platform.isIOS) {
+    debugPrint('[WIN-VIDEO] iOS ⇒ **不装** media_kit 版 VideoPlayerPlatform（保留官方 AVPlayer ✅）');
+    return;
+  }
   vpi.VideoPlayerPlatform.instance = MediaKitVideoPlayerPlatform();
   debugPrint(
       '[WIN-VIDEO] 已装上 media_kit 版 VideoPlayerPlatform（video_player 接口 → libmpv）✓');

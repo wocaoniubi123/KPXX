@@ -12,6 +12,7 @@ import 'package:volume_controller/volume_controller.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
+import 'ios_av_player_view.dart'; // ★ 2026-10-13：iOS AVPlayer 验证版（非 iOS 恒不生效 ✅；只加分支、不动原链路 ✅）
 import 'settings.dart';
 
 /// 滑满一屏宽度对应的快进/快退秒数（滑动距离线性映射：滑多少快进多少）
@@ -2554,6 +2555,26 @@ class PlayerWidgetState extends State<PlayerWidget>
     //      （`bvUpdate → _bvGauge`）⇒ 不过滤就是逐帧刷屏（违反"不做逐帧日志"）；其余重建一条不漏 ✓
     if (AppSettings.i.logConsole && _bvShow == null) {
       debugPrint('[PLAY] 视频层重建(内嵌) kp=${kp == null ? '(无=显示封面区)' : identityHashCode(kp).toString()} vc=${kp == null ? '-' : identityHashCode(kp.videoController).toString()} playing=${kp?.value.playing ?? false} buffering=${kp?.value.buffering ?? false} completed=${kp?.value.completed ?? false} pos=${kp?.value.position.inMilliseconds ?? 0}ms 首帧到=$_started 控件可见=$_controlsVisible poster=${widget.poster.isEmpty ? '无' : '有'}');
+    }
+    // ★★ 2026-10-13（**用户拍板：iOS 侧换 AVPlayer 验证版** ✅）：**只在 iOS 且开关为真**时走官方
+    //   `video_player`（后端 = AVPlayer + 系统网络栈 ✅）；`iosAvPlayerSelected()` 在**非 iOS 恒 false**
+    //   ⇒ Windows/其它平台的**现有链路一字不改** ☠（下面那条 media_kit 路径原样保留 ✅）。
+    //   ⚠️ 本分支是**验证版**：只提供 播放/暂停·seek·切集·读数（倍速/全屏/手势/续播在本模式下不可用），
+    //      进入时 `IosAvPlayerView` 会打一行 `[PLAY-IOS] …` 说明 ✅。
+    if (iosAvPlayerSelected()) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: IosAvPlayerView(
+          sources: widget.sources,
+          referer: widget.referer,
+          httpHeaders: widget.httpHeaders,
+          switcher: widget.switcher,
+          lazyUrl: widget.lazyUrl,
+          onFetchSources: widget.onFetchSources,
+          poster: widget.poster,
+          title: widget.title,
+        ),
+      );
     }
     return AspectRatio(
       aspectRatio: 16 / 9,
