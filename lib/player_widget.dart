@@ -12,7 +12,6 @@ import 'package:volume_controller/volume_controller.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'fetched_image.dart';
-import 'ios_av_player_view.dart'; // ★ 2026-10-13：iOS AVPlayer 验证版（非 iOS 恒不生效 ✅；只加分支、不动原链路 ✅）
 import 'settings.dart';
 
 /// 滑满一屏宽度对应的快进/快退秒数（滑动距离线性映射：滑多少快进多少）
@@ -459,9 +458,11 @@ class KpPlayer extends ValueNotifier<KpState> {
   void _logMpvParams(int bufferMb) {
     if (!AppSettings.i.logConsole) return;
     final hw = AppSettings.i.hwdec;
-    debugPrint('[PLAY] mpv参数 bufferSize=${bufferMb}MB logLevel=error '
+    debugPrint('[PLAY] mpv参数 bufferSize=${bufferMb}MB（⚠️ 已被下面 demuxer-max-bytes=64MB 覆盖）logLevel=error '
         'demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 '
-        'cache-pause-initial=no network-timeout=20 '
+        'cache-pause-initial=no network-timeout=15 '
+        'demuxer-max-bytes=67108864(64MB) demuxer-max-back-bytes=67108864(64MB) demuxer-hysteresis-secs=2 '
+        'demuxer-lavf-o=seg_max_retry=3,http_multiple=1 '
         'stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,'
         'reconnect_on_network_error=1,reconnect_on_http_error=5xx '
         'hwdec=${hw == 1 ? 'auto' : (hw == 2 ? 'no' : '(不下发·上游默认)')} '
@@ -489,12 +490,21 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> _logTiming(String why) async {
     if (!AppSettings.i.logConsole) return;
     final hw = await _mpvProp('hwdec-current');
+    // ★ 2026-10-13（用户拍板"1~5 一起做" ✅）：**回读**这次新加的 4 项 ——
+    //   ⚠️ mpv 对**认不出的属性/选项**是**静默忽略**（手册原文：Unknown or misspelled options are
+    //      silently ignored ☠）⇒ 不打印回读值就**无法判断它们到底生效没有** ✅
+    //   ⇒ 拿不到（非 NativePlayer / 2 秒超时 / 异常）就打 `（拿不到）`，**不硬编** ✅
+    final dmx = await _mpvProp('demuxer-max-bytes');
+    final dmxb = await _mpvProp('demuxer-max-back-bytes');
+    final hys = await _mpvProp('demuxer-hysteresis-secs');
+    final lavfo = await _mpvProp('demuxer-lavf-o');
     if (!AppSettings.i.logConsole) return; // async ⇒ 用前再判一次（同 `_logHlsFacts` 口径）
     int d(int? t) => (t == null || _tOpenMs == null) ? -1 : t - _tOpenMs!;
     debugPrint('[PLAY] 计时 kp=${identityHashCode(this)} why=$why '
         'open提交=${_tOpenMs == null ? -1 : 0}ms '
         '首事件=${d(_tMpvMs)}ms 时长=${d(_tDurMs)}ms 首帧=${d(_tFrameMs)}ms 缓冲止=${d(_tBufEndMs)}ms '
-        'hwdec-current=$hw');
+        'hwdec-current=$hw '
+        '｜回读 max-bytes=$dmx max-back=$dmxb hysteresis=$hys lavf-o=$lavfo');
   }
 
   Duration _lastPos = Duration.zero;
@@ -761,12 +771,35 @@ class KpPlayer extends ValueNotifier<KpState> {
       //        ignored.**」⇒ 键名打错**不会报错、静默失效** ☠ ⇒ 上真机必须实测确认一次
       //        （本次已在本机 libmpv-2.dll 上离线验证：这两个 mpv 选项名都被接受、回读生效 ✅，
       //          但 AVOption 是否真生效只能由真机行为确认 ☑️）。
-      kp.setMpvOptionQuiet('network-timeout', '20');
+      kp.setMpvOptionQuiet('network-timeout', '15');
       kp.setMpvOptionQuiet(
         'stream-lavf-o',
         'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,'
         'reconnect_on_network_error=1,reconnect_on_http_error=5xx',
       );
+      // ★ 2026-10-13（**用户拍板："1~5 一起做"** ✅）：**治"手机端柚子"的延迟与恢复**——
+      //   🛢️ 现场（iOS 真机日志）：本集需求 = 4.79MB / 4.0s = **1.20MB/s**，而手机单连接只给
+      //      **0.46~1.07MB/s** ☠ ⇒ 拖到远处 **45 秒不出画**、`tcp: ffurl_read returned …` 断流后
+      //      `起播=fail` …… 本组只治"**延迟 / 稳定性**"，**不治吞吐**（mpv 没有提吞吐的选项 ✅ 已逐条核过；
+      //      吞吐缺口只能靠"更低的档"或"系统栈" ✅）。
+      //   ③ `demuxer-max-bytes` + `demuxer-max-back-bytes` = **64MB**（原来随"缓冲"设置 = 300MB ☠）：
+      //      media_kit 把 `bufferSize` **直接映射**成这两个键（源码 `real.dart:2425/2426` ✅）⇒ 300MB 在
+      //      0.6MB/s 上等于"**8 分钟的内容**" ⇒ mpv 会**一直全速抢带宽去填满它** ⇒ 既拖慢起播、
+      //      又让 seek 后迟迟稳不下来（实测 45 秒 ☠）⇒ 收到 64MB（≈1.8 分钟内容）后**到顶就停手**，
+      //      把带宽让给"当前真正要播的那几秒" ✅
+      //   ④ `demuxer-hysteresis-secs` = **2**：到上限后**先停一停**，等前向缓存掉回 2 秒再继续抓
+      //      （就是"别一直抢"的那条开关 ✅；手册原文：once the limit is reached, the demuxer will not
+      //       buffer ahead again until the amount of forward buffered data drops to this value ✅）
+      //   ⑤ `demuxer-lavf-o` = `seg_max_retry=3,http_multiple=1`（**HLS demuxer 的 AVOption** ✅）：
+      //      · `seg_max_retry=3` ⇒ 分片失败**自动重试 3 次**（治 `ffurl_read` 断流后直接 fail ☠）
+      //      · `http_multiple=1` ⇒ 用**第二条连接**预开下一段（ffmpeg `hls.c` 选项原文：
+      //        "Use multiple HTTP connections for fetching segments" ✅）⇒ 段与段**无缝衔接** ✅
+      //        ⚠️ 只有 **2 条**（源码只维护一个 `input_next` ✅，已核）；且 PC 实测该站"总出口不随连接数
+      //          增长" 🔍 ⇒ **不指望它提吞吐**，只当"段间衔接"的正收益 ✅
+      kp.setMpvOptionQuiet('demuxer-max-bytes', '67108864');
+      kp.setMpvOptionQuiet('demuxer-max-back-bytes', '67108864');
+      kp.setMpvOptionQuiet('demuxer-hysteresis-secs', '2');
+      kp.setMpvOptionQuiet('demuxer-lavf-o', 'seg_max_retry=3,http_multiple=1');
       // **硬件解码方式**（用户 2026-10-05 拍板：设置 → 播放 三选一 ✓ **影响所有站点** ✓）——
       //   0 自动 = **不设 `hwdec`** ✓（保持上游默认 ✓ 手册："Hardware decoding is **not enabled by default**" ✓）；
       //   1 硬解 = `hwdec=auto` ✓（手册："If hardware decoding is not possible, mpv **will fall back on software
@@ -2555,26 +2588,6 @@ class PlayerWidgetState extends State<PlayerWidget>
     //      （`bvUpdate → _bvGauge`）⇒ 不过滤就是逐帧刷屏（违反"不做逐帧日志"）；其余重建一条不漏 ✓
     if (AppSettings.i.logConsole && _bvShow == null) {
       debugPrint('[PLAY] 视频层重建(内嵌) kp=${kp == null ? '(无=显示封面区)' : identityHashCode(kp).toString()} vc=${kp == null ? '-' : identityHashCode(kp.videoController).toString()} playing=${kp?.value.playing ?? false} buffering=${kp?.value.buffering ?? false} completed=${kp?.value.completed ?? false} pos=${kp?.value.position.inMilliseconds ?? 0}ms 首帧到=$_started 控件可见=$_controlsVisible poster=${widget.poster.isEmpty ? '无' : '有'}');
-    }
-    // ★★ 2026-10-13（**用户拍板：iOS 侧换 AVPlayer 验证版** ✅）：**只在 iOS 且开关为真**时走官方
-    //   `video_player`（后端 = AVPlayer + 系统网络栈 ✅）；`iosAvPlayerSelected()` 在**非 iOS 恒 false**
-    //   ⇒ Windows/其它平台的**现有链路一字不改** ☠（下面那条 media_kit 路径原样保留 ✅）。
-    //   ⚠️ 本分支是**验证版**：只提供 播放/暂停·seek·切集·读数（倍速/全屏/手势/续播在本模式下不可用），
-    //      进入时 `IosAvPlayerView` 会打一行 `[PLAY-IOS] …` 说明 ✅。
-    if (iosAvPlayerSelected()) {
-      return AspectRatio(
-        aspectRatio: 16 / 9,
-        child: IosAvPlayerView(
-          sources: widget.sources,
-          referer: widget.referer,
-          httpHeaders: widget.httpHeaders,
-          switcher: widget.switcher,
-          lazyUrl: widget.lazyUrl,
-          onFetchSources: widget.onFetchSources,
-          poster: widget.poster,
-          title: widget.title,
-        ),
-      );
     }
     return AspectRatio(
       aspectRatio: 16 / 9,

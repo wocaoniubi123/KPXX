@@ -6,12 +6,8 @@ on:
   workflow_dispatch:
 
 env:
-  # ★ 2026-10-13 换签名渠道（用户提供新证书）：团队 Z8J7VYHQZF → **UFDTSTTH8B**（Kaidong Qi）
-  #   ⚠️ **BUNDLE_ID 保持不变**（= `ysc.tool6041.sign` ✅ —— 用户明确要求：App 必须还是原来那个 App）
-  #   ⇒ 因此**必须有一个"App ID 为 ysc.tool6041.sign 的 Ad Hoc 描述文件"**（在新账号 UFDTSTTH8B 下建），
-  #     否则签名匹配不上（用户给的那份描述文件是 `app.snow8459.moonstone4810` 的 ☠，不能用）
   BUNDLE_ID: ysc.tool6041.sign
-  TEAM_ID: UFDTSTTH8B
+  TEAM_ID: Z8J7VYHQZF
   APP_NAME: KPXX
 
 jobs:
@@ -47,10 +43,11 @@ jobs:
           flutter create --platforms=ios --org ysc --project-name kpxx .
           ls ios/
 
-      # ★ 2026-10-13（**用户决定** ✅）：**CI 不再签名** —— 原「导入签名证书 (p12 + 描述文件)」整步已删除
-      #   （用户原话："直接删除证书，我自己会签名的" ✅）；此后 `PROFILE_UUID` / `PROFILE_NAME` **不再产生**，
-      #   下面的"修改 iOS 工程"里那两个占位符会变成空串 ⇒ 对 `--no-codesign` 构建无影响 ✅
-      - name: 签名（已按用户要求移除，CI 出未签名包）
+      # ★ 2026-10-13（**用户拍板：继续出未签名的包** ✅）：原「导入签名证书 (p12 + 描述文件)」整步删除
+      #   —— 3 个签名 secret 已按用户要求删除（`gh secret list` 为空 ✅）⇒ 这步必失败 ☠
+      #   此后 `PROFILE_UUID` / `PROFILE_NAME` **不再产生**（下面的"修改 iOS 工程"里那两个占位符会是空串，
+      #   对 `--no-codesign` 构建无影响 ✅）
+      - name: 签名（已移除，CI 出未签名包 ✅）
         run: |
           echo "CI 不签名 ⇒ 出未签名 IPA（kpxx-<版本>.ipa），由用户自行签名 ✅"
 
@@ -71,7 +68,7 @@ jobs:
           # 模板没有 CODE_SIGN_STYLE 行（缺省=Automatic 开发签名），在三个 configuration
           # 的 DEVELOPMENT_TEAM 后补全手动签名配置（该行在 Runner 的 Debug/Release/Profile 各一处）
           s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;',
-                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = UFDTSTTH8B;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
+                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = Z8J7VYHQZF;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
                         + os.environ.get('PROFILE_NAME', '') + '";')
           # ⚠️ 2026-10-08（用户要求 ✓）：把**进程名**从模板默认的 `Runner` 改成 `KPXX` ✓ ——
           #   iOS「设置 → 隐私与安全性 → 分析与改进 → 分析数据」里的文件名取的是**进程名**
@@ -154,9 +151,9 @@ jobs:
           # 尺寸核对：1024 那张必须是 1024×1024（App Store 尺寸，iOS 必需）
           python3 -c "import struct,sys; d=open('$SET/Icon-App-1024x1024@1x.png','rb').read(33); w,h=struct.unpack('>II',d[16:24]); print('1024 图实际尺寸 =',w,'x',h); sys.exit(0 if (w,h)==(1024,1024) else 1)"
 
-      # ★ 2026-10-13（用户决定"CI 不签名" ✅）：原「生成导出选项 (Ad-hoc)」整步已删除
+      # ★ 2026-10-13（用户拍板"出未签名的包" ✅）：原「生成导出选项 (Ad-hoc)」整步删除
       #   —— `ExportOptions.plist` 只对"签名导出 (flutter build ipa --export-options-plist)"有意义；
-      #      现在走 `--no-codesign` + 自己打包 ⇒ 不再需要它 ✅
+      #      现在走 `--no-codesign` + 自己打包 ⇒ 不再需要它（也避免了引用 `PROFILE_UUID` 必失败 ☠）✅
 
       # ⚠️ 一次列出全部 Dart 错误 ✓（CFE 每轮只抛第一条 ✗，会拖成十几轮）
       # 只对 error 生效：infos/warnings 不算失败 ✓（仓库无 analysis_options.yaml，噪音低 ✓）
@@ -164,7 +161,7 @@ jobs:
         run: |
           flutter pub get
           flutter analyze lib --no-fatal-infos --no-fatal-warnings
-      - name: 构建（不签名 --no-codesign）+ 打包未签名 IPA
+      - name: Flutter build IPA
         run: |
           flutter pub get
           # ★ 2026-10-05（用户拍板"**方案 2**"✓）：让**系统/签名看到的版本号 = `kAppVersion`** ✗
@@ -179,13 +176,13 @@ jobs:
           #     另一条路 = 直接用 `$GITHUB_RUN_NUMBER` ✓ 但那样与版本号无关 ✗ 故不取 ✓）
           flutter build ios --release --no-codesign \
             --build-name="$VER" --build-number="$(echo $VER | tr -d '.')"
-          # ★ 2026-10-13（用户决定"CI 不签名" ✅）：**自己打"未签名 ipa"** ——
+          # ★ 2026-10-13（用户拍板"出未签名的包" ✅）：**自己打"未签名 ipa"** ——
           #   `--no-codesign` 只产 `build/ios/iphoneos/<PRODUCT_NAME>.app`（无签名 ✅）
           #   ⚠️ 本仓 `PRODUCT_NAME` 已被改成 **`KPXX`**（见上面"修改 iOS 工程"那步 ✅）
-          #      ⇒ 产物是 **`KPXX.app`**，**不是** `Runner.app` ☠（2026-10-13 实测踩过：cp Runner.app 直接失败）
+          #      ⇒ 产物是 **`KPXX.app`**，**不是** `Runner.app`（2026-10-13 实测踩过：写死 Runner.app 直接失败 ☠）
           #      ⇒ 这里用 **glob** 取，避免以后再被改名坑 ✅
-          #   ⇒ 按 ipa 规范打包：`Payload/<app>` ⇒ `ditto -c -k --keepParent`（macOS 原生，避免 zip 打进的
-          #      `__MACOSX` / resource-fork 影响用户自行重签 ✅）⇒ `build/ios/ipa/kpxx-$VER.ipa`
+          #   ⇒ 按 ipa 规范打包：`Payload/<app>` ⇒ `ditto -c -k --sequesterRsrc --keepParent`
+          #      （macOS 原生；避免 zip 打进 `__MACOSX`/resource fork 影响用户自行重签 ✅）
           APP=$(ls -d build/ios/iphoneos/*.app | head -1)
           echo "APP=$APP"
           rm -rf /tmp/pk && mkdir -p /tmp/pk/Payload

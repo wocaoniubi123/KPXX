@@ -170,22 +170,6 @@ class SettingsPage extends StatelessWidget {
           ),
           _note('自动＝按引擎默认；硬解失败会自动回落软解；软解最兼容、最吃 CPU。改完重进视频生效'),
           _divider(),
-          // ★ 2026-10-13（**用户拍板：iOS 换 AVPlayer 验证版** ✅）：**iOS 播放器引擎**开关 ——
-          //   与上面那条**同款**（`_row` + `Switch.adaptive` + `_orange`）✅；
-          //   ⚠️ 只对 iOS 生效（Windows 恒用 media_kit ⇒ 拨了也没影响 ✅），所以副标题写明 ✅。
-          _row(
-            title: 'iOS 播放器引擎（AVPlayer 验证版）',
-            sub: '开=用系统 AVPlayer（默认，手机网络更快）；关=用 libmpv。只影响 iOS，电脑端不变',
-            trailing: Switch.adaptive(
-              value: AppSettings.i.iosUseAvPlayer,
-              activeTrackColor: _orange,
-              onChanged: (v) {
-                if (AppSettings.i.logConsole) debugPrint('[UI] iOS 播放引擎=${v ? "AVPlayer" : "libmpv"}');
-                AppSettings.i.setIosUseAvPlayer(v);
-              },
-            ),
-          ),
-          _divider(),
           _row(
             title: '播放缓冲大小',
             sub: '越大越抗卡、拖动越顺，但更吃内存',

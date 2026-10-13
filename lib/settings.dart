@@ -70,16 +70,6 @@ class AppSettings extends ChangeNotifier {
   bool _switchRebuildEngine = false; // ★ 2026-10-11：默认 true → **false**（用户口径："设置默认关闭"）
   bool get switchRebuildEngine => _switchRebuildEngine;
 
-  /// ★ 2026-10-13（**用户拍板：iOS 侧换 AVPlayer 验证版** ✅）：**iOS 播放器引擎**（**默认 true = AVPlayer**）。
-  ///   · true（**默认**）= iOS 上用官方 `video_player`（后端 **AVPlayer** + 系统网络栈 ✅）
-  ///   · false = iOS 上继续用 libmpv（media_kit）
-  ///   ⚠️ **只对 iOS 生效** ⇒ Windows/其它平台**恒用 media_kit**（行为逐字不变 ☠；
-  ///   见 `ios_av_player_view.dart` 的 `iosAvPlayerSelected()`：非 iOS 直接 false ✅）。
-  ///   持久化照 `_kAutoNext` 逐行对齐 ✅；改了**下一次进播放器生效**（不需要重启 ✅）。
-  static const String _kIosUseAvPlayer = 'ios_use_avplayer';
-  bool _iosUseAvPlayer = true;
-  bool get iosUseAvPlayer => _iosUseAvPlayer;
-
   // ===========================================================================
   // ★ 2026-10-12（**用户新需求** ✅ · 站点管理）：**站点展示清单**（只管"入口显示" + "组内顺序"）
   //
@@ -174,12 +164,6 @@ class AppSettings extends ChangeNotifier {
         _switchRebuildEngine = sre;
         changed = true;
       }
-      // ★ 2026-10-13：iOS 播放引擎（AVPlayer 验证版）—— **读不到 ⇒ 保默认 true（AVPlayer）** ✅
-      final au = sp.getBool(_kIosUseAvPlayer);
-      if (au != null && au != _iosUseAvPlayer) {
-        _iosUseAvPlayer = au;
-        changed = true;
-      }
       // ★ 2026-10-12（站点管理）：读"隐藏集合 + 组内顺序"——
       //   · `site_order`：**读不到 / 解析失败 / 类型不对 ⇒ 保持空** ⇒ `kSites` 原顺序 ✅（绝不写坏已有配置 ☑️）
       //   · `site_hidden`：① **先**按盘上的值读（键不存在 / 解析失败 ⇒ 空集 ✅）
@@ -257,20 +241,6 @@ class AppSettings extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       await sp.setBool(_kSwitchRebuildEngine, v);
-    } catch (_) {
-      // 存失败也不影响本次会话使用
-    }
-  }
-
-  /// ★ 2026-10-13（用户拍板）：**iOS 播放引擎（AVPlayer 验证版）**开关的写入口
-  ///   （照 [setAutoNext] 逐行对齐：先改内存 + `notifyListeners` ⇒ 再异步落盘 ⇒ 失败不影响本次会话 ✅）。
-  Future<void> setIosUseAvPlayer(bool v) async {
-    if (v == _iosUseAvPlayer) return;
-    _iosUseAvPlayer = v;
-    notifyListeners(); // ⇒ 下一次进播放器按新值走 ✅
-    try {
-      final sp = await SharedPreferences.getInstance();
-      await sp.setBool(_kIosUseAvPlayer, v);
     } catch (_) {
       // 存失败也不影响本次会话使用
     }
