@@ -1351,10 +1351,13 @@ class PlayerWidgetState extends State<PlayerWidget>
   // ★ 2026-10-11（**probe23/26 实测驱动** ✅）：切集改为"**重建引擎 + 新纹理**"，并给新引擎配"**首帧自愈**"。
   //   依据：probe23（新库）**每集新建引擎 5/5 正常**（1.8~4.3s 出画）；probe26（App 界面路径、复用引擎）
   //   实测 **16/17 次黑**（新源 `Opening done` 后不出帧、位置恒 0）⇒ 复用那条路不可用。
-  Timer? _ffTimer; // 首帧自愈计时器（新引擎 N 秒内没首帧 ⇒ 重建一次）
-  int _ffHeals = 0; // 首帧自愈已用次数（每次切集/换源清零；上限 [_kFfHealMax] 防死循环）
-  static const int _kFfHealMax = 2;
-  static const Duration _kFfHealAfter = Duration(seconds: 9); // 新引擎多久没首帧就自愈
+  // ★ 2026-10-13（**用户指令：去掉 9s 自愈** ✅）：原先这里还配了"**首帧自愈**"（`_ffTimer` / `_ffHeals` /
+  //   `_kFfHealAfter=9s` —— 新引擎 9s 没首帧 ⇒ 再 `_initPlayer()` 一次）☠ 已**整段删除**，原因（🛢️）：
+  //   ① 它是给"复用档黑屏"当兜底的 —— 黑屏**根因已查明并修复**（`media_kit` 1.1.11→1.2.6，见 DEVLOG 第三条）；
+  //   ② 在**重建档=关（默认）**时，它那句"⇒ 重建引擎"实际走的仍是复用档 ⇒ **同一个 kp、不换引擎** ☠
+  //      ⇒ **治不了慢，还多花一次"重开源"的时间**（🛢️ 2026-10-13 iOS 柚子日志：14:08:17 触发 ⇒
+  //      14:08:19 仍是 `kp=788293175`，随后 10.27s 才首帧 ⇒ 首帧慢的真因是**数据侧速率**（分片 4MB / 0.5~1.35MB/s））；
+  //   ③ 它唯一的有效场景是"重建档=开"（那时才真换引擎）—— 该场景由"切集重建"本身覆盖 ✅
   static const Duration _kRetireDelay = Duration(milliseconds: 800); // 旧引擎延迟回收（先挂新、再收旧）
   /// ★ 2026-10-11：回收**硬上限** —— 条件（新引擎上屏 / 全屏退出）一直不满足也不能永久留着（防泄漏）
   static const Duration _kRetireMaxWait = Duration(seconds: 20);
@@ -1544,8 +1547,6 @@ class PlayerWidgetState extends State<PlayerWidget>
       //   注释写的是"不能销毁重建——销毁掉它就黑屏了"，那是**旧库时代 + 先收后挂**的结论。
       //   现在改成"**先挂新、再收旧**"（见 [_initPlayerOnce] 里那段 + [_retireKp]）⇒ 复用那条路才是黑的：
       //   probe26（界面路径、复用）**16/17 次黑**（新源 Opening done 后不出帧）；probe23（每集新建）**5/5 正常**。
-      _ffHeals = 0; // 用户主动换集 ⇒ 自愈额度重置（自愈自身触发的重建不会走到这里 ✓ 防死循环）
-      _ffTimer?.cancel();
       _sources = widget.sources.where((s) => s.isNotEmpty).toList();
       _nextFired = false;
       _errShown = false;
@@ -1597,8 +1598,6 @@ class PlayerWidgetState extends State<PlayerWidget>
     _autoRetryTimer = null;
     _autoRetries = 0;
     _setAutoRetrying(false);
-    _ffHeals = 0; // ★ 用户主动换源 ⇒ 自愈额度重置（同换集那条 ✓）
-    _ffTimer?.cancel();
     // ★【常驻诊断·③】换源/换档（用户点清晰度或换集走这里 ✓ 只看不改 ☠）
     if (AppSettings.i.logConsole) {
       debugPrint('[PLAY] 换源 n=${srcs.length} resumeTo=${resumeTo?.inMilliseconds ?? 0}ms '
@@ -2099,32 +2098,6 @@ class PlayerWidgetState extends State<PlayerWidget>
     });
   }
 
-  /// ★ 2026-10-11（probe26 自愈）：新引擎 N 秒内**没首帧/没 duration** ⇒ 自动重建一次（上限 [_kFfHealMax]）。
-  ///   依据：probe26 命中的形态就是"新源 `Opening done` 之后**久久不出帧**"（位置恒 0）⇒ 与其干等看门狗
-  ///   （9s）+ 自动重试（1.2s×5，且只在"已起播过"时判硬错），不如**直接把引擎换一套**（probe23 证明新建就正常）。
-  ///   ⚠️ 与既有 `_autoRetries`（5 次）并存 ⇒ 两者都受各自上限约束，不会无限重试。
-  void _armFirstFrameSelfHeal() {
-    _ffTimer?.cancel();
-    final kp = _kp;
-    if (kp == null) return;
-    _ffTimer = Timer(_kFfHealAfter, () {
-      if (!mounted) return;
-      if (_kp != kp) return; // 期间已经换过引擎 ⇒ 这次不管
-      final s = kp.value;
-      if (s.position > Duration.zero && s.duration > Duration.zero) return; // 正常出帧
-      if (_ffHeals >= _kFfHealMax) {
-        if (AppSettings.i.logConsole) debugPrint('[PLAY] 首帧自愈 额度用尽（$_ffHeals/$_kFfHealMax）⇒ 交给既有重试/看门狗');
-        return;
-      }
-      _ffHeals++;
-      if (AppSettings.i.logConsole) {
-        debugPrint('[PLAY] 首帧自愈 第$_ffHeals次：${_kFfHealAfter.inSeconds}s 内无首帧'
-            '（pos=${s.position.inMilliseconds}ms dur=${s.duration.inMilliseconds}ms buffering=${s.buffering}）⇒ 重建引擎');
-      }
-      _initPlayer(); // 重建（走上面那段"切集重建"⇒ 先挂新、再收旧）
-    });
-  }
-
   void _attach(KpPlayer kp) {
     final old = _kp;
     // ★【常驻诊断】上屏换引擎：新 kp 身份 / 旧 kp 身份（旧的非空 ⇒ 下面立刻 shutdown ✓）
@@ -2146,8 +2119,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     _applyRate('新引擎上屏后补下发');
     // ★ 状态/引擎已更新 ⇒ 踢一帧（防"状态变了没有帧来消化"，与 :639 那套同一修法 ✓）
     kickPlayerFrame();
-    // ★ 2026-10-11（probe26 自愈）：新引擎上屏后武装"首帧自愈"（9s 内没首帧/没 duration ⇒ 自动重建一次，最多 2 次）
-    _armFirstFrameSelfHeal();
+    // ★ 2026-10-13：原来这里武装"首帧自愈"（9s 没首帧 ⇒ 再重建一次）—— **已按用户指令删除**（理由见字段区注释）
     // ★ 2026-10-11（A2 ✅）：新引擎上屏时把"重连中"同步给它（预建引擎阶段可能已经排着重试 ✓）
     _pushRetrying();
     // 播放进度上报（写播放记录）：每 10 秒一次，只在位置真前进了才报
