@@ -180,13 +180,18 @@ jobs:
           flutter build ios --release --no-codesign \
             --build-name="$VER" --build-number="$(echo $VER | tr -d '.')"
           # ★ 2026-10-13（用户决定"CI 不签名" ✅）：**自己打"未签名 ipa"** ——
-          #   `--no-codesign` 只产 `build/ios/iphoneos/Runner.app`（无签名 ✅）
-          #   ⇒ 按 ipa 规范打包：`Payload/Runner.app` ⇒ zip ⇒ `build/ios/ipa/kpxx-$VER.ipa`
-          #      （用户拿这个未签名 ipa 自行签名 ✅；文件名 = `kpxx<版本>.ipa` ✅ —— 用户明确要求）
+          #   `--no-codesign` 只产 `build/ios/iphoneos/<PRODUCT_NAME>.app`（无签名 ✅）
+          #   ⚠️ 本仓 `PRODUCT_NAME` 已被改成 **`KPXX`**（见上面"修改 iOS 工程"那步 ✅）
+          #      ⇒ 产物是 **`KPXX.app`**，**不是** `Runner.app` ☠（2026-10-13 实测踩过：cp Runner.app 直接失败）
+          #      ⇒ 这里用 **glob** 取，避免以后再被改名坑 ✅
+          #   ⇒ 按 ipa 规范打包：`Payload/<app>` ⇒ `ditto -c -k --keepParent`（macOS 原生，避免 zip 打进的
+          #      `__MACOSX` / resource-fork 影响用户自行重签 ✅）⇒ `build/ios/ipa/kpxx-$VER.ipa`
+          APP=$(ls -d build/ios/iphoneos/*.app | head -1)
+          echo "APP=$APP"
           rm -rf /tmp/pk && mkdir -p /tmp/pk/Payload
-          cp -R build/ios/iphoneos/Runner.app /tmp/pk/Payload/Runner.app
+          cp -R "$APP" "/tmp/pk/Payload/$(basename "$APP")"
           mkdir -p build/ios/ipa
-          (cd /tmp/pk && zip -qry "$GITHUB_WORKSPACE/build/ios/ipa/kpxx-$VER.ipa" Payload)
+          (cd /tmp/pk && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/build/ios/ipa/kpxx-$VER.ipa")
           ls -la build/ios/ipa/
 
       # ✅ 按 App 里的版本号给 ipa 改名（用户 2026-10-03 要求：方便区分每次构建 ✓）
