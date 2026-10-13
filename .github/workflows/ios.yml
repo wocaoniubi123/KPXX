@@ -7,9 +7,10 @@ on:
 
 env:
   # ★ 2026-10-13 换签名渠道（用户提供新证书）：团队 Z8J7VYHQZF → **UFDTSTTH8B**（Kaidong Qi）
-  #   ⇒ 证书能签的 App ID 也随之变成 **app.snow8459.moonstone4810**（描述文件里写死的 application-identifier ✅）
-  #   ⚠️ 旧值（ysc.tool6041.sign / Z8J7VYHQZF）对应的是旧账号的 Ad Hoc 描述文件 ☠
-  BUNDLE_ID: app.snow8459.moonstone4810
+  #   ⚠️ **BUNDLE_ID 保持不变**（= `ysc.tool6041.sign` ✅ —— 用户明确要求：App 必须还是原来那个 App）
+  #   ⇒ 因此**必须有一个"App ID 为 ysc.tool6041.sign 的 Ad Hoc 描述文件"**（在新账号 UFDTSTTH8B 下建），
+  #     否则签名匹配不上（用户给的那份描述文件是 `app.snow8459.moonstone4810` 的 ☠，不能用）
+  BUNDLE_ID: ysc.tool6041.sign
   TEAM_ID: UFDTSTTH8B
   APP_NAME: KPXX
 
@@ -84,14 +85,14 @@ jobs:
           p = 'Runner.xcodeproj/project.pbxproj'
           s = open(p, encoding='utf-8').read()
           s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.kpxx;',
-                        'PRODUCT_BUNDLE_IDENTIFIER = app.snow8459.moonstone4810;')
+                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;')
           # Flutter 模板自带 iphoneos 专用 identity（优先级最高），必须一并换成 Distribution
           s = s.replace('"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";',
                         '"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";')
           # 模板没有 CODE_SIGN_STYLE 行（缺省=Automatic 开发签名），在三个 configuration
           # 的 DEVELOPMENT_TEAM 后补全手动签名配置（该行在 Runner 的 Debug/Release/Profile 各一处）
-          s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = app.snow8459.moonstone4810;',
-                        'PRODUCT_BUNDLE_IDENTIFIER = app.snow8459.moonstone4810;\n\t\t\t\tDEVELOPMENT_TEAM = UFDTSTTH8B;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
+          s = s.replace('PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;',
+                        'PRODUCT_BUNDLE_IDENTIFIER = ysc.tool6041.sign;\n\t\t\t\tDEVELOPMENT_TEAM = UFDTSTTH8B;\n\t\t\t\tCODE_SIGN_STYLE = Manual;\n\t\t\t\tCODE_SIGN_IDENTITY = "Apple Distribution";\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "'
                         + os.environ.get('PROFILE_NAME', '') + '";')
           # ⚠️ 2026-10-08（用户要求 ✓）：把**进程名**从模板默认的 `Runner` 改成 `KPXX` ✓ ——
           #   iOS「设置 → 隐私与安全性 → 分析与改进 → 分析数据」里的文件名取的是**进程名**
