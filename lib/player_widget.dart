@@ -462,7 +462,7 @@ class KpPlayer extends ValueNotifier<KpState> {
         'demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 '
         'cache-pause-initial=no network-timeout=20 '
         'stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,'
-        'reconnect_on_network_error=1,reconnect_on_http_error=5xx '
+        'reconnect_on_network_error=1,reconnect_on_http_error=5xx,multiple_requests=1 '
         'hwdec=${hw == 1 ? 'auto' : (hw == 2 ? 'no' : '(不下发·上游默认)')} '
         'referrer=(每源现设·不进日志) '
         '｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）');
@@ -761,10 +761,18 @@ class KpPlayer extends ValueNotifier<KpState> {
       //        （本次已在本机 libmpv-2.dll 上离线验证：这两个 mpv 选项名都被接受、回读生效 ✅，
       //          但 AVOption 是否真生效只能由真机行为确认 ☑️）。
       kp.setMpvOptionQuiet('network-timeout', '20');
+      // ★ 2026-10-14（用户拍板）：**补 `multiple_requests=1`**（对标 AniBaka——其网络串含此键 ✅）：
+      //   · 语义（ffmpeg 提交原文）：HTTP **持久连接** —— "avoid TCP connection and TLS negotiation
+      //     overhead, which is particularly beneficial when streaming via a high-latency internet
+      //     connection" ⇒ 远跳/连续请求**复用同一条连接**、省一次 TCP+TLS 握手（手机网络最明显）✅
+      //   · 归 **协议层**（HTTP 的 AVOption）⇒ 放 `stream-lavf-o`（mpv 手册：Set AVOptions on streams
+      //     opened with libavformat ✅）；**不动** demuxer-lavf-o（保持 media_kit 的默认串 ✅）
+      //   · 生效口径同上面那条：无法从 mpv 侧直接确认 ⇒ **以真机表现为准**（不认=静默忽略、无副作用）☑️
       kp.setMpvOptionQuiet(
         'stream-lavf-o',
         'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,'
-        'reconnect_on_network_error=1,reconnect_on_http_error=5xx',
+        'reconnect_on_network_error=1,reconnect_on_http_error=5xx,'
+        'multiple_requests=1',
       );
       // **硬件解码方式**（用户 2026-10-05 拍板：设置 → 播放 三选一 ✓ **影响所有站点** ✓）——
       //   0 自动 = **不设 `hwdec`** ✓（保持上游默认 ✓ 手册："Hardware decoding is **not enabled by default**" ✓）；
