@@ -458,9 +458,28 @@ class Liz01Site extends SiteUi {
   final ValueNotifier<int> warmTick = ValueNotifier<int>(0);
   int _lastTick = 0;
 
+  /// ★ 2026-10-14（**丢尾修复**·用户拍板 A）：尾部补发定时器（单槽 —— `??=` 去重、触发自清 ✅）。
+  ///   根因（审计实锤）：`_bumpTick` 原为「前沿节流、无尾部补发」⇒ 预热队列**最后一批**解完时
+  ///   常落进 300ms 窗口被吞 ⇒ 无重建 ⇒ 尾段几张灰到下一次重建（三张灰图 = 列表第 24/25/27 位，
+  ///   正是队列尾段 ✅）。两处共用：① 被吞时补一发；② 队列排空后补一发（350ms —— 等写盘落定，
+  ///   顺带盖住「put 未落盘就发 tick」的旧竞态 ✅）。阈值 300ms 与既有口径全部不动 ✅。
+  Timer? _tickTimer;
+
+  /// 尾部补发一发（幂等：挂着的只留一个 ✅；触发后自清 ✅）
+  void _fireTickLater(int ms) {
+    _tickTimer ??= Timer(Duration(milliseconds: ms), () {
+      _tickTimer = null;
+      _lastTick = DateTime.now().millisecondsSinceEpoch;
+      warmTick.value++;
+    });
+  }
+
   void _bumpTick() {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastTick < 300) return; // 节流：一批里只通知几次，避免反复重建 ✅
+    if (now - _lastTick < 300) {
+      _fireTickLater(320); // ★ 修复：被吞 ⇒ 挂一发尾部补发（原来这里直接 return、就真丢了 ☠）
+      return;
+    }
     _lastTick = now;
     warmTick.value++;
   }
@@ -524,6 +543,9 @@ class Liz01Site extends SiteUi {
       unawaited(_warmOne(u).whenComplete(() {
         _active--;
         _pump(); // ★ 取下一个（**不再丢弃任何一张** ✅）
+        // ★ 2026-10-14（修法 A②）：**队列排空 ⇒ 延迟补一发** —— 等写盘落定（`put` 是
+        //   fire-and-forget）+ 避开节流窗口 ⇒ 末批解完**必有一次重建** ✅（丢尾修复②）
+        if (_active == 0 && _q.isEmpty) _fireTickLater(350);
       }));
     }
   }
@@ -807,10 +829,13 @@ class Liz01Site extends SiteUi {
           ));
         }
       }
-      warmCovers(items); // ★ 榜单封面也预热 ✅
-      // ★ 首屏（页 1）同步解好（max=4 ≈1.3s ✅）；翻页仍异步 + tick 重建 ✅
+      // ★ 2026-10-14（修法 A②）：**先同步、后异步** —— 原「先 `warmCovers(items)` 全量入队、
+      //   再 `warmCoversSync`」会让 sync 全被「已在队列」跳过（空转 ☠）已修：
+      //   页 1 走 sync（其尾部会把剩余异步补齐 ✅）；翻页才走纯异步 ✅。
       if (page <= 1) {
         await warmCoversSync(items, max: 4);
+      } else {
+        warmCovers(items); // ★ 翻页：纯异步预热 ✅
       }
       final bag = _pageBag(a, '$entry 页=$page'); // 榜单页同样有 `page` 口袋（total/hasMore ✅）
       final total = bag?.total ?? items.length;
@@ -1059,8 +1084,8 @@ class Liz01Site extends SiteUi {
 
     final count = _i(d['totalEpisodes']) == 0 ? videos.length : _i(d['totalEpisodes']);
     final view = '${d['displayViewText'] ?? ''}'.trim();
-    // ★ 2026-10-12：详情页封面预热（**主封面** ✅ 不阻塞 ✅）
-    warmCover('${d['coverUrl'] ?? ''}');
+    // ★ 2026-10-14（修法 A②）：原此处 `warmCover(主封面)` **已删** —— 它先把主封面排进队列 ⇒
+    //   下面的主封面同步预热会被「已在队列」跳过（空转 ☠）；改由下面 sync 负责 ✅。
 
     // ===== ★ 2026-10-12「猜你喜欢」（🛢️ recon-5 实测 + 本机复核 ✅）=====
     //   · **数据就在详情响应里**：`data.related`（与 `/api/v1/drama/<id>/related?size=10` **同值** ✅）
@@ -1083,7 +1108,8 @@ class Liz01Site extends SiteUi {
         rel.add(one);
       }
     }
-    warmCovers(rel); // ★ 预热沿用（队列化那套 ✅）⇒ 这一块的封面也能出图 ✅
+    // ★ 2026-10-14（修法 A②）：原此处 `warmCovers(rel)` **已删** —— 同上（会让下面的同步
+    //   预热全被跳过 ⇒ no-op ☠）；rel 由下面 sync 负责，其余由 sync 尾部异步补齐 ✅。
     // ★ 2026-10-12（用户报"猜你喜欢没封面"）：这一块也是**共享卡片**（不监听 warmTick ☠）
     //   ⇒ **同步预热前 12 张**（含主封面）再返回 ✅
     await warmCoversSync(rel, max: 12);
@@ -2068,6 +2094,7 @@ class _LzRankTabState extends State<_LzRankTab> {
                       site: widget.site,
                       a: _items[i],
                       rank: i + 1, // 名次（接口给的 rankNo 顺序排列 ✅）
+                      tick: tick, // ★ 2026-10-14（修法 A②）：带上预热进度 ⇒ 海报解好即现 ✅
                     ),
                   if (_items.isEmpty && !_loading)
                     Center(
@@ -2109,8 +2136,18 @@ class _LzRankRow extends StatelessWidget {
   final SiteEntry site;
   final Article a;
   final int rank;
+
+  /// ★ 2026-10-14（修法 A②）：预热进度 —— 进海报 `FetchedImage` 的 key（与 [_LzCard] 同款 ✅）：
+  ///   tick 变 ⇒ 换 key ⇒ 重建 element ⇒ 重新命中磁盘缓存 ⇒ 解好的图立刻出 ✅
+  ///   （原来无 key ⇒ 父级重建复用 element、同 url 不重载 ⇒ 失败后要滚出视口再回来才自愈 ☠）
+  final int tick;
+
   const _LzRankRow(
-      {required this.ui, required this.site, required this.a, required this.rank});
+      {required this.ui,
+      required this.site,
+      required this.a,
+      required this.rank,
+      required this.tick});
 
   @override
   Widget build(BuildContext context) {
@@ -2145,7 +2182,11 @@ class _LzRankRow extends StatelessWidget {
                 height: 75,
                 child: a.cover.isEmpty
                     ? Container(color: const Color(0xFF2A2A2A))
-                    : FetchedImage(url: a.cover, memWidth: 160),
+                    : FetchedImage(
+                        // ★ 2026-10-14（修法 A②）：key 带 tick ⇒ 预热解好后的重建立刻出图 ✅
+                        key: ValueKey('$tick|${a.cover}'),
+                        url: a.cover,
+                        memWidth: 160),
               ),
             ),
             const SizedBox(width: 10),
