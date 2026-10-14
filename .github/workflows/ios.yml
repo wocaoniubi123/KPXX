@@ -43,33 +43,13 @@ jobs:
           flutter create --platforms=ios --org ysc --project-name kpxx .
           ls ios/
 
-      - name: 导入签名证书 (p12 + 描述文件)
-        env:
-          P12_BASE64: ${{ secrets.P12_BASE64 }}
-          PROFILE_BASE64: ${{ secrets.PROFILE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      # ★ 2026-10-13（**用户拍板：继续出未签名的包** ✅）：原「导入签名证书 (p12 + 描述文件)」整步删除
+      #   —— 3 个签名 secret 已按用户要求删除（`gh secret list` 为空 ✅）⇒ 这步必失败 ☠
+      #   此后 `PROFILE_UUID` / `PROFILE_NAME` **不再产生**（下面的"修改 iOS 工程"里那两个占位符会是空串，
+      #   对 `--no-codesign` 构建无影响 ✅）
+      - name: 签名（已移除，CI 出未签名包 ✅）
         run: |
-          echo "$P12_BASE64" | base64 -d > /tmp/cert.p12
-          echo "$PROFILE_BASE64" | base64 -d > /tmp/profile.mobileprovision
-          # 从描述文件提取 UUID + Name（Xcode 用 Name 匹配 PROVISIONING_PROFILE_SPECIFIER）
-          security cms -D -i /tmp/profile.mobileprovision -o /tmp/profile.plist 2>/dev/null
-          UUID=$(python3 -c "import plistlib; print(plistlib.load(open('/tmp/profile.plist','rb'))['UUID'])")
-          PNAME=$(python3 -c "import plistlib, json; p=''; p=plistlib.load(open('/tmp/profile.plist','rb')); print(p.get('Name',''))")
-          if [ -z "$UUID" ]; then
-            echo "::error:: 无法提取描述文件 UUID"
-            exit 1
-          fi
-          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
-          echo "PROFILE_NAME=$PNAME" >> "$GITHUB_ENV"
-          mkdir -p -v "$HOME/Library/MobileDevice/Provisioning Profiles"
-          cp /tmp/profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-          # 独立 keychain，避免污染 runner
-          security create-keychain -p "$P12_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$P12_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$P12_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain login.keychain-db
+          echo "CI 不签名 ⇒ 出未签名 IPA（kpxx-<版本>.ipa），由用户自行签名 ✅"
 
       - name: 修改 iOS 工程（bundle id / 手动签名 / 显示名）
         run: |
@@ -171,28 +151,9 @@ jobs:
           # 尺寸核对：1024 那张必须是 1024×1024（App Store 尺寸，iOS 必需）
           python3 -c "import struct,sys; d=open('$SET/Icon-App-1024x1024@1x.png','rb').read(33); w,h=struct.unpack('>II',d[16:24]); print('1024 图实际尺寸 =',w,'x',h); sys.exit(0 if (w,h)==(1024,1024) else 1)"
 
-      - name: 生成导出选项 (Ad-hoc)
-        run: |
-          cat > ExportOptions.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-          <key>method</key>
-          <string>ad-hoc</string>
-          <key>teamID</key>
-          <string>${{ env.TEAM_ID }}</string>
-          <key>signingStyle</key>
-          <string>manual</string>
-          <key>provisioningProfiles</key>
-          <dict>
-          <key>${{ env.BUNDLE_ID }}</key>
-          <string>${{ env.PROFILE_UUID }}</string>
-          </dict>
-          </dict>
-          </plist>
-          EOF
-          cat ExportOptions.plist
+      # ★ 2026-10-13（用户拍板"出未签名的包" ✅）：原「生成导出选项 (Ad-hoc)」整步删除
+      #   —— `ExportOptions.plist` 只对"签名导出 (flutter build ipa --export-options-plist)"有意义；
+      #      现在走 `--no-codesign` + 自己打包 ⇒ 不再需要它（也避免了引用 `PROFILE_UUID` 必失败 ☠）✅
 
       # ⚠️ 一次列出全部 Dart 错误 ✓（CFE 每轮只抛第一条 ✗，会拖成十几轮）
       # 只对 error 生效：infos/warnings 不算失败 ✓（仓库无 analysis_options.yaml，噪音低 ✓）
@@ -213,8 +174,22 @@ jobs:
           #   ⇒ 取"版本号**去掉点**"：1.1.0⇒110、1.1.9⇒119、1.2.0⇒120 ✓ —— **单调递增** ✓
           #   （依据 ✓：新规则"每段 0~9、满 9 进位"（见 `lib/app_version.dart` ✓）⇒ 去点后按数字比较永远递增 ✓；
           #     另一条路 = 直接用 `$GITHUB_RUN_NUMBER` ✓ 但那样与版本号无关 ✗ 故不取 ✓）
-          flutter build ipa --release --export-options-plist=ExportOptions.plist \
+          flutter build ios --release --no-codesign \
             --build-name="$VER" --build-number="$(echo $VER | tr -d '.')"
+          # ★ 2026-10-13（用户拍板"出未签名的包" ✅）：**自己打"未签名 ipa"** ——
+          #   `--no-codesign` 只产 `build/ios/iphoneos/<PRODUCT_NAME>.app`（无签名 ✅）
+          #   ⚠️ 本仓 `PRODUCT_NAME` 已被改成 **`KPXX`**（见上面"修改 iOS 工程"那步 ✅）
+          #      ⇒ 产物是 **`KPXX.app`**，**不是** `Runner.app`（2026-10-13 实测踩过：写死 Runner.app 直接失败 ☠）
+          #      ⇒ 这里用 **glob** 取，避免以后再被改名坑 ✅
+          #   ⇒ 按 ipa 规范打包：`Payload/<app>` ⇒ `ditto -c -k --sequesterRsrc --keepParent`
+          #      （macOS 原生；避免 zip 打进 `__MACOSX`/resource fork 影响用户自行重签 ✅）
+          APP=$(ls -d build/ios/iphoneos/*.app | head -1)
+          echo "APP=$APP"
+          rm -rf /tmp/pk && mkdir -p /tmp/pk/Payload
+          cp -R "$APP" "/tmp/pk/Payload/$(basename "$APP")"
+          mkdir -p build/ios/ipa
+          (cd /tmp/pk && ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/build/ios/ipa/kpxx-$VER.ipa")
+          ls -la build/ios/ipa/
 
       # ✅ 按 App 里的版本号给 ipa 改名（用户 2026-10-03 要求：方便区分每次构建 ✓）
       - name: 按版本号重命名 IPA
@@ -223,7 +198,11 @@ jobs:
           if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
           echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
           cd build/ios/ipa
-          for f in *.ipa; do mv "$f" "kpxx-$VER.ipa"; done
+          # ★ 2026-10-13：上面已按 `kpxx-$VER.ipa` 命名 ⇒ 这里跳过它自己（`mv a a` 会报错 ☠）
+          for f in *.ipa; do
+            [ "$f" = "kpxx-$VER.ipa" ] && continue
+            mv "$f" "kpxx-$VER.ipa"
+          done
           ls -la
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4

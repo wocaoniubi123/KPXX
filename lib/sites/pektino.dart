@@ -104,9 +104,12 @@ class PektinoSite extends SiteUi {
     final code = _tagCodeOf(keyword, tags);
     if (code.isEmpty) {
       // 🛢️ 站点页面原文：「<词>」に一致するタグは見つかりませんでした（= 无匹配标签 ✅）
-      debugPrint('[SEARCH] ${_f.site.name} 入口=search 词=$keyword ⇒ '
-          '「$keyword」に一致するタグは見つかりませんでした（表 ${tags.length} 条）'
-          '⇒ 0 条 ms=${sw.elapsedMilliseconds}');
+      // ⚠️ 2026-10-14（用户批“小尾巴”）：补 `logConsole` 守卫 —— 与本文件其余日志同款（原来这条漏了 ✗）
+      if (AppSettings.i.logConsole) {
+        debugPrint('[SEARCH] ${_f.site.name} 入口=search 词=$keyword ⇒ '
+            '「$keyword」に一致するタグは見つかりませんでした（表 ${tags.length} 条）'
+            '⇒ 0 条 ms=${sw.elapsedMilliseconds}');
+      }
       return const <Article>[];
     }
     final res = await list('all', code, page: page);

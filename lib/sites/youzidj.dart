@@ -42,7 +42,7 @@
 //    ① `POST /api/account/bootstrap`（头 `Origin: https://youzidj.com` + `Content-Type: application/json`，
 //       体 `{}`）⇒ 200 + `Set-Cookie: eden_account=…`（1 年 ✅）
 //       ⚠️ `Origin` **必须带**：缺它 ⇒ **403 `请求来源无效，请刷新页面后重试`**（2026-10-11 本机实锤 ✅）
-//    ② `POST /api/playback/<videoId>?mode=mse`（**必带** `Cookie: eden_account=…` + `Referer`＝该集页面 ✅，
+//    ② `POST /api/playback/<videoId>?mode=native&startup=1`（**必带** `Cookie: eden_account=…` + `Referer`＝该集页面 ✅，
 //       体 `{}`）⇒ 200 JSON **`{url, expires_at}`**（实测**只有这两个键** ✅ —— `mse` 也没有 `startup` ✅）+
 //         `Set-Cookie: eden_play_<videoId>=…; Max-Age=900; Path=/media/<videoId>/` ✅
 //       （实测：② 只带 `eden_account` 就 200 ✅ ⇒ ② 不需要播放 cookie ✅）
@@ -54,6 +54,9 @@
 //          两个都带 ⇒ **200** + `#EXTM3U` ✅；只带 `eden_account` ⇒ **403** ✅；一个都不带 ⇒ **403** ✅（负控 ✅）
 //          ⇒ 给播放器的头 = **这两个** ✅
 //       `Origin`/`Referer` 取流时**不需要**（实测 ✅）
+//    ★ **2026-10-14（用户拍板）：改走 `mode=native&startup=1`** —— 依据 AniBaka 同站实测（双 cookie ⇒
+//      206 video/mp4，单文件 + Range ⇒ 起播快、远跳不卡 ✅）；⚠️ 先 Windows A/B 验证、通过才切（不过则回退 ☑️）。
+//      **以下 2026-10-12 的"只走分片"段 = 历史** ☑️（其中 ③ 的形态描述按 mse 时代记录）。
 //    ★ **为什么"只走分片"（2026-10-12 用户拍板 ✅ —— 原话："柚子只走分片。就这样"）**：
 //      · 依据：**分片路径实测比整段快 1.5~5 倍且更稳**（同集同窗口：分片 1329~3649 KB/s
 //        vs 单文件 98~1723 KB/s ✅）；**新库下 fMP4 HLS 能跳**（4.1~7.0s 恢复、1× ✅）
@@ -353,6 +356,10 @@ class YouziSite extends SiteUi {
   ///   · **429 ⇒ 冷却 [_kCool] 秒**（窗口内不再发 ② ✅、到点自动恢复 ✅），日志 `429(冷却 30s)` ✅
   ///   · 冷却期内被调到 ⇒ 直接跳过 + 日志 `跳过(429冷却 Ns)` ✅
   ///
+  /// ★ 2026-10-14（**用户拍板：改走 native** ✅）：`mode=mse` → **`mode=native&startup=1`** —— 依据：
+  ///   AniBaka（本机 G:\ZCode\AniBaka）对本站实测"双 cookie ⇒ **206 video/mp4**"（单文件 + Range ⇒ 起播快、远跳不卡 ✅）；
+  ///   ⚠️ 先 Windows A/B 验证、通过才切（不过则回退本改 ☑️）。**以下 2026-10-12 段 = 历史** ☑️。
+  ///
   /// ★ 2026-10-12（**用户拍板"只走分片"** ✅ —— 一句话口径：**"柚子只走分片。就这样"**）：
   ///   · **一律 `mode=mse`**（拿 `master.m3u8` 当源）✅
   ///   · 依据：**分片实测比整段快 1.5~5 倍且更稳**（同集同窗口：分片 1329~3649 KB/s
@@ -380,7 +387,7 @@ class YouziSite extends SiteUi {
     return (url: t.url, cookie: t.cookie);
   }
 
-  /// ② 的**单次取票**（**2026-10-12 起固定 `mode=mse`** ✅ —— 用户拍板"只走分片"）：成功 ⇒ `{url, cookie}` ✅
+  /// ② 的**单次取票**（**2026-10-14 起改 `mode=native&startup=1`** ✅ —— 用户拍板；原"固定 mse / 只走分片"为 2026-10-12 历史 ☑️）：成功 ⇒ `{url, cookie}` ✅
   ///
   /// ⚠️ 403/429 口径与日志跟原来**同一套** ✅（403 不停手 ✅、429 记冷却 ✅）。
   ///
@@ -398,7 +405,8 @@ class YouziSite extends SiteUi {
   Future<({String url, String cookie})?> _ticket(String videoId, String acc) async {
     final sw = Stopwatch()..start();
     // ★ 2026-10-12（iOS 修 ✅）：主路径与 dart:io 回退**共用同一份头** ⇒ 逐字一致 ✅
-    //   （⚠️ 这里**保持 `mode=mse` 不变** ✅ —— 平台选路已回滚，仍是"只走分片" ✅）
+    //   ★ 2026-10-14（用户拍板 ✅）：mode 改 `native&startup=1`（两条路径**同款改** ✅）——
+    //   历史：2026-10-12 的"保持 mse / 只走分片"已被本版取代 ☑️（先 Windows 验证）
     final hdrs = <String, String>{
       'User-Agent': Site.ua,
       'Origin': _kBase,
@@ -411,10 +419,11 @@ class YouziSite extends SiteUi {
     try {
       final r = await _f.client
           .post(
-            // ★ 2026-10-12（用户拍板 ✅）：**固定 `mode=mse`**（分片，快 1.5~5 倍且更稳 ✅）；
-            //   `mode=native`（整段 MP4）那条已按用户口径弃用 ☑️（代价：旧库 iOS 下远跳会坏 ✅）。
-            //   ⚠️ 响应只有 `url` + `expires_at`（实测 ✅ —— `mse` 也没有 `startup` ✅）⇒ 只读 `url` ✅。
-            Uri.parse('$_kBase/api/playback/$videoId?mode=mse'),
+            // ★ 2026-10-14（用户拍板 ✅）：**改走 `mode=native&startup=1`** —— 单文件 MP4 + Range
+            //   ⇒ 起播直开、远跳一次 Range（依据：AniBaka 同站实测"双 cookie ⇒ 206 video/mp4" ✅）。
+            //   历史：2026-10-12 曾拍板"只走分片"（mse）☑️；本改**先 Windows A/B 验证**，不过则回退本行 ☑️。
+            //   ⚠️ 响应键暂按老口径只读 `url`（native 形态在 V0 实测 ☑️）。
+            Uri.parse('$_kBase/api/playback/$videoId?mode=native&startup=1'),
             headers: hdrs,
             body: '{}',
           )
@@ -427,7 +436,7 @@ class YouziSite extends SiteUi {
       if (pc == null) {
         // ★ iOS 修 ②：兜底重发（只在"客户端已回话但没 cookie"时 ✅ —— Windows 不进这里 ✅）
         final fb = await _postViaIo(
-            '/api/playback/$videoId?mode=mse', hdrs, '{}');
+            '/api/playback/$videoId?mode=native&startup=1', hdrs, '{}');
         if (fb != null) {
           code = fb.code;
           bodyBytes = fb.body;
@@ -460,7 +469,7 @@ class YouziSite extends SiteUi {
       }
       if (AppSettings.i.logConsole) {
         // ⚠️ 只打 vid 前 8 字 / mode / 来源 / 码 / 字节 / ms / 站方错因 —— **不打 cookie、不打地址** ☠
-        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} mode=mse（本站只走分片）'
+        debugPrint('[SRC] ${_f.site.name} 取流 vid=${_vid8(videoId)} mode=native&startup=1'
             '来源=$src '
             'code=$code len=${bodyBytes.length} '
             'play=${pc == null ? '无' : '有(len=${pc.length})'} ms=${sw.elapsedMilliseconds}'
