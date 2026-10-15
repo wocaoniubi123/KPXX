@@ -895,6 +895,28 @@ class _HomePageState extends State<HomePage>
           //   ✅ 现在：`Positioned(top: 0)` = **body 顶部 = tab 行正下方** ⇒ 真正悬浮在卡片之上；
           //      且 `Positioned` **不参与布局** ⇒ **卡片一点不动** ✅
           //   展开/收起 = 纯状态 `_drawerTab == _tab.index`（再点同 tab 置 -1 ✅；滑到别的 tab 自然为假 ✅）
+          // ★ 2026-10-15（**用户要求**）：**点空白处收起抽屉** ✅
+          //   现状（用户实测）：抽屉开着时点空白，**点到了底下的卡片**（直接进详情 ☠）
+          //   ⇒ 抽屉打开时先铺一层**透明屏障**：
+          //     · `Positioned.fill` 盖住**卡片区** ⇒ 底下卡片**收不到点击** ✅
+          //     · 点屏障 = **收起抽屉** ✅（日志 `[TAB] … 点空白 ⇒ 收起抽屉 ✅`）
+          //     · 放在**抽屉之前**（Stack 顺序）⇒ 抽屉自身仍可点 ✅
+          //     · 屏障**全透明**（视觉零变化 ✅；要"淡黑遮罩"只需加一层 color ✅）
+          if ((_api.ui?.tabDrawer ?? false) &&
+              cur != null &&
+              cur.subs.isNotEmpty &&
+              _drawerTab == _tab.index)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() => _drawerTab = -1);
+                  if (AppSettings.i.logConsole) {
+                    debugPrint('[TAB] ${widget.site.name} 点空白 ⇒ 收起抽屉 ✅');
+                  }
+                },
+              ),
+            ),
           if ((_api.ui?.tabDrawer ?? false) &&
               cur != null &&
               cur.subs.isNotEmpty &&
@@ -903,7 +925,13 @@ class _HomePageState extends State<HomePage>
               top: 0,
               left: 0,
               right: 0,
-              child: _tabDrawerPanel(cur, l1),
+              // ★ 面板自身**吸收点击**（`opaque` + 空 onTap）—— 否则点面板空白处会穿到下面的屏障
+              //   ⇒ 面板"自己"那片区域不该收起抽屉 ✅（只有面板外的空白才收起 ✅）
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {},
+                child: _tabDrawerPanel(cur, l1),
+              ),
             ),
         ],
       ),
