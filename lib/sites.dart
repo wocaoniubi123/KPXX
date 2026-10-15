@@ -12,6 +12,7 @@ import 'sites/xhamster.dart';
 import 'sites/xhamsterlive.dart';
 import 'sites/yeguodj.dart';
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（Nuxt blob + 分区行）✅
+import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net —— **独立站点文件**（自研模板，非 WordPress 系 ✅）
 import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅；2026-10-12 删过一次，当天按用户要求恢复 ✅）
 
 import 'package:flutter/material.dart';
@@ -142,6 +143,13 @@ enum SiteTemplate {
   ///   **分页 = 路径式**（`<path>page/<n>/` ✅ —— ⚠️ `?page=` 会被 CDN 缓存吃掉 ☠ 别用）。
   ///   ❓ 分类列表 / rank / road 的形态、封面解密、搜索分页**未验证** ⇒ 见 `lib/sites/liz01.dart` 文件头 ✅
   liz01,
+  /// ★ 2026-10-12：**51fans.net**（www.51fans.net）—— **自研模板**（不是 WordPress 系 ☠）
+  ///   ⇒ **独立站点文件** `sites/fans51.dart` ✅
+  ///   ⚠️ 与既有 `wordpress` 模板的 `51fans`（kSite05，宿主 `51fans1.com`）**不是同一个站** ✅
+  ///   （入口名用 `51fans.net` 避免重名 ✅）
+  ///   卡片：横版 16:9 ⇒ 双列；角标 `时长 ＞ 集数 ＞ 播放量`（有 `.cover-duration` 与 `.eye` ✅）
+  ///   源：`window.__ARCHIVE_PLAYER__` 的 `cdnLine + rawPath`（HLS + AES-128，**不需要请求头** ✅）
+  fans51,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -343,6 +351,11 @@ const List<SiteEntry> kSites = [
   // 柚子短剧（kSite16 ✅ 2026-10-11 新增；2026-10-12 删过当天恢复）：**用户指定"点播宫格最后一格"** ✅
   //   —— 所以放在**最末**（荔枝之后）才符合"最后一格"的口径 ✅
   kSite16,
+  // ★ 51fans.net（kSite17 ✅ 2026-10-12 新增，**独立站点文件** `sites/fans51.dart`）：
+  //   本站是**自研模板**（不是 WordPress 系）⇒ 不走 `wordpress.dart` ✅
+  //   ⚠️ 与既有 `51fans`（kSite05 / `51fans1.com`）**不是同一个站** ✅
+  //   ⚠️ 注意宫格口径：上面 kSite16（柚子）是用户指定的"**点播最后一格**" ⇒ 新站**放在它之后**（= 更末）✅
+  kSite17,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,

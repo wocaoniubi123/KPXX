@@ -173,6 +173,13 @@ abstract class SiteUi {
   /// （见 DEVLOG 顶部「写死的规则」✅）。
   Widget? sitePage(BuildContext context, SiteEntry site) => null;
 
+  /// ★ 2026-10-15（**51fans.net 用 · 可选钩子** ✅）：顶栏 tab **点击展开"悬浮抽屉"**。
+  ///   `true` ⇒ 底座在该站顶部 tab 下挂一个**抽屉**（点 tab 展开/再点收起；浮在卡片上方、卡片不动 ✅）；
+  ///   抽屉内容 = 该组名 + 「更多 ›」+ **子分类 chip 横滑**（chip 文字**完整显示不截断** ✅）。
+  ///   子分类数据**不在这里**给 —— 复用 [SiteTab.subs]（底座已有的一/二级 tab 机制 ✅）。
+  ///   ⚠️ 默认 `false` ⇒ **其它站点一个字都不变**（不画抽屉、事件不挂 ✅）。
+  bool get tabDrawer => false;
+
   /// ★ 2026-10-08（**新增 · 通用槽位**）：详情页「相关推荐」那一块的**标题** ✅
   /// 空串 ⇒ 底座用默认的「相关推荐」✅（站点可给真站叫法，如野果的「猜你喜欢」✅）。
   String get relatedTitle => '';

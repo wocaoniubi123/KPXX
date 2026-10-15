@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui; // ★ 2026-10-15：悬浮抽屉的磨砂玻璃要用 `ui.ImageFilter.blur` ✅
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart' show SchedulerBinding, SchedulerPhase;
@@ -120,6 +121,171 @@ class _HomePageState extends State<HomePage>
   final _phCtl = PhStarController();
 
   List<SiteTab> get _cats => widget.site.categories;
+
+  /// ★ 2026-10-15（**51fans.net · B 悬浮式抽屉** ✅）：当前展开的 tab 下标（-1 = 收起）
+  ///   收起方式（实现口径，注释写明 ✅）：
+  ///   · **再点同一个 tab** ⇒ 收起（[TabBar.onTap] 里 toggle ✅）
+  ///   · **左右滑到别的 tab** ⇒ 抽屉自然消失（渲染条件含 `_drawerTab == _tab.index` ✅，不额外 setState）
+  ///   · 横滑 chip / 上下滚卡片 ⇒ **不收起**（用户口径 ✅ —— 抽屉不在滚动区里，天然不受影响 ✅）
+  ///   · ⚠️ **没有**做"点空白处收起"：底座这层页面没有空白区手势入口，硬加要在卡片区插 GestureDetector
+  ///     （会跟卡片的点击抢手势 ☠）⇒ 选**最稳**的两种（再点 tab / 滑走 tab）✅
+  int _drawerTab = -1;
+
+  /// ★ 51fans.net 专用：悬浮抽屉面板（磨砂玻璃 + 阴影 + 圆角 10 ✅；卡片**不动**、被它压住 ✅）
+  ///   · 第一行 = **组名**（左，点了切"组列表"= subs 第 1 项「全部」✅）
+  ///     ⚠️ 2026-10-15 用户要求：**已去掉「更多 ›」**（多余 ✅）
+  ///   · 第二行 = 子分类 chip **横滑**（chip 高 28 / 圆角 14 / 内边距 左右 10 / 间距 8 ✅）
+  ///   · ⚠️ chip 文字 **完整显示**：`Text` **不设** `maxLines`/`overflow`/`TextOverflow` ✅
+  ///     ⇒ 长名字（如「😻黑猫露娜酱（小水水闺蜜）」）**整串显示**，靠**横向滚动**容纳 ✅
+  /// ★ 2026-10-15（hook 站点的 tab 点击处理器 ✅）—— 只有 `tabDrawer` 站点走这里。
+  ///   🛢️ 为什么不用 `TabBar.onTap`：SDK `material/tabs.dart:1889` 原文是
+  ///     `animateTo(index); onTap?.call(index);` ⇒ **回调时索引已经切了** ☠ ⇒ 无法判断
+  ///     "点的是不是当前 tab"（用户实测"点别的照样弹抽屉" ✗）
+  ///   ✅ 本方法由 `Tab` **内嵌的 GestureDetector** 调用 ⇒ 此刻 TabBar **还没**切换 ⇒ `_tab.index` 是**真实旧 tab** ✅
+  ///   口径（用户 2026-10-15 拍板）：**点别的 tab ⇒ 只切列表、不弹抽屉**；**点当前 tab ⇒ 展开/收起** ✅
+  void _onTabTapped(int i) {
+    if (i < 0 || i >= _cats.length) return;
+    final c = _cats[i];
+    final sameTab = _tab.index == i; // ← 现在这个判断是【真】的（TabBar 尚未自动切换 ✅）
+    setState(() {
+      if (!sameTab) {
+        // ① 切到别的 tab ⇒ 手动切（hook 站禁用了 TabBar.onTap ⇒ 得自己切 ✅）；抽屉收掉、**不弹** ✅
+        _tab.animateTo(i);
+        if (_drawerTab != -1) _drawerTab = -1;
+        if (AppSettings.i.logConsole) {
+          debugPrint('[TAB] ${widget.site.name} 切到 tab=${c.name}（不弹抽屉 ✅）');
+        }
+        return;
+      }
+      // ② 点的是**当前** tab ⇒ 二次确认：展开 / 收起 ✅
+      if (_drawerTab == i) {
+        _drawerTab = -1;
+        if (AppSettings.i.logConsole) {
+          debugPrint('[TAB] ${widget.site.name} 收起 组=${c.name}');
+        }
+      } else {
+        _drawerTab = i;
+        if (AppSettings.i.logConsole) {
+          debugPrint('[TAB] ${widget.site.name} 展开 组=${c.name} 子分类=${c.subs.length}');
+        }
+      }
+    });
+  }
+
+  Widget _tabDrawerPanel(SiteTab c, SiteTab? sel) {
+    const on = Color(0xFFE8590C);
+    final chipBg = AppBg.i.isDark ? const Color(0xFF2E2E2E) : Colors.white;
+    // ★ 2026-10-15（**用户要求**）：**面板宽度按"抽屉里最长字符"算**（不再占满屏宽 ✅）
+    //   · 用 `TextPainter` 量最宽一行（行字号 13 / 头行组名字号 14 ✅，头行是最粗的 ✅）
+    //   · 宽度 = 最长字符 + 面板内边距(10×2) + 行内边距(10×2) + 余量(6)
+    //   · 上限 = 屏宽 × 0.75 − 20（保证整块面板不超屏 ✅）；下限 120（极短名字也别太窄 ✅）
+    double wOf(String s, double fs) {
+      final tp = TextPainter(
+        text: TextSpan(
+            text: s, style: TextStyle(fontSize: fs, fontWeight: FontWeight.w600)),
+        maxLines: 1,
+        textDirection: TextDirection.ltr,
+      )..layout();
+      return tp.width;
+    }
+
+    var maxW = wOf(c.name, 14);
+    for (final s in c.subs) {
+      final w = wOf(s.name, 13);
+      if (w > maxW) maxW = w;
+    }
+    final screenW = MediaQuery.of(context).size.width;
+    final panelInnerW = (maxW + 26).clamp(120.0, screenW * 0.75 - 20);
+    // ★ 2026-10-15（**用户实测纠正**）：子分类 **竖排**（不是横滑 ☠）——
+    //   一条一行、宽度 = 面板内容宽、文字**完整显示**（长名换行，绝不 ellipsis ✅）
+    Widget rowItem(SiteTab s) {
+      final onIt = sel?.key == s.key;
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          // ★ 2026-10-15（**用户要求**）：**点分类后直接收起抽屉** —— 不然面板压着卡片挡视线 ✅
+          setState(() {
+            _sub[c.key] = s.key; // **原地切换**（不跳新页 ✅）；橙底记在 `_sub` 里 ⇒ 回来仍是橙 ✅
+            _drawerTab = -1; // 收起抽屉 ✅
+          });
+          if (AppSettings.i.logConsole) {
+            debugPrint('[TAB] ${widget.site.name} 选子分类 组=${c.name} 子=${s.name} ⇒ 收起抽屉 ✅');
+          }
+        },
+        child: Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: onIt ? on : chipBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0x223C3C3C)),
+          ),
+          child: Text(
+            s.name, // ★ 无 maxLines / 无 overflow ⇒ **文字完整显示**（长名换行 ✅）
+            style: TextStyle(fontSize: 13, color: onIt ? Colors.white : kTxt),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+            decoration: BoxDecoration(
+              color: AppBg.i.isDark
+                  ? const Color(0xE61A1A1A)
+                  : const Color(0xE6FFFFFF),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: const [
+                BoxShadow(
+                    color: Color(0x33000000), blurRadius: 14, offset: Offset(0, 6)),
+              ],
+            ),
+            child: SizedBox(
+              width: panelInnerW,
+              child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ★ 2026-10-15（用户要求）：**去掉「更多 ›」**（多余 ✅）—— 头行只留组名；
+                //   点组名仍 = 切到该组列表（= 子分类第 1 项 ✅，保留原行为，不影响 ✅）
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _sub[c.key] = c.subs.first.key),
+                  child: Text(c.name,
+                      style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600, color: kTxt)),
+                ),
+                const SizedBox(height: 8),
+                // ★ 2026-10-15（用户实测纠正）：**竖排 + 不超屏 + 上下可滑** ✅
+                //   · `maxHeight = 屏高 × 0.42` ⇒ 面板**永远不超屏**（面板自身也有 8 边距 ✅）
+                //   · 超出部分靠 **纵向滚动** 看（用户要求"上下可滑动" ✅）
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.42,
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.vertical,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [for (final s in c.subs) rowItem(s)],
+                    ),
+                  ),
+                ),
+              ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -604,6 +770,14 @@ class _HomePageState extends State<HomePage>
           controller: _tab,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
+          // ★ 2026-10-15（51fans.net · B 悬浮式 ✅）：**不用 TabBar.onTap** ☠ ——
+          //   🛢️ SDK 源码 `material/tabs.dart:1889` 原文：
+          //     `void _handleTap(int index) { _controller!.animateTo(index); widget.onTap?.call(index); }`
+          //     ⇒ **先切索引、再回调** ⇒ 在 onTap 里 `_tab.index` **已经等于**被点的 index ☠
+          //     ⇒ 无法判断"点的是不是当前 tab"（我第一版就栽在这，用户实测"点别的照样弹" ✗）
+          //   ✅ 改为：hook 站点给每个 `Tab` 内嵌 `GestureDetector`（**由我们处理点击** ⇒ 在 TabBar
+          //      自动切换**之前**拿到真实当前 tab ✅）；非 hook 站照旧走 `Tab(text:)` ⇒ 行为一字不变 ✅
+          onTap: null,
           // 透明化：M3 的 TabBar 默认在下面画一条浅灰分割线，压在背景图上很突兀
           dividerColor: Colors.transparent,
           indicatorColor: const Color(0xFFE8590C),
@@ -613,15 +787,44 @@ class _HomePageState extends State<HomePage>
               : const Color(0xFFE8590C),
           unselectedLabelColor:
               AppBg.i.isDark ? Colors.white : const Color(0xFF3A3A3A),
+          // ★ 2026-10-15（**用户要求**）：hook 站点把 tab 的**左右内边距收窄**（默认 16/16 太宽 ✅）
+          //   ⇒ 非 hook 站点传 null（= 保持默认，一字不变 ✅）
+          labelPadding: (_api.ui?.tabDrawer ?? false)
+              ? const EdgeInsets.symmetric(horizontal: 10)
+              : null,
           tabs: [
-            for (final c in _cats) Tab(text: c.name),
+            // ★ 2026-10-15：hook 站点（51fans.net）⇒ 每个 Tab **内嵌我们自己的点击处理器**
+            //   （`GestureDetector` 在最内层 ⇒ 手势竞技场里**我们赢** ⇒ TabBar 的自动切换不来搅局 ✅）
+            //   非 hook 站点 ⇒ 完全照旧 `Tab(text: c.name)` ✅ 行为一字不变
+            if (_api.ui?.tabDrawer ?? false)
+              for (var i = 0; i < _cats.length; i++)
+                Tab(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _onTabTapped(i),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_cats[i].name),
+                        // ★ 2026-10-15（**用户要求**）：分类名旁加一个**向下的实心小三角** ▼
+                        //   —— 提示"这个 tab 有下拉抽屉"（只在 hook 站点出现 ✅）
+                        const Icon(Icons.arrow_drop_down, size: 16),
+                      ],
+                    ),
+                  ),
+                )
+            else
+              for (final c in _cats) Tab(text: c.name),
           ],
         ),
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // 子分类行（黄果短剧的排序、91porna 的子频道等）
-          if (cur != null && cur.subs.isNotEmpty)
+          Column(
+            children: [
+            // 子分类行（黄果短剧的排序、91porna 的子频道等）
+            // ★ 2026-10-15：`tabDrawer` 站点（51fans.net）把这排**挪进悬浮抽屉** ⇒ 这里不再画（避免两排重复）
+            if (!(_api.ui?.tabDrawer ?? false) && cur != null && cur.subs.isNotEmpty)
             _chipsRow(
               items: cur.subs,
               sel: l1?.key ?? '',
@@ -683,6 +886,25 @@ class _HomePageState extends State<HomePage>
               ],
             ),
           ),
+            ],
+          ),
+          // ★ 2026-10-15（51fans.net · **B 悬浮式抽屉**）—— 改版 **Stack + Positioned**：
+          //   ☠ 教训：上一版把它当 Column 的**最后一个 child**（`SizedBox(0) + OverflowBox`）⇒
+          //      它被排在"卡片列表之后"（= 屏幕外很远处），OverflowBox 只把自身高度上移
+          //      ⇒ **用户实测"点 tab 压根没下来"** ✗
+          //   ✅ 现在：`Positioned(top: 0)` = **body 顶部 = tab 行正下方** ⇒ 真正悬浮在卡片之上；
+          //      且 `Positioned` **不参与布局** ⇒ **卡片一点不动** ✅
+          //   展开/收起 = 纯状态 `_drawerTab == _tab.index`（再点同 tab 置 -1 ✅；滑到别的 tab 自然为假 ✅）
+          if ((_api.ui?.tabDrawer ?? false) &&
+              cur != null &&
+              cur.subs.isNotEmpty &&
+              _drawerTab == _tab.index)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _tabDrawerPanel(cur, l1),
+            ),
         ],
       ),
     );
