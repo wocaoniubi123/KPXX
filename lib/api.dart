@@ -20,7 +20,9 @@ import 'sites/madou.dart';
 import 'sites/wordpress.dart';
 import 'sites/xhamster.dart';
 import 'sites/yeguodj.dart';
-import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅；2026-10-12 删过当天恢复 ✅）
+// ☠ 2026-10-15：柚子短剧（youzidj.com）**已整体下架**（用户指令 ✅）
+//   源码移入 `_safe/youzidj/`；保命 tag `kpxx-youzidj-saved-20261015` → `3d94d50` ✅
+//   （原 import 行 = `import 'sites/youzidj.dart';` —— 恢复方法见 `_safe/youzidj/README.md` ✅）
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net（**独立站点文件** ✅ 自研模板，非 WordPress 系）
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（自管整页 ✅）
 import 'sites.dart';
@@ -104,9 +106,8 @@ class Api {
         SiteTemplate.yeguodj => _ygSite,
         // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（首页分区行在站点文件里 ✅）
         SiteTemplate.liz01 => _lzSite,
-        // 柚子短剧（2026-10-11 ✅；2026-10-12 删过当天恢复）：
-        // 详情走本站解析 ✅（`YouziSite.detail` ✅ —— 含每集现取的播放凭证 ✅），通用详情页照常 ✅
-        SiteTemplate.youzidj => _yzSite,
+        // ☠ 2026-10-15：`SiteTemplate.youzidj`（柚子短剧，youzidj.com）**已整体下架**（用户指令 ✅）
+        //   原来的那一行 = `SiteTemplate.youzidj => _yzSite,` —— 源码在 `_safe/youzidj/` ✅
         // ★ 2026-10-12：51fans.net（**独立站点文件** `sites/fans51.dart`；自研模板 ☠ 不是 WordPress 系）
         SiteTemplate.fans51 => _f51Site,
       };
@@ -149,8 +150,8 @@ class Api {
   /// 荔枝短剧 **本站专属实现**（2026-10-12 ✅，自管整页）—— 同一份取数底座 `_f` ✅
   late final Liz01Site _lzSite = Liz01Site(_f);
 
-  /// 柚子短剧 **本站专属实现**（2026-10-11 ✅；2026-10-12 恢复）—— 同一份取数底座 `_f` ✅
-  late final YouziSite _yzSite = YouziSite(_f);
+  // ☠ 2026-10-15：柚子短剧已下架（原 `late final YouziSite _yzSite = YouziSite(_f);` 一行已删 ✅
+  //   源码在 `_safe/youzidj/youzidj.dart` ✅）
   /// ★ 2026-10-12：51fans.net 本站专属实现（**独立站点文件** ✅）
   late final Fans51Site _f51Site = Fans51Site(_f);
 

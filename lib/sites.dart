@@ -13,7 +13,10 @@ import 'sites/xhamsterlive.dart';
 import 'sites/yeguodj.dart';
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（Nuxt blob + 分区行）✅
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net —— **独立站点文件**（自研模板，非 WordPress 系 ✅）
-import 'sites/youzidj.dart'; // 柚子短剧（2026-10-11 新增 ✅；2026-10-12 删过一次，当天按用户要求恢复 ✅）
+// ☠ 2026-10-15（**用户指令**："柚子短剧不搞了，本地站点删除柚子短剧，放入安全区" ✅）：
+//   柚子短剧（youzidj.com）**已整体下架** —— 源码 + 图标移入 **`_safe/youzidj/`** ✅
+//   带柚子的最后状态已打保命 tag：**`kpxx-youzidj-saved-20261015` → `3d94d50`** ✅
+//   （原 import 行 = `import 'sites/youzidj.dart';` —— 恢复方法见 `_safe/youzidj/README.md` ✅）
 
 import 'package:flutter/material.dart';
 
@@ -129,13 +132,11 @@ enum SiteTemplate {
   /// 详情**仍走通用详情页** ✅：本站只提供解析（`YeguoSite.detail` ✅）与元信息行 ✅。
   yeguodj,
 
-  /// 柚子短剧（youzidj.com，2026-10-11 新增 ✅）—— **第三个"自管整页"的站点** ✅
-  /// （前两个 = xhamsterlive / 野果短剧 ✅）：两主 tab（首页 / 剧库）+ 5 个分区行（每区带「更多」）
-  /// + 剧库 8 分类 × 2 排序（**不互斥** ✅）+ 分页 —— 全是站点专有版式
-  /// ⇒ 整页在 `lib/sites/youzidj.dart` 的 `YzHomePage` ✅（底座只判断"要不要用" ✅ 不认站名 ✅）。
-  /// 详情走通用详情页 ✅（本站只给解析 + 每集现取的播放凭证 ✅）。
-  /// ★ 2026-10-12：当天删过一次，**同日按用户要求恢复** ✅（理由：cookie 兜底与媒体件两条都已修好 ⇒ 复测）
-  youzidj,
+  /// ☠ 2026-10-15（**用户指令**："柚子短剧不搞了…删除柚子短剧，放入安全区" ✅）：
+  ///   原 `youzidj`（youzidj.com，2026-10-11 新增 ✅；10-12 删过当天恢复 ✅）**已整体下架** ✅
+  ///   · 源码 82.4KB + 图标 4.5KB 已移入 **`_safe/youzidj/`**（含恢复说明 README ✅）
+  ///   · 保命 tag：**`kpxx-youzidj-saved-20261015` → `3d94d50`** ✅
+  ///   · 原枚举值 `youzidj,` 就写在这一段（现删除 ✅）—— 恢复方法见 README ✅
 
   /// ★ 荔枝短剧（liz01.com，2026-10-12 新增 ✅）—— **自管整页**（第六个 ✅）：
   ///   首页 = `__NUXT_DATA__`（Nuxt3 devalue blob）里的 `topicName + dramas[]` **分区行**；
@@ -348,13 +349,11 @@ const List<SiteEntry> kSites = [
   kSite06,
   // ★ 荔枝短剧（kSite18 ✅ 2026-10-12 新增，自管整页）—— 放在黄果之后 ✅（默认可见，无任何隐藏 ✅）
   kSite18,
-  // 柚子短剧（kSite16 ✅ 2026-10-11 新增；2026-10-12 删过当天恢复）：**用户指定"点播宫格最后一格"** ✅
-  //   —— 所以放在**最末**（荔枝之后）才符合"最后一格"的口径 ✅
-  kSite16,
   // ★ 51fans.net（kSite17 ✅ 2026-10-12 新增，**独立站点文件** `sites/fans51.dart`）：
   //   本站是**自研模板**（不是 WordPress 系）⇒ 不走 `wordpress.dart` ✅
   //   ⚠️ 与既有 `51fans`（kSite05 / `51fans1.com`）**不是同一个站** ✅
-  //   ⚠️ 注意宫格口径：上面 kSite16（柚子）是用户指定的"**点播最后一格**" ⇒ 新站**放在它之后**（= 更末）✅
+  //   ⚠️ 宫格位置（2026-10-15 更新）：原来它排在"用户指定的点播最后一格（柚子 kSite16）"之后；
+  //      柚子已下架 ⇒ 现在 **kSite17 就是「点播」宫格的最后一格** ✅
   kSite17,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
