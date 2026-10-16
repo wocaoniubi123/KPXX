@@ -18,11 +18,13 @@ ExportOptions.plist
 # 本地产物
 release/
 
-# 模拟器临时抓取文件（排查用，不入库）
-sim/tmp_*
 DEVLOG_backup*.md
 
 # ★ 2026-10-10 Windows 桌面开发环境：本地产物（不入库 ✓）
 .flutter-plugins-dependencies
 _vs2019_cleanup_backup/
 _soak_tmp/
+
+# ★ 2026-10-15（用户确认 A ✓）：`_safe/` = 本地安全区（下架站点的源码/图标备份）
+#   故意**不入库** ✓ —— 只在本地保管；要搬进版本库时说一声 ✓
+_safe/
