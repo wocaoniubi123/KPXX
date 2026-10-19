@@ -1034,19 +1034,35 @@ class DownloadManager extends ChangeNotifier {
     return dir.path;
   }
 
-  /// 请求头：UA 兜底 + 站点快照 + Referer 兜底（播放页的站点根）。
-  /// ⚠️ 站点快照里的同名键优先（站点最清楚自己要什么）。
+  /// 请求头：UA 兜底 + 站点快照 + **Referer 按「源自身域名」重算**。
+  ///
+  /// ★ 用户 2026-10-19 实测（Pektino）：视频托管在 `video.twimg.com`，带**站点** Referer
+  ///   （`https://pektino.com/`）会直接 **403**（无 Referer / 源域名 Referer ⇒ 206 ✅）。
+  ///   播放器早就统一用「源自身域名」（`player_widget._playReferer`），下载侧必须对齐 ——
+  ///   否则站点快照里的 Referer 会覆盖兜底值 ⇒ 永久「失败可重试」。
+  ///   **例外**：Pornhub 的 `phncdn.com` 分片要**站点域名**（保留快照里的 Referer）。
   Map<String, String> _headersFor(DownloadEpisode ep) {
     final h = <String, String>{'User-Agent': Site.ua};
     final snap = ep.headers;
     if (snap != null) h.addAll(snap);
-    if (!h.keys.any((k) => k.toLowerCase() == 'referer')) {
-      final u = Uri.tryParse(ep.playUrl);
-      if (u != null && u.host.isNotEmpty) {
-        h['Referer'] = '${u.scheme}://${u.host}/';
-      }
+    final ref = _downloadReferer(ep.playUrl, snap);
+    if (ref.isNotEmpty) {
+      h.removeWhere((k, _) => k.toLowerCase() == 'referer');
+      h['Referer'] = ref;
     }
     return h;
+  }
+
+  /// 下载用 Referer（与 `player_widget._playReferer` 同口径）：
+  /// 默认「视频源自身域名」；`phncdn.com`（Pornhub CDN）例外 ⇒ 用站点快照里的 Referer。
+  String _downloadReferer(String url, Map<String, String>? snap) {
+    final u = Uri.tryParse(url);
+    if (u == null || !u.hasScheme || u.host.isEmpty) return '';
+    if (u.host == 'phncdn.com' || u.host.endsWith('.phncdn.com')) {
+      // 站点域名（快照里那份）；没有就不动（别瞎猜）
+      return '';
+    }
+    return '${u.scheme}://${u.host}/';
   }
 
   void _scheduleSave() {

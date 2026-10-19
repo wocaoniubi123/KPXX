@@ -240,6 +240,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                           padding: const EdgeInsets.only(left: 6),
                           child: _pauseButton(task),
                         )
+                      else if (status == '失败可重试')
+                        // 失败 ⇒ 「重试」按钮（用户 2026-10-19：光显示"失败可重试"没人能点 = 白显示）
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: _retryButton(task),
+                        )
                       else if (status.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(left: 6),
@@ -1092,6 +1098,46 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
       ),
     );
+  }
+
+  /// 有失败集 ⇒ 「重试」按钮（用户 2026-10-19：只显示"失败可重试"却点不了 = 白显示）
+  Widget _retryButton(DownloadTask task) {
+    return GestureDetector(
+      onTap: () => _retryFailed(task),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: _red.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _red.withValues(alpha: 0.55)),
+        ),
+        child: const Text(
+          '重试',
+          style: TextStyle(
+            fontSize: 11,
+            color: _red,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 重试这部剧里**所有失败 / 文件丢失**的集
+  Future<void> _retryFailed(DownloadTask task) async {
+    final ids = <int>[
+      for (final e in task.episodes)
+        if (e.wanted &&
+            (e.status == EpStatus.failed || e.status == EpStatus.missing))
+          e.index,
+    ];
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL] 重试失败集 剧=${task.title} 集=${ids.join(',')}');
+    }
+    for (final i in ids) {
+      await DownloadManager.i.retryEpisode(task.key, i);
+    }
   }
 
   /// 任务总大小的**估算**（字节，用户 2026-10-19：下载中要显示总大小）：

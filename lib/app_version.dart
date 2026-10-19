@@ -160,4 +160,12 @@
 ///     11pt 字）⇒ 18 会把按钮裁掉 3.4pt（真机实测字被切）；改 22 后按钮完整、三种状态行高仍一致
 ///   · 清空下载时**同时清理旧下载目录**（`Application Support/downloads`，不存在则跳过）
 ///   号序：按"每次云推 +1" ⇒ **1.4.9** ☑️
-const String kAppVersion = '1.4.9';
+/// ★ 2026-10-19：**1.4.9 → 1.5.0**（下载 Referer 对齐播放器 + 失败可「重试」）：
+///   · 🛢️ 真机实测（Pektino）：视频托管在 `video.twimg.com`，下载请求带**站点** Referer
+///     （`https://pektino.com/`）⇒ CDN 直接 **403**（同一链接无 Referer / 源域名 ⇒ 206 ✅）。
+///     ⇒ `_headersFor` 的 Referer 改为**按视频源自身域名重算**（与 `player_widget._playReferer`
+///     同口径）：默认源域名，`phncdn.com`（Pornhub CDN）仍用站点 Referer。
+///   · 「失败可重试」不再只是文字：卡片右侧加**「重试」按钮**（红色），点一下重试该剧
+///     所有 `failed` / `missing` 的集。
+///   号序：1.4.9 末位 9 进一位 ⇒ **1.5.0** ☑️
+const String kAppVersion = '1.5.0';
