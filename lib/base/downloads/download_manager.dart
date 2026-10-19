@@ -1045,7 +1045,12 @@ class DownloadManager extends ChangeNotifier {
     final h = <String, String>{'User-Agent': Site.ua};
     final snap = ep.headers;
     if (snap != null) h.addAll(snap);
-    final ref = _downloadReferer(ep.playUrl, snap);
+    // ⚠️ Referer 必须按**实际下载的视频源**算，不是 `playUrl`：
+    //   `playUrl` 是**播放页/详情页**地址（`detail_page` 里 `playUrl: absUrl`），
+    //   `sourceUrl` 才是视频真实链接（`url: ep.sourceUrl` 传给 worker 的那个）。
+    //   🛢️ Pektino 实测：用 playUrl（pektino.com）算 ⇒ Referer=pektino.com ⇒ video.twimg.com **403**；
+    //   用 sourceUrl（video.twimg.com）算 ⇒ 206 ✅。
+    final ref = _downloadReferer(ep.sourceUrl, snap);
     if (ref.isNotEmpty) {
       h.removeWhere((k, _) => k.toLowerCase() == 'referer');
       h['Referer'] = ref;
