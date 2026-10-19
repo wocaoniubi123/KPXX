@@ -102,9 +102,21 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
 
   @override
   void dispose() {
-    // 离开页面补写一次播放记录（与在线详情页"离开时补写"同款；不 await，内存先更新）
-    if (_lastPos > Duration.zero || _lastDur > Duration.zero) {
-      _writeRecord(_lastPos, _lastDur, false, force: true);
+    // 离开页面补写一次播放记录（与在线详情页"离开时补写"同款）。
+    // ⚠️ **不能在 dispose 里同步写**：dispose 发生在 `BuildOwner.finalizeTree`（框架已锁）阶段，
+    //    `PlayHistory.touch` / `Favorites.touch` 里的 notifyListeners 会让仍在树上的
+    //    ListenableBuilder setState ⇒ `setState() called when widget tree was locked`
+    //    （🛢️ 实测完整堆栈：_writeRecord ← dispose ← finalizeTree）。
+    //    ⇒ 这里只取快照，落盘推到事件队列（那时框架已解锁）。
+    final pos = _lastPos;
+    final dur = _lastDur;
+    if (pos > Duration.zero || dur > Duration.zero) {
+      final eps = _t.episodes;
+      final idx = eps.isEmpty
+          ? 0
+          : (_switcher?.index.value ?? 0).clamp(0, eps.length - 1).toInt();
+      unawaited(
+          Future<void>(() => _writeRecordAt(idx, pos, dur, false, force: true)));
     }
     DownloadManager.i.removeListener(_onManagerChanged);
     final sw = _switcher;
@@ -251,6 +263,15 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     final idx = eps.isEmpty
         ? 0
         : (_switcher?.index.value ?? 0).clamp(0, eps.length - 1).toInt();
+    _writeRecordAt(idx, pos, dur, finished, force: force);
+  }
+
+  /// [_writeRecord] 的"集号已定"版本 —— **dispose 里只能用这个**（且必须由调用方
+  /// 推到框架解锁之后，见 dispose 注释）。
+  void _writeRecordAt(int index, Duration pos, Duration dur, bool finished,
+      {bool force = false}) {
+    final eps = _t.episodes;
+    final idx = eps.isEmpty ? 0 : index.clamp(0, eps.length - 1).toInt();
     PlayHistory.i.touch(
       PlayRecord(
         site: _t.site,
@@ -291,7 +312,12 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     final s = _statusFor(i);
     if (s == _lastStatus) return;
     _lastStatus = s;
-    setState(() {});
+    // ⚠️ 管理器的通知可能落在"框架正在 build/layout"的瞬间 ⇒ 直接 setState 会报
+    // `setState() called when widget tree was locked`（实测返回本页时出现过 3 次）。
+    // 统一推到本帧结束再刷（最多晚一帧，无感）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _selectEpisode(int i) {

@@ -33,6 +33,7 @@ import '../../fetched_image.dart';
 import '../../settings.dart';
 import 'download_engine.dart';
 import 'download_model.dart';
+import 'download_worker.dart';
 
 class DownloadManager extends ChangeNotifier {
   DownloadManager._();
@@ -70,8 +71,9 @@ class DownloadManager extends ChangeNotifier {
   /// 正在下载的"集"（`任务key|集号`）
   final Set<String> _runningEpisodes = <String>{};
 
-  /// 取消旗标（引擎轮询它；只对"正在下"的集有意义）
-  final Set<String> _cancelEpisodes = <String>{};
+  /// 正在下载的"集"（`任务key|集号`）→ 对应的 isolate 句柄（取消 = kill isolate）
+  final Map<String, DownloadWorkerHandle> _epHandles =
+      <String, DownloadWorkerHandle>{};
 
   /// 被 `cancelTask` 停住的剧：pump 跳过它，直到 `enqueueTask` / `retryEpisode`
   final Set<String> _stoppedTasks = <String>{};
@@ -305,6 +307,15 @@ class DownloadManager extends ChangeNotifier {
     return _fileExists(ep.localPath);
   }
 
+  /// 这一集已下载的**本地文件路径**（没下好 / 文件不在了 ⇒ null）。
+  /// 详情页据此**优先播本地**（用户 2026-10-19 拍板 A：从任何入口进详情页都本地播）。
+  String? localPathOf(String taskKey, int epIndex) {
+    final ep = _findEpisode(taskKey, epIndex);
+    if (ep == null || ep.status != EpStatus.done) return null;
+    if (ep.localPath.isEmpty) return null;
+    return _fileExists(ep.localPath) ? ep.localPath : null;
+  }
+
   /// 这一集此刻是否在下载（UI 用来显示转圈 / 禁用按钮）
   bool isEpisodeDownloading(String taskKey, int epIndex) =>
       _runningEpisodes.contains(_epKey(taskKey, epIndex));
@@ -356,7 +367,7 @@ class DownloadManager extends ChangeNotifier {
     for (final ep in t.episodes) {
       final k = _epKey(taskKey, ep.index);
       if (!_runningEpisodes.contains(k)) continue;
-      _cancelEpisodes.add(k);
+      _epHandles[k]?.cancel(); // kill isolate；`.part`/断点文件保留，下次可续
       _speeds.remove(k); // 暂停 ⇒ 速度立刻归零（别让界面留一个"卡住的速度"）
       ep.status = EpStatus.paused;
     }
@@ -402,7 +413,7 @@ class DownloadManager extends ChangeNotifier {
       for (final ep in t.episodes) {
         final k = _epKey(taskKey, ep.index);
         _speeds.remove(k);
-        if (_runningEpisodes.contains(k)) _cancelEpisodes.add(k);
+        if (_runningEpisodes.contains(k)) _epHandles[k]?.cancel();
       }
     }
     await _waitTaskStopped(taskKey);
@@ -434,7 +445,7 @@ class DownloadManager extends ChangeNotifier {
     final k = _epKey(taskKey, epIndex);
     _speeds.remove(k);
     if (_runningEpisodes.contains(k)) {
-      _cancelEpisodes.add(k);
+      _epHandles[k]?.cancel();
       ep.status = EpStatus.paused;
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (_runningEpisodes.contains(k) && DateTime.now().isBefore(deadline)) {
@@ -453,7 +464,14 @@ class DownloadManager extends ChangeNotifier {
     final root = _dir?.path ?? '';
     if (root.isNotEmpty) {
       final base = _epBaseName(epIndex);
-      for (final suffix in const ['.mp4', '.ts', '.mp4.part', '.ts.part']) {
+      for (final suffix in const [
+        '.mp4',
+        '.ts',
+        '.mp4.part',
+        '.ts.part',
+        '.ts.progress', // HLS 断点（续传用）
+        '.ts.progress.tmp',
+      ]) {
         try {
           final f = File('$root/${_taskDirName(taskKey)}/$base$suffix');
           if (await f.exists()) await f.delete();
@@ -475,15 +493,15 @@ class DownloadManager extends ChangeNotifier {
   /// 清空任务记录/速度表 → 落盘 → `notifyListeners`。
   ///
   /// 为什么先 [cancelTask] 再 [removeTask]：`removeTask` 虽然会等 `_waitTaskStopped`（≤5s），
-  /// 但引擎可能正卡在一个分片请求上；先把取消旗标打上，让它在下一个分片/分块检查点退出，
-  /// 删目录时就不会跟"正在写的文件"打架（Windows 上尤其明显）。
+  /// 但 worker isolate 可能正卡在一个分片请求上；先 kill 掉 isolate（`.part` / `.ts.progress`
+  /// 保留作续传），删目录时就不会跟"正在写的文件"打架（Windows 上尤其明显）。
   ///
   /// 幂等：重复调用只是再落一次盘。**单个任务删失败不影响其余**（只记日志，继续下一个）。
   Future<void> clearAll() async {
     await load(); // 没加载过也能清（否则会把"还没读出来的任务"当成不存在）
     final snapshot = List<DownloadTask>.of(_tasks);
 
-    // ① 先停：只打取消旗标，真正退出由引擎在检查点完成
+    // ① 先停：kill 正在下载的 isolate（`.part`/断点文件保留，下次还能续）
     for (final t in snapshot) {
       try {
         await cancelTask(t.key);
@@ -624,7 +642,7 @@ class DownloadManager extends ChangeNotifier {
       final dir = await _episodeDir(t);
       if (dir == null) throw const DownloadException('下载目录不可用');
       _log('开下 ${_tagTask(t)} 集=${ep.index} 源host=${_hostOf(ep.sourceUrl)}');
-      final path = await DownloadEngine.download(
+      final handle = DownloadWorker.start(
         url: ep.sourceUrl,
         headers: _headersFor(ep),
         destDir: dir,
@@ -656,8 +674,16 @@ class DownloadManager extends ChangeNotifier {
             notifyListeners();
           }
         },
-        isCancelled: () => _cancelEpisodes.contains(epKey),
       );
+      _epHandles[epKey] = handle; // 放在 await 前：取消随时可能从 UI 过来
+      final result = await handle.future;
+      if (result.status == DownloadWorkerStatus.cancelled) {
+        throw const DownloadCancelled(); // 与"用户暂停"同一条收尾路径
+      }
+      if (result.status == DownloadWorkerStatus.error) {
+        throw DownloadException(result.error);
+      }
+      final path = result.path;
       ep.localPath = path;
       ep.status = EpStatus.done;
       ep.error = '';
@@ -673,14 +699,14 @@ class DownloadManager extends ChangeNotifier {
       _log('失败 ${_tagTask(t)} 集=${ep.index} 原因=$e');
     } finally {
       _runningEpisodes.remove(epKey);
-      _cancelEpisodes.remove(epKey);
+      _epHandles.remove(epKey);
       _speeds.remove(epKey); // 完成/暂停/失败/取消 ⇒ 速度归零
       notifyListeners();
       _scheduleSave();
     }
   }
 
-  /// 等某部剧"正在下的集"退出（引擎每块/每片都会查取消旗标，正常 <1s）
+  /// 等某部剧"正在下的集"退出（kill isolate 后 `_runEpisode` 立刻收尾，正常 <1s）
   Future<void> _waitTaskStopped(String taskKey) async {
     final prefix = '$taskKey|';
     final deadline = DateTime.now().add(const Duration(seconds: 5));

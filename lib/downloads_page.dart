@@ -178,8 +178,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ? '${_fmtMb(task.doneBytes)} / ${_fmtMb(est)}'
           : _fmtMb(task.doneBytes);
     }
-    final meta = '${task.site} · 已下 ${task.doneCount}/${task.episodes.length} 集'
-        ' · $sizeText';
+    // 第二行（用户 2026-10-19：站点名单独占一行，这行只放数字，不再被状态按钮挤）
+    final meta = '已下 ${task.doneCount}/${task.episodes.length} 集 · $sizeText';
     return Padding(
       // 与播放记录行同一套内边距（左侧 16 / 顶部 13）；底部留 12 当行间距
       // （这里没有分割线，行与行靠间距分开）
@@ -195,7 +195,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
               children: [
                 Text(
                   task.title.isEmpty ? task.detailUrl : task.title,
-                  maxLines: 2,
+                  // 用户 2026-10-19：标题只显示一行，多出部分省略号
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 13,
@@ -205,11 +206,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   ),
                 ),
                 const SizedBox(height: 4),
+                // 第一行：站点名 + 右侧状态/按钮（用户 2026-10-19：集数/大小换到下一行）
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        meta,
+                        task.site,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 11, color: kTxtSub),
@@ -236,6 +238,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
                         ),
                       ),
                   ],
+                ),
+                const SizedBox(height: 2),
+                // 第二行：已下 X/N 集 · 大小（整行都给数字）
+                Text(
+                  meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: kTxtSub),
                 ),
                 const SizedBox(height: 6),
                 // 进度条 + 右侧速度（用户拍板 A 方案）：
@@ -617,8 +627,15 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   Future<void> _export(BuildContext context, DownloadTask task) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL-EXPORT] 入口 剧=${task.title} 站=${task.site} '
+          '总集=${task.episodes.length}');
+    }
     // 用户口径：导出到相册只在 iOS 提供（Windows/桌面没有相册）
     if (!Platform.isIOS) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[DL-EXPORT] 非 iOS ⇒ 提示「导出到相册仅支持 iOS」');
+      }
       messenger.showSnackBar(const SnackBar(
         duration: Duration(seconds: 2),
         content: Text('导出到相册仅支持 iOS'),
@@ -630,6 +647,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
       for (final ep in task.episodes)
         if (DownloadManager.i.isEpisodeDownloaded(task.key, ep.index)) ep
     ];
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL-EXPORT] 已下载集=${eps.length}/${task.episodes.length}'
+          '（集号 ${eps.map((e) => e.index).join(',')}）');
+    }
     if (eps.isEmpty) {
       messenger.showSnackBar(const SnackBar(
         duration: Duration(seconds: 2),
@@ -654,6 +675,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     // 多集：选集弹窗（只列已下载的集）
     final picked = await _pickEpisodes(context, eps);
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL-EXPORT] 选集结果=${picked == null ? '取消' : '${picked.length} 集'}');
+    }
     if (picked == null || picked.isEmpty) return;
     if (!context.mounted) return;
     await _runExport(context, task, picked);
@@ -755,10 +779,19 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Future<void> _runExport(BuildContext context, DownloadTask task,
       List<DownloadEpisode> eps) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL-EXPORT] 开始 共${eps.length}集 剧=${task.title}');
+    }
     // 权限照背景图集页（hasAccess / requestAccess）
     try {
-      if (!await Gal.hasAccess()) {
-        if (!await Gal.requestAccess()) {
+      final has = await Gal.hasAccess();
+      if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] 相册权限 has=$has');
+      if (!has) {
+        final req = await Gal.requestAccess();
+        if (AppSettings.i.logConsole) {
+          debugPrint('[DL-EXPORT] 申请相册权限 req=$req');
+        }
+        if (!req) {
           if (mounted) {
             messenger.showSnackBar(const SnackBar(
               duration: Duration(seconds: 2),
@@ -837,17 +870,23 @@ class _DownloadsPageState extends State<DownloadsPage> {
         if (cancel.value) break; // 取消 ⇒ 剩余不再处理
         final ep = eps[i];
         label.value = '正在导出 ${i + 1}/$total · 第 ${ep.index + 1} 集';
+        final t0 = DateTime.now();
+        if (AppSettings.i.logConsole) {
+          debugPrint('[DL-EXPORT] 第${ep.index + 1}集 起 path=${ep.localPath}');
+        }
         try {
           await _exportOne(ep);
           okCount++;
           if (AppSettings.i.logConsole) {
-            debugPrint('[DL] 导出成功 剧=${task.title} 集=${ep.index}');
+            debugPrint('[DL-EXPORT] 第${ep.index + 1}集 成 '
+                '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
           }
         } catch (e) {
           // 某一集失败（重封装不支持 / 相册写入失败 / 文件丢失…）⇒ 记下来继续下一集
           fails.add('第 ${ep.index + 1} 集：${_short(e)}');
           if (AppSettings.i.logConsole) {
-            debugPrint('[DL] 导出失败 剧=${task.title} 集=${ep.index} 原因=$e');
+            debugPrint('[DL-EXPORT] 第${ep.index + 1}集 败 '
+                '耗时=${DateTime.now().difference(t0).inMilliseconds}ms 原因=$e');
           }
         }
         doneN.value = i + 1;
@@ -863,6 +902,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
       cancel.dispose();
     }
 
+    if (AppSettings.i.logConsole) {
+      debugPrint('[DL-EXPORT] 结束 ok=$okCount 败=${fails.length} '
+          '剩=${total - okCount - fails.length}');
+    }
     if (!context.mounted) return;
     final rest = total - okCount - fails.length;
     if (total == 1) {
@@ -893,24 +936,37 @@ class _DownloadsPageState extends State<DownloadsPage> {
     if (path.isEmpty) throw const _ExportError('本地文件路径为空');
     final lower = path.toLowerCase();
     if (lower.endsWith('.mp4')) {
+      if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] mp4 直存 path=$path');
       await Gal.putVideo(path);
+      if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] mp4 已存相册');
       return;
     }
     if (lower.endsWith('.ts')) {
       final tmp = await getTemporaryDirectory();
       final out = '${tmp.path}/export_${DateTime.now().microsecondsSinceEpoch}.mp4';
       try {
+        if (AppSettings.i.logConsole) {
+          debugPrint('[DL-EXPORT] 重封装 起 ts=$path → mp4=$out');
+        }
+        final t0 = DateTime.now();
         final mp4 = await KpVideoExport.remuxToMp4(path, out);
+        if (AppSettings.i.logConsole) {
+          debugPrint('[DL-EXPORT] 重封装 回 mp4=${mp4 ?? '(null)'} '
+              '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
+        }
         if (mp4 == null || mp4.isEmpty) {
           // 非 iOS（插件没注册）就是 null —— 调用方会记成这一集失败
           throw const _ExportError('重封装不可用（仅 iOS 支持）');
         }
+        if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] 保存相册 起');
         await Gal.putVideo(mp4);
+        if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] 保存相册 成');
       } finally {
         // 导出的临时 mp4 删掉；App 里下载的原文件（.ts）保留
         try {
           final f = File(out);
           if (await f.exists()) await f.delete();
+          if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] 临时 mp4 已删');
         } catch (_) {}
       }
       return;

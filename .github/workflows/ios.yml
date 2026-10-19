@@ -104,8 +104,8 @@ jobs:
           # 写相册权限（图集页左滑「导出」用 gal 存进系统相册）：iOS 14+ 走的是
           # **addOnly**（只写）授权 —— 缺这条描述**直接崩**（gal 源码 GalPlugin.swift
           # 的 hasAccess/requestAccess 分支：14+ 用 .addOnly，13 用全部权限）
-          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 导出背景图到系统相册时需要保存权限" Runner/Info.plist || \
-            /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 导出背景图到系统相册时需要保存权限" Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryAddUsageDescription string 保存图片或视频到系统相册时需要相册写入权限" Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryAddUsageDescription 保存图片或视频到系统相册时需要相册写入权限" Runner/Info.plist
           grep -n "NSPhotoLibraryAddUsageDescription" Runner/Info.plist
           # ★ 2026-10-08（用户要求 ✓）：**让 App 的 Documents 出现在「文件」App 里** ✅ ——
           #   目的：直接在「文件 → 我的 iPhone → KPXX」里看 `kpxx_error.log` ✓（不用再走 设置→诊断→导出 ✓）。

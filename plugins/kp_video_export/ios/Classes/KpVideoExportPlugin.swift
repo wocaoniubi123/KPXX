@@ -89,42 +89,56 @@ public class KpVideoExportPlugin: NSObject, FlutterPlugin {
     }
     // AVFoundation 能直接打开本地 MPEG-TS 文件（与 HLS 分片同源）。
     let asset = AVURLAsset(url: inputURL)
-    let hasVideo = !asset.tracks(withMediaType: .video).isEmpty
-    let hasAudio = !asset.tracks(withMediaType: .audio).isEmpty
-    guard hasVideo || hasAudio else {
-      finish(result, FlutterError(code: "NO_TRACKS",
-                                  message: "输入文件里没有可导出的音视频轨：\(inputURL.lastPathComponent)",
-                                  details: nil))
-      return
-    }
 
-    // 第一次：Passthrough（只换容器、不转码，最快）。
-    runExport(asset: asset,
-              presetName: AVAssetExportPresetPassthrough,
-              outputURL: outputURL) { firstOutcome in
-      switch firstOutcome {
-      case .success:
-        result(outputPath) // runExport 保证回调在主线程
-      case .aborted(let reason):
-        result(FlutterError(code: "EXPORT_FAILED", message: reason, details: nil))
-      case .failed(let firstReason):
-        // 兜底：换最高质量预设转码重试一次（慢，但兼容性最好，保证能存相册）。
-        runExport(asset: asset,
-                  presetName: AVAssetExportPresetHighestQuality,
-                  outputURL: outputURL) { secondOutcome in
-          switch secondOutcome {
-          case .success:
-            result(outputPath)
-          case .failed(let secondReason):
-            result(FlutterError(
-              code: "EXPORT_FAILED",
-              message: "重封装失败：\(firstReason)；转码兜底也失败：\(secondReason)",
-              details: nil))
-          case .aborted(let secondReason):
-            result(FlutterError(
-              code: "EXPORT_FAILED",
-              message: "重封装失败：\(firstReason)；转码兜底中断：\(secondReason)",
-              details: nil))
+    // ★ 2026-10-19（iOS 16+ 兼容）：`tracks(withMediaType:)` 是 **deprecated 的同步 API**
+    //   —— 对某些资产它会先返回空数组（要等加载完成才有轨），直接用它判 `NO_TRACKS` 会误报。
+    //   ⇒ 先异步把 `tracks` 加载好（iOS 13 起可用），加载成功后再同步取轨判断。
+    asset.loadValuesAsynchronously(forKeys: ["tracks"]) {
+      var loadError: NSError?
+      let status = asset.statusOfValue(forKey: "tracks", error: &loadError)
+      guard status == .loaded else {
+        let reason = loadError?.localizedDescription
+          ?? "轨道信息加载失败（status = \(status.rawValue)）"
+        finish(result, FlutterError(code: "NO_TRACKS", message: reason, details: nil))
+        return
+      }
+      let hasVideo = !asset.tracks(withMediaType: .video).isEmpty
+      let hasAudio = !asset.tracks(withMediaType: .audio).isEmpty
+      guard hasVideo || hasAudio else {
+        finish(result, FlutterError(code: "NO_TRACKS",
+                                    message: "输入文件里没有可导出的音视频轨：\(inputURL.lastPathComponent)",
+                                    details: nil))
+        return
+      }
+
+      // 第一次：Passthrough（只换容器、不转码，最快）。
+      runExport(asset: asset,
+                presetName: AVAssetExportPresetPassthrough,
+                outputURL: outputURL) { firstOutcome in
+        switch firstOutcome {
+        case .success:
+          result(outputPath) // runExport 保证回调在主线程
+        case .aborted(let reason):
+          result(FlutterError(code: "EXPORT_FAILED", message: reason, details: nil))
+        case .failed(let firstReason):
+          // 兜底：换最高质量预设转码重试一次（慢，但兼容性最好，保证能存相册）。
+          runExport(asset: asset,
+                    presetName: AVAssetExportPresetHighestQuality,
+                    outputURL: outputURL) { secondOutcome in
+            switch secondOutcome {
+            case .success:
+              result(outputPath)
+            case .failed(let secondReason):
+              result(FlutterError(
+                code: "EXPORT_FAILED",
+                message: "重封装失败：\(firstReason)；转码兜底也失败：\(secondReason)",
+                details: nil))
+            case .aborted(let secondReason):
+              result(FlutterError(
+                code: "EXPORT_FAILED",
+                message: "重封装失败：\(firstReason)；转码兜底中断：\(secondReason)",
+                details: nil))
+            }
           }
         }
       }

@@ -64,7 +64,10 @@ class DownloadEngine {
   ///
   /// [headers] 由调用方给（UA 本方法补、站点额外头如 Cookie/Referer 原样带上）；
   /// [onProgress] 的 `total` 在直链没给 Content-Length 时是 0，HLS 是估算值；
-  /// [isCancelled] 在每片/每块前后轮询，返回 true ⇒ 抛 [DownloadCancelled]。
+  /// [isCancelled] 在每片/每块前后轮询，返回 true ⇒ 抛 [DownloadCancelled]；
+  /// [client] 可注入：**下载 worker 的 isolate 里必须传纯 `http.Client()`** ——
+  ///   `Site.httpClient` 在 iOS 是 `cupertino_http`，在 isolate 里初始化有风险；
+  ///   不传则退回全局客户端（普通调用方/自测脚本用）。
   ///
   /// 返回：落地后的完整文件路径（`.part` 已改名）。
   static Future<String> download({
@@ -74,7 +77,9 @@ class DownloadEngine {
     required String baseName,
     void Function(int done, int total)? onProgress,
     bool Function()? isCancelled,
+    http.Client? client,
   }) async {
+    final c = client ?? Site.httpClient;
     final dir = Directory(destDir);
     if (!await dir.exists()) await dir.create(recursive: true);
     final uri = Uri.tryParse(url);
@@ -89,6 +94,7 @@ class DownloadEngine {
         baseName: baseName,
         onProgress: onProgress,
         isCancelled: isCancelled,
+        client: c,
       );
     }
     return _downloadDirect(
@@ -98,6 +104,7 @@ class DownloadEngine {
       baseName: baseName,
       onProgress: onProgress,
       isCancelled: isCancelled,
+      client: c,
     );
   }
 
@@ -112,6 +119,7 @@ class DownloadEngine {
     required String baseName,
     required void Function(int done, int total)? onProgress,
     required bool Function()? isCancelled,
+    required http.Client client,
     bool freshRetry = false,
   }) async {
     final dest = File('$destDir/$baseName.mp4');
@@ -131,7 +139,7 @@ class DownloadEngine {
     final req = http.Request('GET', Uri.parse(url));
     _applyHeaders(req, headers);
     if (existing > 0) req.headers['Range'] = 'bytes=$existing-';
-    final resp = await Site.httpClient.send(req).timeout(timeoutConnect);
+    final resp = await client.send(req).timeout(timeoutConnect);
 
     // 没有 .m3u8 后缀、但响应头说是 HLS 的站（少见，但省得用户手动判断）
     final ct = (resp.headers['content-type'] ?? '').toLowerCase();
@@ -145,6 +153,7 @@ class DownloadEngine {
         playlistText: text,
         onProgress: onProgress,
         isCancelled: isCancelled,
+        client: client,
       );
     }
 
@@ -160,6 +169,7 @@ class DownloadEngine {
         baseName: baseName,
         onProgress: onProgress,
         isCancelled: isCancelled,
+        client: client,
         freshRetry: true,
       );
     }
@@ -211,12 +221,13 @@ class DownloadEngine {
     required String baseName,
     required void Function(int done, int total)? onProgress,
     required bool Function()? isCancelled,
+    required http.Client client,
     String? playlistText,
   }) async {
     if (_cancelled(isCancelled)) throw const DownloadCancelled();
 
     var mediaUrl = url;
-    var text = playlistText ?? await _getText(url, headers);
+    var text = playlistText ?? await _getText(url, headers, client);
 
     // master：选 BANDWIDTH 最大的变体（用户口径"清晰度优先"）
     for (var depth = 0; depth < _masterDepthMax; depth++) {
@@ -230,7 +241,7 @@ class DownloadEngine {
         if (v.bandwidth > best.bandwidth) best = v;
       }
       mediaUrl = Uri.parse(mediaUrl).resolve(best.uri).toString();
-      text = await _getText(mediaUrl, headers);
+      text = await _getText(mediaUrl, headers, client);
     }
     if (text.contains('#EXT-X-STREAM-INF')) {
       throw const DownloadException('m3u8 嵌套超过 $_masterDepthMax 层，放弃');
@@ -240,23 +251,35 @@ class DownloadEngine {
     if (segs.isEmpty) throw const DownloadException('m3u8 里解析不出分片');
 
     final part = File('$destDir/$baseName.ts.part');
+    final prog = File('$destDir/$baseName.ts.progress');
     final dest = File('$destDir/$baseName.ts');
-    // 每次开跑都从头拼：HLS 没有可靠的断点偏移（分片解密/拼接都是顺序的），
-    // 留一份"不知道拼到哪"的 .ts 更危险；源站一般有缓存，重下代价可控。
-    try {
-      if (await part.exists()) await part.delete();
-    } catch (_) {}
 
-    final raf = await part.open(mode: FileMode.write);
+    // ---- 分片级断点续传（用户要求：「继续」不要整集重下）----
+    // 进度文件 = {"segs":总片数,"done":已落盘片数,"bytes":已落盘字节}。
+    // 片数对不上 / 进度文件坏 / .part 比"已落盘字节"还短 ⇒ 全部作废，从头来（旧行为）。
+    final resume = await _readHlsProgress(prog, segs.length, part);
+    if (resume == null) {
+      try {
+        if (await part.exists()) await part.delete();
+      } catch (_) {}
+      try {
+        if (await prog.exists()) await prog.delete();
+      } catch (_) {}
+    }
+    final doneFrom = resume?.done ?? 0;
+    var doneBytes = resume?.bytes ?? 0;
+    var doneSegs = doneFrom;
+    // HLS 没有 Content-Length ⇒ 总字节只能估，且**一次算定不跳动**：
+    // · 全新下载：首片字节 × 总片数（首片落盘前 total = 0）
+    // · 续传：已下片的平均大小 × 总片数（同样从头到尾不变）
+    var totalBytes = doneFrom > 0 ? (doneBytes ~/ doneFrom) * segs.length : 0;
+
+    final raf = await part.open(
+      mode: doneFrom > 0 ? FileMode.append : FileMode.write,
+    );
     final keyCache = <String, Uint8List>{};
-    var doneBytes = 0;
-    var doneSegs = 0;
-    // HLS 没有 Content-Length ⇒ 总字节只能估。**用首片字节 × 总片数，一次算定**：
-    // 原来每拼一片都按"平均片大小"重算 ⇒ 总大小在界面上来回跳（实测 168.3 → 165.2MB）。
-    // 首片落盘前 total 保持 0（界面显示"未知"而不是瞎猜）。
-    var totalBytes = 0;
     try {
-      var start = 0;
+      var start = doneFrom;
       while (start < segs.length) {
         final end = math.min(start + segmentConcurrent, segs.length);
         final futures = <Future<Uint8List>>[];
@@ -267,6 +290,7 @@ class DownloadEngine {
             headers: headers,
             isCancelled: isCancelled,
             keyCache: keyCache,
+            client: client,
           ));
         }
         final window = await Future.wait(futures);
@@ -280,10 +304,12 @@ class DownloadEngine {
           await raf.writeFrom(data);
           doneBytes += data.length;
           doneSegs++;
-          if (doneSegs == 1) {
+          if (totalBytes == 0) {
             // 首片到手 ⇒ 锁定总大小（之后不再重算，避免"总大小"跳动）
             totalBytes = data.length * segs.length;
           }
+          // 每落一片更新断点文件（不 flush：掉电最多丢一格，重下一片而已）
+          await _writeHlsProgress(prog, segs.length, doneSegs, doneBytes);
           onProgress?.call(doneBytes, totalBytes);
         }
         start = end;
@@ -293,12 +319,8 @@ class DownloadEngine {
       try {
         await raf.close();
       } catch (_) {}
-      // 取消保留半成品；真失败删掉（下次反正整条重来）
-      if (e is! DownloadCancelled) {
-        try {
-          if (await part.exists()) await part.delete();
-        } catch (_) {}
-      }
+      // 取消/失败都**保留** `.part` + 进度文件：下次从断点继续。
+      // （最坏情况只浪费"写完但还没记进度"的那一片 —— 续传时会按进度文件把多出的字节截掉）
       rethrow;
     }
     await raf.close();
@@ -309,6 +331,10 @@ class DownloadEngine {
       } catch (_) {}
     }
     await part.rename(dest.path);
+    // 完成 ⇒ 进度文件没用了（.part 已被 rename 走）
+    try {
+      if (await prog.exists()) await prog.delete();
+    } catch (_) {}
     // 收尾校正：首片外推只是估计，真实大小 = 已落盘字节（管理器据此把 total 收敛到实数）
     onProgress?.call(doneBytes, doneBytes);
     return dest.path;
@@ -322,6 +348,7 @@ class DownloadEngine {
     required Map<String, String>? headers,
     required bool Function()? isCancelled,
     required Map<String, Uint8List> keyCache,
+    required http.Client client,
   }) async {
     final abs = Uri.parse(base).resolve(segment.uri).toString();
     Uint8List? data;
@@ -329,7 +356,7 @@ class DownloadEngine {
     for (var attempt = 0; attempt <= segmentRetries; attempt++) {
       if (_cancelled(isCancelled)) throw const DownloadCancelled();
       try {
-        final r = await Site.httpClient
+        final r = await client
             .get(Uri.parse(abs), headers: headers)
             .timeout(timeoutConnect);
         if (r.statusCode != 200) throw DownloadException('分片 HTTP ${r.statusCode}');
@@ -352,7 +379,7 @@ class DownloadEngine {
 
     final key = segment.key;
     if (key == null) return data; // 明文清单
-    final keyBytes = await _keyBytes(key, base, headers, keyCache);
+    final keyBytes = await _keyBytes(key, base, headers, keyCache, client);
     return _decrypt(data, keyBytes, key.iv ?? _defaultIv(segment.seq));
   }
 
@@ -361,11 +388,12 @@ class DownloadEngine {
     String base,
     Map<String, String>? headers,
     Map<String, Uint8List> cache,
+    http.Client client,
   ) async {
     final abs = Uri.parse(base).resolve(key.uri).toString();
     final hit = cache[abs];
     if (hit != null) return hit;
-    final r = await Site.httpClient
+    final r = await client
         .get(Uri.parse(abs), headers: headers)
         .timeout(timeoutConnect);
     if (r.statusCode != 200) throw DownloadException('密钥 HTTP ${r.statusCode}');
@@ -406,9 +434,13 @@ class DownloadEngine {
   // m3u8 解析
   // -------------------------------------------------------------------------
 
-  static Future<String> _getText(String url, Map<String, String>? headers) async {
+  static Future<String> _getText(
+    String url,
+    Map<String, String>? headers,
+    http.Client client,
+  ) async {
     try {
-      final r = await Site.httpClient
+      final r = await client
           .get(Uri.parse(url), headers: headers)
           .timeout(timeoutConnect);
       if (r.statusCode != 200) throw DownloadException('清单 HTTP ${r.statusCode}');
@@ -418,6 +450,72 @@ class DownloadEngine {
       rethrow;
     } catch (e) {
       throw DownloadException('清单请求异常：$e');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // HLS 断点续传（`<base>.ts.progress`）
+  // -------------------------------------------------------------------------
+
+  /// 读断点文件并校验。返回 null = 不可信（片数变了 / JSON 坏 / `.part` 比"已落盘字节"还短）⇒ 从头。
+  ///
+  /// 若 `.part` 比进度记录的字节**多**（上次"写完片、还没来得及记进度"就被杀）：
+  /// 把多出来的尾巴截掉 —— 保住前面已经完整的片，丢掉那半片。
+  static Future<_HlsResume?> _readHlsProgress(
+    File prog,
+    int expectSegs,
+    File part,
+  ) async {
+    try {
+      if (!await prog.exists() || !await part.exists()) return null;
+      final raw = await prog.readAsString();
+      final j = jsonDecode(raw);
+      if (j is! Map) return null;
+      final segs = j['segs'];
+      final done = j['done'];
+      final bytes = j['bytes'];
+      if (segs is! int || done is! int || bytes is! int) return null;
+      if (segs != expectSegs || done < 0 || done > expectSegs || bytes < 0) {
+        return null;
+      }
+      final len = await part.length();
+      if (len < bytes) return null; // 记录说写了更多、文件却更短 ⇒ 整个不可信
+      if (len > bytes) {
+        try {
+          final raf = await part.open(mode: FileMode.append);
+          try {
+            await raf.truncate(bytes);
+          } finally {
+            await raf.close();
+          }
+        } catch (_) {
+          return null;
+        }
+      }
+      return _HlsResume(done, bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 每落一片写一次断点（`writeAsString` 到 `.tmp` 再改名；不 flush —— 掉电最多重下一片）
+  static Future<void> _writeHlsProgress(
+    File prog,
+    int segs,
+    int done,
+    int bytes,
+  ) async {
+    try {
+      final tmp = File('${prog.path}.tmp');
+      await tmp.writeAsString(
+        jsonEncode(<String, int>{'segs': segs, 'done': done, 'bytes': bytes}),
+      );
+      try {
+        if (await prog.exists()) await prog.delete();
+      } catch (_) {}
+      await tmp.rename(prog.path);
+    } catch (_) {
+      // 断点文件写失败不能影响下载本身（最坏是下次从头）
     }
   }
 
@@ -563,4 +661,12 @@ class _Segment {
   final int seq;
 
   const _Segment({required this.uri, required this.key, required this.seq});
+}
+
+/// HLS 断点状态（来自 `<base>.ts.progress`）
+class _HlsResume {
+  final int done;
+  final int bytes;
+
+  const _HlsResume(this.done, this.bytes);
 }

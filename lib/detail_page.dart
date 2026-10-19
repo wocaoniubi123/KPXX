@@ -525,6 +525,23 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     return '';
   }
 
+  /// 播放源（用户 2026-10-19 拍板 A）：**当前集已下载 ⇒ 播本地文件**（file://，0 网络）；
+  /// 没下载 / 文件丢了 ⇒ 原逻辑（按清晰度排序的网络源）。
+  /// ⚠️ 集下标与下载任务里的 `index` 同一套（建任务时就是 videos 下标）✅
+  List<String> _playSourcesOf(List<ArticleVideo> videos, int idx) {
+    if (videos.isEmpty || idx < 0 || idx >= videos.length) {
+      return const <String>[];
+    }
+    final local = DownloadManager.i.localPathOf(_downloadKey, idx);
+    if (local != null) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[DL] 详情页本地优先播放 集=$idx path=$local');
+      }
+      return <String>[Uri.file(local).toString()];
+    }
+    return _orderByQuality(videos[idx].sources, _quality);
+  }
+
   // ---------------------------------------------------------------------------
   // 收藏（用户 2026-10-10 拍板 ✅）：与播放记录是**两份独立存储**
   //   （`lib/favorites.dart`，键 `fav_list` ☠ —— 删播放记录不动收藏、删收藏不动播放记录）
@@ -1084,9 +1101,9 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                         // 不换 key：换片由播放器内部复用同一实例开新源
                         // （重建实例会让全屏页拿着的旧实例失效 → 黑屏）
                           switcher: _switcher,
-                          sources: videos.isEmpty
-                              ? const []
-                              : _orderByQuality(videos[idx].sources, _quality),
+                          // 用户 2026-10-19 拍板 A：当前集已下载 ⇒ **播本地文件**（0 网络）；
+                          // 没下载 ⇒ 原逻辑（按清晰度排序的网络源）
+                          sources: _playSourcesOf(videos, idx),
                           referer: _api.base,
                           poster: d.images.isNotEmpty ? d.images.first : '',
                           // ★ 用户要求：全屏（竖版/横屏）顶部显示视频标题；内嵌播放器不显示 ✅
