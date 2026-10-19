@@ -16,6 +16,7 @@
 // 从原地续；HLS 顺序拼接没有可靠的断点偏移，下次整条重来，但留个半成品至少能看出
 // "下到哪一步断的"。取消（用户主动）保留、异常（源站/磁盘出错）删除。
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -47,8 +48,14 @@ class DownloadException implements Exception {
 class DownloadEngine {
   DownloadEngine._();
 
-  /// HLS 分片并发数（用户拍板 4）。再高对源站不友好，也更容易被 CDN 限速。
-  static const int segmentConcurrent = 4;
+  /// HLS 分片并发数（用户 2026-10-19 拍板 4 → 8；实测 8 路对 CDN 限速最划算）
+  static const int segmentConcurrent = 8;
+
+  /// mp4 直链分段并发数（用户实测：单连接 0.4MB/s、8 并发 2.8MB/s、16 并发仅多 18%）
+  static const int directSegments = 8;
+
+  /// 降级后的分段/分片并发（8 并发被源站拒时只降这一次）
+  static const int fallbackSegments = 4;
 
   /// 单片失败重试次数（不含第一次）。分片是"整条里的一小段"，重试成本低。
   static const int segmentRetries = 2;
@@ -60,6 +67,22 @@ class DownloadEngine {
   /// master 嵌套跟随上限（正常就 1 层；给 3 层是防"变体清单里还是 master"的怪站）
   static const int _masterDepthMax = 3;
 
+  /// 降级日志出口。
+  ///
+  /// ⚠️ 纯 Dart 不能 import Flutter（`AppSettings.i.logConsole` 依赖 Flutter），而且下载跑在
+  /// worker isolate 里 —— 那里也读不到主 isolate 的设置。所以这里只留一个出口：上层愿意的话把
+  /// `logSink` 设成 `(m) { if (AppSettings.i.logConsole) debugPrint(m); }`。
+  /// 本轮派单约束"只改 download_engine.dart"，worker/manager 不动 ⇒ 默认静默。
+  static void Function(String message)? logSink;
+
+  static void _engineLog(String message) {
+    final sink = logSink;
+    if (sink == null) return;
+    try {
+      sink(message);
+    } catch (_) {}
+  }
+
   /// 下载 [url] 到 `destDir/<baseName>.mp4`（直链）或 `.ts`（HLS）。
   ///
   /// [headers] 由调用方给（UA 本方法补、站点额外头如 Cookie/Referer 原样带上）；
@@ -68,6 +91,9 @@ class DownloadEngine {
   /// [client] 可注入：**下载 worker 的 isolate 里必须传纯 `http.Client()`** ——
   ///   `Site.httpClient` 在 iOS 是 `cupertino_http`，在 isolate 里初始化有风险；
   ///   不传则退回全局客户端（普通调用方/自测脚本用）。
+  ///
+  /// **统一降级**（用户拍板）：8 并发遇到 403/429/连接类错误 ⇒ 自动用 4 并发重试**一次**；
+  /// 再失败就把原始错误抛给上层。
   ///
   /// 返回：落地后的完整文件路径（`.part` 已改名）。
   static Future<String> download({
@@ -86,8 +112,20 @@ class DownloadEngine {
     if (uri == null || uri.host.isEmpty) {
       throw const DownloadException('URL 不合法');
     }
-    if (uri.path.toLowerCase().endsWith('.m3u8')) {
-      return _downloadHls(
+    final isHls = uri.path.toLowerCase().endsWith('.m3u8');
+    try {
+      if (isHls) {
+        return await _downloadHls(
+          url: url,
+          headers: headers,
+          destDir: destDir,
+          baseName: baseName,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+          client: c,
+        );
+      }
+      return await _downloadDirect(
         url: url,
         headers: headers,
         destDir: destDir,
@@ -95,23 +133,56 @@ class DownloadEngine {
         onProgress: onProgress,
         isCancelled: isCancelled,
         client: c,
+        segments: directSegments,
+      );
+    } catch (e) {
+      if (!_shouldDowngrade(e)) rethrow;
+      _engineLog('[DL][ENGINE] 8 并发失败 ⇒ 降级 4 重试 原因=$e');
+      if (isHls) {
+        return _downloadHls(
+          url: url,
+          headers: headers,
+          destDir: destDir,
+          baseName: baseName,
+          onProgress: onProgress,
+          isCancelled: isCancelled,
+          client: c,
+          concurrency: fallbackSegments,
+        );
+      }
+      return _downloadDirect(
+        url: url,
+        headers: headers,
+        destDir: destDir,
+        baseName: baseName,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        client: c,
+        segments: fallbackSegments,
+        hlsConcurrency: fallbackSegments,
       );
     }
-    return _downloadDirect(
-      url: url,
-      headers: headers,
-      destDir: destDir,
-      baseName: baseName,
-      onProgress: onProgress,
-      isCancelled: isCancelled,
-      client: c,
-    );
+  }
+
+  /// 一眼判断是否值得降级：权限/限流/连接层错误（取消不算）
+  static bool _shouldDowngrade(Object e) {
+    if (e is DownloadCancelled) return false;
+    if (e is SocketException ||
+        e is http.ClientException ||
+        e is TimeoutException) {
+      return true;
+    }
+    final s = e.toString();
+    return s.contains('429') || s.contains('403');
   }
 
   // -------------------------------------------------------------------------
   // 直链
   // -------------------------------------------------------------------------
 
+  /// 直链入口：
+  /// · `.part` 已存在且非空 ⇒ **单连接 Range 续传**（旧逻辑，稳）
+  /// · 否则 ⇒ **分段并发**（默认 8 段；总长 <16MB 退 4 段）
   static Future<String> _downloadDirect({
     required String url,
     required Map<String, String>? headers,
@@ -120,7 +191,58 @@ class DownloadEngine {
     required void Function(int done, int total)? onProgress,
     required bool Function()? isCancelled,
     required http.Client client,
+    int segments = directSegments,
+    int? hlsConcurrency,
+  }) async {
+    final dest = File('$destDir/$baseName.mp4');
+    if (await dest.exists()) return dest.path; // 幂等出口
+
+    final part = File('$destDir/$baseName.mp4.part');
+    var existing = 0;
+    try {
+      if (await part.exists()) existing = await part.length();
+    } catch (_) {
+      existing = 0;
+    }
+    // 清掉上次分段下载留下的 `.seg*`（无论接下来走续传还是重新分段）
+    await _deleteSegmentFiles(destDir, baseName);
+    if (existing > 0) {
+      // 有半截文件：沿用"单连接 + Range 续传"（分段和续传语义不同，别混）
+      return _downloadDirectSingle(
+        url: url,
+        headers: headers,
+        destDir: destDir,
+        baseName: baseName,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        client: client,
+        hlsConcurrency: hlsConcurrency,
+      );
+    }
+    return _downloadDirectSegmented(
+      url: url,
+      headers: headers,
+      destDir: destDir,
+      baseName: baseName,
+      onProgress: onProgress,
+      isCancelled: isCancelled,
+      client: client,
+      segments: segments,
+      hlsConcurrency: hlsConcurrency,
+    );
+  }
+
+  /// 单连接直链（原逻辑：Range 续传 / 416 重来 / 完成改名）—— `.part` 已存在时走这里
+  static Future<String> _downloadDirectSingle({
+    required String url,
+    required Map<String, String>? headers,
+    required String destDir,
+    required String baseName,
+    required void Function(int done, int total)? onProgress,
+    required bool Function()? isCancelled,
+    required http.Client client,
     bool freshRetry = false,
+    int? hlsConcurrency,
   }) async {
     final dest = File('$destDir/$baseName.mp4');
     final part = File('$destDir/$baseName.mp4.part');
@@ -154,6 +276,7 @@ class DownloadEngine {
         onProgress: onProgress,
         isCancelled: isCancelled,
         client: client,
+        concurrency: hlsConcurrency,
       );
     }
 
@@ -162,7 +285,7 @@ class DownloadEngine {
       try {
         await part.delete();
       } catch (_) {}
-      return _downloadDirect(
+      return _downloadDirectSingle(
         url: url,
         headers: headers,
         destDir: destDir,
@@ -171,6 +294,7 @@ class DownloadEngine {
         isCancelled: isCancelled,
         client: client,
         freshRetry: true,
+        hlsConcurrency: hlsConcurrency,
       );
     }
 
@@ -210,6 +334,252 @@ class DownloadEngine {
     return dest.path;
   }
 
+  /// 分段并发直链（新下载）：先探总长，再 `Range: bytes=a-b` 并发拉进 `.seg*`，按序拼接。
+  static Future<String> _downloadDirectSegmented({
+    required String url,
+    required Map<String, String>? headers,
+    required String destDir,
+    required String baseName,
+    required void Function(int done, int total)? onProgress,
+    required bool Function()? isCancelled,
+    required http.Client client,
+    required int segments,
+    int? hlsConcurrency,
+  }) async {
+    final uri = Uri.parse(url);
+    final dest = File('$destDir/$baseName.mp4');
+    final part = File('$destDir/$baseName.mp4.part');
+
+    final probe = await _probe(uri, headers, client);
+    if (probe.hlsText != null) {
+      // 没 .m3u8 后缀但响应头说是 HLS
+      return _downloadHls(
+        url: url,
+        headers: headers,
+        destDir: destDir,
+        baseName: baseName,
+        playlistText: probe.hlsText,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        client: client,
+        concurrency: hlsConcurrency,
+      );
+    }
+    final total = probe.total;
+    if (total <= 0 || !probe.supportsRange) {
+      // 拿不到总长 / 服务器不支持 Range ⇒ 退回单连接（原逻辑）
+      return _downloadDirectSingle(
+        url: url,
+        headers: headers,
+        destDir: destDir,
+        baseName: baseName,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        client: client,
+        hlsConcurrency: hlsConcurrency,
+      );
+    }
+
+    var n = segments;
+    if (total < 16 * 1024 * 1024 && n > 4) n = 4; // 小文件 4 段足够
+    if (n > total) n = total; // 字节数比段数还少：别切出空段
+    if (n < 1) n = 1;
+
+    final segFiles = <File>[
+      for (var i = 0; i < n; i++) File('$destDir/$baseName.mp4.seg$i'),
+    ];
+    await _deleteSegmentFiles(destDir, baseName);
+    try {
+      if (await part.exists()) await part.delete();
+    } catch (_) {}
+
+    var done = 0;
+    var aborted = false;
+    final futures = <Future<void>>[];
+    for (var i = 0; i < n; i++) {
+      final start = total * i ~/ n;
+      final end = total * (i + 1) ~/ n - 1;
+      futures.add(_downloadRangeToFile(
+        uri: uri,
+        headers: headers,
+        client: client,
+        start: start,
+        end: end,
+        file: segFiles[i],
+        index: i,
+        onChunk: (len) {
+          done += len;
+          onProgress?.call(done, total);
+        },
+        isCancelled: isCancelled,
+        isAborted: () => aborted,
+        abort: () => aborted = true,
+      ));
+    }
+
+    try {
+      await Future.wait(futures);
+      if (done != total) {
+        throw DownloadException('分段下载字节数不符（应 $total，实 $done）');
+      }
+      // 按段序拼接（每段长度也在下面再校验一次）
+      final raf = await part.open(mode: FileMode.write);
+      try {
+        for (var i = 0; i < n; i++) {
+          final f = segFiles[i];
+          final expected = total * (i + 1) ~/ n - total * i ~/ n;
+          final len = await f.length();
+          if (len != expected) {
+            throw DownloadException('第 ${i + 1} 段大小不符（应 $expected，实 $len）');
+          }
+          await for (final chunk in f.openRead()) {
+            if (_cancelled(isCancelled)) throw const DownloadCancelled();
+            await raf.writeFrom(chunk);
+          }
+        }
+        await raf.flush();
+      } finally {
+        await raf.close();
+      }
+      for (final f in segFiles) {
+        try {
+          await f.delete();
+        } catch (_) {}
+      }
+      if (await dest.exists()) {
+        try {
+          await dest.delete();
+        } catch (_) {}
+      }
+      await part.rename(dest.path);
+      onProgress?.call(total, total);
+      return dest.path;
+    } catch (e) {
+      // 失败/取消：分段没有可靠断点语义 ⇒ 全部删掉，下次重来
+      aborted = true;
+      for (final f in segFiles) {
+        try {
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+      try {
+        if (await part.exists()) await part.delete();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  /// 下**一段**（[start,end] 闭区间）到独立文件；每 chunk 回调进度并检查取消/中止。
+  static Future<void> _downloadRangeToFile({
+    required Uri uri,
+    required Map<String, String>? headers,
+    required http.Client client,
+    required int start,
+    required int end,
+    required File file,
+    required int index,
+    required void Function(int bytes) onChunk,
+    required bool Function()? isCancelled,
+    required bool Function() isAborted,
+    required void Function() abort,
+  }) async {
+    final expected = end - start + 1;
+    try {
+      if (_cancelled(isCancelled)) throw const DownloadCancelled();
+      final req = http.Request('GET', uri);
+      _applyHeaders(req, headers);
+      req.headers['Range'] = 'bytes=$start-$end';
+      final resp = await client.send(req).timeout(timeoutConnect);
+      if (resp.statusCode != 206) {
+        // 200 = 服务器不理 Range（返回整包），不能往分段文件里写
+        try {
+          if (resp.statusCode == 200) {
+            final sub = resp.stream.listen(null);
+            await sub.cancel();
+          } else {
+            await resp.stream.drain<void>();
+          }
+        } catch (_) {}
+        throw DownloadException('第 ${index + 1} 段 HTTP ${resp.statusCode}');
+      }
+      final raf = await file.open(mode: FileMode.write);
+      var got = 0;
+      try {
+        await for (final chunk in resp.stream.timeout(timeoutChunk)) {
+          if (_cancelled(isCancelled)) throw const DownloadCancelled();
+          if (isAborted()) return; // 别的段已失败：安静收手，由外层统一抛
+          if (chunk.isEmpty) continue;
+          await raf.writeFrom(chunk);
+          got += chunk.length;
+          onChunk(chunk.length);
+        }
+        await raf.flush();
+      } finally {
+        await raf.close();
+      }
+      if (!isAborted() && got != expected) {
+        throw DownloadException('第 ${index + 1} 段字节数不符（应 $expected，实 $got）');
+      }
+    } catch (e) {
+      abort();
+      rethrow;
+    }
+  }
+
+  /// 清理分段碎片 `<base>.mp4.seg*`
+  static Future<void> _deleteSegmentFiles(String destDir, String baseName) async {
+    for (var i = 0; i < directSegments; i++) {
+      try {
+        final f = File('$destDir/$baseName.mp4.seg$i');
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
+  }
+
+  /// 探测总长度：`Range: bytes=0-0` → 206 + Content-Range；顺带识别"无后缀 HLS"。
+  static Future<_ProbeResult> _probe(
+    Uri uri,
+    Map<String, String>? headers,
+    http.Client client,
+  ) async {
+    final req = http.Request('GET', uri);
+    _applyHeaders(req, headers);
+    req.headers['Range'] = 'bytes=0-0';
+    final resp = await client.send(req).timeout(timeoutConnect);
+
+    final ct = (resp.headers['content-type'] ?? '').toLowerCase();
+    if (ct.contains('mpegurl')) {
+      final body = await _readAll(resp);
+      return _ProbeResult(
+        total: -1,
+        supportsRange: false,
+        hlsText: utf8.decode(body, allowMalformed: true),
+      );
+    }
+    if (resp.statusCode == 206) {
+      final cr = resp.headers['content-range'];
+      final m = cr == null ? null : RegExp(r'/(\d+)\s*$').firstMatch(cr);
+      try {
+        await resp.stream.drain<void>();
+      } catch (_) {}
+      final total = m == null ? -1 : (int.tryParse(m.group(1)!) ?? -1);
+      return _ProbeResult(total: total, supportsRange: total > 0);
+    }
+    if (resp.statusCode == 200) {
+      // 服务器不理 Range：能拿 Content-Length，但每段都会回整包 ⇒ 不分段
+      final total = resp.contentLength ?? -1;
+      try {
+        final sub = resp.stream.listen(null);
+        await sub.cancel();
+      } catch (_) {}
+      return _ProbeResult(total: total, supportsRange: false);
+    }
+    try {
+      await resp.stream.drain<void>();
+    } catch (_) {}
+    throw DownloadException('HTTP ${resp.statusCode}');
+  }
+
   // -------------------------------------------------------------------------
   // HLS
   // -------------------------------------------------------------------------
@@ -222,9 +592,12 @@ class DownloadEngine {
     required void Function(int done, int total)? onProgress,
     required bool Function()? isCancelled,
     required http.Client client,
+    int? concurrency,
     String? playlistText,
   }) async {
     if (_cancelled(isCancelled)) throw const DownloadCancelled();
+    var conc = concurrency ?? segmentConcurrent;
+    if (conc < 1) conc = 1;
 
     var mediaUrl = url;
     var text = playlistText ?? await _getText(url, headers, client);
@@ -281,7 +654,7 @@ class DownloadEngine {
     try {
       var start = doneFrom;
       while (start < segs.length) {
-        final end = math.min(start + segmentConcurrent, segs.length);
+        final end = math.min(start + conc, segs.length);
         final futures = <Future<Uint8List>>[];
         for (var i = start; i < end; i++) {
           futures.add(_fetchSegment(
@@ -669,4 +1042,17 @@ class _HlsResume {
   final int bytes;
 
   const _HlsResume(this.done, this.bytes);
+}
+
+/// 直链探测结果：总长 / 是否支持 Range / 无后缀 HLS 的清单文本
+class _ProbeResult {
+  final int total;
+  final bool supportsRange;
+  final String? hlsText;
+
+  const _ProbeResult({
+    required this.total,
+    required this.supportsRange,
+    this.hlsText,
+  });
 }
