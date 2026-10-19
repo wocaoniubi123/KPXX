@@ -552,11 +552,36 @@ class DownloadManager extends ChangeNotifier {
       await _waitTaskStopped(t.key);
       await _deleteTaskDir(t.key);
     }
+
+    // ③b ★ 用户 2026-10-19：清空时**同时清理旧下载目录**（`Application Support/downloads` 的残留：
+    //     迁移失败 / 孤儿目录 / 旧版本留下的碎文件）；旧目录**不存在就跳过**。
+    await _clearLegacyRoot();
+
     _log('清空下载 完 任务=${snapshot.length}');
 
     // ④ 最后落盘：清空是用户明确动作，不能等防抖
     _saveTimer?.cancel();
     await _saveNow();
+  }
+
+  /// 清掉**旧下载根目录**（`Application Support/downloads`）—— 迁移后的残留 / 孤儿文件。
+  /// 用户 2026-10-19 口径：点「清空」时顺手把它也清掉；**旧目录不存在就跳过**（删失败只记日志）。
+  Future<void> _clearLegacyRoot() async {
+    try {
+      final oldBase = await getApplicationSupportDirectory();
+      final oldDir = Directory('${oldBase.path}/downloads');
+      if (!await oldDir.exists()) {
+        _log('旧下载目录不存在，跳过');
+        return;
+      }
+      await oldDir.delete(recursive: true);
+      // 旧路径不再作为"找文件"的来源
+      _legacyDirPath = '';
+      _legacyRoot = '';
+      _log('旧下载目录已清空 path=${oldDir.path}');
+    } catch (e) {
+      _log('清空旧目录失败：$e');
+    }
   }
 
   /// 立即落盘（App 退到后台 / 页面销毁时想强制写一次就调它；平时交给防抖）
