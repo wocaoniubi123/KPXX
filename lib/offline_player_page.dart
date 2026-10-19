@@ -9,21 +9,22 @@ import 'app_bg.dart';
 import 'base/downloads/download_manager.dart';
 import 'base/downloads/download_model.dart';
 import 'base/downloads/download_sheet.dart';
-import 'detail_page.dart';
 import 'favorites.dart';
-import 'fetched_image.dart';
-import 'models.dart';
 import 'player_widget.dart';
-import 'settings.dart';
+import 'models.dart'; // ArticleDetail（未下载集按集号在线取源）
+import 'settings.dart'; // PlayHistory / PlayRecord（播放记录同步）
 import 'sites.dart';
 
-/// 离线播放页（用户 2026-10-19 拍板）。
+/// 离线播放页（用户 2026-10-19 拍板；同日二次拍板「布局 1:1 照在线详情页」）。
 ///
 /// 从「下载」tab 点已完成的剧进来：
 /// - 播放器固定顶部，**本地文件优先（0 网络）**；
-/// - **有网自动补全**：后台拉一次在线详情 ⇒ 简介 / 剧照 / 推荐 + 未下载集的在线源；
-///   没网 / 拉失败 ⇒ **静默**用下载时存的数据（标题 + 选集 + 简介）；
-/// - **选集 A 方案**：全部集都显示 —— ✅ 已下载 = 本地播；☁️ 未下载 = 在线播（断网提示）；
+/// - **内容区完全不联网**：标题 / 时间 / 集数 / 时长 / 站点元信息 / 简介全部来自
+///   [DownloadTask]（下载时快照）—— 用户口径「其他都跟视频一起保存好」；
+/// - 布局与 `detail_page.dart` 的内容区一致（标题 18 粗体 + 元信息 Row + 选集 + 简介）；
+///   按用户要求**不显示**剧照 / 相关推荐 / 分类标签；
+/// - **选集 A 方案**：全部集都显示 —— ✅ 已下载 = 本地播；☁️ 未下载 = 在线播（断网提示，
+///   点未下载集时才按需取源）；
 /// - 控制条「↓」= 下载当前这一集（与详情页同一套状态口径：done/downloading/none）。
 class OfflinePlayerPage extends StatefulWidget {
   final DownloadTask task;
@@ -50,9 +51,10 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
 
   SiteEntry? _site;
   Api? _api;
-  ArticleDetail? _detail; // 在线补全结果（null = 没拉到 / 没网）
   VideoSwitcher? _switcher;
-  bool _loadingDetail = false;
+
+  /// 在线详情缓存（未下载集在线播 / 补下时**按集号**取源；一次请求后复用）
+  ArticleDetail? _detailCache;
 
   /// 未下载集单独取到的在线源（详情里没有时的兜底；index → url）
   final Map<int, String> _extraSources = <int, String>{};
@@ -113,7 +115,6 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     _lastStatus = _statusFor(start);
 
     DownloadManager.i.addListener(_onManagerChanged);
-    unawaited(_loadOnlineDetail()); // 有网自动补全（静默失败）
   }
 
   @override
@@ -167,14 +168,10 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
   bool _isDone(int i) => _localFile(i) != null;
 
   /// 当前集的播放源：本地优先（file:// 交给 mpv，0 网络）；未下载 ⇒ 在线
-  /// （详情补全优先，其次单集兜底源）
+  /// （点选未下载集时按需取到的兜底源）
   List<String> _sourcesFor(int i) {
     final local = _localFile(i);
     if (local != null) return <String>[Uri.file(local).toString()];
-    final d = _detail;
-    if (d != null && i < d.videos.length && d.videos[i].sources.isNotEmpty) {
-      return d.videos[i].sources;
-    }
     final extra = _extraSources[i];
     if (extra != null && extra.isNotEmpty) return <String>[extra];
     return const <String>[];
@@ -183,11 +180,6 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
   Map<String, String>? _headersFor(int i) {
     final eps = _t.episodes;
     if (i < 0 || i >= eps.length) return null;
-    // 在线补全拿到新头（快照可能过期）⇒ 优先用详情那份
-    final d = _detail;
-    if (d != null && i < d.videos.length && d.videos[i].headers != null) {
-      return d.videos[i].headers;
-    }
     return eps[i].headers;
   }
 
@@ -217,35 +209,22 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
   }
 
   // ---------------------------------------------------------------------------
-  // 在线补全 / 取源
+  // 按需取源（只给"未下载集在线播"用；页面内容仍全部来自 DownloadTask）
   // ---------------------------------------------------------------------------
 
-  Future<void> _loadOnlineDetail() async {
-    final api = _api;
-    if (api == null) return;
-    if (mounted) setState(() => _loadingDetail = true);
-    try {
-      final d = await api.detail(_t.detailUrl);
-      if (!mounted) return;
-      setState(() => _detail = d);
-    } catch (_) {
-      // 没网 / 拉失败：静默（保持下载时存的数据）
-    } finally {
-      if (mounted) setState(() => _loadingDetail = false);
-    }
-  }
-
   /// 未下载集点击时还没有源 ⇒ 现取一次（失败给「未下载」提示）
+  ///
+  /// ★ 用户 2026-10-19（真机：点 2~7 集全是第 1 集）🛢️：通用 `.dplayer` 站点**没有子文章 URL**
+  ///   （7 块视频全在主页面）⇒ 老的 `ep.lazyUrl ?? _relPath(ep.playUrl)` 会回退到**详情页本身**
+  ///   ⇒ `videoSourcesAt(详情页)` 永远只拿**第一块**的源 ☠
+  ///   ⇒ 改为解析详情页后**按集号取 `videos[i].sources`**（缓存一次），子文章/播放页只作兜底。
   Future<void> _ensureOnlineSource(int i) async {
     final api = _api;
     if (api == null) return;
     final eps = _t.episodes;
     if (i < 0 || i >= eps.length) return;
-    final ep = eps[i];
-    final url = ep.lazyUrl ?? _relPath(ep.playUrl);
-    if (url.isEmpty) return;
     try {
-      final srcs = await api.videoSourcesAt(url);
+      final srcs = await _onlineSourcesFor(i);
       if (!mounted || srcs.isEmpty) return;
       setState(() => _extraSources[i] = srcs.first);
     } catch (_) {
@@ -254,6 +233,34 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
         duration: Duration(seconds: 2),
         content: Text('这一集还没下载，联网后才能看'),
       ));
+    }
+  }
+
+  /// 在线取**第 i 集**的源：优先详情页按集号（一次请求 + 缓存），兜底子文章/播放页。
+  Future<List<String>> _onlineSourcesFor(int i) async {
+    final api = _api;
+    final eps = _t.episodes;
+    if (api == null || i < 0 || i >= eps.length) return const <String>[];
+    var d = _detailCache;
+    if (d == null) {
+      try {
+        d = await api.detail(_t.detailUrl);
+        _detailCache = d;
+      } catch (_) {
+        d = null;
+      }
+    }
+    if (d != null && i < d.videos.length) {
+      final direct = d.videos[i].sources.where(_isHttp).toList();
+      if (direct.isNotEmpty) return direct;
+    }
+    final ep = eps[i];
+    final url = ep.lazyUrl ?? _relPath(ep.playUrl);
+    if (url.isEmpty) return const <String>[];
+    try {
+      return (await api.videoSourcesAt(url)).where(_isHttp).toList();
+    } catch (_) {
+      return const <String>[];
     }
   }
 
@@ -432,6 +439,7 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
       intro: _t.intro,
       time: _t.time,
       duration: _t.duration,
+      metaLine: _t.metaLine,
       episodes: picked,
     ));
     return DlSubmitResult(picked.length, failed);
@@ -441,30 +449,12 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
   Future<List<String>> _httpSourcesFor(int i) async {
     var srcs = _sourcesFor(i).where(_isHttp).toList();
     if (srcs.isNotEmpty) return srcs;
-    final d = _detail;
-    if (d != null &&
-        i >= 0 &&
-        i < d.videos.length &&
-        d.videos[i].sources.isNotEmpty) {
-      srcs = d.videos[i].sources.where(_isHttp).toList();
-      if (srcs.isNotEmpty) return srcs;
+    // ★ 与 `_ensureOnlineSource` 同口径：**按集号**取（别回退详情页拿第一块 ☠）
+    srcs = await _onlineSourcesFor(i);
+    if (srcs.isNotEmpty && mounted) {
+      setState(() => _extraSources[i] = srcs.first);
     }
-    final api = _api;
-    final eps = _t.episodes;
-    if (api == null || i < 0 || i >= eps.length) return const <String>[];
-    final ep = eps[i];
-    final url = ep.lazyUrl ?? _relPath(ep.playUrl);
-    if (url.isEmpty) return const <String>[];
-    try {
-      final got = await api.videoSourcesAt(url);
-      srcs = got.where(_isHttp).toList();
-      if (srcs.isNotEmpty && mounted) {
-        setState(() => _extraSources[i] = srcs.first);
-      }
-      return srcs;
-    } catch (_) {
-      return const <String>[];
-    }
+    return srcs;
   }
 
   static bool _isHttp(String s) =>
@@ -478,18 +468,6 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     return ep.wanted && ep.status == EpStatus.queued;
   }
 
-  /// 点相关推荐 → 进在线详情（没网时点开会失败，属预期）
-  void _openRelated(Article a) {
-    final site = _site;
-    if (site == null) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      settings: const RouteSettings(name: '详情页'),
-      builder: (_) => PageBg(
-        child: DetailPage(site: site, baseUrl: a.url, listCover: a.cover),
-      ),
-    ));
-  }
-
   // ---------------------------------------------------------------------------
   // UI
   // ---------------------------------------------------------------------------
@@ -501,8 +479,7 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     final idx = eps.isEmpty
         ? 0
         : (sw?.index.value ?? 0).clamp(0, eps.length - 1).toInt();
-    final d = _detail;
-    final intro = (d != null && d.intro.isNotEmpty) ? d.intro : _t.intro;
+    final intro = _t.intro; // 内容全部来自下载快照（不再联网补全）
     final sources = _sourcesFor(idx);
     final done = _isDone(idx);
     return Scaffold(
@@ -535,7 +512,11 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
               lazyUrl: (done || sources.isNotEmpty)
                   ? null
                   : (eps[idx].lazyUrl ?? _relPath(eps[idx].playUrl)),
-              onFetchSources: _api?.videoSourcesAt,
+              // ⚠️ 用户 2026-10-19（真机：记录在第 3 集却播第 1 集）🛢️：
+              //   `lazyUrl` 只是"有源可取"的**占位**（PlayerWidget 仅在 lazyUrl!=null 时才调 onFetchSources）；
+              //   真正的源必须由 onFetchSources**按当前集号**取 —— 之前传 `_api.videoSourcesAt`，
+              //   拿到的是 lazyUrl（通用 `.dplayer` 站没有子文章 URL ⇒ 回退详情页）⇒ 永远返回第一块的源 ☠
+              onFetchSources: (_) => _onlineSourcesFor(idx),
               httpHeaders: _headersFor(idx),
               onDownloadCurrent: _downloadCurrent,
               downloadStatus: _statusFor(idx),
@@ -546,74 +527,74 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
             ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _t.title,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      height: 1.35,
-                      color: kTxt,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _metaLine(),
-                    style: TextStyle(fontSize: 11, color: kTxtSub),
-                  ),
-                  if (eps.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    _section('选集'),
-                    const SizedBox(height: 8),
-                    _episodeChips(eps, idx),
-                  ],
-                  if (intro.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _section('简介'),
-                    const SizedBox(height: 6),
+              // 与 detail_page.dart:1152 的内容区同款：Padding(all:12) + Column(start)
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 标题（与详情页同字号/字重，detail_page.dart:1157）
                     Text(
-                      intro,
-                      style:
-                          TextStyle(fontSize: 12.5, height: 1.6, color: kTxt),
+                      _t.title,
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: kTxt),
                     ),
-                  ],
-                  if (d != null && d.images.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _section('剧照'),
                     const SizedBox(height: 8),
-                    SizedBox(
-                      height: 108,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: d.images.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (_, i) => ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: SizedBox(
-                            width: 84,
-                            height: 108,
-                            child: FetchedImage(url: d.images[i], memWidth: 200),
+                    // 元信息行：顺序/间距/字号照 detail_page.dart:1163-1204
+                    Row(
+                      children: [
+                        if (_fmtTime(_t.time).isNotEmpty) ...[
+                          const Icon(Icons.local_fire_department,
+                              size: 16, color: Colors.red),
+                          const SizedBox(width: 4),
+                          Text(
+                            _fmtTime(_t.time),
+                            style: TextStyle(fontSize: 12, color: kTxtSub),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                        ],
+                        if (eps.isNotEmpty)
+                          Text('${eps.length} 集',
+                              style: TextStyle(fontSize: 12, color: kTxtSub)),
+                        if (_t.duration.isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          Text('时长 ${_t.duration}',
+                              style: TextStyle(fontSize: 12, color: kTxtSub)),
+                        ],
+                        if (_t.metaLine.isNotEmpty) ...[
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Text(
+                              _t.metaLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: kTxtSub),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (eps.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      _section('选集'),
+                      const SizedBox(height: 8),
+                      _episodeChips(eps, idx),
+                    ],
+                    if (intro.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _section('简介'),
+                      const SizedBox(height: 6),
+                      Text(
+                        intro,
+                        style:
+                            TextStyle(fontSize: 12.5, height: 1.6, color: kTxt),
                       ),
-                    ),
+                    ],
+                    // 剧照 / 相关推荐 / 分类标签：用户明确不要，一个都不渲染
                   ],
-                  if (d != null && d.related.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _section('相关推荐'),
-                    for (final r in d.related) _relatedTile(r),
-                  ],
-                  if (_loadingDetail) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      '正在获取简介/剧照…',
-                      style: TextStyle(fontSize: 11, color: kTxtSub),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ),
           ),
@@ -622,12 +603,15 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     );
   }
 
-  String _metaLine() {
-    final parts = <String>[];
-    if (_t.time.isNotEmpty) parts.add(_t.time);
-    parts.add('${_t.episodes.length} 集');
-    if (_t.duration.isNotEmpty) parts.add('时长 ${_t.duration}');
-    return parts.join(' · ');
+  /// 时间显示（**与 `detail_page.dart:998-1005` 的 `_fmtTime` 同款**，直接复制；
+  /// 私有方法没法跨文件复用，按用户口径不抽公共组件）。
+  String _fmtTime(String iso) {
+    if (iso.isEmpty) return '';
+    // "2026-09-28 17:34:23"（站点自带时分秒）→ 原样显示
+    if (iso.length >= 19 && iso[10] == ' ') return iso;
+    // 2026-09-01T14:57:00+00:00 -> 2026-09-01
+    if (iso.length < 10) return iso;
+    return iso.substring(0, 10);
   }
 
   Widget _section(String title) => Text(
@@ -671,52 +655,6 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
             ),
           ),
       ],
-    );
-  }
-
-  Widget _relatedTile(Article a) {
-    return InkWell(
-      onTap: () => _openRelated(a),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                width: 104,
-                height: 59,
-                child: FetchedImage(url: a.cover, memWidth: 240),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    a.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                      color: kTxt,
-                    ),
-                  ),
-                  if (a.meta.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(a.meta,
-                        style: TextStyle(fontSize: 11, color: kTxtSub)),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

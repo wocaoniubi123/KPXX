@@ -697,6 +697,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       intro: d.intro,
       time: d.time,
       duration: d.duration,
+      metaLine: d.metaLine,
       episodes: eps,
     ));
     return DlSubmitResult(wantedCount, failed);

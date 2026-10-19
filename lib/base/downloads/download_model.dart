@@ -137,6 +137,10 @@ class DownloadTask {
   final String time;
   final String duration;
 
+  /// 站点自定义元信息（详情页元信息行末尾那一段，如野果「连载中 · 播放 38W」；
+  /// 空串 = 不显示）。**下载时快照**，离线页照详情页布局原样显示。
+  String metaLine;
+
   /// 本地封面路径（'' = 没存）
   String coverLocal;
 
@@ -155,6 +159,7 @@ class DownloadTask {
     this.intro = '',
     this.time = '',
     this.duration = '',
+    this.metaLine = '',
     this.coverLocal = '',
     int? createdAt,
     required List<DownloadEpisode> episodes,
@@ -222,6 +227,7 @@ class DownloadTask {
         'in': intro,
         'tm': time,
         'dr': duration,
+        'ml': metaLine,
         'cr': createdAt,
         'ep': [for (final e in episodes) e.toJson()],
       };
@@ -253,6 +259,7 @@ class DownloadTask {
       intro: _asString(j['in'], ''),
       time: _asString(j['tm'], ''),
       duration: _asString(j['dr'], ''),
+      metaLine: _asString(j['ml'], ''),
       createdAt: _asInt(j['cr'], 0),
       episodes: eps,
     );

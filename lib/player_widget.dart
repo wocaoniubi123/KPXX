@@ -2573,7 +2573,9 @@ class PlayerWidgetState extends State<PlayerWidget>
     //   ⚠️ 末尾那个 `_bvShow == null` 是**日志自己的**过滤（不是改既有条件）：上下滑亮度/音量时本 State 每帧 setState
     //      （`bvUpdate → _bvGauge`）⇒ 不过滤就是逐帧刷屏（违反"不做逐帧日志"）；其余重建一条不漏 ✓
     if (AppSettings.i.logConsole && _bvShow == null) {
-      debugPrint('[PLAY] 视频层重建(内嵌) kp=${kp == null ? '(无=显示封面区)' : identityHashCode(kp).toString()} vc=${kp == null ? '-' : identityHashCode(kp.videoController).toString()} playing=${kp?.value.playing ?? false} buffering=${kp?.value.buffering ?? false} completed=${kp?.value.completed ?? false} pos=${kp?.value.position.inMilliseconds ?? 0}ms 首帧到=$_started 控件可见=$_controlsVisible poster=${widget.poster.isEmpty ? '无' : '有'}');
+      // ⚠️ 2026-10-19（用户实测 Windows 卡/未响应）：这里原来**每次 build 都 debugPrint**
+      //   （播放时 ~10 次/秒，滚动/切控件时更多）—— debug 下 debugPrint 同步写 stdout，
+      //   高频时直接拖慢主线程。⇒ 删掉这条"视频层重建"日志（排障已结束，要查时再加）。
     }
     return AspectRatio(
       aspectRatio: 16 / 9,
