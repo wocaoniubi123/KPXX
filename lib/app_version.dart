@@ -131,4 +131,13 @@
 ///   · iOS 导出到相册：新建 `kp_video_export` 插件（AVURLAsset 异步取轨 + passthrough→转码兜底）
 ///   · 封面口径统一：列表封面优先 → 剧照兜底（收藏/播放记录/下载同一份）
 ///   号序：按"每次云推 +1" ⇒ **1.4.6** ☑️
-const String kAppVersion = '1.4.6';
+/// ★ 2026-10-19：**1.4.6 → 1.4.7**（导出相册改用**纯 Dart TS→MP4 remux** + 进度条不再抖）：
+///   · 真机实锤：iOS 的 AVFoundation **打不开裸 .ts**（报 `Cannot Open` ⇒ 导出 NO_TRACKS）☠
+///     ⇒ 新建 `lib/base/downloads/ts_to_mp4.dart`（纯 Dart：TS 解包 + h264 Annex-B→AVCC + avcC +
+///     AAC ADTS→ASC + stts/ctts/stss/stsc/stsz/stco + moov 在后），导出时 `Isolate.run` 转换 ✅
+///     （桌面真实数据：10/65/71MB 三集 → 比值 0.94~0.97、0.6~2.2s/集；合成 TS 55/55 断言；
+///      真实公开 HLS 端到端 PASS。**mp4 解码播放/相册导入仍待真机验证** ☑️）
+///   · 下载进度条分母**只增不减**（跨集边界不再上下抖；全部下完仍 100%）✅
+///   · 导出全流程 `[DL-EXPORT]` 日志（调试开关下）
+///   号序：按"每次云推 +1" ⇒ **1.4.7** ☑️
+const String kAppVersion = '1.4.7';

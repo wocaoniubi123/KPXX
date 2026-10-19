@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate'; // Isolate.run（TS→MP4 转换放后台，避免大文件解析卡 UI）
 
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
-import 'package:kp_video_export/kp_video_export.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
 import 'base/downloads/download_manager.dart';
 import 'base/downloads/download_model.dart';
+import 'base/downloads/ts_to_mp4.dart'; // 纯 Dart TS→MP4 remux（iOS 的 AVFoundation 打不开裸 .ts）
 import 'base/site_ui.dart'; // 公共确认框 confirmClear（收藏页/错误日志页同款）
 import 'detail_page.dart';
 import 'fetched_image.dart';
@@ -52,6 +53,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   /// 危险色（删除按钮 / 失败文案；与背景图集页的删除钮同色）
   static const Color _red = Color(0xFFE5484D);
+
+  /// 进度条分母的**历史最大值**（任务 key → 字节；用户 2026-10-19 拍板 A）：
+  /// 分母（估算总大小）在下载过程中会变（新集开始 / 完成校正）⇒ 进度条会前后跳；
+  /// 只增不减之后进度条单调前进、不再抖（全部下完仍由 `isAllDone` 强制 1.0）。
+  final Map<String, int> _estMax = <String, int>{};
 
   @override
   void initState() {
@@ -946,17 +952,18 @@ class _DownloadsPageState extends State<DownloadsPage> {
       final out = '${tmp.path}/export_${DateTime.now().microsecondsSinceEpoch}.mp4';
       try {
         if (AppSettings.i.logConsole) {
-          debugPrint('[DL-EXPORT] 重封装 起 ts=$path → mp4=$out');
+          debugPrint('[DL-EXPORT] 转换 起 ts=$path → mp4=$out');
         }
         final t0 = DateTime.now();
-        final mp4 = await KpVideoExport.remuxToMp4(path, out);
+        // 纯 Dart remux（iOS 的 AVFoundation 打不开裸 .ts ⇒ 不能用 AVAssetExportSession）；
+        // 放 isolate 跑：两遍扫描 + 百 MB 级 IO，不能压在主 isolate 上。
+        // 失败抛 TsConvertException（调用方记成这一集失败）。
+        final mp4 = await Isolate.run(
+          () => TsToMp4.convert(tsPath: path, mp4Path: out),
+        );
         if (AppSettings.i.logConsole) {
-          debugPrint('[DL-EXPORT] 重封装 回 mp4=${mp4 ?? '(null)'} '
+          debugPrint('[DL-EXPORT] 转换 回 mp4=$mp4 '
               '耗时=${DateTime.now().difference(t0).inMilliseconds}ms');
-        }
-        if (mp4 == null || mp4.isEmpty) {
-          // 非 iOS（插件没注册）就是 null —— 调用方会记成这一集失败
-          throw const _ExportError('重封装不可用（仅 iOS 支持）');
         }
         if (AppSettings.i.logConsole) debugPrint('[DL-EXPORT] 保存相册 起');
         await Gal.putVideo(mp4);
@@ -1025,7 +1032,12 @@ class _DownloadsPageState extends State<DownloadsPage> {
   /// 估不出来（一集都没开始）⇒ 退回集数口径，至少不是 0。
   double _byteProgress(DownloadTask task) {
     if (task.isAllDone) return 1;
-    final total = _estimatedTotal(task);
+    final est = _estimatedTotal(task);
+    // ★ 用户 2026-10-19 拍板 A：分母**只增不减** —— 否则跨集边界（新集开始 / 完成校正）
+    //   分母会突变 ⇒ 进度条上下来回抖动（真机实测）。
+    final cached = _estMax[task.key] ?? 0;
+    final total = est > cached ? est : cached;
+    if (total > cached) _estMax[task.key] = total;
     if (total <= 0) {
       final n = task.episodes.length;
       return n == 0 ? 0 : (task.doneCount / n).clamp(0.0, 1.0);
