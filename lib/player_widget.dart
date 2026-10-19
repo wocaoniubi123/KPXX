@@ -1458,6 +1458,9 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 见 `_onTick` 里的说明 ✓）。只做差值，不参与任何判据的门槛 ✓。
   Duration _lastSeenPos = Duration.zero;
   bool _controlsVisible = true;
+
+  /// 「重播」按钮是否显示中（进度回调里比对变化 ⇒ 立刻重建，不依赖别的 setState）
+  bool _replayShown = false;
   Timer? _hideTimer;
   Offset _lastTapPos = Offset.zero; // 双击落点（判断左半/右半）
   IconData? _tapHint; // 双击提示图标（快退/快进/暂停/播放）
@@ -2194,6 +2197,20 @@ class PlayerWidgetState extends State<PlayerWidget>
       if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
         widget.switcher?.next();
       }
+      // ★ 用户 2026-10-19：播完**没有下一集** ⇒ 中间显示「重播」—— 控件不能被 3 秒定时器藏掉，
+      //   否则按钮跟着消失（"播完了什么也看不到"）。这里强制显示并取消隐藏排期。
+      if (!(widget.switcher?.hasNext ?? false) && mounted) {
+        // ★ 用户口径（2026-10-20）：**重播按钮不受控件显隐影响** —— 播完就一直显示；
+        //   ⇒ 这里只重建一次让按钮出现，**不碰** `_controlsVisible` / 隐藏定时器
+        //     （否则等于偷偷把控件也强制显示了，覆盖用户的隐藏操作 ✗）。
+        setState(() {});
+      }
+    }
+    // ★ 到结尾/播完：进度回调里比对「重播」显隐变化 ⇒ 立刻 setState（控件本来就可见时也要重建）
+    final replayNow = _showReplay;
+    if (replayNow != _replayShown && mounted) {
+      _replayShown = replayNow;
+      setState(() {});
     }
     final errEdge = err && !_errShown; // 出错的上升沿 → 自动重试
     final startedEdge = started && !_started; // 起播（含自动重试后恢复）→ 额度清零
@@ -2423,6 +2440,31 @@ class PlayerWidgetState extends State<PlayerWidget>
     } catch (_) {
       return const <String>[];
     }
+  }
+
+  /// 播完 + 没有下一集 ⇒ 播放器中间显示「重播」（用户 2026-10-19）。
+  /// 单视频（`switcher == null`）也算"没有下一集"。
+  /// ⚠️ 用户实测："进度到底了就该显示" —— 有些源**不报 completed**，所以位置到结尾
+  ///   （400ms 容差）也算播完，不能死等 `completed` ☠
+  bool get _showReplay {
+    if (widget.switcher?.hasNext ?? false) return false;
+    final kp = _kp;
+    if (kp == null) return false;
+    final v = kp.value;
+    if (v.completed) return true;
+    final d = v.duration;
+    return d > Duration.zero &&
+        v.position >= d - const Duration(milliseconds: 400);
+  }
+
+  /// 重播：回到 0 秒重新播（完成态随 playing 复位 ⇒ 按钮自动消失）
+  Future<void> _replay() async {
+    final kp = _kp;
+    if (kp == null) return;
+    try {
+      await kp.seek(Duration.zero);
+      await kp.play();
+    } catch (_) {}
   }
 
   /// 控制条显示数秒后自动隐藏
@@ -2697,7 +2739,10 @@ class PlayerWidgetState extends State<PlayerWidget>
                           style: const TextStyle(color: Colors.white),
                         ),
                       ),
-                    ),
+                    )
+                  else if (_showReplay)
+                    // ★ 用户 2026-10-19：播完 + 没有下一集 ⇒ 中间「重播」（点了从头播）
+                    Center(child: kReplayButton(_replay)),
                   // 底部：进度条在最底；单击视频显示整条控制条，
                   // 左右滑动时只留进度条跟手（按钮和时间文字都隐藏）
                   ValueListenableBuilder<Duration?>(
@@ -2829,6 +2874,32 @@ class PlayerWidgetState extends State<PlayerWidget>
 /// 底部控制条：最底下是进度条（可拖），上面一排是播放/暂停 + 时间 + 全屏。
 /// 视频区左右滑动时 showButtons=false：那排按钮（含时间文字）隐藏，
 /// 只留最底下的进度条跟着手指走。
+/// 播放器中间的「重播」按钮（用户 2026-10-19）：
+/// 触发条件 = **播完 + 没有下一集**（单视频也算）。内嵌 / 竖版全屏 / 横版全屏共用这一个。
+/// 点击 = 回到 0 秒重新播放（`completed` 随播放复位，按钮自动消失）。
+Widget kReplayButton(Future<void> Function() onTap) {
+  return GestureDetector(
+    onTap: () => onTap(),
+    behavior: HitTestBehavior.opaque,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
+      ),
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.replay, color: Colors.white, size: 34),
+          SizedBox(height: 4),
+          Text('重播', style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+    ),
+  );
+}
+
 class _ControlBar extends StatefulWidget {
   final KpPlayer player;
 
@@ -3093,6 +3164,25 @@ class FullscreenPlayer extends StatefulWidget {
 class _FullscreenPlayerState extends State<FullscreenPlayer>
     with _SwipeSeek, _BrightnessVolume {
   bool _controls = true;
+
+  /// 播完 + 没有下一集 ⇒ 中间显示「重播」（用户 2026-10-19）。
+  /// ⚠️ **保留**原来"播完且无下一集 ⇒ 自动退全屏"的逻辑（用户明确要求不改成全屏卡住）；
+  ///    万一用户仍停在全屏（没触发退出/手动再进全屏），这里也能看到重播按钮。
+  bool get _showReplay {
+    if (widget.switcher?.hasNext ?? false) return false;
+    final v = widget.player.value;
+    if (v.completed) return true;
+    final d = v.duration;
+    return d > Duration.zero &&
+        v.position >= d - const Duration(milliseconds: 400);
+  }
+
+  Future<void> _replay() async {
+    try {
+      await widget.player.seek(Duration.zero);
+      await widget.player.play();
+    } catch (_) {}
+  }
   /// ★ 2026-10-11（verify-4 #21/#22）：本页**是否真的**给引擎挂了 `_onTick` —— 与 `dispose` 成对，
   ///   避免"没挂成却在 dispose 里摘"（摘一个已 dispose 的 notifier 会断言抛）。
   bool _fsListening = false;
@@ -3496,6 +3586,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
         child: Stack(
           children: [
             Center(child: _videoSurface(kp)),
+            // ★ 用户 2026-10-19：播完 + 没有下一集 ⇒ 中间「重播」按钮
+            //   （kReplayButton 自带 GestureDetector，会在手势竞技场赢过外层单击 ⇒ 点它不会误触发控件切换）
+            if (_showReplay) Center(child: kReplayButton(_replay)),
             // ★ 2026-10-11（修法 A）：**倍速按钮已从此处移出** —— 原来它在这个 Stack 里 ⇒ 等于挂在
             //   大 GestureDetector（上面那个）**子树内** ⇒ 点击要跟 `onTap`/`onDoubleTap` 抢竞技场 ⇒ 慢。
             //   现在它搬去**外层 Stack**、作为那个 GestureDetector 的**兄弟层**（见本 build 末尾）。
