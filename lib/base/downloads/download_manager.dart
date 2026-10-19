@@ -92,7 +92,15 @@ class DownloadManager extends ChangeNotifier {
   Directory? _dir;
   String _dirPath = '';
 
-  /// 下载根目录（`getApplicationSupportDirectory()/downloads`）。
+  /// 旧目录（`Application Support/downloads`）的绝对路径：迁移与"路径自愈"兜底用。
+  /// 覆盖安装后容器 UUID 会变，这里的路径只是**当前容器**下的旧位置。
+  String _legacyDirPath = '';
+
+  /// 迁移前/后的目录前缀（末尾带路径分隔符）：用于整段替换记录里的绝对路径
+  String _legacyRoot = '';
+  String _newRoot = '';
+
+  /// 下载根目录（`getApplicationDocumentsDirectory()/downloads`，文件 App 可见）。
   /// ⚠️ 首次 [load] 之前是空串（目录是异步拿的）；UI 里 `load()` 之后再读。
   String get downloadDir => _dirPath;
 
@@ -130,6 +138,8 @@ class DownloadManager extends ChangeNotifier {
 
   Future<void> _load() async {
     await _ensureDir();
+    // ★ 覆盖安装后旧路径会失效 ⇒ **先搬文件**（到 Documents），再读记录/修路径。
+    await _migrateLegacyDir();
     try {
       final sp = await SharedPreferences.getInstance();
       final raw = sp.getString(storageKey);
@@ -146,14 +156,6 @@ class DownloadManager extends ChangeNotifier {
                 // App 被杀过 ⇒ 降级成 paused（等用户点继续）
                 ep.status = EpStatus.paused;
               }
-              if (ep.status == EpStatus.done) {
-                // 记录说下完了，但文件被人删了 / 路径丢了 ⇒ 回到待下
-                if (ep.localPath.isEmpty || !_fileExists(ep.localPath)) {
-                  ep.status = EpStatus.queued;
-                  ep.localPath = '';
-                  ep.doneBytes = 0;
-                }
-              }
             }
             _tasks.add(t);
           }
@@ -163,6 +165,37 @@ class DownloadManager extends ChangeNotifier {
       // 数据坏了就当空（与仓库既有做法一致：一条坏记录不能拖垮启动）
       _log('读取失败：$e');
     }
+
+    // ① 迁移后的前缀替换（旧目录绝对路径 → 新 Documents 路径）
+    var pathsChanged = _rewriteMigratedPaths();
+
+    // ② 记录路径自愈 + 文件丢失判定（**绝不静默清零**）
+    for (final t in _tasks) {
+      for (final ep in t.episodes) {
+        if (ep.status != EpStatus.done && ep.status != EpStatus.missing) {
+          // ★ 反扫回填（用户 2026-10-19 真机事故）：记录被重置成 queued/0，但文件其实还在
+          //   （下载目录迁移 / 路径变化）⇒ 按候选路径找到成品就恢复成 done。
+          //   只认 `.ts`/`.mp4` 成品（下载器"写完才改名"）⇒ 半截 `.part` 不会误判。
+          if (_recoverEpisodePath(t, ep)) pathsChanged = true;
+          continue;
+        }
+        if (_repairEpisodePath(t, ep)) pathsChanged = true;
+        if (_fileExists(ep.localPath)) {
+          if (ep.status == EpStatus.missing) {
+            // 文件又找到了（迁移完成 / 用户把文件放回来）⇒ 恢复 done
+            ep.status = EpStatus.done;
+            ep.error = '';
+            pathsChanged = true;
+          }
+          continue;
+        }
+        // 找不到文件：保留 doneBytes/totalBytes/label，只改状态与原因
+        ep.status = EpStatus.missing;
+        ep.error = '文件丢失（可能因重装/路径变化）';
+        _log('文件丢失 ${_tagTask(t)} 集=${ep.index} 旧路径=${ep.localPath}');
+      }
+    }
+
     _sortTasks();
     _loaded = true;
     // 历史任务里可能存着"密文封面"（旧 ensureCover 用 httpClient 原样存盘的 bug）
@@ -170,6 +203,7 @@ class DownloadManager extends ChangeNotifier {
     for (final t in _tasks) {
       unawaited(ensureCover(t));
     }
+    if (pathsChanged) _scheduleSave(); // 修好的路径/恢复的状态落盘，下次不用再猜
     _log('加载完成 任务=${_tasks.length} 目录=${_dirPath.isEmpty ? 'null' : _dirPath}');
     notifyListeners();
   }
@@ -405,33 +439,25 @@ class DownloadManager extends ChangeNotifier {
     _pump();
   }
 
-  /// 删整部剧：停下载 → 删目录（成品 + .part 一起）→ 删记录 → 落盘
+  /// 删整部剧：**记录先移除（界面立刻消失）** → 再停下载 / 删目录（失败只记日志）。
   Future<void> removeTask(String taskKey) async {
     final t = _findTask(taskKey);
+    if (t == null) return;
+    _log('删除任务 起 ${_tagTask(t)}');
     _stoppedTasks.add(taskKey);
-    if (t != null) {
-      for (final ep in t.episodes) {
-        final k = _epKey(taskKey, ep.index);
-        _speeds.remove(k);
-        if (_runningEpisodes.contains(k)) _epHandles[k]?.cancel();
-      }
+    for (final ep in t.episodes) {
+      final k = _epKey(taskKey, ep.index);
+      _speeds.remove(k);
+      if (_runningEpisodes.contains(k)) _epHandles[k]?.cancel();
     }
+    // ① 记录先移除：界面立刻消失（删目录可能要等文件锁/旧容器路径不可访问）
+    _tasks.remove(t);
+    notifyListeners();
+    _scheduleSave();
+    // ② 后台收尾：等正在下的集退出（≤2s；超时只影响删目录），删目录失败静默
     await _waitTaskStopped(taskKey);
-    final root = _dir?.path ?? '';
-    if (t != null && root.isNotEmpty) {
-      try {
-        final dir = Directory('$root/${_taskDirName(taskKey)}');
-        if (await dir.exists()) await dir.delete(recursive: true);
-      } catch (e) {
-        _log('删目录失败 ${_tagTask(t)} 原因=$e');
-      }
-    }
-    if (t != null) {
-      _tasks.remove(t);
-      _log('移除任务 ${_tagTask(t)}');
-      notifyListeners();
-      _scheduleSave();
-    }
+    await _deleteTaskDir(taskKey);
+    _log('删除任务 完 ${_tagTask(t)}');
     _pump();
   }
 
@@ -489,66 +515,48 @@ class DownloadManager extends ChangeNotifier {
     _scheduleSave();
   }
 
-  /// **清空所有下载**（下载页「清空」按钮）：停止正在下的 → 删所有任务目录/文件 →
-  /// 清空任务记录/速度表 → 落盘 → `notifyListeners`。
+  /// **清空所有下载**（下载页「清空」按钮）：
+  /// ① 记录/速度表**立即清空并通知**（界面马上变空，不再"感觉清不掉"）；
+  /// ② 再逐个停 isolate、删任务目录（新目录 + 旧目录；失败只记日志）；
+  /// ③ 最后落盘。
   ///
-  /// 为什么先 [cancelTask] 再 [removeTask]：`removeTask` 虽然会等 `_waitTaskStopped`（≤5s），
-  /// 但 worker isolate 可能正卡在一个分片请求上；先 kill 掉 isolate（`.part` / `.ts.progress`
-  /// 保留作续传），删目录时就不会跟"正在写的文件"打架（Windows 上尤其明显）。
-  ///
-  /// 幂等：重复调用只是再落一次盘。**单个任务删失败不影响其余**（只记日志，继续下一个）。
+  /// 幂等：重复调用只是再删一遍（目录不存在就跳过）。**单个目录删失败不影响记录已被清掉**。
   Future<void> clearAll() async {
     await load(); // 没加载过也能清（否则会把"还没读出来的任务"当成不存在）
     final snapshot = List<DownloadTask>.of(_tasks);
+    _log('清空下载 起 任务=${snapshot.length}');
 
-    // ① 先停：kill 正在下载的 isolate（`.part`/断点文件保留，下次还能续）
+    // ① 先停（kill isolate）+ 记录立刻清空
     for (final t in snapshot) {
-      try {
-        await cancelTask(t.key);
-      } catch (e) {
-        _log('清空：暂停失败 ${_tagTask(t)} 原因=$e');
+      _stoppedTasks.add(t.key);
+      for (final ep in t.episodes) {
+        final k = _epKey(t.key, ep.index);
+        _speeds.remove(k);
+        if (_runningEpisodes.contains(k)) _epHandles[k]?.cancel();
       }
     }
-
-    // ② 再删：removeTask 内部会等集停下 + 删整个任务目录（含 .part / 封面）
-    for (final t in snapshot) {
-      try {
-        await removeTask(t.key);
-      } catch (e) {
-        _log('清空：删任务失败 ${_tagTask(t)} 原因=$e');
-      }
-    }
-
-    // ③ 兜底清空记录/速度（上面删失败的条目也一并清掉，界面不能残留"删不掉的条目"）
     _tasks.clear();
     _speeds.clear();
+    notifyListeners();
 
-    // 还在跑的"任务循环"要保留它的暂停闸：现在就把 `_stoppedTasks` 全清的话，
-    // `_runTask` 会接着去下它后面排队的集 ⇒ 刚清空的目录又会被写回来。
-    // 等一会儿（≤2s），只给仍在跑的 key 保留闸门。
+    // ② 还在跑的"任务循环"要保留暂停闸：现在全清的话 `_runTask` 会接着下后面排队的集，
+    //    刚清空的目录又被写回来。等一会儿（≤2s），只给仍在跑的 key 保留闸门。
     final deadline = DateTime.now().add(const Duration(seconds: 2));
     while (_activeTasks.isNotEmpty && DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     _stoppedTasks.removeWhere((k) => !_activeTasks.contains(k));
 
-    // ④ 删目录兜底：removeTask 已经删过；万一因为文件占用/封面回写又冒出来，
-    //    按**本次快照**再删一遍（只删快照里的任务目录，不碰下载根目录下的其它东西）
-    final root = _dir?.path ?? '';
-    if (root.isNotEmpty) {
-      for (final t in snapshot) {
-        try {
-          final d = Directory('$root/${_taskDirName(t.key)}');
-          if (await d.exists()) await d.delete(recursive: true);
-        } catch (_) {}
-      }
+    // ③ 逐个删目录（新+旧；单个失败只记日志，记录已经清掉了）
+    for (final t in snapshot) {
+      await _waitTaskStopped(t.key);
+      await _deleteTaskDir(t.key);
     }
-    _log('清空完成 删除任务=${snapshot.length}');
+    _log('清空下载 完 任务=${snapshot.length}');
 
-    // ⑤ 立刻落盘：清空是用户明确动作，不能等防抖（马上被杀会留下旧记录）
+    // ④ 最后落盘：清空是用户明确动作，不能等防抖
     _saveTimer?.cancel();
     await _saveNow();
-    notifyListeners();
   }
 
   /// 立即落盘（App 退到后台 / 页面销毁时想强制写一次就调它；平时交给防抖）
@@ -706,10 +714,11 @@ class DownloadManager extends ChangeNotifier {
     }
   }
 
-  /// 等某部剧"正在下的集"退出（kill isolate 后 `_runEpisode` 立刻收尾，正常 <1s）
+  /// 等某部剧"正在下的集"退出（kill isolate 后 `_runEpisode` 立刻收尾，正常 <1s）。
+  /// 超时 **2s**：超时只影响删目录，记录早已移除（删除要"即时生效"）。
   Future<void> _waitTaskStopped(String taskKey) async {
     final prefix = '$taskKey|';
-    final deadline = DateTime.now().add(const Duration(seconds: 5));
+    final deadline = DateTime.now().add(const Duration(seconds: 2));
     while (DateTime.now().isBefore(deadline)) {
       var running = false;
       for (final k in _runningEpisodes) {
@@ -725,14 +734,262 @@ class DownloadManager extends ChangeNotifier {
   }
 
   // -------------------------------------------------------------------------
-  // 目录 / 请求头 / 落盘
+  // 目录 / 迁移 / 请求头 / 落盘
   // -------------------------------------------------------------------------
+
+  /// 把旧目录（`Application Support/downloads`）里的任务目录搬到 Documents。
+  ///
+  /// 为什么要在读记录**之前**搬：覆盖安装后记录里的绝对路径（含旧容器 UUID）会失效，
+  /// 先把文件搬到新位置，下面 [_rewriteMigratedPaths] 才能把路径整段换过来。
+  /// 这是"救数据"的唯一机会 —— 搬失败也绝不删记录（后续按 missing 处理，用户可重下）。
+  Future<void> _migrateLegacyDir() async {
+    try {
+      final oldBase = await getApplicationSupportDirectory();
+      final oldDir = Directory('${oldBase.path}/downloads');
+      _legacyDirPath = oldDir.path;
+      if (!await oldDir.exists()) return;
+      final children = await oldDir.list().toList();
+      if (children.isEmpty) return;
+
+      final root = await _ensureDir();
+      if (root == null) return;
+      var moved = 0;
+      for (final child in children) {
+        final name = _baseNameOf(child.path);
+        if (name.isEmpty) continue;
+        final target = '${root.path}/$name';
+        try {
+          final type = await FileSystemEntity.type(target);
+          if (type == FileSystemEntityType.notFound) {
+            // 同卷 ⇒ rename 瞬间完成；跨卷/权限问题 ⇒ 递归复制再删源
+            await _moveEntity(child, target);
+          } else if (child is Directory &&
+              type == FileSystemEntityType.directory) {
+            // 目标已存在（上次迁移只做了一半）⇒ 按文件名补缺，不覆盖已有文件
+            await _mergeDirInto(child, Directory(target));
+          } else {
+            // 同名文件已在 ⇒ 保留新目录里的那份，删掉旧源
+            await _deleteEntity(child);
+          }
+          moved++;
+        } catch (e) {
+          _log('迁移子项失败 name=$name 原因=$e');
+        }
+      }
+      if (await oldDir.exists() && await oldDir.list().isEmpty) {
+        try {
+          await oldDir.delete();
+        } catch (_) {}
+      }
+      _legacyRoot = '${oldDir.path}${Platform.pathSeparator}';
+      _newRoot = '${root.path}${Platform.pathSeparator}';
+      _log('迁移旧目录 搬=$moved 个任务目录 源=${oldDir.path} 目标=${root.path}');
+    } catch (e) {
+      _log('迁移旧目录失败：$e');
+    }
+  }
+
+  /// 记录里的路径整段替换：旧目录前缀 → 新目录前缀
+  bool _rewriteMigratedPaths() {
+    if (_legacyRoot.isEmpty || _newRoot.isEmpty || _legacyRoot == _newRoot) {
+      return false;
+    }
+    // ⚠️ 分隔符归一化：记录里的路径是 `/` 拼的（`kpxx/downloads/...`），
+    //   `Directory.path` 在 Windows 给的是 `\`（`...\kpxx\downloads`）
+    //   ⇒ 直接 `startsWith` 永远不命中（🛢️ 实测：迁移成功但路径没换过来 ⇒ 误报"文件丢失"）。
+    String norm(String p) => p.replaceAll(r'\', '/');
+    final legacyNorm = norm(_legacyRoot).toLowerCase();
+    final newNorm = norm(_newRoot);
+    var changed = false;
+    String fix(String p) {
+      if (p.isEmpty) return p;
+      final np = norm(p);
+      if (!np.toLowerCase().startsWith(legacyNorm)) return p;
+      changed = true;
+      return '$newNorm${np.substring(legacyNorm.length)}';
+    }
+
+    for (final t in _tasks) {
+      t.coverLocal = fix(t.coverLocal);
+      for (final ep in t.episodes) {
+        ep.localPath = fix(ep.localPath);
+      }
+    }
+    return changed;
+  }
+
+  /// 记录里的绝对路径可能因为覆盖安装（容器 UUID 变了）失效。
+  /// 先按「任务目录名 + 文件名」在当前下载目录找，再试旧目录；找到就修好。
+  /// 返回 true = 路径被改过（调用方据此落盘）。
+  bool _repairEpisodePath(DownloadTask t, DownloadEpisode ep) {
+    if (ep.localPath.isNotEmpty && _fileExists(ep.localPath)) return false;
+    final base = _baseNameOf(ep.localPath);
+    final roots = <String>[
+      if ((_dir?.path ?? '').isNotEmpty) _dir!.path,
+      if (_legacyDirPath.isNotEmpty && _legacyDirPath != (_dir?.path ?? ''))
+        _legacyDirPath,
+    ];
+    final candidates = <String>[];
+    for (final root in roots) {
+      final dir = '$root/${_taskDirName(t.key)}';
+      if (base.isNotEmpty) {
+        candidates.add('$dir/$base');
+      } else {
+        // localPath 本身丢了：按下载器的命名规则猜（ep_0001.mp4 / .ts）
+        for (final ext in const <String>['.mp4', '.ts']) {
+          candidates.add('$dir/${_epBaseName(ep.index)}$ext');
+        }
+      }
+    }
+    for (final c in candidates) {
+      if (_fileExists(c)) {
+        ep.localPath = c;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 反扫回填：记录说"没下好"（queued/paused 等），但磁盘上有**成品文件** ⇒ 恢复成 done。
+  /// 只认 `.ts` / `.mp4`（下载器写完才 rename）⇒ 半截 `.part` 不会误判。
+  /// 场景：真机上记录被旧版本的"文件不在⇒清零"逻辑重置过，文件其实还在（迁移/路径变化）。
+  bool _recoverEpisodePath(DownloadTask t, DownloadEpisode ep) {
+    final c = _findExistingFile(t, ep);
+    if (c == null) return false;
+    final len = _fileLength(c);
+    ep.status = EpStatus.done;
+    ep.localPath = c;
+    ep.error = '';
+    if (len > 0) {
+      ep.doneBytes = len;
+      ep.totalBytes = len;
+    }
+    _log('反扫回填 ${_tagTask(t)} 集=${ep.index} 字节=$len path=$c');
+    return true;
+  }
+
+  /// 在 `downloadDir` / 旧目录里按"任务目录名 + 集文件名"找已存在的成品文件
+  String? _findExistingFile(DownloadTask t, DownloadEpisode ep) {
+    final roots = <String>[
+      if ((_dir?.path ?? '').isNotEmpty) _dir!.path,
+      if (_legacyDirPath.isNotEmpty && _legacyDirPath != (_dir?.path ?? ''))
+        _legacyDirPath,
+    ];
+    final base = _baseNameOf(ep.localPath);
+    final names = <String>[
+      if (base.isNotEmpty) base,
+      '${_epBaseName(ep.index)}.ts',
+      '${_epBaseName(ep.index)}.mp4',
+    ];
+    for (final root in roots) {
+      final dir = '$root/${_taskDirName(t.key)}';
+      for (final n in names) {
+        final p = '$dir/$n';
+        if (_fileExists(p)) return p;
+      }
+    }
+    return null;
+  }
+
+  static int _fileLength(String path) {
+    try {
+      return File(path).lengthSync();
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _moveEntity(FileSystemEntity e, String target) async {
+    try {
+      if (e is File) {
+        await e.rename(target);
+      } else if (e is Directory) {
+        await e.rename(target);
+      }
+    } catch (_) {
+      await _copyEntity(e, target);
+      await _deleteEntity(e);
+    }
+  }
+
+  Future<void> _copyEntity(FileSystemEntity e, String target) async {
+    if (e is Directory) {
+      final dst = Directory(target);
+      await dst.create(recursive: true);
+      await for (final child in e.list()) {
+        await _copyEntity(child, '${dst.path}/${_baseNameOf(child.path)}');
+      }
+    } else if (e is File) {
+      final parent = File(target).parent;
+      if (!await parent.exists()) await parent.create(recursive: true);
+      await e.copy(target);
+    }
+  }
+
+  Future<void> _deleteEntity(FileSystemEntity e) async {
+    try {
+      await e.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  /// 合并目录：**按文件名补缺、不覆盖已有文件**（同名保留目标那份），最后删源目录
+  Future<void> _mergeDirInto(Directory src, Directory dst) async {
+    await dst.create(recursive: true);
+    await for (final child in src.list()) {
+      final name = _baseNameOf(child.path);
+      if (name.isEmpty) continue;
+      final target = '${dst.path}/$name';
+      final type = await FileSystemEntity.type(target);
+      if (type == FileSystemEntityType.notFound) {
+        await _moveEntity(child, target);
+      } else if (child is Directory &&
+          type == FileSystemEntityType.directory) {
+        await _mergeDirInto(child, Directory(target));
+      }
+      // 同名文件：保留目标，源文件随最后 src.delete 一起清掉
+    }
+    try {
+      await src.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  /// 删一个任务目录（新目录 + 旧目录都试；失败只记日志，**绝不影响记录**）
+  Future<void> _deleteTaskDir(String taskKey) async {
+    final name = _taskDirName(taskKey);
+    final roots = <String>[
+      if ((_dir?.path ?? '').isNotEmpty) _dir!.path,
+      if (_legacyDirPath.isNotEmpty && _legacyDirPath != (_dir?.path ?? ''))
+        _legacyDirPath,
+    ];
+    for (final root in roots) {
+      final path = '$root/$name';
+      try {
+        final d = Directory(path);
+        if (await d.exists()) await d.delete(recursive: true);
+      } catch (e) {
+        _log('删目录失败 path=$path 原因=$e');
+      }
+    }
+  }
+
+  /// 取文件名（**同时认 `/` 和 `\`**）。
+  /// ⚠️ 我们拼路径统一用 `/`（`'${dir.path}/downloads'`），而 `Platform.pathSeparator`
+  /// 在 Windows 是 `\` ⇒ 只按平台分隔符切会把**整条路径**当文件名
+  /// （🛢️ 实测：迁移后本地自愈全部失败、误报"文件丢失"）。
+  static String _baseNameOf(String path) {
+    final i = path.lastIndexOf('/');
+    final j = path.lastIndexOf(r'\');
+    final k = i > j ? i : j;
+    return k < 0 ? path : path.substring(k + 1);
+  }
 
   Future<Directory?> _ensureDir() async {
     final cached = _dir;
     if (cached != null) return cached;
     try {
-      final base = await getApplicationSupportDirectory();
+      // ★ 用户 2026-10-19 拍板：放 Documents（UIFileSharingEnabled 只暴露 Documents
+      //   ⇒「文件」App 里能直接看到下载文件，用户可核对）。旧数据由 [_migrateLegacyDir] 搬过来。
+      final base = await getApplicationDocumentsDirectory();
       final dir = Directory('${base.path}/downloads');
       if (!await dir.exists()) await dir.create(recursive: true);
       _dir = dir;

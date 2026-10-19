@@ -1,0 +1,658 @@
+Launching lib/main_win_dev.dart on Windows in debug mode...
+Building Windows application...                                    17.6s
+√ Built build\windows\x64\runner\Debug\kpxx.exe
+[IMPORTANT:flutter/shell/platform/embedder/embedder_surface_gl_impeller.cc(126)] Using the Impeller rendering backend (OpenGLESSDF).
+package:media_kit_libs_windows_video registered.
+Problem getting monitor brightness
+Syncing files to device Windows...                              
+[WIN-VIDEO] 已装上 media_kit 版 VideoPlayerPlatform（video_player 接口 → libmpv）√
+[WIN-DEV] 播放引擎（MediaKit / libmpv）就绪 √
+[WIN-DEV] 播种背景：已在图集里（跳过）bg_seed_black.jpg √
+[WIN-DEV] 播种背景：已在图集里（跳过）bg_seed_white.jpg √
+[WIN-DEV] 播种背景：完成（索引 2/20 条，本次改动=false）
+media_kit: NativeReferenceHolder: Allocated 1680605907008
+背景明暗：暗像素占比 0.0% → 浅色
+Syncing files to device Windows...                                 180ms
+
+Flutter run key commands.
+r Hot reload. 
+R Hot restart.
+h List all available interactive commands.
+d Detach (terminate "flutter run" but leave application running).
+c Clear the screen
+q Quit (terminate the application on the device).
+
+A Dart VM Service on Windows is available at: http://127.0.0.1:61305/WOHrsV5N3gg=/
+The Flutter DevTools debugger and profiler on Windows is available at: http://127.0.0.1:61305/WOHrsV5N3gg=/devtools/?uri=ws://127.0.0.1:61305/WOHrsV5N3gg=/ws
+[NAV] → /
+[IMG] 命磁盘 字节=53263 host=pic.drleao.cn
+[IMG] 命磁盘 字节=249838 host=pic.gyezbp.cn
+[IMG] 命磁盘 字节=55064 host=pic.drleao.cn
+[IMG] 命磁盘 字节=50066 host=pbs.twimg.com
+[IMG] 命磁盘 字节=55907 host=pic.wvxrrip.cn
+[IMG] 命磁盘 字节=91579 host=pic.wvxrrip.cn
+[IMG] 命磁盘 字节=174813 host=pic.drleao.cn
+[IMG] 命磁盘 字节=53263 host=pic.drleao.cn
+[IMG] 命磁盘 字节=55064 host=pic.drleao.cn
+[DL] 加载完成 任务=5 目录=C:\Users\Administrator\Documents/downloads
+[CACHE] 清理 文件=346 删=11 剩=335 总字节=64561003 上限文件=400 上限字节=62914560
+[IMG] 命磁盘 字节=174813 host=pic.drleao.cn
+
+Performing hot reload...                                        
+Reloaded 0 libraries in 370ms (compile: 38 ms, reload: 0 ms, reassemble: 272 ms).
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=1046220677 vc=627141477 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=1046220677 vc=627141477 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+[IMG] 命内存 host=pic.drleao.cn
+1 1
+media_kit: VideoOutput: Create Texture: 1680605501760
+media_kit: VideoOutput: Using H/W rendering.
+[ERROR:flutter/shell/common/shell.cc(1183)] The 'com.alexmercerind/media_kit_video' channel sent a message from native to Flutter on a non-platform thread. Platform channel messages must be sent on the platform thread. Failure to do so may result in data loss or crashes, and must be fixed in the plugin or application code creating that channel.
+See https://docs.flutter.dev/platform-integration/platform-channels#channels-and-platform-threading for more information.
+
+══╡ EXCEPTION CAUGHT BY SERVICES LIBRARY ╞══════════════════════════════════════════════════════════
+The following MissingPluginException was thrown while activating platform stream on channel
+com.kurenai7968.volume_controller.volume_listener_event:
+MissingPluginException(No implementation found for method listen on channel
+com.kurenai7968.volume_controller.volume_listener_event)
+
+When the exception was thrown, this was the stack:
+#0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      EventChannel.receiveBroadcastStream.<anonymous closure> (package:flutter/src/services/platform_channel.dart:711:11)
+<asynchronous suspension>
+════════════════════════════════════════════════════════════════════════════════════════════════════
+
+VideoOutput.Resize
+{handle: 1680862452016, id: 1680605501760, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1680605501760
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: VideoOutput: Free Texture: 1680605501760
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+media_kit: VideoOutput: Create Texture: 1680872731376
+VideoOutput.Resize
+{handle: 1680862452016, id: 1680872731376, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 首帧 position=56ms
+[PLAY] 视频层重建(内嵌) kp=1046220677 vc=627141477 playing=true buffering=false completed=false pos=56ms 首帧到=true 控件可见=true poster=有
+[PLAY] 计时 kp=1046220677 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=160ms 时长=351ms 首帧=644ms 缓冲止=247ms hwdec-current=d3d11va
+[NET] 站=黄果短剧 code=200 len=283949 ms=1645 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=1799
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=1801
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=1046220677 vc=627141477 playing=true buffering=false completed=false pos=1089ms 首帧到=true 控件可见=true poster=有
+[IMG] 命磁盘 字节=273834 host=pic.drleao.cn
+[IMG] 命磁盘 字节=173356 host=pic.drleao.cn
+[IMG] 命磁盘 字节=278673 host=pic.drleao.cn
+[IMG] 命磁盘 字节=273991 host=pic.drleao.cn
+[IMG] 命磁盘 字节=135336 host=pic.drleao.cn
+[IMG] 命磁盘 字节=196520 host=pic.drleao.cn
+[IMG] 命磁盘 字节=287582 host=pic.drleao.cn
+[IMG] 命磁盘 字节=217034 host=pic.drleao.cn
+[IMG] 命磁盘 字节=336696 host=pic.drleao.cn
+[IMG] 命磁盘 字节=160487 host=pic.drleao.cn
+[IMG] 命磁盘 字节=271642 host=pic.drleao.cn
+[IMG] 命磁盘 字节=165675 host=pic.drleao.cn
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=1046220677 vc=627141477 playing=true buffering=false completed=false pos=2756ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=274414 ms=1114 host=huangguoai.com path=https://huangguoai.com/video/12/ep-3/ qlen=0 qhead=
+[SRC] 黄果短剧 ep=3 解析出 1 条源
+[SRC] 站=黄果短剧 分支=站点自有 n=1 ms=1162
+[DL] 合并 剧=神瞳觉醒 第一季 站=黄果短剧 host= 新增=0 替换=1
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=1046220677 vc=627141477 playing=true buffering=false completed=false pos=4523ms 首帧到=true 控件可见=false poster=有
+[DL] 开下 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=2 源host=yd-hls.hzjvlo.cn
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=1046220677 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Free Texture: 1680872731376
+VideoOutput::~VideoOutput: 1680862452016
+[DL] 完成 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=2 字节=74616072
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=1047632931 vc=358389487 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=1047632931 vc=358389487 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+[IMG] 命内存 host=pic.drleao.cn
+1 1
+media_kit: VideoOutput: Create Texture: 1680870922144
+Another exception was thrown: MissingPluginException(No implementation found for method listen on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Using H/W rendering.
+VideoOutput.Resize
+{handle: 1679536496736, id: 1680870922144, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1680870922144
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: VideoOutput: Free Texture: 1680870922144
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+media_kit: VideoOutput: Create Texture: 1680606217440
+VideoOutput.Resize
+{handle: 1679536496736, id: 1680606217440, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 首帧 position=56ms
+[PLAY] 视频层重建(内嵌) kp=1047632931 vc=358389487 playing=true buffering=false completed=false pos=56ms 首帧到=true 控件可见=true poster=有
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 计时 kp=1047632931 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=65ms 时长=108ms 首帧=418ms 缓冲止=79ms hwdec-current=d3d11va
+[NET] 站=黄果短剧 code=200 len=280481 ms=1633 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=1671
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=1671
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=1047632931 vc=358389487 playing=true buffering=false completed=false pos=1256ms 首帧到=true 控件可见=true poster=有
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20261015/2026101511350971870.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20261007/2026100718030850813.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260928/2026092821254772839.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20261014/2026101412080070215.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260808/2026080817531451281.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260924/2026092417592030839.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260910/2026091015230154649.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260903/2026090318173157270.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260826/2026082617110531534.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260918/2026091821375628548.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/upload/20260913/2026091318251376319.jpg
+[IMG] 取数 host=pic.drleao.cn path=https://pic.drleao.cn/upload_01/xiao/20261016/2026101610570964504.jpeg
+[IMG] 解密前 len=135344 host=pic.drleao.cn
+[IMG] 解密前 len=196528 host=pic.drleao.cn
+[IMG] 解密后 len=135336 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=135336 缓存条数=20 host=pic.drleao.cn
+[IMG] 解密后 len=196520 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=196520 缓存条数=21 host=pic.drleao.cn
+[IMG] 解密前 len=165680 host=pic.drleao.cn
+[IMG] 解密前 len=173360 host=pic.drleao.cn
+[IMG] 解密后 len=165675 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=165675 缓存条数=22 host=pic.drleao.cn
+[IMG] 解密后 len=173356 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=173356 缓存条数=23 host=pic.drleao.cn
+[IMG] 解密前 len=217040 host=pic.drleao.cn
+[IMG] 解密前 len=274000 host=pic.drleao.cn
+[IMG] 解密前 len=271648 host=pic.drleao.cn
+[IMG] 解密前 len=160496 host=pic.drleao.cn
+[IMG] 解密后 len=217034 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=217034 缓存条数=24 host=pic.drleao.cn
+[IMG] 解密后 len=160487 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=160487 缓存条数=25 host=pic.drleao.cn
+[IMG] 解密前 len=278688 host=pic.drleao.cn
+[IMG] 解密后 len=273991 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=273991 缓存条数=26 host=pic.drleao.cn
+[IMG] 解密后 len=271642 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=271642 缓存条数=27 host=pic.drleao.cn
+[IMG] 解密前 len=336704 host=pic.drleao.cn
+[IMG] 解密后 len=278673 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=278673 缓存条数=28 host=pic.drleao.cn
+[IMG] 解密前 len=273840 host=pic.drleao.cn
+[IMG] 解密前 len=287584 host=pic.drleao.cn
+[IMG] 解密后 len=336696 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=336696 缓存条数=29 host=pic.drleao.cn
+[IMG] 解密后 len=273834 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=273834 缓存条数=30 host=pic.drleao.cn
+[IMG] 解密后 len=287582 host=pic.drleao.cn
+[IMG] 落盘+入内存缓存 len=287582 缓存条数=31 host=pic.drleao.cn
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=1047632931 vc=358389487 playing=true buffering=false completed=false pos=3989ms 首帧到=true 控件可见=false poster=有
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[CACHE] 清理 文件=337 删=2 剩=335 总字节=63209544 上限文件=400 上限字节=62914560
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=1047632931 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Free Texture: 1680606217440
+VideoOutput::~VideoOutput: 1679536496736
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=499798727 vc=323390303 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+Another exception was thrown: MissingPluginException(No implementation found for method listen on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+1 1
+media_kit: VideoOutput: Create Texture: 1680606218880
+media_kit: VideoOutput: Using H/W rendering.
+VideoOutput.Resize
+{handle: 1680862450176, id: 1680606218880, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1680606218880
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0media_kit: VideoOutput: Free Texture: 
+1680606218880
+media_kit: VideoOutput: Create Texture: 1680860930048
+[PLAY] 首帧 position=3023ms
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=3023ms 首帧到=true 控件可见=true poster=有
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 计时 kp=499798727 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=70ms 时长=121ms 首帧=3426ms 缓冲止=86ms hwdec-current=d3d11va
+VideoOutput.Resize
+{handle: 1680862450176, id: 1680860930048, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=3156ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=280481 ms=3736 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=3766
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=3766
+[PLAY] 长按取消 触发源=手势取消(内嵌) ⇒ setRate(1.0)（回到开关状态）
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=3356ms 首帧到=true 控件可见=false poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] 控件显示 原因=单击切换(内嵌) 切换后可见=true
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=3656ms 首帧到=true 控件可见=true poster=有
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=6689ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=279958 ms=926 host=huangguoai.com path=https://huangguoai.com/video/12/ep-4/ qlen=0 qhead=
+[SRC] 黄果短剧 ep=4 解析出 1 条源
+[SRC] 站=黄果短剧 分支=站点自有 n=1 ms=947
+[DL] 合并 剧=神瞳觉醒 第一季 站=黄果短剧 host= 新增=0 替换=1
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+[PLAY] 视频层重建(内嵌) kp=499798727 vc=323390303 playing=true buffering=false completed=false pos=7089ms 首帧到=true 控件可见=false poster=有
+[DL] 开下 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=3 源host=yd-hls.hzjvlo.cn
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=499798727 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+media_kit: VideoOutput: Free Texture: 1680860930048
+VideoOutput::~VideoOutput: 1680862450176
+[DL] 完成 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=3 字节=98025268
+
+Performing hot reload...                                        
+Reloaded 1 of 2749 libraries in 796ms (compile: 76 ms, reload: 325 ms, reassemble: 352 ms).
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=147743564 vc=183709263 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=147743564 vc=183709263 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+[IMG] 命内存 host=pic.drleao.cn
+1 1
+media_kit: VideoOutput: Create Texture: 1680870899200
+
+══╡ EXCEPTION CAUGHT BY SERVICES LIBRARY ╞══════════════════════════════════════════════════════════
+The following MissingPluginException was thrown while activating platform stream on channel
+com.kurenai7968.volume_controller.volume_listener_event:
+MissingPluginException(No implementation found for method listen on channel
+com.kurenai7968.volume_controller.volume_listener_event)
+
+When the exception was thrown, this was the stack:
+#0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      EventChannel.receiveBroadcastStream.<anonymous closure> (package:flutter/src/services/platform_channel.dart:711:11)
+<asynchronous suspension>
+════════════════════════════════════════════════════════════════════════════════════════════════════
+
+media_kit: VideoOutput: Using H/W rendering.
+VideoOutput.Resize
+{handle: 1679537251760, id: 1680870899200, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1680870899200
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: VideoOutput: Free Texture: 1680870899200
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+media_kit: VideoOutput: Create Texture: 1679526471504
+VideoOutput.Resize
+{handle: 1679537251760, id: 1679526471504, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 首帧 position=56ms
+[PLAY] 视频层重建(内嵌) kp=147743564 vc=183709263 playing=true buffering=false completed=false pos=56ms 首帧到=true 控件可见=true poster=有
+[PLAY] 计时 kp=147743564 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=70ms 时长=127ms 首帧=431ms 缓冲止=87ms hwdec-current=d3d11va
+[NET] 站=黄果短剧 code=200 len=280481 ms=1462 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=1566
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=1568
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=147743564 vc=183709263 playing=true buffering=false completed=false pos=1089ms 首帧到=true 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=147743564 vc=183709263 playing=true buffering=false completed=false pos=2756ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=282022 ms=979 host=huangguoai.com path=https://huangguoai.com/video/12/ep-5/ qlen=0 qhead=
+[SRC] 黄果短剧 ep=5 解析出 1 条源
+[SRC] 站=黄果短剧 分支=站点自有 n=1 ms=1031
+[DL] 合并 剧=神瞳觉醒 第一季 站=黄果短剧 host= 新增=0 替换=1
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[DL] 开下 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=4 源host=yd-hls.hzjvlo.cn
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=147743564 vc=183709263 playing=true buffering=false completed=false pos=4689ms 首帧到=true 控件可见=false poster=有
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=147743564 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Free Texture: 1679526471504
+VideoOutput::~VideoOutput: 1679537251760
+[DL] 完成 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=4 字节=128916676
+
+Performing hot reload...                                        
+Reloaded 1 of 2749 libraries in 684ms (compile: 55 ms, reload: 288 ms, reassemble: 301 ms).
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=1021301808 vc=220924949 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=1021301808 vc=220924949 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+[IMG] 命内存 host=pic.drleao.cn
+1 1
+media_kit: VideoOutput: Create Texture: 1679504378288
+
+══╡ EXCEPTION CAUGHT BY SERVICES LIBRARY ╞══════════════════════════════════════════════════════════
+The following MissingPluginException was thrown while activating platform stream on channel
+com.kurenai7968.volume_controller.volume_listener_event:
+MissingPluginException(No implementation found for method listen on channel
+com.kurenai7968.volume_controller.volume_listener_event)
+
+When the exception was thrown, this was the stack:
+#0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      EventChannel.receiveBroadcastStream.<anonymous closure> (package:flutter/src/services/platform_channel.dart:711:11)
+<asynchronous suspension>
+════════════════════════════════════════════════════════════════════════════════════════════════════
+
+media_kit: VideoOutput: Using H/W rendering.
+VideoOutput.Resize
+{handle: 1680588393216, id: 1679504378288, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1679504378288
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: VideoOutput: Free Texture: 1679504378288
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+media_kit: VideoOutput: Create Texture: 1681146960848
+VideoOutput.Resize
+{handle: 1680588393216, id: 1681146960848, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 首帧 position=56ms
+[PLAY] 视频层重建(内嵌) kp=1021301808 vc=220924949 playing=true buffering=false completed=false pos=56ms 首帧到=true 控件可见=true poster=有
+[PLAY] 计时 kp=1021301808 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=71ms 时长=150ms 首帧=476ms 缓冲止=96ms hwdec-current=d3d11va
+[NET] 站=黄果短剧 code=200 len=280481 ms=1407 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=1506
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=1508
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=1021301808 vc=220924949 playing=true buffering=false completed=false pos=989ms 首帧到=true 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=1021301808 vc=220924949 playing=true buffering=false completed=false pos=2723ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=279480 ms=877 host=huangguoai.com path=https://huangguoai.com/video/12/ep-6/ qlen=0 qhead=
+[SRC] 黄果短剧 ep=6 解析出 1 条源
+[SRC] 站=黄果短剧 分支=站点自有 n=1 ms=941
+[DL] 合并 剧=神瞳觉醒 第一季 站=黄果短剧 host= 新增=0 替换=1
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[DL] 开下 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=5 源host=yd-hls.hzjvlo.cn
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=1021301808 vc=220924949 playing=true buffering=false completed=false pos=5689ms 首帧到=true 控件可见=false poster=有
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=1021301808 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Free Texture: 1681146960848
+VideoOutput::~VideoOutput: 1680588393216
+[DL] 完成 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=5 字节=81057892
+[NAV] → 离线播放
+[DETAIL] 黄果短剧 path=/video/12/ 分流⇒视频解析器
+[PLAY] PlayerWidget.initState 挂载 源=1条 poster=有 续播=0ms switcher=true
+[PLAY] didChangeDependencies 已初始化=false（false ⇒ 下面排微任务建引擎）switcher=true
+[PLAY] 首次依赖 ⇒ 排微任务 _initPlayer
+[PLAY] 视频层重建(内嵌) kp=(无=显示封面区) vc=- playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[PLAY] _initPlayer 起 在途=false 源=1条 index=0 curIndex=0
+[PLAY] _initPlayerOnce 起 源=1条 lazy=false 续播目标=0ms 当前kp=(无)
+[PLAY] 预建引擎 需要=true（缓冲=300MB）
+[PLAY] 模式=复用 切集/换源：当前 kp=(无)
+[PLAY] 模式=复用：沿用当前引擎（不新建/不回收）kp=(无·由下面预建引擎补上)
+[PLAY] 复用取证 三步：pause=上游已发 open=即将发(内部 play:true) stop=两边都没用过 attach=不发（同实例同纹理）
+[PLAY] mpv参数 bufferSize=300MB logLevel=error demuxer-lavf-analyzeduration=2.0 demuxer-lavf-probesize=1500000 cache-pause-initial=no network-timeout=20 stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,reconnect_on_network_error=1,reconnect_on_http_error=5xx hwdec=(不下发·上游默认) referrer=(每源现设·不进日志) ｜未设：cache/cache-secs/demuxer-readahead-secs/hls-*（保持上游默认）
+[PLAY] 硬解下发=不设(上游默认)
+[PLAY] 按需取源 需要=false
+[PLAY] 交给播放器 已有实例=false（false ⇒ 用预建引擎 _attach 上屏）
+[PLAY] _attach 新kp=153404057 vc=918572751 旧kp=(无=首次上屏) 旧kp会被shutdown=false 预建kp=(已交接)
+[PLAY] 倍速 ⇒ 1.0×（新引擎上屏后补下发）
+[PLAY] 试源 round=0 i=0/共1条
+[PLAY] host= path=file:///C:/Users/Administrator/Documents/downloads/t_3d0a7738/ep_0000.ts qlen=0 ref=https://huangguoai.com/
+Intel(R) UHD Graphics 630
+[PLAY] 视频层重建(内嵌) kp=153404057 vc=918572751 playing=false buffering=false completed=false pos=0ms 首帧到=false 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+Another exception was thrown: MissingPluginException(No implementation found for method listen on channel com.kurenai7968.volume_controller.volume_listener_event)
+1 1
+media_kit: VideoOutput: Create Texture: 1681146421648
+media_kit: VideoOutput: Using H/W rendering.
+VideoOutput.Resize
+{handle: 1680588393216, id: 1681146421648, rect: {height: 0, left: 0, top: 0, width: 0}}
+NativeVideoController: Texture ID: 1681146421648
+[PLAY] 引擎 playing=false（_userPaused=false 状态里旧值=false） ⇒ 采纳
+[PLAY] 引擎 playing=true（_userPaused=false 状态里旧值=false） ⇒ 采纳
+media_kit: wakelock: _count = 1
+[PLAY] 缓冲 起
+[PLAY] 时长=207s（首次拿到 √）
+[PLAY] 起播=ok host=
+[PLAY] 复用取证 i=0 ok=true 时长=207900ms 位置=0ms 缓冲=true err=false （时长/位置都 0 = 打开成功但没出帧 ⇒ 复用档黑屏）
+[PLAY] 起播成功 i=0 ready=true duration=207s 续播目标=0ms
+[PLAY] 控件排期 3 秒后自动隐藏 原因=这条源起播成功
+[PLAY] 控件排期 3 秒后自动隐藏(内嵌) 当前可见=true
+[PLAY] _initPlayer 结束 补跑=false
+[PLAY] 缓冲 止
+720 1254
+media_kit: VideoOutput: Free Texture: 1681146421648
+media_kit: ANGLESurfaceManager: Direct3D Feature Level: 11_0
+media_kit: VideoOutput: Create Texture: 1679552876240
+VideoOutput.Resize
+{handle: 1680588393216, id: 1679552876240, rect: {height: 1254, left: 0, top: 0, width: 720}}
+[PLAY] 首帧 position=56ms
+[PLAY] 视频层重建(内嵌) kp=153404057 vc=918572751 playing=true buffering=false completed=false pos=56ms 首帧到=true 控件可见=true poster=有
+[PLAY] 计时 kp=153404057 why=里程碑齐(时长+缓冲止) open提交=0ms 首事件=73ms 时长=146ms 首帧=450ms 缓冲止=90ms hwdec-current=d3d11va
+[NET] 站=黄果短剧 code=200 len=280481 ms=1051 host=huangguoai.com path=https://huangguoai.com/video/12/ qlen=0 qhead=
+[DETAIL] 黄果短剧 path=/video/12/ 视频=21 图=0 相关=12 ms=1087
+[DETAIL] 站=黄果短剧 host= path=/video/12/ videos=21 images=0 related=12 ms=1087
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=153404057 vc=918572751 playing=true buffering=false completed=false pos=656ms 首帧到=true 控件可见=true poster=有
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[IMG] 命内存 host=pic.drleao.cn
+[NAV] → ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] 控件隐藏 原因=3 秒计时到(内嵌)
+[PLAY] 视频层重建(内嵌) kp=153404057 vc=918572751 playing=true buffering=false completed=false pos=2756ms 首帧到=true 控件可见=false poster=有
+[NET] 站=黄果短剧 code=200 len=281081 ms=1002 host=huangguoai.com path=https://huangguoai.com/video/12/ep-7/ qlen=0 qhead=
+[SRC] 黄果短剧 ep=7 解析出 1 条源
+[SRC] 站=黄果短剧 分支=站点自有 n=1 ms=1027
+[DL] 合并 剧=神瞳觉醒 第一季 站=黄果短剧 host= 新增=0 替换=1
+[NAV] ← ModalBottomSheetRoute<DlSubmitResult>
+[PLAY] didUpdateWidget index=0 curIndex=0 换片=false 源=1条 lazy=false
+[PLAY] 视频层重建(内嵌) kp=153404057 vc=918572751 playing=true buffering=false completed=false pos=4589ms 首帧到=true 控件可见=false poster=有
+[DL] 开下 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=6 源host=yd-hls.hzjvlo.cn
+[NAV] ← 离线播放
+media_kit: wakelock: _count = 0
+[PLAY] PlayerWidget.dispose kp=153404057 预建kp=(无) busy=false 重试额度=0 在途=false
+[PLAY] 丢弃预建引擎 (本来就没有)
+Another exception was thrown: MissingPluginException(No implementation found for method cancel on channel com.kurenai7968.volume_controller.volume_listener_event)
+media_kit: VideoOutput: Free Texture: 1679552876240
+VideoOutput::~VideoOutput: 1680588393216
+[DL] 完成 剧=神瞳觉醒 第一季 站=黄果短剧 host= 集=6 字节=99224332

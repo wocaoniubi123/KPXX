@@ -211,73 +211,85 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     color: kTxt,
                   ),
                 ),
-                const SizedBox(height: 4),
-                // 第一行：站点名 + 右侧状态/按钮（用户 2026-10-19：集数/大小换到下一行）
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        task.site,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11, color: kTxtSub),
-                      ),
-                    ),
-                    if (_hasPaused(task))
-                      // 已暂停 ⇒ 「继续」按钮（用户 2026-10-19：直接点就续传）
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: _resumeButton(task),
-                      )
-                    else if (status == '下载中')
-                      // 下载中 ⇒ 「暂停」按钮（用户 2026-10-19）
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: _pauseButton(task),
-                      )
-                    else if (status.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 6),
+                const SizedBox(height: 3),
+                // 第一行：站点名 + 右侧状态/按钮（用户口径：**站点单独一行**，集数/大小在它下面）
+                // ⚠️ **固定行高 18**：右侧「暂停/继续」按钮（上下 padding + 11pt 字 ≈ 17pt）比纯文字
+                //   （≈13pt）高 ⇒ 不固定的话"下载中"卡片比"已完成"卡片高 ~4pt，下面所有卡片跟着上下
+                //   移动（用户实测的"漂移"☠）。固定后三个状态（下载中/已暂停/已完成）高度完全一致。
+                SizedBox(
+                  height: 18,
+                  child: Row(
+                    children: [
+                      Expanded(
                         child: Text(
-                          status,
-                          style: TextStyle(fontSize: 11, color: statusColor),
+                          task.site,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 11, color: kTxtSub),
                         ),
                       ),
-                  ],
+                      if (_hasPaused(task))
+                        // 已暂停 ⇒ 「继续」按钮（用户 2026-10-19：直接点就续传）
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: _resumeButton(task),
+                        )
+                      else if (status == '下载中')
+                        // 下载中 ⇒ 「暂停」按钮（用户 2026-10-19）
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: _pauseButton(task),
+                        )
+                      else if (status.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Text(
+                            status,
+                            style: TextStyle(fontSize: 11, color: statusColor),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 2),
-                // 第二行：已下 X/N 集 · 大小（整行都给数字）
+                const SizedBox(height: 1),
+                // 第二行：已下 X/N 集 · 大小（用户口径：显示在站点名下面）
                 Text(
                   meta,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, color: kTxtSub),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 1),
                 // 进度条 + 右侧速度（用户拍板 A 方案）：
-                // **只有真正在下载（speed > 0）才显示速度** —— 排队/暂停/失败/未开始
-                // 连占位都不留（speed == 0 ⇒ 不渲染 SizedBox + Text）。
-                Row(
-                  children: [
-                    Expanded(
-                      // 进度条复用播放记录行那一份（高 4 / 圆角 3；已下完转绿）
-                      child: playProgressBar(
-                        // 真实进度（用户 2026-10-19 口径：**已下载字节 / 估算总大小**）
-                        value: _byteProgress(task),
-                        finished: task.isAllDone,
+                // **只有真正在下载（speed > 0）才显示速度**（排队/暂停/失败不占位）；
+                // 整行**固定高度 14**（有速度/没速度的卡片高度一致），且**顶对齐** ⇒ 进度条紧贴上面那行
+                // （用户 2026-10-19：「进度条往上去一点」）。
+                SizedBox(
+                  height: 14,
+                  child: Row(
+                    // 行内**垂直居中**：进度条(4pt) 与速度文字(11pt) 的中线一致
+                    //（之前 start 对齐 ⇒ 文字贴顶、比条低 ~4pt，用户实测"速度没和进度条同一高度"）
+                    children: [
+                      Expanded(
+                        // 进度条复用播放记录行那一份（高 4 / 圆角 3；已下完转绿）
+                        child: playProgressBar(
+                          // 真实进度（用户 2026-10-19 口径：**已下载字节 / 估算总大小**）
+                          value: _byteProgress(task),
+                          finished: task.isAllDone,
+                        ),
                       ),
-                    ),
-                    if (speed > 0) ...[
-                      const SizedBox(width: 8),
-                      Text(
-                        _fmtSpeed(speed),
-                        maxLines: 1,
-                        softWrap: false, // 速度文本不换行
-                        // 颜色跟随"下载中"状态色（同一份 statusColor，跟背景明暗/失败色走）
-                        style: TextStyle(fontSize: 11, color: statusColor),
-                      ),
+                      if (speed > 0) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          _fmtSpeed(speed),
+                          maxLines: 1,
+                          softWrap: false, // 速度文本不换行
+                          // 颜色跟随"下载中"状态色（同一份 statusColor，跟背景明暗/失败色走）
+                          style: TextStyle(fontSize: 11, color: statusColor),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -334,6 +346,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     var failed = false;
     var paused = false;
     var queued = false;
+    var missing = false;
     var hasWanted = false;
     for (final ep in task.episodes) {
       if (!ep.wanted) continue; // ☁️ 只登记、不下：不参与任务状态
@@ -346,11 +359,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
         paused = true;
       } else if (ep.status == EpStatus.queued) {
         queued = true;
+      } else if (ep.status == EpStatus.missing) {
+        missing = true; // 本地文件丢了（重装/路径变化）⇒ 明确标出来，别当"等待中"
       }
     }
     if (!hasWanted) return '未下载'; // 全是 ☁️：这部剧没有任何一集要下载
     if (downloading) return '下载中';
     if (failed) return '失败可重试';
+    if (missing) return '文件丢失';
     if (paused) return '已暂停';
     if (queued) return '等待中';
     return '';
@@ -557,7 +573,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: 11,
-          color: ep.status == EpStatus.failed ? _red : null,
+          color: ep.status == EpStatus.failed || ep.status == EpStatus.missing
+              ? _red
+              : null,
         ),
       ),
       // ☁️ 只登记、不下的集 ⇒ action 为 null：**不给可点的假按钮**
@@ -580,6 +598,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     if (ep.status == EpStatus.done) return '删除';
     if (ep.status == EpStatus.downloading) return '暂停';
     if (ep.status == EpStatus.failed) return '重试';
+    if (ep.status == EpStatus.missing) return '重下'; // 文件丢了 ⇒ 重新下载
     return '继续';
   }
 
@@ -598,6 +617,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
         return '已暂停';
       case EpStatus.queued:
         return '等待中';
+      case EpStatus.missing:
+        // 管理器给的 error 已带原因（「文件丢失（可能因重装/路径变化）」）
+        return ep.error.isEmpty ? '文件丢失（可重下）' : ep.error;
     }
   }
 

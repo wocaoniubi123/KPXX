@@ -16,7 +16,11 @@
 /// `downloading` 只应该出现在**内存**里：`DownloadManager.load()` 会把盘上的
 /// `downloading` 一律降级成 `paused` —— App 被杀时没有任何地方能收到"失败"回调，
 /// 留着 `downloading` 只会让界面永远转圈。
-enum EpStatus { queued, downloading, paused, failed, done }
+///
+/// `missing` = 记录说下完了、但**文件找不到**（覆盖安装后容器路径变了 / 被清理）。
+/// 关键口径：**不许静默清零** —— 保留 doneBytes/totalBytes/label，等用户点"重下"；
+/// 调度只挑 `queued`，所以 missing 不会被自动启动。
+enum EpStatus { queued, downloading, paused, failed, done, missing }
 
 /// 一集（篇内的一个视频）。
 ///
@@ -158,7 +162,8 @@ class DownloadTask {
         episodes = List<DownloadEpisode>.of(episodes);
 
   /// 全部**要下载的**集都完成了 ✅（`wanted=false` 的"只登记、不下"集不参与 ——
-  /// 否则任务里只要有一集☁️在线集，离线页就永远显示"没下完"）
+  /// 否则任务里只要有一集☁️在线集，离线页就永远显示"没下完"）。
+  /// `missing`（文件丢了）也算**没完成** —— 不能因为状态不是 done 就漏判。
   bool get isAllDone {
     if (episodes.isEmpty) return false;
     for (final e in episodes) {
@@ -183,17 +188,24 @@ class DownloadTask {
     return n;
   }
 
+  /// 已落盘的字节：`missing`（文件丢了）**不算已下**，否则界面会显示一个磁盘上不存在的体积
   int get doneBytes {
     var n = 0;
     for (final e in episodes) {
+      if (e.status == EpStatus.missing) continue;
       n += e.doneBytes;
     }
     return n;
   }
 
-  /// 0~1：有字节口径就按字节，没有（全部未知）就按"已完成集数"
+  /// 0~1：有字节口径就按字节，没有（全部未知）就按"已完成集数"。
+  /// ⚠️ 有 `missing`（文件丢了）时**退回按集数**（missing 记 0）：
+  ///   文件已经不在磁盘上，不能用它保留的 doneBytes 把进度条堆到接近 100%。
   double get progress {
     if (episodes.isEmpty) return 0;
+    for (final e in episodes) {
+      if (e.status == EpStatus.missing) return doneCount / episodes.length;
+    }
     final t = totalBytes;
     if (t <= 0) return doneCount / episodes.length;
     final v = doneBytes / t;
