@@ -69,6 +69,10 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
   Duration _lastDur = Duration.zero;
   int _lastReportMs = 0;
 
+  /// 进入时**续播位置**（用户 2026-10-19：从下载页等入口进来没显式传参 ⇒ 用播放记录兜底）。
+  /// `PlayerWidget` 只在首次生效一次（换集不重新 seek）⇒ 换集后不会跳位置 ✅
+  Duration? _resumeAt;
+
   @override
   void initState() {
     super.initState();
@@ -87,11 +91,23 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
       }
     }
     // 从「播放记录」点进来：记录里的集号优先
-    final want = widget.initialEpisodeIndex;
+    // ★ 用户 2026-10-19：从「下载页」点卡片进来时**没有显式传参** ⇒ 这里用播放记录兜底
+    //   （之前只认显式参数 ⇒ 离线播放总是从"第一个已下载的集 / 0 秒"开始 ☠）
+    final rec = PlayHistory.i.find(_t.site, _t.detailUrl);
+    final want = widget.initialEpisodeIndex ?? rec?.videoIndex;
     if (want != null && want >= 0 && want < eps.length) {
       start = want;
     }
     sw.index.value = start;
+    // 续播位置：显式参数优先；否则用记录（要求：记录集号 == 启动集号、没看完、位置有效）
+    if (widget.initialPosition != null) {
+      _resumeAt = widget.initialPosition;
+    } else if (rec != null &&
+        !rec.finished &&
+        rec.videoIndex == start &&
+        rec.position > Duration.zero) {
+      _resumeAt = rec.position;
+    }
     sw.index.addListener(_onIndexChanged);
     _switcher = sw;
     _lastStatus = _statusFor(start);
@@ -525,8 +541,8 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
               downloadStatus: _statusFor(idx),
               // 用户 2026-10-19 拍板：离线播放也同步播放记录 / 收藏进度
               onProgress: _onProgress,
-              // 从「播放记录」点进来时续播到上次位置（PlayerWidget 既有语义：只生效一次）
-              initialPosition: widget.initialPosition,
+              // 续播到上次位置（显式参数 / 播放记录兜底，见 initState）——PlayerWidget 语义：只生效一次
+              initialPosition: _resumeAt,
             ),
           Expanded(
             child: SingleChildScrollView(
