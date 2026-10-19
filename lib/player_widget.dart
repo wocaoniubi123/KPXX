@@ -1315,6 +1315,14 @@ class PlayerWidget extends StatefulWidget {
   /// 进度上报（位置、总时长、是否播完）。详情页拿它写播放记录；不传就不上报。
   final void Function(Duration pos, Duration dur, bool finished)? onProgress;
 
+  /// ★ 下载（用户要求）：控制条上的「下载」按钮 —— 点它就下**当前这一集**。
+  /// null = 不显示这个按钮（其它入口/降级场景）；由详情页传入。
+  /// ⚠️ 只加按钮，不参与 open / 换片 / 重试 / 全屏 / 手势任何逻辑。
+  final VoidCallback? onDownloadCurrent;
+
+  /// 当前这一集的下载态：'none' / 'downloading' / 'done'（只决定图标 + 是否可点）。
+  final String downloadStatus;
+
   const PlayerWidget({
     super.key,
     required this.sources,
@@ -1329,6 +1337,8 @@ class PlayerWidget extends StatefulWidget {
     this.httpHeaders,
     this.initialPosition,
     this.onProgress,
+    this.onDownloadCurrent,
+    this.downloadStatus = 'none',
   });
 
   @override
@@ -2517,6 +2527,9 @@ class PlayerWidgetState extends State<PlayerWidget>
                 switcher: widget.switcher,
                 title: widget.title,
                 epLabels: widget.epLabels,
+                // ★ 下载：控制条那颗按钮（只下当前这一集）+ 三态；全屏页直接复用内嵌那份回调/状态
+                onDownload: widget.onDownloadCurrent,
+                downloadStatus: widget.downloadStatus,
               );
             },
           ),
@@ -2719,6 +2732,9 @@ class PlayerWidgetState extends State<PlayerWidget>
                             onFullscreen: () =>
                                 _openFullscreen(vertical: false),
                             showFullscreen: true,
+                            // ★ 下载：控制条 ↓ 那颗（内嵌时在竖版全屏左边）
+                            onDownload: widget.onDownloadCurrent,
+                            downloadStatus: widget.downloadStatus,
                           ),
                         ),
                       );
@@ -2826,6 +2842,15 @@ class _ControlBar extends StatefulWidget {
   final VoidCallback? onFullscreen;
   final VoidCallback? onVerticalFullscreen;
   final bool showFullscreen;
+
+  /// ★ 下载（用户要求）：控制条上那颗 ↓ 按钮（null = 不显示）。
+  /// 位置固定在**时间文本之后 / 竖版全屏按钮之前**：内嵌时紧挨竖版全屏左边；
+  /// 全屏页（`showFullscreen=false`）时它就是最右那颗 = 右下角。
+  final VoidCallback? onDownload;
+
+  /// 当前这一集的下载态：'none' / 'downloading' / 'done'
+  final String downloadStatus;
+
   const _ControlBar({
     required this.player,
     required this.preview,
@@ -2837,6 +2862,8 @@ class _ControlBar extends StatefulWidget {
     this.onFullscreen,
     this.onVerticalFullscreen,
     this.showFullscreen = false,
+    this.onDownload,
+    this.downloadStatus = 'none',
   });
 
   @override
@@ -2942,6 +2969,20 @@ class _ControlBarState extends State<_ControlBar> {
                             color: Colors.white, fontSize: 11),
                       ),
                     ),
+                    // ★ 下载（用户要求）：时间文本之后、竖版全屏之前 ——
+                    //   内嵌 = 紧挨竖版全屏左边；全屏页 = 最右（右下角）✅
+                    //   三态：没下过 = download / 下载中 = downloading / 已下好 = download_done
+                    //   ⚠️ 只有 'none' 可点（已下好/正在下再点没有意义，也避免重复入队）
+                    if (widget.onDownload != null)
+                      _barBtn(
+                        icon: switch (widget.downloadStatus) {
+                          'done' => Icons.download_done,
+                          'downloading' => Icons.downloading,
+                          _ => Icons.download,
+                        },
+                        enabled: widget.downloadStatus == 'none',
+                        onPressed: widget.onDownload,
+                      ),
                     if (widget.showFullscreen) ...[
                       // 竖屏全屏（全屏按钮左边）
                       _barBtn(
@@ -3023,6 +3064,13 @@ class FullscreenPlayer extends StatefulWidget {
   /// ★ 2026-10-11（**用户规格**）：**常驻倍速开关的共享状态**（与内嵌播放器同一份 ⇒ 哪边点都同步）。
   ///   null = 老调用方/降级场景 ⇒ 全屏页退化为"只有长按 2×"的老行为 ✅。
   final ValueNotifier<double>? rate;
+
+  /// ★ 下载（用户要求）：控制条上的「下载」按钮 —— 下当前这一集（null = 不显示）
+  final VoidCallback? onDownload;
+
+  /// 当前这一集的下载态：'none' / 'downloading' / 'done'（只决定图标 + 是否可点）
+  final String downloadStatus;
+
   const FullscreenPlayer({
     super.key,
     required this.player,
@@ -3032,6 +3080,8 @@ class FullscreenPlayer extends StatefulWidget {
     this.epLabels = const [],
     this.follow,
     this.rate,
+    this.onDownload,
+    this.downloadStatus = 'none',
   });
 
   @override
@@ -3577,6 +3627,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                           player: kp,
                           preview: swipePreview,
                           showButtons: _controls && !dragging,
+                          // ★ 下载：全屏页同样有这颗（最右 = 右下角）
+                          onDownload: widget.onDownload,
+                          downloadStatus: widget.downloadStatus,
                         ),
                       ),
                     ),
@@ -3599,6 +3652,9 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                           hasNext: i < sw.total - 1,
                           onNext: sw.next,
                           showButtons: _controls && !dragging,
+                          // ★ 下载：全屏页同样有这颗（最右 = 右下角）
+                          onDownload: widget.onDownload,
+                          downloadStatus: widget.downloadStatus,
                         ),
                       ),
                     ),

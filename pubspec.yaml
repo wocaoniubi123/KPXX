@@ -84,6 +84,11 @@ dependencies:
   #   ⇒ 回退 = 删 `plugins/kp_avif/**` + 删这一行 + 删图集2 里那几处接线 ✓
   kp_avif:
     path: plugins/kp_avif
+  # ★ 2026-10-19（用户拍板 C：全部能存相册）：HLS 下载产物 .ts → .mp4 重封装（iOS 专用插件；
+  #   非 iOS 不参与构建 —— 调用方 API 见 `plugins/kp_video_export/lib/kp_video_export.dart`）
+  #   ⇒ 回退 = 删 `plugins/kp_video_export/**` + 删这两行 + 删下载页开始用的 KpVideoExport 调用 ✓
+  kp_video_export:
+    path: plugins/kp_video_export
   device_preview: ^3.0.0
   http2: ^3.1.0
 

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'base/downloads/download_manager.dart';
 import 'base/site_ui.dart';
 import 'app_bg.dart';
 import 'app_background.dart';
 import 'detail_page.dart';
+import 'offline_player_page.dart';
 import 'play_record_tile.dart';
 import 'settings.dart';
 import 'sites.dart';
@@ -87,8 +89,29 @@ class PlayHistoryPage extends StatelessWidget {
     }
   }
 
-  /// 点一条记录 → 该篇详情续播
+  /// 点一条记录 → **有下载就优先进离线播放页**（用户 2026-10-19 拍板）；
+  /// 没下载 ⇒ 原路：该篇详情续播。
   void _open(BuildContext context, PlayRecord record) {
+    // 下载任务 key = '站点|详情相对路径'（与记录同一套口径）
+    final task = DownloadManager.i.tasks
+        .where((t) => t.key == '${record.site}|${record.url}')
+        .toList();
+    if (task.isNotEmpty && task.first.doneCount > 0) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: '离线播放'),
+          builder: (_) => PageBg(
+            child: OfflinePlayerPage(
+              task: task.first,
+              // 记录里的集号 / 续播位置照样生效（已看完 ⇒ 从头播，同在线口径）
+              initialEpisodeIndex: record.videoIndex,
+              initialPosition: record.finished ? null : record.position,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     // 站点名反查 SiteEntry（记录是按站点名存的）；站点改名/下线就跳过
     final site = kSites.where((s) => s.name == record.site).toList();
     if (site.isEmpty) {

@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'app_bg.dart';
 import 'api.dart';
 import 'app_background.dart';
+import 'base/downloads/download_manager.dart';
+import 'base/downloads/download_model.dart';
+import 'base/downloads/download_sheet.dart';
 import 'favorites.dart';
 import 'fetched_image.dart';
 import 'home_page.dart';
@@ -25,8 +28,8 @@ class DetailPage extends StatefulWidget {
   /// 从「播放记录」点进来时传：篇内第几个视频（多视频文章续播用）
   final int initialVideoIndex;
 
-  /// 列表页已经加载过的封面 URL（记播放记录当封面用，零额外请求）；
-  /// 从站点入口/文字链进来时可能为空 → 记录里退回正文首图
+  /// 列表页已经加载过的封面 URL（**播放记录/收藏/下载三处都优先用它当封面**，零额外请求）；
+  /// 从站点入口/文字链进来时可能为空 → 三处统一退回正文首图（剧照）兜底
   final String listCover;
 
   const DetailPage({
@@ -85,6 +88,17 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
   /// 没有 720P 就是最高档 —— 见 api.dart 的 `_phDetail`）。只有多档的视频才有意义。
   String? _quality;
 
+  /// ★ 下载（用户指定：顶栏「下载」在收藏左边）：任务 key 与 Favorites **同一套口径**
+  ///   （`'$站点名|$详情页相对路径'`，见 `favorites.dart` 的 `FavoriteItem.key`）。
+  String get _downloadKey => '${widget.site.name}|${widget.baseUrl}';
+
+  /// 播放器控制条那颗下载按钮当前该画哪一态（'none' / 'downloading' / 'done'）。
+  /// 每次 `build` 按**当前集**算一遍（播放器只从构造参数取，见 `PlayerWidget.downloadStatus`）。
+  String _downloadStatus = 'none';
+
+  /// 正在为"当前这一集"取源入队（防连点：合集类取源最长要几秒）
+  bool _downloadCurrentBusy = false;
+
   /// 从源 URL 里抠清晰度数字。兼容两种命名：
   /// Pornhub `.../1080P_4000K_xxx.mp4/master.m3u8`（大写 P + 下划线）、
   /// XVideos `.../hls-720p.m3u8`（小写 p，后跟 `.`/`?` 等非数字）。
@@ -142,6 +156,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       debugPrint('[DETAIL] initState path=${pInit.length <= 80 ? pInit : pInit.substring(0, 80)} 初始集=${widget.initialVideoIndex} 位置=${widget.initialPosition?.inMilliseconds ?? 0}ms');
     }
     _load();
+    // ★ 下载：读一次盘（幂等）+ 监听状态 —— 控制条图标 / 弹层里的"已下载·下载中"要跟着变。
+    //   ⚠️ 监听器只在**当前集的状态真的变了**时 setState（见 [_onDownloadChanged]）：
+    //   下载进度每 250ms 通知一次，不能让它把整页（含播放器）每 250ms 重建一遍 ☠。
+    DownloadManager.i.load();
+    DownloadManager.i.addListener(_onDownloadChanged);
   }
 
   /// ★ 2026-10-12（用户批准 ✅ · **断根**）：`baseUrl` 变了 ⇒ **本页整体清整 + 重载**。
@@ -498,11 +517,12 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     );
   }
 
-  /// 记录列表的封面：优先用正文首图（详情页已经下载过、多半在内存缓存里），
-  /// 没有再退回列表页传来的封面；都没有就空着（卡片会自适应不显示封面区）
+  /// 封面口径（用户 2026-10-19 拍板）：**列表卡片封面优先**（用户在列表里看到的那张），
+  /// 没有才退回详情正文图（剧照）兜底；都没有就空着。
   String _coverOf(ArticleDetail d) {
+    if (widget.listCover.isNotEmpty) return widget.listCover;
     if (d.images.isNotEmpty) return d.images.first;
-    return widget.listCover;
+    return '';
   }
 
   // ---------------------------------------------------------------------------
@@ -514,7 +534,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
 
   /// 顶栏那颗星：收藏 / 取消收藏（同一篇 = 同一条 ⇒ 再点一次就是取消 ✅）。
   /// ⚠️ 取值与写播放记录**同一套**（`_coverOf` / `_switcher.index` ✅）：
-  ///   详情还没载入完就点 ⇒ 标题空串、封面退回列表页给的那张（照旧能收藏 ✅，不是空记录）。
+  ///   详情还没载入完就点 ⇒ 标题空串、封面走列表封面（没有就空着），照旧能收藏 ✅。
   Future<void> _toggleFav() async {
     final d = _detail;
     final added = await Favorites.i.toggle(
@@ -540,6 +560,189 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         .showSnackBar(SnackBar(
             duration: const Duration(seconds: 1), // ★ 2026-10-10（用户批准）：默认 4 秒 → 1 秒
             content: Text(added ? '已收藏' : '已取消收藏')));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 下载（用户口径：顶栏「下载」放收藏左边 → 多选弹层；播放器控制条 ↓ 只下当前这一集）
+
+  /// 这一集是否"已加入下载、还在排队"（弹层显示「等待中」用；正在跑的不算）
+  bool _isEpisodeQueued(int i) {
+    for (final t in DownloadManager.i.tasks) {
+      if (t.key != _downloadKey) continue;
+      for (final ep in t.episodes) {
+        if (ep.index != i) continue;
+        return ep.wanted && ep.status == EpStatus.queued;
+      }
+    }
+    return false;
+  }
+
+  /// 某一集此刻的下载态：'done' / 'downloading' / 'none'。
+  /// 已下载 = 管理器实探（状态 done 且文件还在）；下载中 = 正在跑 **或** 还在队列里
+  /// （与播放器控制条同一口径，见用户要求"queued 也算下载中"）。
+  String _downloadStatusOf(int i) {
+    final mgr = DownloadManager.i;
+    final key = _downloadKey;
+    if (mgr.isEpisodeDownloaded(key, i)) return 'done';
+    if (mgr.isEpisodeDownloading(key, i)) return 'downloading';
+    for (final t in mgr.tasks) {
+      if (t.key != key) continue;
+      for (final ep in t.episodes) {
+        if (ep.index != i) continue;
+        // ⚠️ 必须看 wanted：任务存全集后，☁️ 只登记集（wanted=false）的 status 也是 queued，
+        //    单看 status 会把"从没下过的集"显示成下载中、按钮还点不动 ☠
+        if (ep.wanted &&
+            (ep.status == EpStatus.queued ||
+                ep.status == EpStatus.downloading)) {
+          return 'downloading';
+        }
+        return 'none';
+      }
+    }
+    return 'none';
+  }
+
+  /// 下载状态变了 ⇒ 只在"当前这一集的状态真的变了"时重建整页。
+  /// （进度回调节流后也是 250ms 一次，不筛的话播放器会跟着每 250ms 重建 ☠）
+  void _onDownloadChanged() {
+    if (!mounted) return;
+    final idx = _switcher?.index.value ?? widget.initialVideoIndex;
+    if (_downloadStatusOf(idx) == _downloadStatus) return;
+    setState(() {});
+  }
+
+  /// 把选中的集解析源、构建成一部剧的 [DownloadTask] 入队。
+  /// ★ 用户拍板：任务存**全部集**（离线页列全集：已下载 ✅ 本地播 / 未下载 ☁️ 在线播），
+  ///   `wanted` 标记这一集要不要下；**只为勾选的集取源**，☁️ 集的 `sourceUrl` 留空（不发请求）。
+  /// 返回：成功入队的集数（= wanted 的集）+ 取源失败的集名（调用方负责提示，失败不阻塞其余集）。
+  Future<DlSubmitResult> _downloadEpisodes(List<int> indices) async {
+    final d = _detail;
+    if (d == null || d.videos.isEmpty) {
+      return const DlSubmitResult(0, <String>[]);
+    }
+    // ★ 绝对播放页 URL（用户口径）：manager 的 Referer 兜底要从 playUrl 取 host，
+    //   相对路径取不到 ⇒ 部分站点会 403。`resolve` 对已是绝对地址的 baseUrl 也安全 ✅
+    final absUrl = Uri.parse(_api.base).resolve(widget.baseUrl).toString();
+    final picked = indices.toSet();
+    final eps = <DownloadEpisode>[];
+    final failed = <String>[];
+    var wantedCount = 0;
+    for (var i = 0; i < d.videos.length; i++) {
+      final v = d.videos[i];
+      var want = picked.contains(i);
+      var source = '';
+      if (want) {
+        var srcs = v.sources;
+        final lazy = v.lazyUrl;
+        // 合集类：详情页没自带源 ⇒ 现去子文章取（只为勾选的集发请求）
+        if (srcs.isEmpty && lazy != null) {
+          try {
+            srcs = await _api.videoSourcesAt(lazy);
+          } catch (_) {
+            srcs = const <String>[];
+          }
+        }
+        if (srcs.isEmpty) {
+          failed.add(v.label);
+          want = false; // 取不到源 ⇒ 别让管理器拿空地址去下（转成 ☁️ 在线集）
+        } else {
+          // 与播放器同一口径：用户手选的清晰度排最前（没选过 = 站点默认顺序）
+          final ordered = _orderByQuality(srcs, _quality);
+          if (ordered.isEmpty) {
+            failed.add(v.label);
+            want = false;
+          } else {
+            source = ordered.first;
+          }
+        }
+      }
+      if (want) wantedCount++;
+      eps.add(DownloadEpisode(
+        index: i,
+        label: v.label,
+        playUrl: absUrl, // 绝对地址（Referer 兜底要用 host；Favorites 键仍用相对路径）
+        lazyUrl: v.lazyUrl,
+        headers: v.headers,
+        sourceUrl: source,
+        wanted: want,
+      ));
+    }
+    if (wantedCount == 0) return DlSubmitResult(0, failed);
+    await DownloadManager.i.enqueueTask(DownloadTask(
+      key: _downloadKey, // ⚠️ key 仍用相对路径：与 Favorites / 老记录同口径（换绝对会合并不上）
+      site: widget.site.name,
+      // ⚠️ detailUrl 保持**相对路径**：downloads_page 拿它当 DetailPage.baseUrl
+      //    （站点请求按 'https://host' + path 拼，传绝对会拼坏）；Referer 兜底只读 playUrl
+      detailUrl: widget.baseUrl,
+      title: d.title,
+      // ★ 封面口径与播放记录/收藏一致（用户 2026-10-19）：列表封面优先 → 剧照兜底 → 空
+      coverUrl: _coverOf(d),
+      intro: d.intro,
+      time: d.time,
+      duration: d.duration,
+      episodes: eps,
+    ));
+    return DlSubmitResult(wantedCount, failed);
+  }
+
+  /// 顶栏「下载」→ 底部多选弹层（公共 [DownloadSheet]；状态口径 = 本页 `_downloadStatusOf`）
+  Future<void> _openDownloadSheet() async {
+    final d = _detail;
+    if (d == null || d.videos.isEmpty) return;
+    final r = await showModalBottomSheet<DlSubmitResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DownloadSheet(
+        labels: <String>[for (final v in d.videos) v.label],
+        // 已下载 / 下载中·排队 都走本页同一套状态口径（与播放器控制条一致）
+        isDone: (i) => _downloadStatusOf(i) == 'done',
+        isBusy: (i) => _downloadStatusOf(i) == 'downloading',
+        // 其中排队那一类显示「等待中」（任务存全集后必须带 wanted 判断）
+        isQueued: _isEpisodeQueued,
+        onSubmit: _downloadEpisodes,
+      ),
+    );
+    if (!mounted || r == null) return;
+    final msg = StringBuffer('已加入下载 ${r.ok} 集');
+    if (r.failed.isNotEmpty) {
+      msg.write('，${r.failed.length} 集取源失败：${r.failed.join('、')}');
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 2),
+      content: Text(msg.toString()),
+    ));
+  }
+
+  /// 播放器控制条「下载」→ 只下当前这一集（复用 [_downloadEpisodes] 的解析/入队逻辑）
+  Future<void> _downloadCurrent() async {
+    if (_downloadCurrentBusy) return; // 取源要几秒，防连点重复入队
+    final d = _detail;
+    final raw = _switcher?.index.value ?? widget.initialVideoIndex;
+    // 与 `_pageView` 的 idx 同一套夹取（换源后视频数可能变少）
+    final i = (d == null || d.videos.isEmpty)
+        ? raw
+        : raw.clamp(0, d.videos.length - 1).toInt();
+    _downloadCurrentBusy = true;
+    late final DlSubmitResult r;
+    try {
+      r = await _downloadEpisodes(<int>[i]);
+    } finally {
+      _downloadCurrentBusy = false;
+    }
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (r.ok > 0) {
+      messenger.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 1),
+        content: Text('已加入下载 ${r.ok} 集'),
+      ));
+    } else {
+      messenger.showSnackBar(SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text(r.failed.isEmpty ? '没有可下载的源' : '取源失败：${r.failed.join('、')}'),
+      ));
+    }
   }
 
   Future<void> _load() async {
@@ -735,6 +938,8 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     if (AppSettings.i.logConsole) debugPrint('[DETAIL] dispose pushedAway=$_pushedAway pausedByPush=$_pausedByPush 播放器State=${_playerKey.currentState != null} fullscreen=${_playerKey.currentState?.player?.fullscreenOpen ?? false}');
     // ★ ⑦：退订（不退的话观察者里留着已销毁的 State ⇒ 回调打给死对象 ✗）
     if (_subscribedRoute != null) kNavObserver.unsubscribe(this);
+    // ★ 下载：退订（DownloadManager 是全局单例，监听器里必须用 mounted 兜底）
+    DownloadManager.i.removeListener(_onDownloadChanged);
     // ★ 2026-10-12（用户批准 ✅ · 修 `setState() … widget tree was locked`）：
     //   **锁树期里不能同步写记录** ⇒ 换 `_flushProgressDeferred()`（同步取现场 + 微任务写，依据见其注释 🛢️）。
     //   原来是这两句：`_flushProgress();` + `_switcher?.dispose();`
@@ -817,6 +1022,9 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     // ★ 全屏顶部标题的集标签：与详情页选集胶囊**同一份** `ArticleVideo.label`（下标同 `_switcher.index`）——
     //   多集时全屏标题拼成 `文章标题 · 第 N 集`（换集实时变 ✅）；单集/电影用不到（全屏侧不加后缀 ✅）
     final epLabels = <String>[for (final v in videos) v.label];
+    // ★ 下载：控制条那颗按钮的三态（按**当前这一集**算；换集 ⇒ 本页重建 ⇒ 这里重算 ✅）
+    final downloadStatus = _downloadStatusOf(idx);
+    _downloadStatus = downloadStatus; // 给 [_onDownloadChanged] 做"是否真的变了"的比较基准
     return Scaffold(
       // 透明：详情页也吃根层背景图（播放器画面本身是视频纹理，不受影响）
       backgroundColor: Colors.transparent,
@@ -825,6 +1033,14 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
         title: Text(widget.site.name),
         foregroundColor: kTxt, // 标题/图标直接压在图上 → 跟明暗
         actions: [
+          // ★ 下载（用户拍板 ✅）：位置 = `actions` **第一个**（收藏星左边，用户口径别挪）
+          //   没视频 / 详情还没到位 ⇒ 禁用（灰着，点了没反应）
+          IconButton(
+            tooltip: '下载',
+            icon: const Icon(Icons.download_outlined),
+            onPressed:
+                (d == null || videos.isEmpty) ? null : _openDownloadSheet,
+          ),
           // ★ 收藏（用户 2026-10-10 拍板 ✅）：未收藏 = 空心星 / 已收藏 = **实心星 + 主题色**；
           //   ⚠️ 位置固定在「用网页播放器打开」**左边** ☠（用户口径，别挪）
           //   ⚠️ 状态读的是 `Favorites.i`（同一份存储）；本页 `build` 已把 `Favorites.i` 并进监听
@@ -891,6 +1107,10 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
                           // ⚠️ 2026-10-03 用户要求：**不管从哪进来**，只要播放记录里有这条就续播 ✓
                         initialPosition: widget.initialPosition ?? _resumeFrom(),
                           onProgress: _reportProgress,
+                          // ★ 下载（用户口径）：控制条 ↓ 的按钮只下**当前这一集**；
+                          //   downloadStatus 三态：none/downloading/done（只影响图标，不碰播放逻辑）
+                          onDownloadCurrent: _downloadCurrent,
+                          downloadStatus: downloadStatus,
                         ),
                     Expanded(
                       // ★【常驻诊断·滚动】只包一层 NotificationListener：**不拦截通知**（onNotification 一律 return false ✓）

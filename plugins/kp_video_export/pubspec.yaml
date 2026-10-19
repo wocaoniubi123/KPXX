@@ -1,0 +1,23 @@
+name: kp_video_export
+description: KPXX 本地插件——iOS 侧用系统自带的 AVFoundation 把 HLS 下载产物（.ts）重封装成 .mp4（只换容器、不转码）。非 iOS 不参与构建。
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+
+flutter:
+  plugin:
+    platforms:
+      # ★ 2026-10-19（用户拍板：HLS 下载产物是 .ts，导出相册前必须先转 .mp4）：
+      #   只声明 iOS —— Windows / 其他平台不参与构建。
+      #   ⚠️ 非 iOS 上插件没注册 ⇒ Dart 侧 `remuxToMp4` 返回 null ⇒ 调用方按"导出失败"处理。
+      ios:
+        pluginClass: KpVideoExportPlugin

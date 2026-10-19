@@ -78,6 +78,18 @@ class FetchedImage extends StatefulWidget {
   static void warm(String? url, {int? index, int? total}) =>
       _FetchedImageState.warm(url, index: index, total: total);
 
+  /// 取一张图的**已解密字节**（命中磁盘明文缓存直接返回；否则下载→解密→落盘缓存）。
+  /// 供"需要把图存到本地"的调用方用 —— **不要**自己拿 `Site.httpClient` 存原样字节：
+  /// 部分站点（51吃瓜等）的图是 AES 密文，存下来 Flutter 会报 `Invalid image data`。
+  /// 失败返回 null（静默，调用方自行决定是否重试）。
+  static Future<Uint8List?> fetchDecoded(String url) async {
+    if (url.isEmpty) return null;
+    await ImageDiskCache.i.init(); // 幂等
+    final hit = ImageDiskCache.i.take(url);
+    if (hit != null) return hit; // 磁盘里存的就是**明文**（落盘发生在解密之后）
+    return _FetchedImageState._fetchAndDecode(url);
+  }
+
   @override
   State<FetchedImage> createState() => _FetchedImageState();
 }

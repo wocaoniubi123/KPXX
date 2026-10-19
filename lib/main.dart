@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
+import 'downloads_page.dart'; // ★ 底栏第 4 格「下载」页
 import 'favorites.dart';
 import 'favorites_page.dart';
 import 'home_page.dart';
@@ -187,9 +188,11 @@ class KpxxLogo extends StatelessWidget {
   }
 }
 
-/// 根页：底部四个 tab —— 点播（站点宫格）/ **直播**（直播站点宫格）/ **收藏** / 设置。
-/// ⚠️ 顺序是用户拍板的：**点播 → 直播 → 收藏 → 设置**（收藏 = 第 3 格 ✅ 用户 2026-10-10 口径）——
-///   （2026-10-03 那次定的是三格「点播 → 直播 → 设置」，本次在**设置之前**插进「收藏」⇒ 别把收藏挪到最后 ☠）
+/// 根页：底部五个 tab —— 点播（站点宫格）/ **直播**（直播站点宫格）/ **收藏** / **下载** / 设置。
+/// ⚠️ 顺序是用户拍板的：**点播 → 直播 → 收藏 → 下载 → 设置**
+///   （收藏 = 第 3 格 ✅ 用户 2026-10-10 口径；下载 = 第 4 格 ✅ 用户 2026-10-19 口径）——
+///   （2026-10-03 那次定的是三格「点播 → 直播 → 设置」，2026-10-10 在**设置之前**插进「收藏」，
+///     2026-10-19 再在**设置之前**插进「下载」⇒ 别把收藏/下载挪到最后 ☠）
 class RootPage extends StatefulWidget {
   const RootPage({super.key});
 
@@ -219,6 +222,7 @@ class _RootPageState extends State<RootPage> {
           ModuleGridPage(),
           LiveGridPage(),
           FavoritesPage(), // ★ 第 3 格「收藏」（用户 2026-10-10 拍板 ✅）
+          DownloadsPage(), // ★ 第 4 格「下载」（用户 2026-10-19 拍板 ✅）
           SettingsPage(),
         ],
       ),
@@ -230,12 +234,12 @@ class _RootPageState extends State<RootPage> {
         //   ① `BottomNavigationBar` 本身**没有长按回调** ⇒ 在它**外面**套一层只申明"长按"的手势层：
         //      只注册 `onLongPressStart` ⇒ **单击仍由底栏自己的 `onTap` 处理，原行为一字不变** ✅
         //      （单击/长按是两套手势识别器，由手势竞技场分流 ☑️）。
-        //   ② 只有按下的点落在**第 4 格「设置」**里才进管理页（宽度按 `items.length` 等分判断 ✅
-        //      —— 四格：点播(0)/直播(1)/收藏(2)/设置(3)）；其余三格**长按什么都不做** ✅。
+        //   ② 只有按下的点落在**第 5 格「设置」**里才进管理页（宽度按 `items.length` 等分判断 ✅
+        //      —— 五格：点播(0)/直播(1)/收藏(2)/下载(3)/设置(4)）；其余四格**长按什么都不做** ✅。
         behavior: HitTestBehavior.translucent,
         onLongPressStart: (d) {
-          const n = 4; // 底栏格数（点播/直播/收藏/设置 ✅）
-          const settingsSlot = 3; // 第 4 格 = 「设置」（0 起）
+          const n = 5; // 底栏格数（点播/直播/收藏/下载/设置 ✅）
+          const settingsSlot = 4; // 第 5 格 = 「设置」（0 起）
           final w = MediaQuery.sizeOf(context).width;
           final i = (d.globalPosition.dx / (w / n)).floor();
           if (i != settingsSlot) return; // 只有「设置」那一格能进站点管理 ✅
@@ -272,6 +276,11 @@ class _RootPageState extends State<RootPage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.star_border),
             label: '收藏',
+          ),
+          // ★ 第 4 格「下载」（用户 2026-10-19 拍板 ✅：接在「收藏」后、「设置」前）
+          BottomNavigationBarItem(
+            icon: Icon(Icons.download_outlined),
+            label: '下载',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
