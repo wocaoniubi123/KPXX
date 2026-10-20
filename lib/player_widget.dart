@@ -704,13 +704,15 @@ class KpPlayer extends ValueNotifier<KpState> {
     //   （本意只是"旧源先停住、别和新源抢声音"✓），那一下会把 `_userPaused` 置成 true ✗，
     //   于是详情页后来读到的是"用户**主动**暂停过" ✗ ⇒ 跳走不记续播 ⇒ 回来不播 ☠。
     _userPaused = false;
-    // ★ 用户 2026-10-20（③ hr-seek）：开播前设"精确 seek"，缓解大跨度 seek 后解码器不同步。
-    //   失败静默（mpv 版本差异，设不上绝不影响播放）。
-    unawaited(() async {
-      try {
-        await (_p.platform as dynamic).setProperty('hr-seek', 'yes');
-      } catch (_) {}
-    }());
+    // ★ 用户 2026-10-20（退出重进续播**黑屏**）⇒ **先去掉 hr-seek**：
+    //   它是 mpv 的**持久属性**（player 级），设上之后**所有 seek 都走精确模式** ——
+    //   包括续播的 `seekExact(375ms)` ⇒ 疑似本次黑屏元凶。
+    //   ⚠️ 若去掉后"来回跳卡帧"复发 ⇒ 改成"只在 seek 前临时设、seek 完成恢复 no"。
+    // unawaited(() async {
+    //   try {
+    //     await (_p.platform as dynamic).setProperty('hr-seek', 'yes');
+    //   } catch (_) {}
+    // }());
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
