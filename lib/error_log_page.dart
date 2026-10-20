@@ -38,11 +38,34 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
 
   /// 只渲染 `_text` 的**末尾**：返回"从第几个字符开始显示" ✓（没超长就是 0 ✓）。
   /// ⚠️ 起点**从末尾往前找最近的换行** ✓：不把某一行劈半 ✗（日志是"一行一条" ✓）；找不到就整段从末尾切 ✓。
+  /// ★ 2026-10-20（用户要求：**新日志写在首部**，免得人工翻到底）：
+  ///   `_text` 已在 [_load] 里按条目反转成"新→旧"，所以这里改成"**只取开头** `_maxRender` 字节"
+  ///   （开头 = 最新日志）。`_cut` 现在表示"截断位置"（显示 `substring(0, _cut)`）。
   int get _cut {
-    if (_text.length <= _maxRender) return 0;
-    final s = _text.length - _maxRender;
-    final nl = _text.indexOf('\n', s);
-    return nl < 0 ? s : nl + 1;
+    if (_text.length <= _maxRender) return _text.length;
+    final nl = _text.lastIndexOf('\n', _maxRender);
+    return nl < 0 ? _maxRender : nl;
+  }
+
+  /// 把"旧→新"的日志文本按**条目**反转成"新→旧"：
+  ///   条目 = 以 `[YYYY-MM-DD HH:MM:SS]` 开头的行；其余行（多行堆栈）跟着它所属的条目走，**不会被打散**。
+  static String _reverseByEntry(String s) {
+    if (s.isEmpty) return s;
+    final tsRe = RegExp(r'^\[\d{4}-\d{2}-\d{2} ');
+    final entries = <List<String>>[];
+    for (final ln in s.split('\n')) {
+      if (tsRe.hasMatch(ln) || entries.isEmpty) {
+        entries.add(<String>[ln]);
+      } else {
+        entries.last.add(ln);
+      }
+    }
+    final buf = StringBuffer();
+    for (var i = entries.length - 1; i >= 0; i--) {
+      buf.write(entries[i].join('\n'));
+      if (i > 0) buf.write('\n');
+    }
+    return buf.toString();
   }
 
   @override
@@ -57,7 +80,8 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
     if (AppSettings.i.logConsole) debugPrint('[UI] 错误日志 载入 字符=${t.length}');
     if (!mounted) return;
     setState(() {
-      _text = t;
+      // ★ 2026-10-20（用户要求：新日志写在首部）：按**条目**反转成"新→旧"
+      _text = _reverseByEntry(t);
       _loading = false;
     });
   }
@@ -233,15 +257,15 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
             )
           : Column(
               children: [
-                // ⚠️ 2026-10-05 修：正文超长时**只渲染末尾一段** ✓（下面 `SelectableText` 拿到的就是 `_text` 的尾巴 ✓）——
-                //    提示固定挂在**滚动区之上** ✓（不会滚走 ✓）；右上角「复制全部」拿到的仍是**全文** ✓。
-                if (_cut > 0)
+                // ★ 2026-10-20（新日志在首部）：`_cut` 现在是"截断位置"（显示 `0.._cut`），
+                //   所以"有截断"的判据变成 `_cut < _text.length`（原来 `_cut > 0` 在新语义下恒真）。
+                if (_cut < _text.length)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '仅显示最近部分 ✓（全文点右上角「复制全部」）',
+                        '仅显示最新部分 ✓（更早的日志已省略；全文点右上角「复制全部」）',
                         style: TextStyle(fontSize: 12, color: kTxtSub),
                       ),
                     ),
@@ -250,7 +274,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(12),
                     child: SelectableText(
-                      _text.substring(_cut),
+                      _text.substring(0, _cut),
                       // ⚠️ 2026-10-05 用户点 2：**日志正文也要跟随主题** ✓
                       //   —— 原来 `const TextStyle(...)` 没给颜色 ✗ ⇒ 走默认色（深色背景上是黑的 ✗ 看不见 ✓）
                       //   ⚠️ 必须去掉 `const` ✗：`kTxt` 是运行期 getter（app_background.dart:53 ✓）
