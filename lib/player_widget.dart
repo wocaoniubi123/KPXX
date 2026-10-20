@@ -704,6 +704,13 @@ class KpPlayer extends ValueNotifier<KpState> {
     //   （本意只是"旧源先停住、别和新源抢声音"✓），那一下会把 `_userPaused` 置成 true ✗，
     //   于是详情页后来读到的是"用户**主动**暂停过" ✗ ⇒ 跳走不记续播 ⇒ 回来不播 ☠。
     _userPaused = false;
+    // ★ 用户 2026-10-20（③ hr-seek）：开播前设"精确 seek"，缓解大跨度 seek 后解码器不同步。
+    //   失败静默（mpv 版本差异，设不上绝不影响播放）。
+    unawaited(() async {
+      try {
+        await (_p.platform as dynamic).setProperty('hr-seek', 'yes');
+      } catch (_) {}
+    }());
     return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
   }
 
@@ -894,12 +901,36 @@ class KpPlayer extends ValueNotifier<KpState> {
     await _p.setRate(r);
   }
 
-  Future<void> seek(Duration d) {
+  /// seek（★ 用户 2026-10-20：快跳 / 远跳 / 来回跳之后 **画面卡在 seek 前那一帧**）
+  ///
+  /// 三层"体验无感"的缓解（用户拍板 ①+③+⑤，全部不影响正常播放）：
+  ///   ③ `hr-seek=yes` 在 [_openUrl] 里设（精确 seek）；
+  ///   ① seek 完成后**微偏移 reseek（+1ms）** ⇒ 让解码器重新出帧；
+  ///   ⑤ 下发 mpv `video-refresh`（失败退 `frame-step`）⇒ 刷新视频输出。
+  ///      ⚠️ 内部 API（`NativePlayer.command`）⇒ 全部 try/catch 静默，失败不影响播放。
+  Future<void> seek(Duration d) async {
     final t = _clampDur(d, value.duration);
     // 看：seek 的实际去向（从当前播到的位置 → 裁剪后的目标）—— "跳完从头/跳不动"对这条看。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 从=${value.position.inMilliseconds}ms 到=${t.inMilliseconds}ms');
     if (_disposed) return _skip('seek'); // ★ 幂等护栏
-    return _p.seek(t);
+
+    await _p.seek(t);
+    if (_disposed) return;
+
+    // ① 微偏移 reseek（+1ms）—— 让解码器重新出帧（肉眼无差）
+    try {
+      await _p.seek(t + const Duration(milliseconds: 1));
+    } catch (_) {}
+    if (_disposed) return;
+
+    // ⑤ 让 mpv 刷新视频输出（内部 API；命令不存在 / 不支持 ⇒ 静默）
+    try {
+      await (_p.platform as dynamic).command(<String>['video-refresh']);
+    } catch (_) {
+      try {
+        await (_p.platform as dynamic).command(<String>['frame-step']);
+      } catch (_) {}
+    }
   }
 
   /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
