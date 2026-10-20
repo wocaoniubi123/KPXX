@@ -664,7 +664,11 @@ class KpPlayer extends ValueNotifier<KpState> {
   }
 
   /// 打开地址（httpHeaders 用于带 Referer/UA 的防盗链）
-  Future<void> open(String url, {Map<String, String>? httpHeaders}) {
+  /// [start]：mpv **原生起播位置**（`Media.start` → mpv `start` 属性，见 media_kit 的
+  ///   `native/player/real.dart:2205`）。**续播用它代替"起播后再 seekExact"** ——
+  ///   用户 2026-10-20 实机：seek 后解码器不出帧（卡帧/黑屏），而 start 是 open 时定位、不经过 seek。
+  Future<void> open(String url,
+      {Map<String, String>? httpHeaders, Duration? start}) {
     // ★ 2026-10-11（**用户实测**：全屏卡死 + "切集偶尔也弹"同类异常；依据 verify-4 审计表 #6）：
     //   本方法原来缺"已释放"护栏（另外 6 个公开操作早就有）⇒ 补上，与它们口径一致（忽略 + 留痕，不抛）。
     if (_disposed) return _skip('open');
@@ -704,7 +708,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     //   （本意只是"旧源先停住、别和新源抢声音"✓），那一下会把 `_userPaused` 置成 true ✗，
     //   于是详情页后来读到的是"用户**主动**暂停过" ✗ ⇒ 跳走不记续播 ⇒ 回来不播 ☠。
     _userPaused = false;
-    return _p.open(Media(url, httpHeaders: httpHeaders), play: true);
+    return _p.open(Media(url, httpHeaders: httpHeaders, start: start), play: true);
   }
 
   /// ⚠️ **选择性**给某个实例设 libmpv 属性 ✓（目前只有短片页用 ✓：调"起播更快"的参数 ✓）。
@@ -894,12 +898,29 @@ class KpPlayer extends ValueNotifier<KpState> {
     await _p.setRate(r);
   }
 
-  Future<void> seek(Duration d) {
+  /// seek（★ 2026-10-20 用户实机数据链：**远跳 ⇒ mpv 重新缓冲(⭕️) ⇒ 缓冲结束画面不恢复**；
+  ///   1.5.3 无 hr-seek ⇒ 卡帧；**1.5.4 开 hr-seek ⇒ 随便跳没问题** ✅；1.5.5/1.5.6/1.5.7 无 ⇒ 又卡。
+  ///   1.5.4 的毛病只在"hr-seek 是持久属性 ⇒ 续播 `seekExact` 也被精确化 ⇒ 黑屏"。
+  ///   ⇒ 本实现**隔离**：只有用户跳转（本方法）临时开/关；`seekExact`（续播）永不设。）
+  Future<void> seek(Duration d) async {
     final t = _clampDur(d, value.duration);
     // 看：seek 的实际去向（从当前播到的位置 → 裁剪后的目标）—— "跳完从头/跳不动"对这条看。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 从=${value.position.inMilliseconds}ms 到=${t.inMilliseconds}ms');
     if (_disposed) return _skip('seek'); // ★ 幂等护栏
-    return _p.seek(t);
+
+    // 开精确 seek（跳转专用；1.5.4 实测有效），seek 完立刻恢复 no（续播不受影响）
+    try {
+      await (_p.platform as dynamic).setProperty('hr-seek', 'yes');
+    } catch (_) {}
+    try {
+      await _p.seek(t);
+    } finally {
+      if (!_disposed) {
+        try {
+          await (_p.platform as dynamic).setProperty('hr-seek', 'no');
+        } catch (_) {}
+      }
+    }
   }
 
   /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
@@ -1863,7 +1884,10 @@ class PlayerWidgetState extends State<PlayerWidget>
           }
           // ★【常驻诊断】每条源的尝试都留痕（与 _openAndWait 的 host=/起播= 两条配对 ✓）
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 试源 round=$round i=$i/共${_sources.length}条');
-          final ok = await _openAndWait(kp, _sources[i]);
+          // ★ 用户 2026-10-20：**续播改用 mpv 原生 start**（open 时定位，不经过 seek ⇒ 不会
+          //   "seek 后不出帧"）。只给首个源传（换源重试时不再重复定位，沿用下面的 seekExact 兜底）。
+          final ok = await _openAndWait(kp, _sources[i],
+              start: i == 0 ? _restoreTo : null);
           if (!mounted) return;
           // ★ 2026-10-11（**复用档取证，只加日志**）：把"打开了但没出帧"这一形**直接打出来** ——
           //   用户报"复用档切集黑屏"时，没有这条就只能靠猜（logConsole 关着时连 `模式=` 都没有 ☠）。
@@ -1886,39 +1910,49 @@ class PlayerWidgetState extends State<PlayerWidget>
             final to = _restoreTo;
             _restoreTo = null;
             if (to != null && to > Duration.zero) {
-              try {
-                // ⚠️ 用 seekExact 而不是 seek：seek 会按 value.duration 裁剪，
-                // 万一时长还没报上来就会被裁小（表现就是"从头发"）。
-                if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播(首个源起播后的跳转) 到=${to.inMilliseconds}ms');
-                // ★ 2026-10-11（verify-4 #5）：seek 前后各判一次（await 期间可能被回收）
-                if (kp.isDisposed) {
-                  _logDisposedSkip('源循环-续播 seekExact 前', '_initPlayerOnce:1532');
-                  return;
-                }
-                await kp.seekExact(to);
-                if (kp.isDisposed) {
-                  _logDisposedSkip('源循环-续播 seekExact 后', '_initPlayerOnce:1532（await 之后）');
-                  return;
-                }
-                // 再校验一次：mpv 偶尔会把早期的 seek 丢掉，没跳过去就补一枪。
-                // 3 秒的容差是给"视频刚开始播、位置还在往上走"留的余量。
-                await Future<void>.delayed(const Duration(milliseconds: 500));
-                if (kp.isDisposed) {
-                  _logDisposedSkip('源循环-补枪前', '_initPlayerOnce:1540（500ms 等待之后）');
-                  return;
-                }
-                if (mounted &&
-                    kp.value.duration > Duration.zero &&
-                    kp.value.position < to - const Duration(seconds: 3)) {
-                  if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播补枪(早期 seek 被丢掉) pos=${kp.value.position.inMilliseconds}ms → ${to.inMilliseconds}ms');
-                  await kp.seekExact(to);
+              // ★ 用户 2026-10-20：续播已用 **mpv 原生 `start`**（open 时定位）⇒ 位置已经对就**绝不 seek**
+              //   （seek 正是"画面卡帧/黑屏"的来源）。位置不对才走原来的 seekExact + 补枪兜底。
+              final pos0 = kp.value.position;
+              final startOk = (pos0 - to).abs() < const Duration(seconds: 3);
+              if (AppSettings.i.logConsole) {
+                debugPrint('[PLAY] 续播校验 pos=${pos0.inMilliseconds}ms 目标=${to.inMilliseconds}ms '
+                    '${startOk ? '⇒ start 已生效，不再 seek' : '⇒ 需要 seekExact 兜底'}');
+              }
+              if (!startOk) {
+                try {
+                  // ⚠️ 用 seekExact 而不是 seek：seek 会按 value.duration 裁剪，
+                  // 万一时长还没报上来就会被裁小（表现就是"从头发"）。
+                  if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播(首个源起播后的跳转) 到=${to.inMilliseconds}ms');
+                  // ★ 2026-10-11（verify-4 #5）：seek 前后各判一次（await 期间可能被回收）
                   if (kp.isDisposed) {
-                    _logDisposedSkip('源循环-补枪后', '_initPlayerOnce:1540（await 之后）');
+                    _logDisposedSkip('源循环-续播 seekExact 前', '_initPlayerOnce:1532');
                     return;
                   }
+                  await kp.seekExact(to);
+                  if (kp.isDisposed) {
+                    _logDisposedSkip('源循环-续播 seekExact 后', '_initPlayerOnce:1532（await 之后）');
+                    return;
+                  }
+                  // 再校验一次：mpv 偶尔会把早期的 seek 丢掉，没跳过去就补一枪。
+                  // 3 秒的容差是给"视频刚开始播、位置还在往上走"留的余量。
+                  await Future<void>.delayed(const Duration(milliseconds: 500));
+                  if (kp.isDisposed) {
+                    _logDisposedSkip('源循环-补枪前', '_initPlayerOnce:1540（500ms 等待之后）');
+                    return;
+                  }
+                  if (mounted &&
+                      kp.value.duration > Duration.zero &&
+                      kp.value.position < to - const Duration(seconds: 3)) {
+                    if (AppSettings.i.logConsole) debugPrint('[PLAY] seekExact 触发源=续播补枪(早期 seek 被丢掉) pos=${kp.value.position.inMilliseconds}ms → ${to.inMilliseconds}ms');
+                    await kp.seekExact(to);
+                    if (kp.isDisposed) {
+                      _logDisposedSkip('源循环-补枪后', '_initPlayerOnce:1540（await 之后）');
+                      return;
+                    }
+                  }
+                } catch (_) {
+                  // 续播失败不影响播放，从头放就行
                 }
-              } catch (_) {
-                // 续播失败不影响播放，从头放就行
               }
             }
             // ★【常驻诊断】起播成功 ⇒ 排 3 秒自动隐藏（控件显隐的"排期者"之一 ✓）
@@ -1995,7 +2029,7 @@ class PlayerWidgetState extends State<PlayerWidget>
   }
 
   /// 打开某个源并等它"能播了"（拿到时长）或明确失败
-  Future<bool> _openAndWait(KpPlayer kp, String url) async {
+  Future<bool> _openAndWait(KpPlayer kp, String url, {Duration? start}) async {
     final done = Completer<bool>();
     void listener() {
       if (done.isCompleted) return;
@@ -2039,7 +2073,7 @@ class PlayerWidgetState extends State<PlayerWidget>
           ...?widget.httpHeaders,
         }));
       }
-      await kp.open(url, httpHeaders: {
+      await kp.open(url, start: start, httpHeaders: {
         'User-Agent': _ua,
         'Referer': ref,
         // ★ 2026-10-11（**可选头** ✅）：站点给的额外头（如柚子短剧的 `Cookie: eden_play_<videoId>=…` ✅）

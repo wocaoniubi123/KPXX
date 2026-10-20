@@ -214,4 +214,16 @@
 ///     `VolumeController()→VolumeController.instance`、`listener→addListener`。
 ///   · ⚠️ 若仍卡帧/黑屏 ⇒ 版本回到 `77db54b` 的三行 pubspec（1.5.3 基线）。
 ///   号序：每次云推 +1 ⇒ **1.5.7** ☑️
-const String kAppVersion = '1.5.7';
+/// ★ 2026-10-20：**1.5.7 → 1.5.8**（修"远跳卡帧"+"续播卡帧/黑屏"，数据链三方吻合）：
+///   🛢️ 依据（用户实机 + 日志）：
+///     · **远跳 ⇒ mpv 重新缓冲(⭕️) ⇒ 缓冲结束画面不恢复**；
+///     · 1.5.3（无 hr-seek）卡帧 / **1.5.4（开 hr-seek）随便跳没问题** ✅ /
+///       1.5.5~1.5.7（无 hr-seek）又卡 ⇒ **唯一有效 = hr-seek**；1.5.4 的坑是它持久生效 ⇒ 续播黑屏。
+///   · **① 跳转 `hr-seek` 隔离**：`KpPlayer.seek` 前 `setProperty('hr-seek','yes')`、seek 完立刻 `'no'`；
+///     `seekExact`（续播）永不设 ⇒ 续播不会黑屏。
+///   · **② 续播改用 `Media.start`**（mpv 原生起播位置，见 media_kit `native/player/real.dart:2205`）：
+///     `open(url, start: 续播位置)` ⇒ **起播即在目标位置，完全不经过 seek** ⇒ 不会"seek 后不出帧"；
+///     起播后校验位置（±3 秒），只有没定位成功才走原来的 `seekExact` + 补枪兜底。
+///   · 保留 `media_kit_video 1.3.1` 升级（无副作用）。
+///   号序：每次云推 +1 ⇒ **1.5.8** ☑️
+const String kAppVersion = '1.5.8';
