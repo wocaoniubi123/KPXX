@@ -38,15 +38,20 @@ class TsToMp4 {
   static Future<String> convert({
     required String tsPath,
     required String mp4Path,
+    /// ★ 2026-10-20（用户要求：转换中显示进度，复用下载进度条）：
+    ///   0.0~1.0。第一遍扫描占前 50%，第二遍写 mdat/moov 占后 50%。
+    void Function(double progress)? onProgress,
   }) async {
     try {
       final ts = File(tsPath);
       if (!await ts.exists()) throw const TsConvertException('TS 文件不存在');
-      final scan = await _scan(tsPath);
+      final scan = await _scan(tsPath, onProgress: onProgress);
       if (!scan.hasAnything) {
         throw const TsConvertException('没找到可用的 H.264 / AAC 轨道');
       }
-      await _writeMp4(tsPath: tsPath, mp4Path: mp4Path, scan: scan);
+      await _writeMp4(
+          tsPath: tsPath, mp4Path: mp4Path, scan: scan, onProgress: onProgress);
+      onProgress?.call(1.0);
       return mp4Path;
     } on TsConvertException {
       rethrow;
@@ -120,7 +125,7 @@ class _AudioInfo {
   });
 }
 
-Future<_Scan> _scan(String tsPath) async {
+Future<_Scan> _scan(String tsPath, {void Function(double)? onProgress}) async {
   final videoSamples = <_VideoSample>[];
   Uint8List? sps;
   Uint8List? pps;
@@ -160,7 +165,9 @@ Future<_Scan> _scan(String tsPath) async {
     } else if (kind == _TrackKind.audio) {
       adts.feed(payload, collect: true, onFrame: (_, __) {});
     }
-  });
+  }, onBytes: onProgress == null
+      ? null
+      : (r, t) => onProgress(t <= 0 ? 0 : (r / t) * 0.5));
 
   _VideoInfo? video;
   // 闭包里赋值的变量不会被流分析提升 ⇒ 先落成本地不可变引用再判空
@@ -215,6 +222,7 @@ Future<void> _writeMp4({
   required String tsPath,
   required String mp4Path,
   required _Scan scan,
+  void Function(double)? onProgress,
 }) async {
   final video = scan.video;
   final audio = scan.audio;
@@ -296,7 +304,9 @@ Future<void> _writeMp4({
           }
           chunks.audio.add(_Chunk(off, frames.length));
         }
-      });
+      }, onBytes: onProgress == null
+          ? null
+          : (r, t) => onProgress(t <= 0 ? 0.5 : 0.5 + (r / t) * 0.5));
 
       if (video != null && vi != video.samples.length) {
         throw TsConvertException('视频样本数对不上（第一遍 ${video.samples.length} / 第二遍 $vi）');
@@ -337,8 +347,10 @@ enum _TrackKind { video, audio }
 typedef _PesCallback = Future<void> Function(
     _TrackKind kind, Uint8List payload, int pts, int dts);
 
-Future<void> _walkTs(String path, _PesCallback onPes) async {
+Future<void> _walkTs(String path, _PesCallback onPes,
+    {void Function(int read, int total)? onBytes}) async {
   final raf = await File(path).open();
+  final total = await raf.length();
   try {
     final sections = <int, _SectionAssembler>{};
     int? pmtPid;
@@ -362,6 +374,7 @@ Future<void> _walkTs(String path, _PesCallback onPes) async {
 
     while (true) {
       final chunk = await raf.read(188 * 1024);
+      if (onBytes != null) onBytes(await raf.position(), total);
       final eof = chunk.isEmpty;
       if (!eof) {
         buffer = buffer.isEmpty

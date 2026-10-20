@@ -23,6 +23,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate'; // TS→MP4 转换放 isolate（纯 Dart 两遍扫描，不能卡 UI）
 
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 import 'package:path_provider/path_provider.dart';
@@ -34,6 +35,7 @@ import '../../settings.dart';
 import 'download_engine.dart';
 import 'download_model.dart';
 import 'download_worker.dart';
+import 'ts_to_mp4.dart';
 
 class DownloadManager extends ChangeNotifier {
   DownloadManager._();
@@ -723,6 +725,8 @@ class DownloadManager extends ChangeNotifier {
       // 完成后用**真实**字节校正 total：首片外推可能偏大，若只增不减会让进度永远差一点到 1
       if (ep.doneBytes > 0) ep.totalBytes = ep.doneBytes;
       _log('完成 ${_tagTask(t)} 集=${ep.index} 字节=${ep.doneBytes}');
+      // ★ 2026-10-20：单集下载完成 ⇒ 立刻后台转标准 MP4（幂等：已转的跳过）
+      unawaited(_convertLegacyTsToMp4());
     } on DownloadCancelled {
       ep.status = EpStatus.paused;
       _log('暂停 ${_tagTask(t)} 集=${ep.index} 已下=${ep.doneBytes}');
@@ -1068,6 +1072,97 @@ class DownloadManager extends ChangeNotifier {
       return '';
     }
     return '${u.scheme}://${u.host}/';
+  }
+
+  /// ★ 2026-10-20（用户实机：在线 HLS 正常、离线 `.ts` 远跳必黑屏，mpv 报
+  ///   `decode_slice_header error` —— iOS 的 mpv 在"分片拼接的 .ts"上跨分片 seek 解不出帧）：
+  ///   把离线 `.ts` **转成标准 MP4**（`TsToMp4` 纯 Dart 重封装、不转码）。
+  ///   - 转换在**独立 isolate** 跑，进度经 SendPort 回传（`ep.converting` / `ep.convertProgress`）；
+  ///   - 成功 ⇒ `localPath` 指向 `.mp4`、删 `.ts`；失败 ⇒ 保留 `.ts`（不影响下载记录）。
+  Future<void> _convertLegacyTsToMp4() async {
+    for (final t in List<DownloadTask>.of(_tasks)) {
+      var changed = false;
+      for (final ep in t.episodes) {
+        if (ep.status != EpStatus.done) continue;
+        final p = ep.localPath;
+        if (p.isEmpty || !p.toLowerCase().endsWith('.ts')) continue;
+        if (!_fileExists(p)) continue;
+        final mp4 = '${p.substring(0, p.length - 3)}.mp4';
+        if (_fileExists(mp4)) {
+          ep.localPath = mp4; // 之前已转过
+          changed = true;
+          continue;
+        }
+        ep.converting = true;
+        ep.convertProgress = 0;
+        notifyListeners();
+        try {
+          _log('TS→MP4 开始 ${_tagTask(t)} 集=${ep.index}');
+          await _runConvertIsolate(
+            tsPath: p,
+            mp4Path: mp4,
+            onProgress: (v) {
+              ep.convertProgress = v;
+              notifyListeners();
+            },
+          );
+          ep.localPath = mp4;
+          changed = true;
+          try {
+            File(p).deleteSync();
+          } catch (_) {}
+          _log('TS→MP4 完成 ${_tagTask(t)} 集=${ep.index}');
+        } catch (e) {
+          _log('TS→MP4 失败 ${_tagTask(t)} 集=${ep.index} $e（保留 .ts）');
+        } finally {
+          ep.converting = false;
+          ep.convertProgress = 0;
+          notifyListeners();
+        }
+      }
+      if (changed) _scheduleSave();
+    }
+  }
+
+  /// 在独立 isolate 里跑 `TsToMp4.convert`：进度（double）与完成（'done'）/失败（异常串）经 SendPort 回传。
+  Future<void> _runConvertIsolate({
+    required String tsPath,
+    required String mp4Path,
+    required void Function(double) onProgress,
+  }) {
+    final rp = ReceivePort();
+    final completer = Completer<void>();
+    rp.listen((msg) {
+      if (msg == 'done') {
+        if (!completer.isCompleted) completer.complete();
+        rp.close();
+      } else if (msg is double) {
+        onProgress(msg);
+      } else if (msg is String) {
+        if (!completer.isCompleted) {
+          completer.completeError(TsConvertException(msg));
+        }
+        rp.close();
+      }
+    });
+    Isolate.spawn(_convertEntry, <Object>[rp.sendPort, tsPath, mp4Path]);
+    return completer.future;
+  }
+
+  /// isolate 入口（顶层 static）：进度 send double，完成 send 'done'，失败 send 异常串。
+  static void _convertEntry(List<Object> args) {
+    final port = args[0] as SendPort;
+    final ts = args[1] as String;
+    final mp4 = args[2] as String;
+    TsToMp4.convert(
+      tsPath: ts,
+      mp4Path: mp4,
+      onProgress: (v) => port.send(v),
+    ).then((_) {
+      port.send('done');
+    }).catchError((Object e) {
+      port.send('$e');
+    });
   }
 
   void _scheduleSave() {

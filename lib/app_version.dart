@@ -203,4 +203,19 @@
 ///     **收起动画 180ms → 90ms**、**点列表空白处收起**（页面级信号）。
 ///   · **「导出」只在【已完成】列表显示**（【下载中】左滑只留「删除」，滑开宽度随之自适应 64px）。
 ///   号序：每次云推 +1 ⇒ **1.5.3** ☑️
-const String kAppVersion = '1.5.3';
+/// ★ 2026-10-20：**1.5.3 → 1.5.12**（**只加一件事：离线 HLS 的 `.ts` 在下载完成后转成标准 MP4**）：
+///   🛢️ 根因（用户实机 + mpv `logLevel=info` 日志实证）：
+///     · 在线 HLS 播同一个视频**完全正常**；电脑 VLC 播离线文件**也正常**；
+///     · 离线文件是 `ep_0000.ts`（HLS 分片拼接的 MPEG-TS，几百个分片）；
+///     · 离线播放远跳时 mpv 报 `ffmpeg/video: h264: decode_slice_header error` ×几千行 +
+///       `vd: Error while decoding frame (hardware decoding)` + `Error while decoding frame`
+///       —— **iOS 的 mpv 在"分片拼接的 .ts"上跨分片 seek 解不出帧**（桌面 ffmpeg 容错强所以没事）；
+///       与文件大小正相关（117MB 正常 / 869MB 必挂）。
+///   · **修复**：每集**下载完成后**立刻把 `.ts` 转标准 MP4（`TsToMp4`，纯 Dart 重封装、不转码）：
+///     - 独立 isolate 跑，进度经 SendPort 回传（`DownloadEpisode.converting` / `convertProgress`）；
+///     - 下载页卡片显示 **「转换中 X%」**，**复用原进度条**显示转换进度；
+///     - 成功 ⇒ `localPath` 指向 `.mp4`、删 `.ts`；失败 ⇒ 保留 `.ts`（不影响下载记录）。
+///   · **App 启动时不做批量转换**（用户明确要求：以前下的 `.ts` 不管）。
+///   · **没加**：hr-seek 隔离 / Media.start / mpv 日志诊断（全部回滚，1.5.3 原版 seek 逻辑）。
+///   号序：每次云推 +1 ⇒ **1.5.12** ☑️
+const String kAppVersion = '1.5.12';

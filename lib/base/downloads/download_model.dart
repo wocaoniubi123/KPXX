@@ -61,6 +61,12 @@ class DownloadEpisode {
   /// 失败原因（人话 + HTTP 状态码之类）；成功后清空
   String error;
 
+  /// ★ 2026-10-20（用户要求：转换中显示进度、复用进度条）：
+  ///   TS→MP4 转换中标记 + 进度（0~1）。**运行时状态、不持久化**
+  ///   （重启后重扫：已转成 .mp4 的直接跳过；没转完的下次重新转）。
+  bool converting = false;
+  double convertProgress = 0;
+
   DownloadEpisode({
     required this.index,
     required this.label,

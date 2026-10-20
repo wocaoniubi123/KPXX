@@ -369,6 +369,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
   ///   若把它们一起聚合，一部已经下完的剧会永远显示「等待中」☠。
   ///   全是 ☁️（一集都不下）⇒ 显示「未下载」。
   String _taskStatus(DownloadTask task) {
+    // ★ 2026-10-20（用户要求：转换中显示提示 + 进度）：有集在 TS→MP4 转换 ⇒ 显示"转换中 X%"
+    final conv = task.episodes.where((e) => e.converting).toList();
+    if (conv.isNotEmpty) {
+      final maxP = conv
+          .map((e) => e.convertProgress)
+          .fold<double>(0, (a, b) => b > a ? b : a);
+      return '转换中 ${(maxP * 100).clamp(0, 100).round()}%';
+    }
     var downloading = false;
     var failed = false;
     var paused = false;
@@ -1080,6 +1088,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
   /// 总大小用 [_estimatedTotal]（已开始的集是真实值，未开始的集按平均大小外推）；
   /// 估不出来（一集都没开始）⇒ 退回集数口径，至少不是 0。
   double _byteProgress(DownloadTask task) {
+    // ★ 2026-10-20（用户要求：复用进度条显示转换进度）：转换中 ⇒ 进度条走转换进度
+    final conv = task.episodes.where((e) => e.converting).toList();
+    if (conv.isNotEmpty) {
+      final maxP = conv
+          .map((e) => e.convertProgress)
+          .fold<double>(0, (a, b) => b > a ? b : a);
+      return maxP.clamp(0.0, 1.0);
+    }
     if (task.isAllDone) return 1;
     final est = _estimatedTotal(task);
     // ★ 用户 2026-10-19 拍板 A：分母**只增不减** —— 否则跨集边界（新集开始 / 完成校正）
