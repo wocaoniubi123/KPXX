@@ -59,11 +59,20 @@ class _DownloadsPageState extends State<DownloadsPage> {
   /// 只增不减之后进度条单调前进、不再抖（全部下完仍由 `isAllDone` 强制 1.0）。
   final Map<String, int> _estMax = <String, int>{};
 
+  /// 点列表空白处「收起左滑按钮」的信号（每行 `_SwipeRow` 监听它）
+  final ValueNotifier<int> _swipeCloseTick = ValueNotifier<int>(0);
+
   @override
   void initState() {
     super.initState();
     // 页面在 IndexedStack 里常驻 ⇒ 这里只触发一次；load() 自身幂等（重复调用返回同一个 Future）
     unawaited(DownloadManager.i.load());
+  }
+
+  @override
+  void dispose() {
+    _swipeCloseTick.dispose();
+    super.dispose();
   }
 
   @override
@@ -116,8 +125,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ),
         body: TabBarView(
           children: [
-            _taskList(context, DownloadManager.i.completed, empty: '还没有下载的视频'),
-            _taskList(context, DownloadManager.i.active, empty: '暂无下载任务'),
+            // ★ 导出只在【已完成】；【下载中】左滑只留「删除」（用户 2026-10-20）
+            _taskList(context, DownloadManager.i.completed,
+                empty: '还没有下载的视频', allowExport: true),
+            _taskList(context, DownloadManager.i.active,
+                empty: '暂无下载任务', allowExport: false),
           ],
         ),
       ),
@@ -126,7 +138,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   /// 一个 tab 的列表（空态文案两页不同）
   Widget _taskList(BuildContext context, List<DownloadTask> list,
-      {required String empty}) {
+      {required String empty, required bool allowExport}) {
     // 还在读盘 ⇒ 别急着说"没有"，先给个小转圈（免得启动瞬间空态闪一下）
     if (!DownloadManager.i.isLoaded) {
       return const Center(
@@ -142,20 +154,29 @@ class _DownloadsPageState extends State<DownloadsPage> {
         child: Text(empty, style: TextStyle(color: kTxtSub, fontSize: 13)),
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      itemCount: list.length,
-      itemBuilder: (context, i) => _row(context, list[i]),
+    return GestureDetector(
+      // ★ 用户 2026-10-20：点列表**空白处**收起左滑按钮
+      //   （行内点击由 InkWell/拖动自己处理 ⇒ 手势竞技场里子优先，不会误触发这里）
+      behavior: HitTestBehavior.translucent,
+      onTap: () => _swipeCloseTick.value++,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        itemCount: list.length,
+        itemBuilder: (context, i) => _row(context, list[i], allowExport: allowExport),
+      ),
     );
   }
 
   /// 一行 = 左滑容器 + 卡片（key 用任务 key：增删一条时别把整行重新挂载）
-  Widget _row(BuildContext context, DownloadTask task) {
+  Widget _row(BuildContext context, DownloadTask task,
+      {required bool allowExport}) {
     return _SwipeRow(
       key: ValueKey(task.key),
+      closeSignal: _swipeCloseTick,
       onTap: () => _openTask(context, task),
       onLongPress: () => _menu(context, task),
-      onExport: () => _export(context, task),
+      // ★ 用户 2026-10-20：「导出」**只在【已完成】列表出现**（下载中左滑只留「删除」）
+      onExport: allowExport ? () => _export(context, task) : null,
       onDelete: () => _removeTask(context, task),
       child: _card(task),
     );
@@ -1300,15 +1321,21 @@ class _SwipeRow extends StatefulWidget {
     required this.child,
     required this.onTap,
     required this.onLongPress,
-    required this.onExport,
+    this.onExport,
     required this.onDelete,
+    this.closeSignal,
   });
 
   final Widget child;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
-  final VoidCallback onExport;
+
+  /// 「导出」回调（**只在【已完成】tab 传**；【下载中】传 null ⇒ 左滑只显示「删除」，用户 2026-10-20）
+  final VoidCallback? onExport;
   final VoidCallback onDelete;
+
+  /// 外部"收起"信号（用户 2026-10-20：点列表空白处把所有左滑行收起）
+  final Listenable? closeSignal;
 
   @override
   State<_SwipeRow> createState() => _SwipeRowState();
@@ -1316,9 +1343,11 @@ class _SwipeRow extends StatefulWidget {
 
 class _SwipeRowState extends State<_SwipeRow>
     with SingleTickerProviderStateMixin {
-  /// 每个按钮宽 64（和模拟器 `.bgal-acts > div` 一致）；滑开位移 = 两个按钮
+  /// 每个按钮宽 64（和模拟器 `.bgal-acts > div` 一致）；滑开位移 = 按钮数 × 宽
   static const double _btnW = 64;
-  static const double _total = _btnW * 2;
+
+  /// 滑开位移总量：有「导出」⇒ 2 个按钮（128）；【下载中】只有「删除」⇒ 1 个（64）
+  double get _total => _btnW * (widget.onExport != null ? 2 : 1);
 
   /// 吸附动画（只用于"松手 / 点一下收回"；拖动中是直接跟手的）。
   ///
@@ -1348,7 +1377,19 @@ class _SwipeRowState extends State<_SwipeRow>
   bool get _open => _offset != 0;
 
   @override
+  void initState() {
+    super.initState();
+    // ★ 用户 2026-10-20：点列表空白处 ⇒ 收起左滑按钮（页面层统一发信号）
+    widget.closeSignal?.addListener(_onCloseSignal);
+  }
+
+  void _onCloseSignal() {
+    if (_open) _snap(open: false);
+  }
+
+  @override
   void dispose() {
+    widget.closeSignal?.removeListener(_onCloseSignal);
     _ac.dispose();
     super.dispose();
   }
@@ -1362,13 +1403,25 @@ class _SwipeRowState extends State<_SwipeRow>
     });
   }
 
+  /// 松手吸附（★ 用户 2026-10-20：左滑/右滑都要灵敏）：
+  ///   · 左甩（< −250）⇒ 开；**右甩（> 250）⇒ 关**（原来只判左甩 ⇒ 右滑恢复不灵 ☠）
+  ///   · 没甩时按位置：阈值从"过半"降到 **1/3**（手感更跟手）
   void _settle(DragEndDetails d) {
-    // 左甩（速度够快）也算要开 —— 手滑一下不必非要拖过半
-    final flung = d.velocity.pixelsPerSecond.dx < -300;
-    _snap(open: flung || _dx < -_total / 2);
+    final vx = d.velocity.pixelsPerSecond.dx;
+    if (vx < -250) {
+      _snap(open: true);
+      return;
+    }
+    if (vx > 250) {
+      _snap(open: false);
+      return;
+    }
+    _snap(open: _dx < -_total / 3);
   }
 
   /// 吸附到开 / 合（松手、手势被取消、点一下收回，都走这里）
+  /// ★ 用户 2026-10-20：**收起要快** —— 原来固定 180ms，收起来拖沓；
+  ///   现在 **开 180ms / 收 90ms**。
   void _snap({required bool open}) {
     final from = _offset; // setState 之前取：拖到一半松手就从当前位置接着动画
     setState(() {
@@ -1376,6 +1429,7 @@ class _SwipeRowState extends State<_SwipeRow>
       _snapFrom = from;
       _dx = open ? -_total : 0;
     });
+    _ac.duration = Duration(milliseconds: open ? 180 : 90);
     _ac.forward(from: 0);
   }
 
@@ -1394,10 +1448,12 @@ class _SwipeRowState extends State<_SwipeRow>
               crossAxisAlignment: CrossAxisAlignment.stretch, // 按钮撑满行高
               children: [
                 // 点了就收回（不然导出完这行还停在滑开位，看着像没反应）
-                _btn('导出', const Color(0xFF3C4043), () {
-                  _snap(open: false);
-                  widget.onExport();
-                }),
+                // ★ 用户 2026-10-20：「导出」**只在【已完成】tab 显示**（下载中只留「删除」）
+                if (widget.onExport != null)
+                  _btn('导出', const Color(0xFF3C4043), () {
+                    _snap(open: false);
+                    widget.onExport!();
+                  }),
                 _btn('删除', const Color(0xFFE5484D), widget.onDelete),
               ],
             ),

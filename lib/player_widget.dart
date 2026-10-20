@@ -937,19 +937,29 @@ class KpPlayer extends ValueNotifier<KpState> {
 }
 
 /// 缓冲提示：跳转跨度大时要重新拉流，没提示看着像卡死。
+///
+/// ★ 用户 2026-10-20（实测）：**进度都到底了中间还在转圈** —— 播完（`completed`）或位置到结尾
+///   （留 400ms 容差）时 mpv 的 `buffering` 可能仍为 true ⇒ 这里直接不显示，把位置让给「重播」按钮。
 Widget _bufferingHint(KpPlayer kp) {
   return Align(
     alignment: const Alignment(0, -0.45),
     child: ValueListenableBuilder<KpState>(
       valueListenable: kp,
-      builder: (_, s, __) => s.buffering
-          ? const SizedBox(
-              width: 26,
-              height: 26,
-              child: CircularProgressIndicator(
-                  color: Colors.white70, strokeWidth: 2),
-            )
-          : const SizedBox.shrink(),
+      builder: (_, s, __) {
+        if (!s.buffering) return const SizedBox.shrink();
+        if (s.completed) return const SizedBox.shrink();
+        final d = s.duration;
+        if (d > Duration.zero &&
+            s.position >= d - const Duration(milliseconds: 400)) {
+          return const SizedBox.shrink();
+        }
+        return const SizedBox(
+          width: 26,
+          height: 26,
+          child: CircularProgressIndicator(
+              color: Colors.white70, strokeWidth: 2),
+        );
+      },
     ),
   );
 }
@@ -3348,23 +3358,35 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
   bool _errShown = false;
   bool _endHandled = false; // 本段播完是否已处理（换集后自动重置）
 
+  /// 「重播」按钮是否显示中（变化时 setState —— 否则点重播后 completed 变 false 但界面不重建，按钮不消失 ☠）
+  bool _replayShown = false;
+
   void _onTick() {
     if (!mounted) return;
     final v = _live.value; // ★ 动态取当前引擎（切集后 follow 立刻给新引擎 ⇒ 不再读到已回收实例）
     if (v.error != _errShown) setState(() => _errShown = v.error);
-    // 播完且没有下一集：自动退出全屏（竖版/横版都适用；用户要求）
+    // ★ 用户 2026-10-20（改）：**播完不再自动退出全屏** —— 由用户手动退出。
+    //   原因（🛢️ 实测）：切集瞬间 `completed`/`_endHandled` 的时序会把新集误判成
+    //   "播完且无下一集" ⇒ 自动 pop ⇒ "自动下一集会退出全屏" ☠。
+    //   删掉 pop 后，全屏只由用户操作退出（返回键/下滑/双击/系统手势）；
+    //   自动连播（`switcher.next()`）在 PlayerWidget 那边处理，这里不动。
     if (v.completed) {
       if (!_endHandled) {
         _endHandled = true;
-        // ★【常驻诊断】播完那一刻：有下一集就等自动下一集，没有就自己退全屏 ✓
-        if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 播完 有下一集=${widget.switcher?.hasNext ?? false} ${(widget.switcher?.hasNext ?? false) ? '⇒ 等自动切下一集' : '⇒ 恢复竖屏并自动退出全屏'}');
-        if (!(widget.switcher?.hasNext ?? false)) {
-          _restoreOrientation();
-          Navigator.pop(context);
+        if (AppSettings.i.logConsole) {
+          debugPrint('[PLAY] 全屏 播完 有下一集=${widget.switcher?.hasNext ?? false} '
+              '${(widget.switcher?.hasNext ?? false) ? '⇒ 等自动切下一集（保持全屏）' : '⇒ 停在全屏（不自动退出，等用户手动退）'}');
         }
       }
     } else {
       _endHandled = false;
+    }
+    // ★ 用户 2026-10-20（实测：点了重播按钮还在）：`_onTick` 原来只在 completed 分支动状态、
+    //   且**没有 setState** ⇒ 重播后（completed=false / 位置回 0）全屏 UI 不重建 ⇒ 按钮不消失 ☠
+    final rs = _showReplay;
+    if (rs != _replayShown) {
+      _replayShown = rs;
+      if (mounted) setState(() {});
     }
   }
 
