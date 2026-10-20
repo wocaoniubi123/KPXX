@@ -903,6 +903,22 @@ class KpPlayer extends ValueNotifier<KpState> {
     await _p.setRate(r);
   }
 
+  /// ★ 用户 2026-10-20（1.5.5 实机：退出重进**卡在首帧**）：把"seek 后让解码器出帧"的两步
+  ///   抽成公共方法 —— `seek`（用户跳转）**和** `seekExact`（续播/换档）都要用（续播同样会不出帧）。
+  ///   ⚠️ **不再退 `frame-step`**：mpv 的 `frame-step` 是"前进一帧并**暂停**"⇒ 会把画面停住 ☠
+  Future<void> _afterSeek(Duration t) async {
+    if (_disposed) return;
+    // ① 微偏移 reseek（+1ms）—— 让解码器重新出帧（肉眼无差）
+    try {
+      await _p.seek(t + const Duration(milliseconds: 1));
+    } catch (_) {}
+    if (_disposed) return;
+    // ⑤ 让 mpv 刷新视频输出（内部 API；命令不存在 / 不支持 ⇒ 静默）
+    try {
+      await (_p.platform as dynamic).command(<String>['video-refresh']);
+    } catch (_) {}
+  }
+
   /// seek（★ 用户 2026-10-20：快跳 / 远跳 / 来回跳之后 **画面卡在 seek 前那一帧**）
   ///
   /// 三层"体验无感"的缓解（用户拍板 ①+③+⑤，全部不影响正常播放）：
@@ -917,32 +933,18 @@ class KpPlayer extends ValueNotifier<KpState> {
     if (_disposed) return _skip('seek'); // ★ 幂等护栏
 
     await _p.seek(t);
-    if (_disposed) return;
-
-    // ① 微偏移 reseek（+1ms）—— 让解码器重新出帧（肉眼无差）
-    try {
-      await _p.seek(t + const Duration(milliseconds: 1));
-    } catch (_) {}
-    if (_disposed) return;
-
-    // ⑤ 让 mpv 刷新视频输出（内部 API；命令不存在 / 不支持 ⇒ 静默）
-    try {
-      await (_p.platform as dynamic).command(<String>['video-refresh']);
-    } catch (_) {
-      try {
-        await (_p.platform as dynamic).command(<String>['frame-step']);
-      } catch (_) {}
-    }
+    await _afterSeek(t);
   }
 
   /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
   /// 位置"，而 `seek()` 会按 `value.duration` 裁剪，万一时长还没报上来
   /// （或报了个半截值）就会被裁小 —— 表现同样是"从头发"。
-  Future<void> seekExact(Duration d) {
+  Future<void> seekExact(Duration d) async {
     // 看：不裁剪的精确 seek（续播/换档用）—— 目标是多少 ms。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek(精确) 从=${value.position.inMilliseconds}ms 到=${d.inMilliseconds}ms');
     if (_disposed) return _skip('seekExact');
-    return _p.seek(d);
+    await _p.seek(d);
+    await _afterSeek(d); // ★ 续播同样要"让解码器出帧"（1.5.5 实测：不加会卡在首帧）
   }
 
   /// ★ 2026-10-11（**用户实测"退不出全屏"** 的防御配套）：给外部一个**可查询的**释放状态。

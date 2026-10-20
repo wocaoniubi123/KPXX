@@ -220,4 +220,12 @@
 ///     续播走 `seekExact` ⇒ 不受影响）。
 ///   · ⚠️ 若"来回跳卡帧"复发 ⇒ 把 `hr-seek` 改成"**seek 前临时设、seek 完成恢复 `no`**"。
 ///   号序：每次云推 +1 ⇒ **1.5.5** ☑️
-const String kAppVersion = '1.5.5';
+/// ★ 2026-10-20：**1.5.5 → 1.5.6**（续播也走"让解码器出帧"，并删掉会暂停画面的 `frame-step` 兜底）：
+///   · 1.5.5 手机实测：**退出重进直接卡在首帧**。两个原因：
+///     ① **续播 `seekExact` 没走** ①微偏移/⑤`video-refresh`（那两步只加在 `seek()` 里）⇒
+///        续播 seek 后解码器同样不出帧 ⇒ 卡首帧；
+///     ② ⑤ 的兜底 `frame-step` —— mpv 语义是"**前进一帧并暂停**"⇒ 会把画面停住 ☠。
+///   · 本版：抽出公共 `_afterSeek()`（微偏移 +1ms + `video-refresh`），**`seek` 与 `seekExact` 共用**；
+///     **删除 `frame-step` 兜底**（只试 `video-refresh`，失败静默）。
+///   号序：每次云推 +1 ⇒ **1.5.6** ☑️
+const String kAppVersion = '1.5.6';
