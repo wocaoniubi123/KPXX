@@ -203,4 +203,15 @@
 ///     **收起动画 180ms → 90ms**、**点列表空白处收起**（页面级信号）。
 ///   · **「导出」只在【已完成】列表显示**（【下载中】左滑只留「删除」，滑开宽度随之自适应 64px）。
 ///   号序：每次云推 +1 ⇒ **1.5.3** ☑️
-const String kAppVersion = '1.5.3';
+/// ★ 2026-10-20：**1.5.3 → 1.5.7**（试试升级播放栈：media_kit_video 1.2.5 → 1.3.1，官方 seek 修复）：
+///   · 1.5.4~1.5.6 尝试"hr-seek / 微偏移 / video-refresh"组合，实测反而让**续播卡首帧/黑屏**，
+///     已全部回滚（`77db54b` 基线，纯 seek）。
+///   · 本版**不动 seek 逻辑**，改为**升级依赖**：
+///     `media_kit_video` 1.2.5 → **1.3.1**（changelog 原文："during seek fix" / "remove black screen
+///     when switching videos"）；连带 `screen_brightness` → **2.1.11**、`volume_controller` → **3.7.1**。
+///   · `player_widget.dart` 适配新 API：`current→application`、`onCurrentBrightnessChanged→
+///     onApplicationScreenBrightnessChanged`、`setScreenBrightness→setApplicationScreenBrightness`、
+///     `VolumeController()→VolumeController.instance`、`listener→addListener`。
+///   · ⚠️ 若仍卡帧/黑屏 ⇒ 版本回到 `77db54b` 的三行 pubspec（1.5.3 基线）。
+///   号序：每次云推 +1 ⇒ **1.5.7** ☑️
+const String kAppVersion = '1.5.7';

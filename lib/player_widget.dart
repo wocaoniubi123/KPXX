@@ -1147,25 +1147,28 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     if (_bvPrimed) return;
     _bvPrimed = true;
     try {
-      _bvBrightVal = await ScreenBrightness().current;
+      // ★ 2026-10-20（media_kit_video 1.3.1 连带升级 screen_brightness 2.x / volume_controller 3.x）：
+      //   `current` → `application`、`onCurrentBrightnessChanged` → `onApplicationScreenBrightnessChanged`、
+      //   `VolumeController()` → `VolumeController.instance`、`listener` → `addListener`。
+      _bvBrightVal = await ScreenBrightness().application;
       if (!mounted) return; // B7：await 之后 State 可能已销毁，别再往下挂订阅
       _bvBrightSub = ScreenBrightness()
-          .onCurrentBrightnessChanged
+          .onApplicationScreenBrightnessChanged
           .listen((v) => _bvBrightVal = v);
     } catch (_) {}
     await _bvRefreshVolume();
     if (!mounted) return; // B7：同上（挂音量订阅之前）
     try {
       // 音量由本 app 调，别让系统再弹一个音量 HUD（我们有自己的指示条）
-      VolumeController().showSystemUI = false;
+      VolumeController.instance.showSystemUI = false;
       // 跟随系统音量变化（含用手机音量键改的情况）
-      _bvVolSub = VolumeController().listener((v) => _bvVolVal = v);
+      _bvVolSub = VolumeController.instance.addListener((v) => _bvVolVal = v);
     } catch (_) {}
   }
 
   Future<void> _bvRefreshVolume() async {
     try {
-      _bvVolVal = await VolumeController().getVolume();
+      _bvVolVal = await VolumeController.instance.getVolume();
     } catch (_) {}
   }
 
@@ -1182,7 +1185,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
     if (_bvBrightness) {
       () async {
         try {
-          _bvBrightVal = await ScreenBrightness().current;
+          _bvBrightVal = await ScreenBrightness().application;
         } catch (_) {}
       }();
     } else {
@@ -1200,7 +1203,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
       _bvBrightVal = v; // 自己改的，缓存同步跟上
       () async {
         try {
-          await ScreenBrightness().setScreenBrightness(v);
+          await ScreenBrightness().setApplicationScreenBrightness(v);
         } catch (_) {}
       }();
       _bvGauge(v);
@@ -1215,7 +1218,7 @@ mixin _BrightnessVolume<T extends StatefulWidget> on State<T> {
       //   ⚠️ 口径与同文件 `bvPrime`/`_bvRefreshVolume` 那两处**完全一致**（它们本来就 `catch (_) {}` ✓）；
       //      iOS 上调用**照旧成功** ⇒ 行为零变化 ✓（只是多了个永不会走的 catch ✓）。
       try {
-        VolumeController().setVolume(v);
+        VolumeController.instance.setVolume(v);
       } catch (_) {}
       _bvGauge(v);
     }
