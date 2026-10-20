@@ -215,4 +215,14 @@
 ///   · 依赖：`media_kit_video` **1.2.5**（钉死）、`screen_brightness` **0.2.2+1**、`volume_controller` **2.0.7**、
 ///     `media_kit` **1.2.6**（核心不动）。
 ///   号序：每次云推 +1 ⇒ **1.5.9** ☑️
-const String kAppVersion = '1.5.9';
+/// ★ 2026-10-20：**1.5.9 → 1.5.10**（**临时诊断版**：抓 mpv 内部日志，定位"869MB 视频续播后黑屏"）：
+///   🛢️ 1.5.9 实测（用户日志）：同一个 869MB / 1568s 视频，**每次进都黑屏**；小视频（664s）正常。
+///     黑屏的直接证据：`VideoOutput.Resize` 只收到初始 `rect {0.0, 0.0}`，**没有第二次 Resize 到实际尺寸**；
+///     且大视频的 `计时 … hwdec-current=` **为空**（解码器未启动），小视频是 `hwdec-current=no`（有值）。
+///   · 本版**只加诊断，不改播放逻辑**：
+///     ① `PlayerConfiguration.logLevel`：`error` → **`info`**（临时）；
+///     ② 订阅 `Player.stream.log` ⇒ `[MPV] prefix: text` 走 `debugPrint`（即写进 App 错误日志页），
+///        受「控制台日志」开关管控；关着时零打印（mpv 侧仍会产生 info 日志，开销可忽略）。
+///   · ⚠️ **诊断完必须改回 `error` 并撤掉订阅**（info 日志量大、debug 下会拖慢主线程）。
+///   号序：每次云推 +1 ⇒ **1.5.10** ☑️
+const String kAppVersion = '1.5.10';
