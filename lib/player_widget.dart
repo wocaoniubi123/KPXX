@@ -189,9 +189,8 @@ class KpPlayer extends ValueNotifier<KpState> {
       : _p = Player(
           configuration: PlayerConfiguration(
             bufferSize: bufferMb * 1024 * 1024,
-            // ★ 2026-10-20 临时：抓 mpv 内部日志（定位"869MB 视频续播后解码器不出帧 hwdec-current 空"）
-            //   ⚠️ 定位完改回 `error`（info 日志量大，debug 下会拖慢主线程）
-            logLevel: MPVLogLevel.info,
+            // ★ 2026-10-20 临时诊断已撤（当时用 info 定位"离线 .ts 远跳 decode_slice_header error"）
+            logLevel: MPVLogLevel.error,
           ),
         ),
         super(const KpState()) {
@@ -203,14 +202,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     final sv = KpPlayer.startupVolumeOverride;
     if (sv != null) unawaited(_p.setVolume(sv));
     _subs = [
-      // ★ 2026-10-20 临时：**mpv 内部日志转进 App 日志**（定位"869MB 视频续播后解码器不出帧"）。
-      //   `Player.stream.log` 是 media_kit 的公开日志流（`PlayerLog{prefix,level,text}`）；
-      //   `logConsole` 关着 ⇒ 零开销。定位完可以和上面的 `logLevel: info` 一起撤掉。
-      _p.stream.log.listen((l) {
-        if (AppSettings.i.logConsole) {
-          debugPrint('[MPV] ${l.prefix}: ${l.text}');
-        }
-      }),
+      // （2026-10-20 临时诊断已撤：mpv 日志接管只为定位"离线 .ts 远跳 black screen"）
       _p.stream.position.listen((v) {
         value = value.copyWith(position: v);
         // ★【常驻诊断】只打**首次** position>0（首帧 ✓）⇒ 防刷屏 ☠；`_everStarted` 是既有字段 ✓ 不改它的用法 ✓
