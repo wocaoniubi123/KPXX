@@ -67,6 +67,10 @@ class DownloadManager extends ChangeNotifier {
 
   final List<DownloadTask> _tasks = [];
 
+  /// ★ 2026-10-21（用户拍板 A）：**手动拖拽排序**的 key 顺序（持久化到 `dl_order`）。
+  ///   不在这个列表里的（新下载的任务）⇒ 按创建时间排在**最前面**。
+  List<String> _order = [];
+
   /// 正在跑任务的剧 key（≤ [maxActiveTasks]）
   final Set<String> _activeTasks = <String>{};
 
@@ -144,6 +148,8 @@ class DownloadManager extends ChangeNotifier {
     await _migrateLegacyDir();
     try {
       final sp = await SharedPreferences.getInstance();
+      // ★ 2026-10-21（用户拍板 A）：读手动拖拽顺序（老数据没有 ⇒ 空 ⇒ 按创建时间排）
+      _order = sp.getStringList('dl_order') ?? <String>[];
       final raw = sp.getString(storageKey);
       if (raw != null && raw.isNotEmpty) {
         final list = jsonDecode(raw);
@@ -208,6 +214,20 @@ class DownloadManager extends ChangeNotifier {
     if (pathsChanged) _scheduleSave(); // 修好的路径/恢复的状态落盘，下次不用再猜
     _log('加载完成 任务=${_tasks.length} 目录=${_dirPath.isEmpty ? 'null' : _dirPath}');
     notifyListeners();
+  }
+
+  /// ★ 2026-10-21（用户拍板：**本地优先，联网只追加**）：
+  ///   后台检测到站点最新集数 > 本地记录 ⇒ 把新集**追加**进来（只登记、不下载）：
+  ///   `wanted=false` / `queued` / `sourceUrl` 空 ⇒ 离线页会显示成 ☁️。
+  ///   追加后 `episodes.length` 变大 ⇒ 下载页黄点（纯本地 `doneCount < episodes.length`）自动亮起 ✅。
+  ///   幂等：同 `index` 已存在 ⇒ 返回 false。
+  bool appendEpisodeIfMissing(DownloadTask t, DownloadEpisode ep) {
+    if (t.episodes.any((e) => e.index == ep.index)) return false;
+    t.episodes.add(ep);
+    t.episodes.sort((a, b) => a.index.compareTo(b.index));
+    _scheduleSave();
+    notifyListeners();
+    return true;
   }
 
   /// 把一部剧加入下载（同 key 已存在 ⇒ 合并）。
@@ -1179,6 +1199,9 @@ class DownloadManager extends ChangeNotifier {
         for (final t in _tasks) t.toJson(),
       ]);
       await sp.setString(storageKey, raw);
+      // ★ 2026-10-21：手动顺序一并落盘（只保留还在的任务 key）
+      _order = _order.where((k) => _tasks.any((t) => t.key == k)).toList();
+      await sp.setStringList('dl_order', _order);
     } catch (e) {
       _log('保存失败：$e');
     }
@@ -1188,11 +1211,30 @@ class DownloadManager extends ChangeNotifier {
   // 小工具
   // -------------------------------------------------------------------------
 
+  /// ★ 2026-10-21（用户拍板 A）：优先按手动拖拽顺序；未排过的（新任务）按创建时间排最前面。
   void _sortTasks() {
-    _tasks.sort((a, b) {
-      final byTime = b.createdAt.compareTo(a.createdAt);
-      return byTime != 0 ? byTime : a.key.compareTo(b.key);
-    });
+    final idx = <String, int>{};
+    for (var i = 0; i < _order.length; i++) {
+      idx[_order[i]] = i;
+    }
+    final unranked = _tasks.where((t) => !idx.containsKey(t.key)).toList()
+      ..sort((a, b) {
+        final byTime = b.createdAt.compareTo(a.createdAt);
+        return byTime != 0 ? byTime : a.key.compareTo(b.key);
+      });
+    final ranked = _tasks.where((t) => idx.containsKey(t.key)).toList()
+      ..sort((a, b) => idx[a.key]!.compareTo(idx[b.key]!));
+    _tasks
+      ..clear()
+      ..addAll(unranked)
+      ..addAll(ranked);
+  }
+
+  /// ★ 2026-10-21（用户拍板 A）：下载页长按拖拽排序后，保存新的 key 顺序。
+  Future<void> setOrder(List<String> keys) async {
+    _order = List<String>.of(keys);
+    notifyListeners();
+    await _saveNow();
   }
 
   void _normalizeNewEpisodes(DownloadTask t) {

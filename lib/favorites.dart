@@ -135,11 +135,29 @@ class Favorites extends ChangeNotifier {
   static final Favorites i = Favorites._();
 
   static const String _kKey = 'fav_list';
+  static const String _kOrderKey = 'fav_order'; // ★ 2026-10-21：手动拖拽顺序
 
   final Map<String, FavoriteItem> _m = {}; // key -> 收藏项（去重靠它）
 
-  /// 列表页看这个：**最近观看降序**（并列用收藏时间 —— 判据只有 `_byRecency` 一份 ✅）
-  List<FavoriteItem> get items => _m.values.toList()..sort(_byRecency);
+  /// ★ 2026-10-21（用户拍板 A）：**手动拖拽排序**的 key 顺序（持久化到 `fav_order`）。
+  ///   不在这里的条目（新收藏 / 老数据）⇒ 按"最近观看"排在**最前面**。
+  List<String> _order = [];
+
+  /// 列表页看这个：**优先按手动顺序**；没排过的（新收藏/老数据）按"最近观看"插在顶部。
+  List<FavoriteItem> get items {
+    final ordered = <FavoriteItem>[];
+    final seen = <String>{};
+    for (final k in _order) {
+      final it = _m[k];
+      if (it != null) {
+        ordered.add(it);
+        seen.add(k);
+      }
+    }
+    final rest = _m.values.where((it) => !seen.contains(it.key)).toList()
+      ..sort(_byRecency);
+    return <FavoriteItem>[...rest, ...ordered];
+  }
 
   bool get isEmpty => _m.isEmpty;
   int get length => _m.length;
@@ -186,6 +204,8 @@ class Favorites extends ChangeNotifier {
       for (final it in _m.values) {
         _savedMs[it.key] = it.lastViewAt;
       }
+      // ★ 2026-10-21（用户拍板 A）：读手动拖拽顺序（老数据没有这个键 ⇒ 空 ⇒ 按"最近观看"排）
+      _order = sp.getStringList(_kOrderKey) ?? <String>[];
       notifyListeners();
     } catch (_) {
       // 数据坏了就当空：不能因为一条坏收藏让 App 起不来
@@ -289,9 +309,36 @@ class Favorites extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       final arr = _m.values.map((it) => it.toJson()).toList();
       await sp.setString(_kKey, jsonEncode(arr));
+      // ★ 2026-10-21：顺序也只保留还在收藏里的 key（取消收藏的自动剔除）
+      _order = _order.where((k) => _m.containsKey(k)).toList();
+      await sp.setStringList(_kOrderKey, _order);
     } catch (_) {
       // 存失败不影响本次会话（下次改动还会再试）
     }
+  }
+
+  /// ★ 2026-10-21（用户拍板 A）：收藏页长按拖拽排序后，保存新的 key 顺序。
+  Future<void> setOrder(List<String> keys) async {
+    _order = List<String>.of(keys);
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setStringList(_kOrderKey, _order);
+    } catch (_) {
+      // 存失败不影响本次会话
+    }
+    notifyListeners();
+  }
+
+  /// ★ 2026-10-21（用户拍板：**本地优先，联网只追加**）：
+  ///   后台检测到站点最新集数 > 本地 `total` ⇒ **追加 `total`**（只改 total，不动进度/集号）。
+  ///   `total` 变大后，收藏页黄点（纯本地 `total > videoIndex + 1`）自动亮起 ✅。
+  Future<void> updateTotal(String site, String url, int total) async {
+    final k = '$site|$url';
+    final it = _m[k];
+    if (it == null || total <= it.total) return;
+    _m[k] = it.copyWith(total: total);
+    notifyListeners();
+    await save();
   }
 
   /// 自检（debug 构建生效，release 自动剔除；`load()` 里跑一次）。

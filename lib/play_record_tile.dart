@@ -29,6 +29,10 @@ class MediaRow extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
 
+  /// ★ 2026-10-21（用户拍板）：有集数更新 ⇒ 在**封面正前方（垂直居中）**画黄色小圆点。
+  ///   默认 `false` ⇒ 播放记录页等其它调用方**行为零变化** ✅。
+  final bool dot;
+
   const MediaRow({
     super.key,
     required this.cover,
@@ -39,6 +43,7 @@ class MediaRow extends StatelessWidget {
     this.metaRight = '',
     this.onTap,
     this.onDelete,
+    this.dot = false,
   });
 
   @override
@@ -53,7 +58,8 @@ class MediaRow extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _cover(),
+            // ★ 2026-10-21（用户要求：列表宽度不变）：黄点用 Stack 叠加在封面左侧，不占布局
+            _coverWithDot(dot),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -122,6 +128,35 @@ class MediaRow extends StatelessWidget {
   }
 
   /// 封面：站点本来没封面就用灰底 + 电影图标占位（同尺寸）
+  /// 黄色更新小圆点（8×8 · `#FFC107` · **无描边**）—— 用户 2026-10-21 定的样式。
+  static Widget _updateDot() => Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFC107),
+          shape: BoxShape.circle,
+        ),
+      );
+
+  /// ★ 2026-10-21（用户要求：**列表宽度不变，黄点只叠加在封面前面**）：
+  ///   用 `Stack` + `Positioned(left: -12)` 把黄点**画在封面左侧**（落在行的左内边距 16 里），
+  ///   **不占布局空间** ⇒ 封面位置、文字宽度都不变 ✅。
+  Widget _coverWithDot(bool dot) {
+    final c = _cover();
+    if (!dot) return c;
+    return Stack(
+      clipBehavior: Clip.none, // 允许黄点画出封面左边界
+      children: [
+        c,
+        Positioned(
+          left: -12,
+          top: (59 - 8) / 2, // 垂直居中（封面高 59）
+          child: _updateDot(),
+        ),
+      ],
+    );
+  }
+
   Widget _cover() {
     const w = 104.0;
     const h = 59.0;

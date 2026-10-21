@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate'; // Isolate.run（TS→MP4 转换放后台，避免大文件解析卡 UI）
 
+import 'package:flutter/gestures.dart'
+    show MultiDragGestureRecognizer, DelayedMultiDragGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +12,7 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'base/downloads/download_manager.dart';
 import 'base/downloads/download_model.dart';
+import 'base/downloads/episode_update_checker.dart'; // ★ 集数更新检测（黄点）
 import 'base/downloads/ts_to_mp4.dart'; // 纯 Dart TS→MP4 remux（iOS 的 AVFoundation 打不开裸 .ts）
 import 'base/site_ui.dart'; // 公共确认框 confirmClear（收藏页/错误日志页同款）
 import 'detail_page.dart';
@@ -79,7 +82,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
   Widget build(BuildContext context) {
     // 整页跟着背景明暗 + 下载进度重建
     return ListenableBuilder(
-      listenable: Listenable.merge([AppBg.i, DownloadManager.i]),
+      // ★ 2026-10-21（用户拍板）：加 EpisodeUpdateChecker.i ⇒ 启动后台检测完自动重建（黄点出现）
+      listenable:
+          Listenable.merge([AppBg.i, DownloadManager.i, EpisodeUpdateChecker.i]),
       builder: (context, _) => _pageView(context),
     );
   }
@@ -159,26 +164,40 @@ class _DownloadsPageState extends State<DownloadsPage> {
       //   （行内点击由 InkWell/拖动自己处理 ⇒ 手势竞技场里子优先，不会误触发这里）
       behavior: HitTestBehavior.translucent,
       onTap: () => _swipeCloseTick.value++,
-      child: ListView.builder(
+      // ★ 2026-10-21（用户拍板 A）：长按拖拽排序（180ms，与站点管理同款），顺序存 `dl_order`
+      child: ReorderableListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 6),
         itemCount: list.length,
-        itemBuilder: (context, i) => _row(context, list[i], allowExport: allowExport),
+        buildDefaultDragHandles: false,
+        onReorderItem: (oldIndex, newIndex) {
+          final keys = list.map((e) => e.key).toList();
+          final moved = keys.removeAt(oldIndex);
+          keys.insert(newIndex, moved);
+          DownloadManager.i.setOrder(keys);
+        },
+        itemBuilder: (context, i) =>
+            _row(context, list[i], allowExport: allowExport, index: i),
       ),
     );
   }
 
   /// 一行 = 左滑容器 + 卡片（key 用任务 key：增删一条时别把整行重新挂载）
   Widget _row(BuildContext context, DownloadTask task,
-      {required bool allowExport}) {
-    return _SwipeRow(
+      {required bool allowExport, required int index}) {
+    // ★ 2026-10-21（用户拍板 A）：外层 key + 180ms 长按拖拽（ReorderableListView 要求每行有 key）；
+    //   原来的长按菜单已挪到左滑「更多」按钮（`onMore`）⇒ 长按空出来给拖拽。
+    return _ShortDelayDragStartListener(
       key: ValueKey(task.key),
-      closeSignal: _swipeCloseTick,
-      onTap: () => _openTask(context, task),
-      onLongPress: () => _menu(context, task),
-      // ★ 用户 2026-10-20：「导出」**只在【已完成】列表出现**（下载中左滑只留「删除」）
-      onExport: allowExport ? () => _export(context, task) : null,
-      onDelete: () => _removeTask(context, task),
-      child: _card(task),
+      index: index,
+      child: _SwipeRow(
+        closeSignal: _swipeCloseTick,
+        onTap: () => _openTask(context, task),
+        onMore: () => _menu(context, task),
+        // ★ 用户 2026-10-20：「导出」**只在【已完成】列表出现**（下载中左滑只留「删除」）
+        onExport: allowExport ? () => _export(context, task) : null,
+        onDelete: () => _removeTask(context, task),
+        child: _card(task),
+      ),
     );
   }
 
@@ -214,7 +233,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cover(task),
+          // ★ 2026-10-21（用户要求：列表宽度不变）：黄点用 Stack 叠加在封面左侧，不占布局。
+          //   判据：联网检测到站点集数 > 已下载，**或** 本地已知没下完（联网失败时也亮）
+          // ★ 纯本地：已下载 < 记录总集数 ⇒ 黄点
+          //   （联网只在后台把站点新集追加盟 `episodes`，不参与这里的判定 ✅）
+          _coverWithDot(task, task.doneCount < task.episodes.length),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -328,6 +351,34 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
   /// 封面：有本地文件优先本地（下载时存的封面），否则走站点封面 URL；
   /// 两者都没有 ⇒ 灰底 + 电影图标占位（同尺寸）
+  /// 黄色更新小圆点（8×8 · `#FFC107` · **无描边**）—— 与 `play_record_tile.dart` 同款
+  static Widget _updateDot() => Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFC107),
+          shape: BoxShape.circle,
+        ),
+      );
+
+  /// ★ 2026-10-21（用户要求：**列表宽度不变，黄点只叠加在封面前面**）：
+  ///   `Stack` + `Positioned(left: -12)` 画在封面左侧（落在行的左内边距 16 里），**不占布局**。
+  Widget _coverWithDot(DownloadTask task, bool dot) {
+    final c = _cover(task);
+    if (!dot) return c;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        c,
+        Positioned(
+          left: -12,
+          top: (59 - 8) / 2, // 垂直居中（封面高 59）
+          child: _updateDot(),
+        ),
+      ],
+    );
+  }
+
   Widget _cover(DownloadTask task) {
     const w = 104.0;
     const h = 59.0;
@@ -1324,7 +1375,25 @@ class _ExportError implements Exception {
   String toString() => message;
 }
 
-/// 一行：**左滑露出「导出 / 删除」两个按钮**，点了按钮才动手。
+/// ★ 2026-10-21（用户要求：**灵敏度按"站点管理"那套**）：
+///   把 `ReorderableDelayedDragStartListener` 的识别器换成 **180ms** 的
+///   `DelayedMultiDragGestureRecognizer`（与 `site_admin.dart` 的 `_ShortDelayDragStartListener` 同款）。
+class _ShortDelayDragStartListener extends ReorderableDelayedDragStartListener {
+  const _ShortDelayDragStartListener({
+    required super.index,
+    required super.child,
+    super.key,
+  });
+
+  @override
+  MultiDragGestureRecognizer createRecognizer() =>
+      DelayedMultiDragGestureRecognizer(
+        delay: const Duration(milliseconds: 180),
+        debugOwner: this,
+      );
+}
+
+/// 一行：**左滑露出「导出 / 更多 / 删除」按钮**，点了按钮才动手。
 ///
 /// 复制自 `bg_album_page.dart`（原文件不动）：滑开固定宽度露出按钮、停顿一下再点；
 /// 没滑开时点一下 = [onTap]；滑开时点一下 = 收回（不误触）。
@@ -1333,21 +1402,22 @@ class _ExportError implements Exception {
 /// ⚠️ 不用 `Dismissible`：它只有"滑到底即触发"这一种形态，做不出"停在半路等点按钮"。
 class _SwipeRow extends StatefulWidget {
   const _SwipeRow({
-    super.key,
     required this.child,
     required this.onTap,
-    required this.onLongPress,
     this.onExport,
+    this.onMore,
     required this.onDelete,
     this.closeSignal,
   });
 
   final Widget child;
   final VoidCallback onTap;
-  final VoidCallback onLongPress;
 
-  /// 「导出」回调（**只在【已完成】tab 传**；【下载中】传 null ⇒ 左滑只显示「删除」，用户 2026-10-20）
+  /// 「导出」回调（**只在【已完成】tab 传**；【下载中】传 null ⇒ 左滑不显示「导出」）
   final VoidCallback? onExport;
+
+  /// ★ 2026-10-21（用户拍板 A）：「更多」= 原来的长按菜单（重试 / 删除等）
+  final VoidCallback? onMore;
   final VoidCallback onDelete;
 
   /// 外部"收起"信号（用户 2026-10-20：点列表空白处把所有左滑行收起）
@@ -1363,7 +1433,9 @@ class _SwipeRowState extends State<_SwipeRow>
   static const double _btnW = 64;
 
   /// 滑开位移总量：有「导出」⇒ 2 个按钮（128）；【下载中】只有「删除」⇒ 1 个（64）
-  double get _total => _btnW * (widget.onExport != null ? 2 : 1);
+  double get _total =>
+      _btnW *
+      (1 + (widget.onExport != null ? 1 : 0) + (widget.onMore != null ? 1 : 0));
 
   /// 吸附动画（只用于"松手 / 点一下收回"；拖动中是直接跟手的）。
   ///
@@ -1470,6 +1542,12 @@ class _SwipeRowState extends State<_SwipeRow>
                     _snap(open: false);
                     widget.onExport!();
                   }),
+                // ★ 2026-10-21（用户拍板 A）：长按改成拖拽后，原来的「菜单」入口挪到这里
+                if (widget.onMore != null)
+                  _btn('更多', const Color(0xFF5F6368), () {
+                    _snap(open: false);
+                    widget.onMore!();
+                  }),
                 _btn('删除', const Color(0xFFE5484D), widget.onDelete),
               ],
             ),
@@ -1486,7 +1564,7 @@ class _SwipeRowState extends State<_SwipeRow>
             onHorizontalDragCancel: () => _snap(open: _open),
             child: InkWell(
               onTap: _open ? () => _snap(open: false) : widget.onTap,
-              onLongPress: _open ? null : widget.onLongPress,
+              // ★ 2026-10-21（用户拍板 A）：长按归外层 `_ShortDelayDragStartListener` 拖拽，这里不再处理
               child: widget.child,
             ),
           ),

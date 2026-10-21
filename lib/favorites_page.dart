@@ -1,3 +1,5 @@
+import 'package:flutter/gestures.dart'
+    show MultiDragGestureRecognizer, DelayedMultiDragGestureRecognizer;
 import 'package:flutter/material.dart';
 
 import 'base/site_ui.dart';
@@ -6,6 +8,7 @@ import 'app_background.dart';
 import 'detail_page.dart';
 import 'favorites.dart';
 import 'play_record_tile.dart';
+import 'base/downloads/episode_update_checker.dart'; // ★ 集数更新检测（黄点）
 import 'settings.dart';
 import 'sites.dart';
 
@@ -19,8 +22,24 @@ class FavoritesPage extends StatelessWidget {
     // 整页跟着背景明暗重建（顶栏标题/图标、收藏行文字都读 kTxt）
     return ListenableBuilder(
       listenable: AppBg.i,
-      builder: (context, _) => _pageView(context),
+      builder: (context, _) => ListenableBuilder(
+        // ★ 2026-10-21（用户拍板）：启动后台检测完 ⇒ 重建列表，黄点随之出现
+        listenable: EpisodeUpdateChecker.i,
+        builder: (context, __) => _pageView(context),
+      ),
     );
+  }
+
+  /// ★ 2026-10-21（用户要求）：**收藏自己有记录（看到第几集 / 总集数），直接用它判，立刻亮不等联网**。
+  ///   总集数：收藏自己的 `total`；老收藏 `total == 0` ⇒ 回落播放记录的 `total`。
+  ///   另外：联网检测到**站点新增集**也亮（`EpisodeUpdateChecker`，启动后台跑）。
+  static bool _hasUpdate(FavoriteItem it) {
+    // ★ 纯本地：总集数 > 看到第几集 ⇒ 黄点。
+    //   联网只在后台把 `total` 追大（`EpisodeUpdateChecker`），**不参与这里的判定** ✅
+    final total = it.total > 0
+        ? it.total
+        : (PlayHistory.i.find(it.site, it.url)?.total ?? 0);
+    return total > it.videoIndex + 1;
   }
 
   Widget _pageView(BuildContext context) {
@@ -65,9 +84,19 @@ class FavoritesPage extends StatelessWidget {
           // ★ 2026-10-10（用户要求 ✅）：**两个列表都去掉条目分割线**（收藏 + 播放记录，嫌丑）——
           //   所以这里用 `ListView.builder`（不带 separator ☠）；行的 padding/间距**一个字没动** ✅。
           //   ⚠️ 播放记录页 `play_history_page.dart:56` 是**同款改法**（两边口径一致 ✅）。
-          return ListView.builder(
+          // ★ 2026-10-21（用户拍板 A）：支持**长按拖拽排序**（150ms 触发，比默认 500ms 灵敏）；
+          //   拖完把 key 顺序存进 `Favorites.setOrder()`（持久化到 `fav_order`）。
+          return ReorderableListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 6),
             itemCount: list.length,
+            buildDefaultDragHandles: false, // 用下面每行自己的 150ms 长按监听器
+            onReorderItem: (oldIndex, newIndex) {
+              // ★ Flutter 3.41+ 的 onReorderItem：newIndex **已经是调整后**的，不要再 -1
+              final keys = list.map((e) => e.key).toList();
+              final moved = keys.removeAt(oldIndex);
+              keys.insert(newIndex, moved);
+              Favorites.i.setOrder(keys);
+            },
             // ★ 甲方案：行布局与播放记录**同一个** MediaRow（样式只此一份 ✅）
             itemBuilder: (context, i) {
               final it = list[i];
@@ -81,10 +110,15 @@ class FavoritesPage extends StatelessWidget {
               //     ⇒ 显示与行为**一致** ✅。
               //   ⚠️ 老收藏（没有 `'p'/'d'`）⇒ `hasProgress = false` ⇒ 不画进度、不显示"已看 …" ✅（旧数据兼容 ✅）。
               final hasProg = it.hasProgress;
-              return MediaRow(
-                key: ValueKey(it.key), // 稳定身份：增删一条时别把整列封面重挂载
-                cover: it.cover,
-                title: it.title.isEmpty ? it.url : it.title,
+              // ★ 2026-10-21（用户拍板 A）：外层 key + 长按拖拽监听器（ReorderableListView 要求每行有 key）
+              //   ⚠️ Flutter 3.47 的 `ReorderableDelayedDragStartListener` **没有 delay 参数**
+              //      （框架固定 kLongPressTimeout = 500ms）⇒ 灵敏只能靠这个类本身，无法再调。
+              return _ShortDelayDragStartListener(
+                key: ValueKey(it.key),
+                index: i,
+                child: MediaRow(
+                  cover: it.cover,
+                  title: it.title.isEmpty ? it.url : it.title,
                 // ★ 2026-10-10（用户要求 ✅）：进度条 + 进度小字 —— 与播放记录行用
                 //   **同一个** `playProgressBar` / `playProgressText` ⇒ 外观格式逐项一致 ✅
                 //   （含 `已看 47% · 1:26 / 3:01` ✅）。
@@ -109,6 +143,9 @@ class FavoritesPage extends StatelessWidget {
                 subtitle: siteLine(it.site, it.videoIndex, it.total),
                 onTap: () => _open(context, it),
                 onDelete: () => Favorites.i.remove(it.key),
+                // ★ 2026-10-21（用户要求：收藏自己有记录，直接用它判，立刻亮不等联网）
+                dot: _hasUpdate(it),
+                ),
               );
             },
           );
@@ -158,4 +195,23 @@ class FavoritesPage extends StatelessWidget {
       ),
     );
   }
+}
+
+/// ★ 2026-10-21（用户要求：**灵敏度按"站点管理"那套**）：
+///   把 `ReorderableDelayedDragStartListener` 的识别器换成 **180ms** 的
+///   `DelayedMultiDragGestureRecognizer`（与 `site_admin.dart` 的 `_ShortDelayDragStartListener` 同款）。
+///   ⇒ 长按约 0.18 秒即进入拖拽（框架默认 500ms）；滚动/点击不受影响（抬手未移动 ⇒ 判点击）。
+class _ShortDelayDragStartListener extends ReorderableDelayedDragStartListener {
+  const _ShortDelayDragStartListener({
+    required super.index,
+    required super.child,
+    super.key,
+  });
+
+  @override
+  MultiDragGestureRecognizer createRecognizer() =>
+      DelayedMultiDragGestureRecognizer(
+        delay: const Duration(milliseconds: 180),
+        debugOwner: this,
+      );
 }

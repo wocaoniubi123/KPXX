@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app_background.dart';
 import 'app_bg.dart';
+import 'base/downloads/episode_update_checker.dart'; // ★ 启动后台静默检测集数更新（黄点）
 import 'downloads_page.dart'; // ★ 底栏第 4 格「下载」页
 import 'favorites.dart';
 import 'favorites_page.dart';
@@ -202,6 +203,19 @@ class RootPage extends StatefulWidget {
 
 class _RootPageState extends State<RootPage> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // ★ 2026-10-21（用户拍板）：启动后延迟 3 秒后台静默检测一次「下载页 + 收藏页」的集数更新。
+    //   ⚠️ 放在这里而**不是** `main()`：`lib/main_win_dev.dart` 是**独立入口**（调试用），
+    //      它有自己的 `main()` ⇒ 走 `main.dart` 的钩子在调试入口里根本不执行（实测：
+    //      热重启后检测器从未运行、`shared_preferences` 一个字节都没变 ☠）。
+    //      `KpxxApp` 两个入口都用 ⇒ 挂在 `RootPage.initState` 才是唯一可靠点 ✅。
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      unawaited(EpisodeUpdateChecker.i.run());
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
