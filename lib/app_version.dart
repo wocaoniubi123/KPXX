@@ -272,5 +272,17 @@
 ///     **push 时套 `PageBg`** ⇒ 这里给聚合搜索同样补上（`main.dart` 的 builder）。
 ///   · 全库 grep `MaterialPageRoute` 复核：只剩 `xhamsterlive.dart:627` 的 `LiveRoomPage`
 ///     没套（直播间全屏页，按现状保留）。
-///   号序：每次云推 +1 ⇒ **1.5.16** ☑️
-const String kAppVersion = '1.5.16';
+/// ★ 2026-10-22：**1.5.16 → 1.5.17**（聚合搜索「全部站点」封面错位修复）：
+///   · 🛢️ 根因（`lib/fetched_image.dart` 的 `_load()`）：发起时记下 `url`，但
+///     `await ImageDiskCache.init()` / `_download()` **回来后只检查 `mounted`**，
+///     没校验 `widget.url` 还是不是那个 url ⇒ 列表滚动复用同一个 State 时
+///     （`didUpdateWidget` 已换新 url 并再发一次 `_load`），**旧请求后回来会把新图覆盖成旧图**
+///     ⇒ 封面与标题错位。
+///   · 🛢️ 为什么"单站点正常、全部站点乱"：单站点结果 20~96 条、滚动少 ⇒ 几乎不触发复用；
+///     「全部站点」几百条拼接、滚动激烈 ⇒ 必现。
+///   · 修法：两处异步分支的 `if (!mounted) return;` 改成
+///     `if (!mounted || widget.url != url) return;` ⇒ 旧请求直接丢弃，交给新那次 `_load` 负责 ✅
+///   · 影响面：`FetchedImage` 是全 App 共用的封面组件（首页/详情/收藏/下载/搜索都走它）⇒
+///     这次修的是**通用缺陷**；url 没变时校验恒通过 ⇒ 正常路径行为不变 ✅
+///   号序：每次云推 +1 ⇒ **1.5.17** ☑️
+const String kAppVersion = '1.5.17';
