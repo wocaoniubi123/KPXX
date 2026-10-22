@@ -142,6 +142,17 @@ dependency_overrides:
   media_kit_libs_ios_video:
     path: third_party/media_kit_libs_ios_video
 
+  # ★ 2026-10-22（CI 构建失败修复）：把 `video_player_avfoundation` 钉在 **2.12.1**。
+  #   🛢️ 依据：run `39737829077` 的 Swift 编译错误全部指向
+  #     `video_player_avfoundation-2.12.2/.../AVFactory.swift:31` 与 `VideoPlayer.swift:205/558/568`,
+  #     （`@isolation` 宏 / `isolated` 参数 / 捕获 var self —— 都是 **Swift 6.2** 才有的东西）；
+  #     CI runner 是 `macos-14`（Xcode 旧，不认这些）⇒ 编译失败。
+  #   🛢️ 为什么本地能编：本地 `pubspec.lock` 解析到 **2.12.1**；但 `pubspec.lock` 被 `.gitignore`
+  #     忽略 ⇒ CI 的 `flutter pub get` 会重新解析 ⇒ 拿到最新的 2.12.2 ☠。
+  #   ⇒ 钉 2.12.1 后 CI 与本地一致。
+  #   ⚠️ 回滚 = 删掉这一行 + `flutter pub get`（同时需把 CI runner 换到 macos-15 才能用回新版）
+  video_player_avfoundation: 2.12.1
+
 flutter:
   uses-material-design: true
   assets:
