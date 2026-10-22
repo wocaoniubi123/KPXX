@@ -3,6 +3,7 @@ import 'dart:async'; // ★ unawaited ✓（接管里"异步写盘、不阻塞 U
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 
+import 'aggregate_search_page.dart'; // ★ 2026-10-22 聚合搜索页
 import 'app_background.dart';
 import 'app_bg.dart';
 import 'base/downloads/episode_update_checker.dart'; // ★ 启动后台静默检测集数更新（黄点）
@@ -351,9 +352,25 @@ class ModuleGridPage extends StatelessWidget {
       appBar: AppBar(
         systemOverlayStyle: kStatusOverlay,
         title: const KpxxLogo(), // 橙底黑字，自带底色不跟明暗走
-        centerTitle: true,
+        centerTitle: true, // ★ KPXX 胶囊**始终居中**：右侧只放一个 action，两侧对称不会把标题挤偏
         elevation: 0,
         foregroundColor: kTxt, // 顶栏图标（返回/操作）跟着背景明暗
+        // ★ 2026-10-22（用户要求）：右上角「聚合搜索」入口
+        //   `centerTitle: true` ⇒ Flutter 的 AppBar 会把左右两侧**对称平衡**，标题（KPXX 胶囊）始终居中
+        actions: [
+          IconButton(
+            tooltip: '聚合搜索',
+            icon: const Icon(Icons.search),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  settings: const RouteSettings(name: '聚合搜索'),
+                  builder: (_) => const AggregateSearchPage(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: GridView.builder(

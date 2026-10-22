@@ -1272,6 +1272,9 @@ class RowsGrid extends StatelessWidget {
   final Widget Function()? tail;
   final ScrollPhysics? physics;
 
+  /// ★ 2026-10-22（聚合搜索自动翻页）：外部可传滚动控制器来监听"滚到底"（默认 null ⇒ 行为不变）
+  final ScrollController? controller;
+
   /// 瀑布流模式（仅 Pektino）：卡片**按顺序**轮流放进两列、**列内连续**——
   /// 横竖混排时不会像"按行布局"那样在矮卡下面留空档（照站点）。
   /// false = 默认"按行"布局：行高 = 该行最高卡、行内等高（用户要求）。
@@ -1285,6 +1288,7 @@ class RowsGrid extends StatelessWidget {
     this.tail,
     this.physics,
     this.masonry = false,
+    this.controller,
   });
 
   @override
@@ -1293,6 +1297,7 @@ class RowsGrid extends StatelessWidget {
     if (masonry) {
       // 瀑布流（SliverMasonryGrid 懒加载）：按顺序把每张卡放进当前最矮的列
       return CustomScrollView(
+        controller: controller,
         physics: physics,
         slivers: [
           SliverPadding(
@@ -1313,6 +1318,7 @@ class RowsGrid extends StatelessWidget {
     }
     final rows = (count + cols - 1) ~/ cols;
     return ListView.builder(
+      controller: controller,
       padding: const EdgeInsets.all(8),
       physics: physics,
       itemCount: rows + tailCount,
@@ -1914,12 +1920,19 @@ class _SearchPageState extends State<SearchPage> {
                   constraints:
                       const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: () {
+                    // ★ 2026-10-22（用户要求）：× 不只清输入框，**连搜索结果一起清**
                     if (AppSettings.i.logConsole) {
                       debugPrint(
-                          '[SEARCH] 点 × 清空输入框（原 kwLen=${_ctl.text.length}）');
+                          '[SEARCH] 点 × 清空输入+结果（原 kwLen=${_ctl.text.length} 结果=${_results.length}）');
                     }
-                    _ctl.clear(); // ★ 用户点 × ⇒ **只**清输入框内容
-                    _focus.requestFocus(); // 焦点要回来（键盘不丢；不碰任何其它状态 ✅）
+                    _ctl.clear();
+                    _safeSet(() {
+                      _results.clear();
+                      _searched = false; // 回到"未搜索"态（搜索历史胶囊随之重新出现）
+                      _done = false;
+                      _page = 1;
+                    });
+                    _focus.requestFocus(); // 焦点要回来（键盘不丢 ✅）
                   },
                 );
               },

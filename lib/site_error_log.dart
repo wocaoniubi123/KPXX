@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -26,11 +27,22 @@ class SiteErrorLog {
   /// 超限时保留的末尾长度：**约一半（≈2.5 MB）** ✓（用户拍板 ✓ —— 留下最新那半段 ✓ 够看最近的复现 ✓）
   static const int keepBytes = maxBytes ~/ 2;
 
+  /// ★ 2026-10-22（用户实测"开日志进出站点有几率卡"）：
+  ///   `_file()` 原来**每次都调** `getApplicationDocumentsDirectory()`（Platform Channel + 平台实现），
+  ///   而 Windows 上这个目录一直取不到（日志文件从未落盘，实测 4 个常见路径都没有）⇒ 每次都在**抛异常/等待**。
+  ///   批量写之后每 400ms 就会调一次 ⇒ 表现为"开了日志就偶发卡"。
+  ///   ⇒ 缓存结果：**成功 ⇒ 记住路径；失败 ⇒ 记住"不可用"（以后一次都不再试）**。
+  static String? _cachedPath; // null = 还没查过；'' = 确认不可用
+
   static Future<File?> _file() async {
+    final c = _cachedPath;
+    if (c != null) return c.isEmpty ? null : File(c);
     try {
       final dir = await getApplicationDocumentsDirectory();
-      return File('${dir.path}/kpxx_error.log');
+      _cachedPath = '${dir.path}/kpxx_error.log';
+      return File(_cachedPath!);
     } catch (_) {
+      _cachedPath = ''; // 不可用 ⇒ 以后不再调用平台通道
       return null;
     }
   }
@@ -71,37 +83,76 @@ class SiteErrorLog {
     }
   }
 
-  /// **写日志串行队列**（⚠️ 2026-10-05 加：修"半截行" ✗）——
-  /// `log()` 原来是 `exists()` + `length()` + `append` 的**读改写** ✓，**并发调用会交错/丢行** ✗
-  /// （用户给的日志里就有一行**只剩半截**、还带 3 个坏字节 ⇒ 文件不再是合法 UTF-8 ⇒ 页面读不出来 ✗✗）。
-  /// 做法：所有写入**串到一条 `Future` 链上** ✓（前一次写完才跑下一次 ✓）⇒ 写入之间天然互斥 ✓；
-  ///   而 `_trimTail` 是在 `_write()` **内部**调的 ✓ ⇒ **裁剪与追加也互斥** ✓（不会"边裁边追加" ✗）。
-  /// ⚠️ 绝不引入新依赖 ✓；任何一段抛错都被兜住 ✓（链子不会断 ✓）。
+  /// **写日志串行队列**（⚠️ 2026-10-05 加：修"半截行" ✗）
+  /// 做法：所有**落盘**串到一条 `Future` 链上 ⇒ 写入之间天然互斥 ✅；`_trimTail` 也在链内 ✅。
   static Future<void> _q = Future<void>.value();
 
-  /// 写一条（**排队** ✓ 见 [_q] 说明 ✓）
-  static Future<void> log(String siteName, Object error, [StackTrace? st]) {
-    final next = _q.then((_) => _write(siteName, error, st)).catchError((Object _) {});
-    _q = next;
-    return next;
-  }
+  /// ★ 2026-10-22（用户实测："我都不敢开日志了，卡死"）：
+  ///   **根因**：原来**每条**日志都做 `_file()` + `exists()` + `length()` + `writeAsString(flush: true)`,
+  ///   即 **4 次系统调用 + 强制同步落盘**；`[IMG]/[LIST]/[PLAY]` 一开就是每秒几十上百条 ⇒ UI 卡死 ☠。
+  ///   **改法**：
+  ///     · 日志先进内存缓冲（[_buf]），**攒满 [_flushEvery] 条 或 过了 [_flushDelay] 才一次性 append**
+  ///       （`flush: false`，交给系统刷盘，不阻塞）；
+  ///     · 裁剪检查（`exists()+length()`）**每 [_trimEvery] 批才做一次**，不再每条都查；
+  ///     · `read()` / `clear()` 前先 `await _flush()`，保证看到的是最新内容 ✅。
+  ///   代价：进程被强杀时最多丢 400ms / 16 条日志（可接受 ✅）。
+  static final StringBuffer _buf = StringBuffer();
+  static int _bufCount = 0;
+  static bool _flushScheduled = false;
+  static int _sinceTrimCheck = 0;
+  static const int _flushEvery = 16;
+  static const int _trimEvery = 200;
+  static const Duration _flushDelay = Duration(milliseconds: 400);
 
-  static Future<void> _write(String siteName, Object error, [StackTrace? st]) async {
+  /// 写一条（**入内存缓冲 ⇒ 批量落盘** ✓ 见上面 2026-10-22 说明 ✓）
+  static Future<void> log(String siteName, Object error, [StackTrace? st]) {
     try {
-      final f = await _file();
-      if (f == null) return;
-      if (await f.exists() && await f.length() > maxBytes) {
-        await _trimTail(f); // ★ 2026-10-05：超限 → **保留末尾 `keepBytes`（当前 ≈2.5MB ✓ 见 `:27`）** ✓（原来这里是 `writeAsString('')` 整篇清空 ✗）
-      }
       final t = DateTime.now();
       final ts = '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')} '
           '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
       final first = st?.toString().split('\n').take(3).join(' <- ') ?? '';
-      await f.writeAsString(
-        '[$ts] [$siteName] $error${first.isEmpty ? '' : '\n    $first'}\n',
-        mode: FileMode.append,
-        flush: true,
-      );
+      _buf.write(
+          '[$ts] [$siteName] $error${first.isEmpty ? '' : '\n    $first'}\n');
+      _bufCount++;
+    } catch (_) {
+      return Future<void>.value();
+    }
+    if (_bufCount >= _flushEvery) {
+      return _flush();
+    }
+    if (!_flushScheduled) {
+      _flushScheduled = true;
+      Future<void>.delayed(_flushDelay, _flush); // 到点异步刷（不 await）
+    }
+    return Future<void>.value();
+  }
+
+  /// 把缓冲一次性追加到文件（走 [_q] 串行链，与裁剪互斥）
+  static Future<void> _flush() async {
+    _flushScheduled = false;
+    if (_buf.isEmpty) return;
+    final text = _buf.toString();
+    _buf.clear();
+    _bufCount = 0;
+    final next = _q.then((_) => _append(text)).catchError((Object _) {});
+    _q = next;
+    await next;
+  }
+
+  static Future<void> _append(String text) async {
+    try {
+      final f = await _file();
+      if (f == null) return;
+      // 裁剪检查：每 [_trimEvery] 批才查一次（原来每条都 exists+length ☠）
+      if (_sinceTrimCheck <= 0) {
+        _sinceTrimCheck = _trimEvery;
+        if (await f.exists() && await f.length() > maxBytes) {
+          await _trimTail(f);
+        }
+      }
+      _sinceTrimCheck--;
+      // flush: false ⇒ 不强制落盘（交给系统缓冲）⇒ 不再阻塞 UI
+      await f.writeAsString(text, mode: FileMode.append, flush: false);
     } catch (_) {
       // 记日志失败**不影响主流程** ✓
     }
@@ -114,6 +165,7 @@ class SiteErrorLog {
   ///   ⇒ 现在：**按字节读 + `utf8.decode(allowMalformed: true)`** ✓（坏字节显示成 `�` ✓ 绝不整页空白 ✓）；
   ///   并且**失败要说出来** ✗：拿不到目录 / 读失败都返回一句看得懂的提示 ✓（只有"真的还没写过"才返回空 ✓）。
   static Future<String> read() async {
+    await _flush(); // ★ 2026-10-22：先把内存缓冲落盘，读到的才是最新内容
     try {
       final f = await _file();
       if (f == null) return '（读日志失败：拿不到 App 文档目录 ✗）';
@@ -130,6 +182,10 @@ class SiteErrorLog {
 
   /// 清空
   static Future<void> clear() async {
+    // ★ 2026-10-22：先落盘再清，并清掉内存缓冲（否则清空后缓冲里那批又会被写回去）
+    await _flush();
+    _buf.clear();
+    _bufCount = 0;
     try {
       final f = await _file();
       if (f != null && await f.exists()) await f.writeAsString('', flush: true);

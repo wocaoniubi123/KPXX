@@ -52,6 +52,7 @@ import 'player_widget.dart'; // ★ KpPlayer.startupVolumeOverride（桌面 dev 
 import 'sites/xhamsterlive.dart'
     show LiveRoomPage; // ★ 只给下面的「直开直播间」探针用 ✓（**不改它一个字** ✓）
 import 'settings.dart';
+import 'site_error_log.dart'; // ★ 2026-10-22：调试入口也接管 debugPrint（见 main() 开头说明）
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // ★ 2026-10-09（用户拍板 **B 方案** ✓）：给**桌面 dev** 播种两张纯色背景（纯黑 / 纯白）
@@ -215,6 +216,18 @@ Future<void> main() async {
   // ① 装 binding —— 就是发布入口 `main.dart:18` 那行 `WidgetsFlutterBinding.ensureInitialized()` 的等价物 ✓
   //   ⚠️ 顺序**必须**是全场第一句 ☠（`MediaKit` / `AppSettings` 那些都要求 binding 先就位 ✓）。
   DevicePreview.enable();
+
+  // ★★ 2026-10-22（用户实测：**手机不卡、Windows 卡**；Windows 上开日志进出站点偶发卡死）：
+  //   根因 = 本调试入口**没有接管 `debugPrint`** ⇒ 开日志时 `[IMG]/[LIST]/[DL]` 全部往 **stdout** 写；
+  //   而 `flutter run` 的 stdout 是**管道**（被调试脚本读取）⇒ 写满 ⇒ **Dart 侧 print 阻塞 ⇒ UI 卡死**。
+  //   发布入口 `main.dart:35` 有这份接管（日志进文件、不进 stdout）⇒ 手机端不卡。
+  //   ⇒ 这里补上**同一份**接管。⚠️ 只影响 Windows 调试入口（`-t lib/main_win_dev.dart`），**手机端一字不动** ✅。
+  debugPrint = (String? msg, {int? wrapWidth}) {
+    if (!AppSettings.i.logConsole) return;
+    if (msg == null || msg.isEmpty) return;
+    unawaited(SiteErrorLog.log(
+        'console', msg.length > 300 ? '${msg.substring(0, 300)}…' : msg));
+  };
 
   // ⓪ ★ 2026-10-10（用户拍板 ✓）：把 `hanime1.me` 的取回通道换成 **HTTP/2**（dev 专用 ✓）——
   //    ⚠️ **必须在这里挂**（`runApp` 之前、App 还没发过任何请求 ✓）：`base/fetch.dart:34` 那个
