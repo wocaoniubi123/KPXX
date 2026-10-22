@@ -220,7 +220,12 @@ class _FetchedImageState extends State<FetchedImage> {
       _evict();
       // 看：这张图命中磁盘缓存（冷启动第一张常走这里）⇒ 没有下载、没有解密。
       if (AppSettings.i.logConsole) debugPrint('[IMG] 命磁盘 字节=${disk.length} host=${Uri.tryParse(url)?.host ?? '?'}');
-      if (!mounted) return;
+      // ★ 2026-10-22（用户实测：**单站点封面正常、聚合搜索「全部站点」封面乱**）：
+      //   `_load()` 里 **await 之后必须校验 `widget.url` 还是不是发起时那个 url** ——
+      //   否则列表滚动复用这个 State 时（`didUpdateWidget` 已换新 url 并再发了一次 `_load`），
+      //   **旧请求后回来**会把新图覆盖成旧图 ⇒ 封面与标题错位。
+      //   单站点结果少、滚动少 ⇒ 几乎不触发；「全部站点」几百条 ⇒ 复用激烈 ⇒ 必现。
+      if (!mounted || widget.url != url) return;
       setState(() => _bytes = disk);
       return;
     }
@@ -232,7 +237,8 @@ class _FetchedImageState extends State<FetchedImage> {
     }
     final f = _inflight.putIfAbsent(url, () => _download(url));
     final bytes = await f;
-    if (!mounted) return;
+    // ★ 2026-10-22：同上面磁盘分支 —— 异步回来先校验 url，防「旧图覆盖新图」
+    if (!mounted || widget.url != url) return;
     if (bytes == null) {
       setState(() => _error = true);
     } else {
