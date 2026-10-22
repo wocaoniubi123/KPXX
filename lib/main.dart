@@ -365,7 +365,10 @@ class ModuleGridPage extends StatelessWidget {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   settings: const RouteSettings(name: '聚合搜索'),
-                  builder: (_) => const AggregateSearchPage(),
+                  // ★ 2026-10-22（用户要求：按"播放记录/错误日志"那套修）：
+                  //   转场重影的根因就是**被 push 的页面本身没套 `PageBg`**（`Scaffold` 透明 ⇒ 盖不住旧页面）。
+                  //   ⇒ 这里补上 `PageBg`（与 `settings_page.dart:110/318/477` 同款）。
+                  builder: (_) => const PageBg(child: AggregateSearchPage()),
                 ),
               );
             },
