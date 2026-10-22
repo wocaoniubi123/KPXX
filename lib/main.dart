@@ -159,9 +159,12 @@ class KpxxLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ★ 2026-10-22（用户要求：胶囊缩短到文本大小范围，而且**文字不能偏**）：
+    //   · 不能用 `Container.alignment` —— 它会让 Container 在 AppBar.title 的宽松约束里**撑满整行** ☠；
+    //   · 也不能啥都不加 —— 那样 `Text` 会按 **topLeft** 排 ⇒ 文字偏上 ☠（用户实测抓到的就是这个）；
+    //   ⇒ 用 `Center(widthFactor: 1)`：宽度贴合文字（不撑满）✅、高度撑满 30 ⇒ 垂直居中 ✅。
     return Container(
       height: 30,
-      alignment: Alignment.center,
       padding: const EdgeInsets.symmetric(horizontal: 11),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -174,15 +177,18 @@ class KpxxLogo extends StatelessWidget {
           BoxShadow(color: Color(0x47000000), blurRadius: 7, offset: Offset(0, 2)),
         ],
       ),
-      child: const Text(
-        'KPXX',
-        style: TextStyle(
-          color: Color(0xFF14100B),
-          fontWeight: FontWeight.w800,
-          fontSize: 17,
-          letterSpacing: 0.6,
-          // 字标自带底色，不需要描边光晕
-          shadows: [],
+      child: const Center(
+        widthFactor: 1,
+        child: Text(
+          'KPXX',
+          style: TextStyle(
+            color: Color(0xFF14100B),
+            fontWeight: FontWeight.w800,
+            fontSize: 17,
+            letterSpacing: 0.6,
+            // 字标自带底色，不需要描边光晕
+            shadows: [],
+          ),
         ),
       ),
     );

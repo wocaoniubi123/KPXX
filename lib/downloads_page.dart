@@ -560,7 +560,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     final site = kSites.where((s) => s.name == task.site).toList();
     if (site.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 1),
         content: Text('找不到站点「${task.site}」，详情打不开了'),
       ));
       return;
@@ -751,7 +751,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         debugPrint('[DL-EXPORT] 非 iOS ⇒ 提示「导出到相册仅支持 iOS」');
       }
       messenger.showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
+        duration: Duration(seconds: 1),
         content: Text('导出到相册仅支持 iOS'),
       ));
       return;
@@ -767,7 +767,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     }
     if (eps.isEmpty) {
       messenger.showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
+        duration: Duration(seconds: 1),
         content: Text('没有已下载的集，先下完再导出'),
       ));
       return;
@@ -908,7 +908,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         if (!req) {
           if (mounted) {
             messenger.showSnackBar(const SnackBar(
-              duration: Duration(seconds: 2),
+              duration: Duration(seconds: 1),
               content: Text('没有相册权限，导不出去 —— 去「设置 → 隐私 → 照片」里给 KPXX 打开'),
             ));
           }
@@ -918,7 +918,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 1),
           content: Text('相册权限检查失败：${_short(e)}'),
         ));
       }
@@ -1030,7 +1030,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
         ));
       } else if (fails.isNotEmpty) {
         messenger.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 1),
           content: Text('导出失败：${fails.first}'),
         ));
       } else {

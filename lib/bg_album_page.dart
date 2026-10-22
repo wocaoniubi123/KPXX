@@ -154,7 +154,7 @@ class BgAlbumPage extends StatelessWidget {
       if (!await Gal.hasAccess()) {
         if (!await Gal.requestAccess()) {
           messenger.showSnackBar(const SnackBar(
-              duration: Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
+              duration: Duration(seconds: 2), // ★ 2026-10-10（用户批准）：长文案放宽 2 秒 ✅
               content: Text('没有相册权限，导不出去 —— 去「设置 → 隐私 → 照片」里给 KPXX 打开')));
           return;
         }
@@ -165,7 +165,7 @@ class BgAlbumPage extends StatelessWidget {
           content: Text('已导出到相册')));
     } catch (e) {
       messenger.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
+          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：长文案放宽 2 秒 ✅
           content: Text('导出失败：$e')));
     }
   }

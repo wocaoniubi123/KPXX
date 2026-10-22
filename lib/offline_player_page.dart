@@ -230,7 +230,7 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
+        duration: Duration(seconds: 1),
         content: Text('这一集还没下载，联网后才能看'),
       ));
     }
@@ -369,7 +369,7 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
       ));
     } else {
       messenger.showSnackBar(const SnackBar(
-        duration: Duration(seconds: 2),
+        duration: Duration(seconds: 1),
         content: Text('这一集取不到源，暂时没法下载'),
       ));
     }
@@ -398,7 +398,7 @@ class _OfflinePlayerPageState extends State<OfflinePlayerPage> {
       msg.write('，${r.failed.length} 集取源失败：${r.failed.join('、')}');
     }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(seconds: 1),
       content: Text(msg.toString()),
     ));
   }

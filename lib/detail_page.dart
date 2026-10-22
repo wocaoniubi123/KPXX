@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import 'app_bg.dart';
 import 'api.dart';
@@ -14,7 +15,7 @@ import 'models.dart';
 import 'player_widget.dart';
 import 'settings.dart';
 import 'sites.dart';
-import 'web_page.dart';
+// ★ 2026-10-22：`web_page.dart` 不再需要（「用网页播放器打开」已改成「复制网页链接」）
 
 /// 文章详情：顶部视频 + 标题/标签 + 选集 + 正文图片。
 class DetailPage extends StatefulWidget {
@@ -727,7 +728,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       msg.write('，${r.failed.length} 集取源失败：${r.failed.join('、')}');
     }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(seconds: 1),
       content: Text(msg.toString()),
     ));
   }
@@ -757,7 +758,7 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
       ));
     } else {
       messenger.showSnackBar(SnackBar(
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 1),
         content: Text(r.failed.isEmpty ? '没有可下载的源' : '取源失败：${r.failed.join('、')}'),
       ));
     }
@@ -822,21 +823,19 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
     }
   }
 
-  /// 用站点自己的网页播放器打开本篇（应用内 WebView）。
-  /// 原生 AVPlayer 在个别片源上跳转会卡死，这里是另一个引擎的出口。
-  void _openInWeb() {
-    // ★【常驻诊断】点顶栏"用网页播放器打开"（hosts 为空 ⇒ 点了没反应，这里也能看出来 ✓）
-    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 点网页播放器 hosts=${widget.site.hosts.length} → ${widget.site.hosts.isEmpty ? '空，直接返回（无跳转）' : 'push Web 页'}');
+  /// ★ 2026-10-22（用户要求）：「用网页播放器打开」→ **「复制网页链接」**。
+  ///   复制本篇的完整 URL = `https://<站点第一个 host><详情页相对路径>`
+  ///   （与原来 WebPage 用的同一个地址 ✅）。
+  Future<void> _copyWebLink() async {
     if (widget.site.hosts.isEmpty) return;
-    // ★ ⑦（用户拍板 ✅）：**不再在这里手动 pause** —— 交给 `didPushNext`（RouteAware）统一收口 ✅。
-    //   ⚠️ 先手动停会让 `didPushNext` 读到"本来没在播" ⇒ 记不上 `_pausedByPush` ⇒ 回来**不会**续播 ✗。
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        settings: const RouteSettings(name: 'Web 页'),
-        builder: (_) => PageBg(child: WebPage(
-          title: widget.site.name,
-          url: 'https://${widget.site.hosts.first}${widget.baseUrl}',
-        )),
+    final url = 'https://${widget.site.hosts.first}${widget.baseUrl}';
+    if (AppSettings.i.logConsole) debugPrint('[DETAIL] 复制网页链接 $url');
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(seconds: 1),
+        content: Text('已复制网页链接'),
       ),
     );
   }
@@ -1071,11 +1070,11 @@ class DetailPageState extends State<DetailPage> implements RouteAware {
             ),
             onPressed: _toggleFav,
           ),
-          // 原生播放器卡的时候换网页那套引擎（hls.js，跳转更快）
+          // ★ 2026-10-22（用户要求）：原来是「用网页播放器打开」，现改为**复制网页链接**
           IconButton(
-            tooltip: '用网页播放器打开',
-            icon: const Icon(Icons.public),
-            onPressed: _openInWeb,
+            tooltip: '复制网页链接',
+            icon: const Icon(Icons.link),
+            onPressed: _copyWebLink,
           ),
         ],
       ),

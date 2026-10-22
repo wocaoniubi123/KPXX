@@ -159,7 +159,7 @@ class _ErrorLogPageState extends State<ErrorLogPage> {
           content: Text('已打开分享面板 ✓')));
     } catch (e) {
       m.showSnackBar(SnackBar(
-          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：默认 4 秒 → 2 秒（长文案放宽 ✅）
+          duration: const Duration(seconds: 2), // ★ 2026-10-10（用户批准）：长文案放宽 2 秒 ✅
           content: Text('导出失败：$e ✗')));
     }
   }

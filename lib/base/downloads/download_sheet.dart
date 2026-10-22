@@ -114,7 +114,7 @@ class _DownloadSheetState extends State<DownloadSheet> {
     }
     setState(() => _busy = false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(seconds: 1),
       content:
           Text(r.failed.isEmpty ? '没有可下载的源' : '取源失败：${r.failed.join('、')}'),
     ));
