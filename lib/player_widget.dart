@@ -2080,21 +2080,12 @@ class PlayerWidgetState extends State<PlayerWidget>
       _logDisposedSkip('_openAndWait-入口(addListener)', '_openAndWait:1625');
       return false;
     }
-    // ★ 2026-10-23（用户拍板）：**本地文件专用 seek 优化** ——
-    //   · `hr-seek=no`：只跳关键帧。实测该片源 **GOP = 2.04s**（922 个关键帧 / 27652 帧）
-    //     ⇒ 落点最多往回偏 **2.04s**（平均 1.02s）；省掉「从关键帧一路解到目标帧」那段，
-    //     实测那段代价 = `seek→缓冲止` **354~814ms**。
-    //   · `cache=no`：本地文件不需要网络缓冲，少一层中转。
-    //   ⚠️ **只对 `file://` 生效** —— 网络播放（http/hls）一行不动，`hr-seek` 保持默认精确。
-    //   ⚠️ 两个都在 `open` 之前下发（`cache` 是打开流时读的）。
-    if (url.startsWith('file:')) {
-      kp.setMpvOptionQuiet('hr-seek', 'no');
-      kp.setMpvOptionQuiet('cache', 'no');
-      if (AppSettings.i.logConsole) {
-        debugPrint('[PLAY] 本地 seek 优化下发 hr-seek=no cache=no '
-            'url=${url.length <= 60 ? url : url.substring(0, 60)}');
-      }
-    }
+    // ★ 2026-10-23（用户拍板 **B：两个都回退**）：
+    //   1.5.20 试过 `hr-seek=no` + `cache=no`（仅 file://），用户手机实测后判定
+    //   **「偏差太多了」**（片源 GOP=2.04s，落点最多往回偏 2.04s）⇒ 两条都不保留，
+    //   完全回到 1.5.19 行为（精确落点，代价是 `seek→缓冲止` 354~814ms）。
+    //   ⚠️ 下面的耗时探针（`seek 耗时` / `seek→缓冲止` / `横滑-到目标` / `进度条-到目标`）**保留**，
+    //     以后想再优化可以直接拿数据对比。
     kp.addListener(listener);
     try {
       // ★ 2026-10-11（verify-4 #6）：`addListener` 与 `open` 之间/之后都可能被回收 ⇒ 开流前再判一次
