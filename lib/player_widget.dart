@@ -1687,14 +1687,24 @@ class PlayerWidgetState extends State<PlayerWidget>
     // ★【常驻诊断】初始化入口（多入口：换集/换档/重试/自动重试/恢复 都会到这里 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 起 在途=$_initRunning 源=${_sources.length}条 index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex');
     if (_initRunning) {
-      // ⚠️ 2026-10-05（lead 复核时补 · 内存 ②c）：**不能直接丢弃** ☠ ——
-      //   初始化要几秒（要取源，最长 6 秒），这期间用户点了别集 / 触发了重试 ⇒
-      //   丢请求 = 点了像没反应 ✗。改成**记一笔、这次跑完补跑一次** ✅（最后一次请求赢 ✓、
-      //   依旧不会有第二个实例并存 ✓）。
-      _initPending = true;
-      // ★【常驻诊断】重入（初始化还在跑）⇒ 只记一笔、跑完补跑一次 ✓
-      if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 重入(在途) ⇒ 记账待补跑一次');
-      return;
+      // ★ 2026-10-23（用户报"切到已下载集切不过去"）：**当前源是本地文件 ⇒ 直接重建，不等** ——
+      //   在途那次通常是"未下载集"的网络初始化（按需取源 6 秒超时 + 2 轮源循环 + 自动重试），
+      //   让新点的本地集排在它后面 ⇒ 用户点了像没反应。
+      //   本地文件不走网络、与在途那次互不干扰 ⇒ 直接开新的，旧的跑完自己的流程即可。
+      final hasLocalFile = _sources.any((s) => s.startsWith('file:'));
+      if (!hasLocalFile) {
+        // ⚠️ 2026-10-05（lead 复核时补 · 内存 ②c）：**不能直接丢弃** ☠ ——
+        //   初始化要几秒（要取源，最长 6 秒），这期间用户点了别集 / 触发了重试 ⇒
+        //   丢请求 = 点了像没反应 ✗。改成**记一笔、这次跑完补跑一次** ✅（最后一次请求赢 ✓、
+        //   依旧不会有第二个实例并存 ✓）。
+        _initPending = true;
+        // ★【常驻诊断】重入（初始化还在跑）⇒ 只记一笔、跑完补跑一次 ✓
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] _initPlayer 重入(在途) ⇒ 记账待补跑一次');
+        return;
+      }
+      if (AppSettings.i.logConsole) {
+        debugPrint('[PLAY] _initPlayer 本地源 ⇒ **不等在途那次**，直接开（源=${_sources.length}条）');
+      }
     }
     _initRunning = true;
     try {
@@ -1712,6 +1722,14 @@ class PlayerWidgetState extends State<PlayerWidget>
 
   /// [_initPlayer] 的**主体**（原来就在这个方法名下面 ✅ 逐字搬来、只改了名字 ✅）。
   Future<void> _initPlayerOnce() async {
+    // ★ 2026-10-23 v2（用户实测：**进页面第 2 集一直「正在取视频」取不到**，切走再切回才行）：
+    //   上一版把 `initSrcKey` 写成 `final` ⇒ **按需取源成功后自己把 `_sources` 从空改成有值**，
+    //   随后 `outdated()` 拿旧指纹比 ⇒ **误判成"父级换源"** ⇒ 在 `_fetchingLazy = false` 之前 return
+    //   ⇒ 提示永不消失、播放器永远不打开 ☠。
+    //   ⇒ 改成 `var`，**凡是自己写 `_sources` 的地方都把基准同步更新**（只有"父级在
+    //     `didUpdateWidget` 里换源"才会让指纹对不上 = 真正的过期）。
+    var initSrcKey = _sources.join('\u0001');
+    bool outdated() => _sources.join('\u0001') != initSrcKey;
     // 起播时把「当前篇内序号」对齐到 switcher：续播起点不是第 1 集时（例：第 3 集 ✓），
     // 不对齐的话 didUpdateWidget 会误判成"换片"、把刚打开的源又重开一遍。
     _curIndex = widget.switcher?.index.value ?? 0;
@@ -1806,13 +1824,19 @@ class PlayerWidgetState extends State<PlayerWidget>
             .where((s) => s.isNotEmpty)
             .toList();
         if (!mounted) return;
+        // ★ 2026-10-23：源已被父级换掉（用户切到别的集）⇒ 这次取到的结果**不能回写**（否则覆盖新集的源）
+        if (outdated()) return;
         _sources = got;
+        // ★ 这里是**我们自己**写的 `_sources` ⇒ 同步更新基准，别让后面的 `outdated()` 误判
+        initSrcKey = _sources.join('\u0001');
         // ★【常驻诊断】按需取源结果（0 条 ⇒ 下面直接报"这一集已失效" ✓）
         if (AppSettings.i.logConsole) debugPrint('[PLAY] 按需取源 取到 ${got.length} 条');
       } catch (_) {
         // 下面统一误提示
       }
       if (!mounted) return;
+      // ★ 2026-10-23：源已换 ⇒ 旧的这次不再改提示/错误状态（用户已切到别的集）
+      if (outdated()) return;
       _fetchingLazy = false; // 源到手（或失败）：提示要么转播放、要么转错误
       if (_sources.isEmpty) {
         // ★【常驻诊断】按需取源拿空（页面卡住/子文章没有视频）⇒ 报"这一集已失效" ✓
@@ -1827,6 +1851,9 @@ class PlayerWidgetState extends State<PlayerWidget>
       }
     }
     if (_sources.isEmpty) {
+      // ★ 2026-10-23（用户实测"提示被带过去了"）：源已被父级换掉（用户已切到别的集）
+      //   ⇒ 这条"没源"结论**不属于当前集**，绝不能报出来
+      if (outdated()) return;
       // ★【常驻诊断】压根没有源（纯图文页/站点没给源）
       if (AppSettings.i.logConsole) debugPrint('[PLAY] 没有可用源 ⇒ 报"该文章暂无视频" + 收掉预建引擎');
       setState(() => _error = '该文章暂无视频');
@@ -2735,7 +2762,9 @@ class PlayerWidgetState extends State<PlayerWidget>
                   //   三态同控制条那套：none=download / downloading=downloading / done=download_done；
                   //   只有 'none' 可点（已下好/正在下再点没意义，也避免重复入队）。
                   //   ⚠️ 与「重连中」角标同处 topRight ⇒ 自动重连时**往下让 28**，不叠在一起。
-                  if (widget.onDownloadCurrent != null)
+                  // ★ 2026-10-23（用户要求）：**跟随控制条一起显隐** ——
+                  //   复用内嵌这套 `_controlsVisible`（与 `:2709` 那颗同款），不另起计时器 ✅
+                  if (widget.onDownloadCurrent != null && _controlsVisible)
                     Align(
                       alignment: Alignment.topRight,
                       child: Padding(
@@ -2760,7 +2789,7 @@ class PlayerWidgetState extends State<PlayerWidget>
                                     'downloading' => Icons.downloading,
                                     _ => Icons.download,
                                   },
-                                  size: 18,
+                                  size: 26,
                                   color: widget.downloadStatus == 'none'
                                       ? Colors.white
                                       : Colors.white54,
@@ -3724,7 +3753,7 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                                     'downloading' => Icons.downloading,
                                     _ => Icons.download,
                                   },
-                                  size: 18,
+                                  size: 26,
                                   color: widget.downloadStatus == 'none'
                                       ? Colors.white
                                       : Colors.white54,
