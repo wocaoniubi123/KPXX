@@ -528,7 +528,13 @@ class DownloadManager extends ChangeNotifier {
     }
 
     ep.localPath = '';
-    ep.status = EpStatus.paused; // 删了就是"没下"，但别让 pump 立刻又拖回来
+    // ★ 2026-10-23（用户要求）：**删除单集后状态必须是「未下载」**，不是「已暂停」。
+    //   原来这里写的是 `EpStatus.paused`（注释"删了就是没下"）⇒ 下载页「管理单集」里
+    //   显示成「已暂停」+「继续」，与用户预期不符 ☠。
+    //   现在：`queued` + `wanted=false` ⇒ `_epStatusText` 走「未下载（可在线观看）」分支 ✅；
+    //   `wanted=false` 同时保证 pump 不会立刻把它又拖回来下载（原注释担心的点）。
+    ep.status = EpStatus.queued;
+    ep.wanted = false;
     ep.error = '';
     ep.doneBytes = 0;
     ep.totalBytes = 0;

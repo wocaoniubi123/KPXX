@@ -166,7 +166,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
       onTap: () => _swipeCloseTick.value++,
       // ★ 2026-10-21（用户拍板 A）：长按拖拽排序（180ms，与站点管理同款），顺序存 `dl_order`
       child: ReorderableListView.builder(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 3),
         itemCount: list.length,
         buildDefaultDragHandles: false,
         onReorderItem: (oldIndex, newIndex) {
@@ -227,9 +227,11 @@ class _DownloadsPageState extends State<DownloadsPage> {
     // 第二行（用户 2026-10-19：站点名单独占一行，这行只放数字，不再被状态按钮挤）
     final meta = '已下 ${task.doneCount}/${task.episodes.length} 集 · $sizeText';
     return Padding(
-      // 与播放记录行同一套内边距（左侧 16 / 顶部 13）；底部留 12 当行间距
-      // （这里没有分割线，行与行靠间距分开）
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 12),
+      // ★ 2026-10-23（用户要求：**参考收藏页的间距**）：底部从 12 → **0**。
+      //   收藏页的行组件（`play_record_tile.dart` 的 `MediaRow`）用的是 `fromLTRB(16, 13, 6, 0)`，
+      //   行与行之间只靠 `ReorderableListView` 的 `padding: vertical 6` 分开 ⇒ 下载页底部再留 12
+      //   就明显比收藏页宽一截。这里对齐收藏页的底部口径（顶部 13 保持一致）。
+      padding: const EdgeInsets.fromLTRB(16, 11, 16, 0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -255,7 +257,8 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     color: kTxt,
                   ),
                 ),
-                const SizedBox(height: 3),
+                // ★ 2026-10-23（用户要求"再收紧一点"）：标题 → 站名行 3 → **1**
+                const SizedBox(height: 1),
                 // 第一行：站点名 + 右侧状态/按钮（用户口径：**站点单独一行**，集数/大小在它下面）
                 // ⚠️ **固定行高 22**：右侧「暂停/继续」按钮实际高度 = border 1×2 + padding 2×2 +
                 //   11pt 文字（≈15.4）≈ **21.4pt**；之前设 18 会把按钮裁掉 3.4pt（真机实测字被切）。
@@ -301,7 +304,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 1),
+                // ★ 2026-10-23（用户要求"再收紧一点"）：站名行 → 集数行 1 → **0**（贴着）
                 // 第二行：已下 X/N 集 · 大小（用户口径：显示在站点名下面）
                 Text(
                   meta,
@@ -309,7 +312,7 @@ class _DownloadsPageState extends State<DownloadsPage> {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 11, color: kTxtSub),
                 ),
-                const SizedBox(height: 1),
+                // ★ 2026-10-23（用户要求"再收紧一点"）：集数行 → 进度条 1 → **0**（贴着）
                 // 进度条 + 右侧速度（用户拍板 A 方案）：
                 // **只有真正在下载（speed > 0）才显示速度**（排队/暂停/失败不占位）；
                 // 整行**固定高度 14**（有速度/没速度的卡片高度一致），且**顶对齐** ⇒ 进度条紧贴上面那行
@@ -680,6 +683,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
   ///   压根没取过源，点「继续」只会静默无反应 ⇒ 这里直接不给动作。
   ///   例外：`done` 的集（文件真在）照旧给「删除」，那是删本地文件、与 wanted 无关。
   String? _epActionLabel(DownloadEpisode ep) {
+    // ★ 2026-10-23（用户要求）：**删除单集后**（`wanted=false` + `status=queued`）显示「下载」，
+    //   点它重新下载（`retryEpisode` 会把 wanted 补上）。
+    if (!ep.wanted && ep.status == EpStatus.queued) return '下载';
     if (!ep.wanted && ep.status != EpStatus.done) return null;
     if (ep.status == EpStatus.done) return '删除';
     if (ep.status == EpStatus.downloading) return '暂停';
@@ -727,7 +733,9 @@ class _DownloadsPageState extends State<DownloadsPage> {
       return;
     }
     // ☁️ 只登记集没有源：不该走到"继续/重试"（按钮已隐藏，这里再兜一道）
-    if (!ep.wanted) return;
+    // ★ 2026-10-23（用户要求）：「下载」（删除后 wanted=false）要放行 ——
+    //   `retryEpisode` 里会按"用户明确要下载这一集"把 wanted 补上 ✅
+    if (!ep.wanted && action != '下载') return;
     if (action == '暂停') {
       await DownloadManager.i.cancelTask(task.key);
       return;

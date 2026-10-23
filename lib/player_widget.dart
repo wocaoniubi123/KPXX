@@ -2730,6 +2730,47 @@ class PlayerWidgetState extends State<PlayerWidget>
                   //   ⚠️ 用户拍板（2026-10-01）那条不变：5 次都失败后**不再显示「点此重试」**
                   //      （见下面 `else if (_error != null)` 分支只用于"这集本身没有/坏了"的中文说明 ✓）。
                   //   ⚠️ 日志一字未动（`logConsole` 那套照旧）✅ —— 只是 UI 静默 ✅。
+                  // ★ 2026-10-23（用户要求）：**下载按钮移到画面右上角** ——
+                  //   原来它在底部控制条、紧挨「下一集/全屏」⇒ 用户实测容易误触。
+                  //   三态同控制条那套：none=download / downloading=downloading / done=download_done；
+                  //   只有 'none' 可点（已下好/正在下再点没意义，也避免重复入队）。
+                  //   ⚠️ 与「重连中」角标同处 topRight ⇒ 自动重连时**往下让 28**，不叠在一起。
+                  if (widget.onDownloadCurrent != null)
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: Padding(
+                        // ★ 2026-10-23（用户反馈"太靠边了"）：6 → **12**（离屏幕上边/右边各留 12）
+                        padding: const EdgeInsets.all(12),
+                        child: Padding(
+                          padding:
+                              EdgeInsets.only(top: _autoRetrying ? 28 : 0),
+                          child: Material(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            shape: const CircleBorder(),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: widget.downloadStatus == 'none'
+                                  ? widget.onDownloadCurrent
+                                  : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Icon(
+                                  switch (widget.downloadStatus) {
+                                    'done' => Icons.download_done,
+                                    'downloading' => Icons.downloading,
+                                    _ => Icons.download,
+                                  },
+                                  size: 18,
+                                  color: widget.downloadStatus == 'none'
+                                      ? Colors.white
+                                      : Colors.white54,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   if (_autoRetrying)
                     Align(
                       alignment: Alignment.topRight,
@@ -3052,20 +3093,10 @@ class _ControlBarState extends State<_ControlBar> {
                             color: Colors.white, fontSize: 11),
                       ),
                     ),
-                    // ★ 下载（用户要求）：时间文本之后、竖版全屏之前 ——
-                    //   内嵌 = 紧挨竖版全屏左边；全屏页 = 最右（右下角）✅
-                    //   三态：没下过 = download / 下载中 = downloading / 已下好 = download_done
-                    //   ⚠️ 只有 'none' 可点（已下好/正在下再点没有意义，也避免重复入队）
-                    if (widget.onDownload != null)
-                      _barBtn(
-                        icon: switch (widget.downloadStatus) {
-                          'done' => Icons.download_done,
-                          'downloading' => Icons.downloading,
-                          _ => Icons.download,
-                        },
-                        enabled: widget.downloadStatus == 'none',
-                        onPressed: widget.onDownload,
-                      ),
+                    // ★ 2026-10-23（用户要求）：控制条上的「下载」**全部移除** ——
+                    //   内嵌 + 全屏都改到**画面右上角**（全屏在标题行下面一行）。
+                    //   ⚠️ 注意 `showFullscreen` 的语义是「**是否显示全屏/竖版按钮**」，
+                    //     不是「是否在全屏页」（内嵌传 true、全屏页传 false）⇒ 不能用它区分页面。
                     if (widget.showFullscreen) ...[
                       // 竖屏全屏（全屏按钮左边）
                       _barBtn(
@@ -3643,26 +3674,66 @@ class _FullscreenPlayerState extends State<FullscreenPlayer>
                 ),
               ),
               SafeArea(
-                child: Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () {
-                        // ★【常驻诊断】全屏页"返回"按钮 ⇒ 恢复竖屏 + pop
-                        if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 返回按钮 ⇒ 恢复竖屏 + Navigator.pop');
-                        _restoreOrientation();
-                        Navigator.pop(context);
-                      },
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          onPressed: () {
+                            // ★【常驻诊断】全屏页"返回"按钮 ⇒ 恢复竖屏 + pop
+                            if (AppSettings.i.logConsole) debugPrint('[PLAY] 全屏 返回按钮 ⇒ 恢复竖屏 + Navigator.pop');
+                            _restoreOrientation();
+                            Navigator.pop(context);
+                          },
+                        ),
+                        const SizedBox(width: 8),
+                        // 顶部标题行（用户选定「甲」方案）：标题可伸缩 + **集号独立、不参与省略** ✅
+                        //   ① 有标题 + 多集 ⇒ 标题 + 集号；② 标题为空 + 多集 ⇒ **只有集号**（左对齐）✅；
+                        //   ③ 标题为空 + 单集/电影 ⇒ 什么都不画（保持原样 ✅）
+                        if (widget.title.isEmpty && !_multiEp)
+                          const Expanded(child: SizedBox())
+                        else
+                          Expanded(child: _titleRow()),
+                        const SizedBox(width: 14),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    // 顶部标题行（用户选定「甲」方案）：标题可伸缩 + **集号独立、不参与省略** ✅
-                    //   ① 有标题 + 多集 ⇒ 标题 + 集号；② 标题为空 + 多集 ⇒ **只有集号**（左对齐）✅；
-                    //   ③ 标题为空 + 单集/电影 ⇒ 什么都不画（保持原样 ✅）
-                    if (widget.title.isEmpty && !_multiEp)
-                      const Expanded(child: SizedBox())
-                    else
-                      Expanded(child: _titleRow()),
-                    const SizedBox(width: 14),
+                    // ★ 2026-10-23（用户要求）：**全屏页的下载按钮** ——
+                    //   位置 = **标题行下面一行、右对齐**（不跟标题行重叠）；
+                    //   控制条那颗已全部移除（内嵌走内嵌右上角那颗）。
+                    if (widget.onDownload != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 14, top: 2),
+                          child: Material(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            shape: const CircleBorder(),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: widget.downloadStatus == 'none'
+                                  ? widget.onDownload
+                                  : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Icon(
+                                  switch (widget.downloadStatus) {
+                                    'done' => Icons.download_done,
+                                    'downloading' => Icons.downloading,
+                                    _ => Icons.download,
+                                  },
+                                  size: 18,
+                                  color: widget.downloadStatus == 'none'
+                                      ? Colors.white
+                                      : Colors.white54,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
