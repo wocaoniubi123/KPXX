@@ -36,3 +36,6 @@ _tmp_cmds/
 _tmp_*.dart
 _tmp_*.ps1
 _tmp_*.txt
+
+# ★ 2026-10-23（用户要求）：本机的 AI 助手规则文件 —— **不跟踪、不入库**
+AGENTS.md
