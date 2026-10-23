@@ -254,8 +254,15 @@ class KpPlayer extends ValueNotifier<KpState> {
         if (v != value.buffering) {
           if (AppSettings.i.logConsole) debugPrint('[PLAY] 缓冲 ${v ? '起' : '止'}');
         }
-        // ★ probe32 A：⑤ 首次缓冲结束（true→false）
-        if (!v && AppSettings.i.logConsole) _tBufEndMs ??= _nowMs();
+        // ★ 2026-10-23（全量诊断）：**缓冲止** = 播放器重新有帧可用 —— 打「距最近一次 seek 多久」
+        if (!v && AppSettings.i.logConsole) {
+          _tBufEndMs ??= _nowMs();
+          final at = _lastSeekAt;
+          if (at != null) {
+            debugPrint('[PLAY] seek→缓冲止 耗时=${DateTime.now().difference(at).inMilliseconds}ms '
+                'pos=${value.position.inMilliseconds}ms buffering=$v');
+          }
+        }
         value = value.copyWith(buffering: v);
       }),
       // mpv demuxer-cache-time = 已缓存数据的最后时间戳（绝对位置）
@@ -899,7 +906,19 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 看：seek 的实际去向（从当前播到的位置 → 裁剪后的目标）—— "跳完从头/跳不动"对这条看。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek 从=${value.position.inMilliseconds}ms 到=${t.inMilliseconds}ms');
     if (_disposed) return _skip('seek'); // ★ 幂等护栏
-    return _p.seek(t);
+    // ★ 2026-10-23（用户报"离线拖动进度条松手后还要等 500~1000ms 才出画面"）：
+    //   这里量 **mpv 内部 seek 的真实耗时** —— 用来区分两种可能：
+    //     · 只有几毫秒 ⇒ 慢在"松手后等 position 流刷新"的 UI 回弹（改 UI 即可）
+    //     · 几百毫秒   ⇒ 慢在 mpv 解码/关键帧定位（要调 mpv 参数）
+    final sw = Stopwatch()..start();
+    _lastSeekAt = DateTime.now(); // ★ 全量诊断：buffering 流里算「seek → 缓冲止」耗时
+    final f = _p.seek(t);
+    if (AppSettings.i.logConsole) {
+      f.whenComplete(() {
+        debugPrint('[PLAY] seek 耗时=${sw.elapsedMilliseconds}ms 目标=${t.inMilliseconds}ms');
+      });
+    }
+    return f;
   }
 
   /// **不按时长裁剪**的 seek。续播/换档专用：那种场景下目标是"上一条源播到的
@@ -909,6 +928,7 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 看：不裁剪的精确 seek（续播/换档用）—— 目标是多少 ms。
     if (AppSettings.i.logConsole) debugPrint('[PLAY] seek(精确) 从=${value.position.inMilliseconds}ms 到=${d.inMilliseconds}ms');
     if (_disposed) return _skip('seekExact');
+    _lastSeekAt = DateTime.now(); // ★ 全量诊断：同上
     return _p.seek(d);
   }
 
@@ -918,7 +938,12 @@ class KpPlayer extends ValueNotifier<KpState> {
   ///   ⚠️ 全屏页那边已改成"**每次都取当前引擎**"+自愈；这里是给那类判断用的公开只读口子。
   bool get isDisposed => _disposed;
 
-  /// ★ 2026-10-08（用户拍板 ⑤ ✅）：**幂等护栏** —— `shutdown()` 会被多处调（`PlayerWidget.dispose` ✅、
+  /// ★ 2026-10-23（用户要求"全量日志，一次装机测完"）：**最近一次 seek 的时刻**。
+  ///   配合 `buffering` 流（see 下方）打「seek → 缓冲止」耗时 —— 这条才代表**画面上能出帧**，
+  ///   与 `KpPlayer.seek` 那个 0~5ms 的"指令下发耗时"是两回事。
+  DateTime? _lastSeekAt;
+
+  /// ★ 2026-10-23：幂等护栏 —— `shutdown()` 会被多处调（`PlayerWidget.dispose` ✅、
   ///   换源收旧实例 ✅、短片页 `dispose` ✅ ……）⇒ 第二次再进来会把 `Player.dispose()` 与
   ///   ChangeNotifier 的 `dispose()` **各跑第二遍** ⇒ 崩 ✗。现在第二次**直接返回** ✅（一行 ✅）。
   bool _disposed = false;
@@ -1096,6 +1121,14 @@ mixin _SwipeSeek<T extends StatefulWidget> on State<T> {
           const Duration(milliseconds: 500);
       if (near || waitedMs >= 600) {
         t.cancel(); // 自适应结束 ✓（到达就立刻清 ✓ / 满 600ms 强制清 ✗）
+        // ★ 2026-10-23（用户报"横滑松手后要等 500~1000ms 才出画面"）：
+        //   记下**从松手到 position 回报到位**的真实耗时（每 50ms 采一次，满 600ms 强制结束）。
+        //   `命中=false` ⇒ 600ms 用完了 position 还没到目标附近 ⇒ 那才是真慢（mpv 侧）。
+        if (AppSettings.i.logConsole) {
+          final cur = (swipePlayer?.value.position ?? target).inMilliseconds;
+          debugPrint('[PLAY] 横滑-到目标 耗时=${waitedMs}ms 命中=$near '
+              '目标=${target.inMilliseconds}ms 当前=${cur}ms 差=${cur - target.inMilliseconds}ms');
+        }
         if (swipePreview.value != null) swipePreview.value = null;
       }
     });
@@ -3929,6 +3962,30 @@ class _SeekBar extends StatefulWidget {
 class _SeekBarState extends State<_SeekBar> {
   Duration? _drag;
 
+  // ★ 2026-10-23（用户报"拖动松手后要等 500~1000ms 才出画面，硬解也一样"）：
+  //   实测 `mpv.seek` 本身只 0~5ms ⇒ 慢在**松手之后**。这里记下松手时刻与目标，
+  //   等父级把新的 `position` 传进来（= mpv 的 position 流已更新）时打一条耗时，用来区分：
+  //     · 耗时几百 ms ⇒ 是"等 position 流刷新"（UI 层，可直接把预览目标当结果用）
+  //     · 耗时几 ms   ⇒ 那慢的一定在画面渲染/纹理，不在进度条这条链上
+  int? _seekTargetMs;
+  DateTime? _seekAt;
+
+  @override
+  void didUpdateWidget(covariant _SeekBar old) {
+    super.didUpdateWidget(old);
+    final t = _seekTargetMs;
+    final at = _seekAt;
+    if (t != null && at != null) {
+      if ((widget.position.inMilliseconds - t).abs() < 500) {
+        if (AppSettings.i.logConsole) {
+          debugPrint('[PLAY] 进度条-到目标 耗时=${DateTime.now().difference(at).inMilliseconds}ms 目标=${t}ms');
+        }
+        _seekTargetMs = null;
+        _seekAt = null;
+      }
+    }
+  }
+
   void _moveTo(double dx, double width) {
     if (width <= 0) return;
     final ms = (dx / width).clamp(0.0, 1.0) * widget.duration.inMilliseconds;
@@ -3943,7 +4000,12 @@ class _SeekBarState extends State<_SeekBar> {
     widget.onPreview(null);
     // ★【常驻诊断】进度条松手（触发源=进度条点击/拖动 ✓ 不跟手时不打 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] 进度条松手 触发源=进度条点击/拖动 目标=${d?.inMilliseconds ?? 0}ms 需要跳转=${d != null}');
-    if (d != null) widget.onSeek(d);
+    if (d != null) {
+      // ★ 2026-10-23：记下松手时刻（等 `didUpdateWidget` 里比对到目标时打耗时）
+      _seekTargetMs = d.inMilliseconds;
+      _seekAt = DateTime.now();
+      widget.onSeek(d);
+    }
   }
 
   @override
