@@ -13,6 +13,7 @@ import 'sites/xhamsterlive.dart';
 import 'sites/yeguodj.dart';
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（Nuxt blob + 分区行）✅
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net —— **独立站点文件**（自研模板，非 WordPress 系 ✅）
+import 'sites/live_zhibo_site.dart'; // ★ 2026-10-24：直播聚合（api.hclyz.com，136 个平台）—— 独立站点文件 ✅
 // ☠ 2026-10-15（**用户指令**："柚子短剧不搞了，本地站点删除柚子短剧，放入安全区" ✅）：
 //   柚子短剧（youzidj.com）**已整体下架** —— 源码 + 图标移入 **`_safe/youzidj/`** ✅
 //   带柚子的最后状态已打保命 tag：**`kpxx-youzidj-saved-20261015` → `3d94d50`** ✅
@@ -209,6 +210,13 @@ class SiteEntry {
   ///     例：51吃瓜 —— 它的 `/favicon.ico` 与 `/favicon.png` 都返回 HTML 兜底页、首页也没声明图标 ✅）。
   final String assetIcon;
 
+  /// ★ 2026-10-24（用户要求：直播聚合的图标用「黑底 + 白色文字 LIVE」）：
+  /// **图标文字**（通用能力 ✅ —— 不写死任何站名 ✗）
+  ///   · 非空 ⇒ 宫格图标画这段文字（底色用 [color]、文字白色），字号按字数自适应；
+  ///   · 空 ⇒ 保持既有行为（[assetIcon] 有就画图、没有就画**名字首字**）。
+  /// ⚠️ 只加"能画文字"这一种能力，**不动**任何现有站点的显示 ✅
+  final String iconText;
+
   /// 首字色块底色（有 [assetIcon] 时不用）
   final Color color;
 
@@ -228,6 +236,7 @@ class SiteEntry {
     this.filters,
     this.iconUrl = '',
     this.assetIcon = '', // ★ 2026-10-12：内置图标（空 ⇒ 首字色块兜底 ✅）
+    this.iconText = '', // ★ 2026-10-24：图标文字（非空 ⇒ 画这段文字，如 LIVE ✅）
     this.color = const Color(0xFFFF7043),
     this.group = SiteGroup.module,
   });
@@ -358,4 +367,7 @@ const List<SiteEntry> kSites = [
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,
+  // ★ 2026-10-24（用户要求）：**直播聚合**（136 个平台 / FLV 直链）—— 独立站点文件 `sites/live_zhibo_site.dart` ✅
+  //   排在 xHamsterLive 之后（「直播」宫格第二个）✅
+  kSiteLiveZhibo,
 ];

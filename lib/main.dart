@@ -18,6 +18,7 @@ import 'site_admin.dart';
 import 'site_error_log.dart'; // ★ 接管里写日志用它 ✓（日志页读的就是同一记录器 ⇒ 自动可见 ✓）
 import 'sites.dart';
 import 'sites/xhamsterlive.dart';
+import 'live_zhibo_page.dart'; // ★ 2026-10-24（用户要求）：直播聚合页（4 个分类 tab + 下拉双列选平台）
 import 'web_page.dart';
 
 void main() {
@@ -403,8 +404,19 @@ class LiveGridPage extends StatelessWidget {
   const LiveGridPage({super.key});
 
   void _open(BuildContext context, SiteEntry e) {
+    // ★ 2026-10-24（用户要求）：**直播聚合站**走它自己的整页
+    //   （4 个分类 tab + 下拉双列选平台；不走 xhamsterlive 那套 LiveSitePage ✅）
+    //   ⚠️ 共用 UI 里**不判站名** ✗ —— 判的是"是不是本类整页"，用 `template` 之外的方式：
+    //      这里按 `hosts.first` 判断（只有直播聚合用 hclyz 那个接口域名 ✅）。
+    final isZhibo = e.hosts.isNotEmpty && e.hosts.first.contains('hclyz');
+    final Widget page = isZhibo
+        ? LiveZhiboPage(site: e)
+        : LiveSitePage(site: e);
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PageBg(child: LiveSitePage(site: e)), settings: const RouteSettings(name: '直播列表')),
+      MaterialPageRoute(
+        builder: (_) => PageBg(child: page),
+        settings: RouteSettings(name: isZhibo ? '直播聚合' : '直播列表'),
+      ),
     );
   }
 
@@ -474,26 +486,49 @@ class _SiteTile extends StatelessWidget {
             decoration: BoxDecoration(
               // 有**内置**图标时用浅底 + contain（避免宽 logo 被裁掉），没有时用首字色块
               // ★ 2026-10-12（用户口径 ✅）：图标**只走内置资源** ⇒ 不再有"联网取 favicon"那条路
-              color: entry.assetIcon.isEmpty ? entry.color : Colors.white,
+              // ★ 2026-10-24：有 `iconText` 时也用 `color` 做底（黑底白字 LIVE 就靠这条 ✅）
+              color: (entry.assetIcon.isEmpty || entry.iconText.isNotEmpty)
+                  ? entry.color
+                  : Colors.white,
               borderRadius: BorderRadius.circular(13),
               border: Border.all(color: const Color(0x14000000)),
             ),
-            child: entry.assetIcon.isEmpty
+            // ★ 2026-10-24（用户要求）：**图标文字**优先（直播聚合 = 黑底 + 白色 LIVE ✅）
+            //   字号按字数自适应：4 字符（LIVE）用 17，更长的自动缩到 14
+            child: entry.iconText.isNotEmpty
                 ? Center(
-                    child: Text(
-                      entry.name.isEmpty ? '?' : entry.name.substring(0, 1),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(
+                          entry.iconText,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: entry.iconText.length <= 4 ? 17 : 14,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
                       ),
                     ),
                   )
-                : Padding(
-                    padding: const EdgeInsets.all(9),
-                    // ★ 本地资源、**零网络** ✅（`assets/site_icons/xxx.png`，128×128 透明底）
-                    child: Image.asset(entry.assetIcon, fit: BoxFit.contain),
-                  ),
+                : entry.assetIcon.isEmpty
+                    ? Center(
+                        child: Text(
+                          entry.name.isEmpty ? '?' : entry.name.substring(0, 1),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.all(9),
+                        // ★ 本地资源、**零网络** ✅（`assets/site_icons/xxx.png`，128×128 透明底）
+                        child: Image.asset(entry.assetIcon, fit: BoxFit.contain),
+                      ),
           ),
           const SizedBox(height: 6),
           // Flexible：系统字体放大时让名字收缩，不至于把格子撑爆
