@@ -335,5 +335,20 @@
 ///         其它站点 `iconText` 为空 ⇒ 行为零变化 ✅）
 ///   · 新文件：`lib/sites/live_zhibo.dart`（数据层）/ `lib/sites/live_zhibo_site.dart`（站点档案）/
 ///     `lib/live_zhibo_page.dart`（UI）；改动：`lib/sites.dart`（注册 + `iconText` 字段）、`lib/main.dart`（宫格分发 + 图标文字）
-///   号序：每次云推 +1（末位 0→9，到 10 进中间位）⇒ **1.6.1** ☑️
-const String kAppVersion = '1.6.1';
+/// ★ 2026-10-24：**1.6.1 → 1.6.2**（**修 iOS 上直播聚合打不开** —— 允许明文 HTTP）：
+///   · 🛢️ 用户真机日志（1.6.1）：
+///       `[直播聚合] 直播接口全部失败（主+备域名）：json.txt ⇒ api.hclyz.com:81:ClientException | api.maiyoux.com:81:ClientException`
+///     同一 URL 在服务器端 / Windows 端都 **HTTP 200、136 个平台** ⇒ 不是域名挂了。
+///   · 🛢️ 根因 = **iOS ATS 拒绝明文 HTTP**：接口只有 `http://api.hclyz.com:81/mf/json.txt`
+///     （作者不提供 https），而本工程 `ios.yml` **此前从未配过 ATS**
+///     （全文件无 `NSAppTransportSecurity` / `NSAllowsArbitraryLoads`，实测 grep 确认）。
+///   · 修法（用户拍板方案 ①：**全局**，不是域名白名单）—— 只改 `.github/workflows/ios.yml`：
+///       `Add :NSAppTransportSecurity dict` + `Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true`
+///       + 两条 `grep` 自证（没写进 Info.plist 就当场失败，不等到装机才发现）。
+///     ⚠️ 为什么不用 `NSExceptionDomains` 白名单：该接口域名会变（作者自写"备用域名 api.maiyoux.com:81"，
+///       且它给的查新域名渠道 eBay 页面已失效）⇒ 白名单换域名就再挂一次 ✗。
+///     ⚠️ 副作用（已向用户说明并获同意）：**全 App 的 http 请求都放开**，不只是直播聚合。
+///     ⚠️ 回退：删掉那 4 行 PlistBuddy + 2 条 grep 即可，不影响其它任何配置。
+///   · 本版**只动构建配置**，Dart 代码与 1.6.1 完全一致（直播聚合功能不变）。
+///   号序：每次云推 +1（末位 0→9，到 10 进中间位）⇒ **1.6.2** ☑️
+const String kAppVersion = '1.6.2';

@@ -131,6 +131,21 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" Runner/Info.plist || \
             /usr/libexec/PlistBuddy -c "Set :FLTEnableImpeller false" Runner/Info.plist
           grep -n "FLTEnableImpeller" Runner/Info.plist
+          # ★ 2026-10-24（用户拍板方案 ①）：**允许明文 HTTP** —— 直播聚合接口只给 `http://`（无 https）：
+          #   目录 `http://api.hclyz.com:81/mf/json.txt`、备用 `http://api.maiyoux.com:81/mf/json.txt`
+          #   🛢️ 实证：iOS 上两个域名都报 `ClientException`（用户 1.6.1 真机日志）；
+          #     同一 URL 在服务器/Windows 端都是 HTTP 200 ⇒ 不是域名挂了，是 **iOS ATS 拒绝明文 HTTP**。
+          #   🛢️ 本工程此前**从未配过 ATS**（全文件无 NSAppTransportSecurity / NSAllowsArbitraryLoads）。
+          #   ⚠️ 用**全局**开关（不是 `NSExceptionDomains` 白名单）：该接口的域名会变
+          #     （作者文件头写了"备用域名 api.maiyoux.com:81"，且它给的查新域名渠道已失效）
+          #     ⇒ 白名单会随域名更换再次失效 ✗；全局开关换域名也照样能用 ✅。
+          #   回退：删掉下面这几行即可（不影响其它任何配置）✅
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" Runner/Info.plist || \
+            /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true" Runner/Info.plist
+          # 自证：写进去了才算（没写进去当场失败，别等到装机才发现 ✗）
+          grep -A2 -n "NSAppTransportSecurity" Runner/Info.plist || { echo "::error::NSAppTransportSecurity 未写入 Info.plist（明文 HTTP 仍会被 ATS 拒）"; exit 1; }
+          grep -q "NSAllowsArbitraryLoads" Runner/Info.plist || { echo "::error::NSAllowsArbitraryLoads 未写入 Info.plist"; exit 1; }
           grep -n "PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_STYLE\|CODE_SIGN_IDENTITY\|PROVISIONING_PROFILE\|DEVELOPMENT_TEAM" Runner.xcodeproj/project.pbxproj | head -12
           grep -n "PRODUCT_NAME = KPXX;" Runner.xcodeproj/project.pbxproj | head -6
           # 自证：进程名确实改成了 KPXX（一处都没有就**当场失败** ✗ —— 分析数据文件名靠它 ✓）
