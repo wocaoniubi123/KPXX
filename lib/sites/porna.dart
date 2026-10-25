@@ -30,6 +30,24 @@ import '../settings.dart';
 
 /// 上述几站的专属实现（取数走公用底座 [SiteFetcher] ✓）
 class PornaSite extends SiteUi {
+  /// ★ 2026-10-24（**用户报"91porna 播放地址提取不到了 / 站点好像改了"**）：
+  /// 从这个站换源脚本里抠 m3u8 的正则**必须排除 `|`**。
+  ///
+  /// 🛢️ 原因（实测 2026-10-24，本地真机同款请求打了 `/index/detail_play`）：
+  ///   换源响应是 **packed JS**（`eval(function(p,a,c,k,e,d)…`），里面所有字符串碎片**用 `|` 分隔**，
+  ///   现在响应里多了 `poster` / `hevc_url` 等字段 ⇒ 地址和别的字段**被 `|` 粘在同一行**。
+  ///   · 旧正则 `https?://[^"\s\\]+\.m3u8[^"\s\\]*` 从**行首**就开始吃 ⇒ 匹配出 **426 字符**的脏串：
+  ///     `https://pic.drleao.cn/…jpeg?auth_key=…|poster|string|hevc_url|https://yd-hls…/x.m3u8?auth_key=…`
+  ///     ⚠️ 这串**以图片开头**，拿去播必然失败 ☠
+  ///   · 排除 `|` 之后 ⇒ **205 字符的干净地址**：
+  ///     `https://yd-hls.hzjvlo.cn/videos5/<id>/<id>.m3u8?auth_key=…&v=3&time=0&via=91porna&via_bm=dx`
+  ///     ⇒ 实测该地址 **HTTP 200 / 32368 字节 / 真 m3u8（带 `#EXT-X-KEY`）** ✅
+  ///
+  /// ⚠️ **站点没换加密算法**：页面照样内嵌 160 位 hex token，`/index/detail_play?img=&u=&t=`
+  ///   照样返回 packed JS —— 变的只是**响应里多了 hevc_url/poster 字段**，把老贪婪正则带偏了。
+  /// ⚠️ 本正则只用于本文件（`_playUrlFromScript` 两处）；**其它站点的同类正则一个字没动** ✅
+  static final RegExp _m3u8Re = RegExp(r'https?://[^"\s\\|]+\.m3u8[^"\s\\|]*');
+
   PornaSite(this._f);
 
   final SiteFetcher _f;
@@ -632,7 +650,7 @@ class PornaSite extends SiteUi {
     } catch (_) {
       return '';
     }
-    final m = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(js);
+    final m = _m3u8Re.firstMatch(js);
     if (m != null) {
       // 看：第二段换源（换源脚本 → m3u8）—— 明文直接命中。
       if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 明文命中 host=${Uri.tryParse(m.group(0)!)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
@@ -644,7 +662,7 @@ class PornaSite extends SiteUi {
       if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 解包失败（非明文且非打包） ms=${sw.elapsedMilliseconds}');
       return '';
     }
-    final m2 = RegExp(r'https?://[^"\s\\]+\.m3u8[^"\s\\]*').firstMatch(plain);
+    final m2 = _m3u8Re.firstMatch(plain);
     // 看：第二段换源（打包 JS 解包后）—— 拿到没有。
     if (AppSettings.i.logConsole) debugPrint('[SRC] ${_f.site.name} 换源②脚本 解包命中=${m2 != null} host=${Uri.tryParse(m2?.group(0) ?? '')?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
     return m2?.group(0) ?? '';
