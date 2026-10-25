@@ -350,5 +350,27 @@
 ///     ⚠️ 副作用（已向用户说明并获同意）：**全 App 的 http 请求都放开**，不只是直播聚合。
 ///     ⚠️ 回退：删掉那 4 行 PlistBuddy + 2 条 grep 即可，不影响其它任何配置。
 ///   · 本版**只动构建配置**，Dart 代码与 1.6.1 完全一致（直播聚合功能不变）。
-///   号序：每次云推 +1（末位 0→9，到 10 进中间位）⇒ **1.6.2** ☑️
-const String kAppVersion = '1.6.2';
+/// ★ 2026-10-25：**1.6.2 → 1.6.3**（**修 91porna 播放地址提取不到**）：
+///   · 🛢️ 用户报"91porna 站点的视频需要重新解密提取了，站点好像改了"。
+///   · 🛢️ 实测（本机真请求 `/index/detail_play`）后确认：**站点没换加密算法** ——
+///     页面照样内嵌 160 位 hex token，换源接口照样 200 / 1730B / 返回 packed JS。
+///     **变的只是响应里多了 `poster` / `hevc_url` 字段**，它们和地址被 packed JS 的 `|` 粘在同一行：
+///     `…|poster|string|hevc_url|https://yd-hls…/x.m3u8?auth_key=…|id|create_player|…`
+///   · 🛢️ 根因：老的贪婪正则 `https?://[^"\s\\]+\.m3u8[^"\s\\]*` 从**行首**开始吃 ⇒
+///     匹配出 **426 字符**的脏串，**开头是一张图片**：
+///     `https://pic.drleao.cn/…jpeg?auth_key=…|poster|string|hevc_url|https://yd-hls…/x.m3u8`
+///     ⇒ 拿它去播必然失败。
+///   · 修法（`lib/sites/porna.dart`）：新增类级 `_m3u8Re = https?://[^"\s\\|]+\.m3u8[^"\s\\|]*`
+///     （**排除 `|`**），`_playUrlFromScript` 的两处正则都换用它。
+///   · 🛢️ 修完实测：新正则命中 **205 字符**干净地址
+///     `https://yd-hls.hzjvlo.cn/videos5/<id>/<id>.m3u8?auth_key=…&v=3&via=91porna&&via_bm=dx`；
+///     下载 **HTTP 200 / 32368B / `#EXTM3U` / 带 `#EXT-X-KEY`（AES-128）**，首分片 200 / 1.4MB。
+///   · 🛢️ **真实播放验证**（仓库自带 `soak player` 探针 = App 同一个 mpv 引擎）：
+///     `open 90ms` → **首帧 3021ms** → 播到 10.9s，`err=false`，`dur=1103300ms` ✅
+///   · ⚠️ 只改 `lib/sites/porna.dart`；**其它站点的同类正则一个字没动** ✅
+///   · 📋 顺带记录（本版未改代码）：16 个点播站真播测试结果 ——
+///     12 站真播通过（91吃瓜/911爆料网/黄果/野果/51吃瓜/每日大赛/荔枝/Hanime1/麻豆/91porna/XVideos/xHamster）；
+///     4 站在 **App 里经用户实测均可播**（快猫源服务器对本机返回空响应、Pornhub 分片强依赖站点 Referer、
+///     51fans.net 与 51fans 当时站点侧故障）⇒ **均为测试工具（soak 探针）限制，不是 App 问题**。
+///   号序：每次云推 +1（末位 0→9，到 10 进中间位）⇒ **1.6.3** ☑️
+const String kAppVersion = '1.6.3';
