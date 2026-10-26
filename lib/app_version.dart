@@ -373,4 +373,40 @@
 ///     4 站在 **App 里经用户实测均可播**（快猫源服务器对本机返回空响应、Pornhub 分片强依赖站点 Referer、
 ///     51fans.net 与 51fans 当时站点侧故障）⇒ **均为测试工具（soak 探针）限制，不是 App 问题**。
 ///   号序：每次云推 +1（末位 0→9，到 10 进中间位）⇒ **1.6.3** ☑️
-const String kAppVersion = '1.6.3';
+/// ★ 2026-10-27：**1.6.3 → 1.6.4**（**新增「PandaTV」直播站** + 三站等待文案统一）：
+///   · **新站 PandaTV**（韩国 팬더티비，用户提供 `panda直播.js` 协议重写）—— 独立站点文件 ✅
+///       · 数据层 `lib/sites/panda_live.dart`：取 `player/list.json` + `player/list.m3u`，
+///         按 `userId` 合并；**不在 m3u 里的房间=无流 ⇒ 不列出**
+///       · **主域名 + 备用域名**（用户要求）：直连 `5721004.xyz` → 备用走代理前缀
+///         `hubu.515355.xyz/proxy/?<原始URL>`
+///       · 🛢️ 实测：脚本里 6 个代理**只有 hubu 可用**（连测 3 次全 200）；
+///         `flank`/`uae2`/`pol`/`f00` 恒 400（响应体 `Invalid target URL`）、`ce2` 恒 500
+///         ⇒ 只上 hubu（其余写进兜底链只会多等 4 轮超时）
+///       · 🛢️ 代理特性：拼法**不能 URL 编码**（编码后 500）；代理返回的 `list.m3u` 里
+///         **流地址已被改写成代理地址** ⇒ 两个文件必须**同源**取（先 json 定入口、再按同一入口取 m3u）
+///     · UI `lib/panda_live_page.dart`（独立文件）：**取消分类 tab、显示全部**（用户 2026-10-27 改口）
+///       + 保留 3 个排序（观众量 / 实时热度 / 关注量）+ 双列房间卡 + 全屏播放页右上角 X
+///     · 🛢️ **`liveType` 有 `live` / `rec` 两种值**（实测 326 条：300 live / 26 rec）
+///       ⇒ `rec` 是**回放**，房间卡上打**灰蓝「回放」角标**（用户"感觉像录播"就是点到了 rec）
+///     · 🛢️ **这个 CDN（AWS IVS）只认 `Origin`，不认 `Referer`**：
+///       `Origin` 在 ⇒ 200/206；缺 `Origin`（哪怕 Referer 在）⇒ **403 + 响应体 `origin required`**
+///     · 🛢️ **卡顿根治（用户实测"进去几秒就卡，再卡"）**：`KpPlayer.tuneStartupQuiet` 下发的
+///       `stream-lavf-o=reconnect=1,reconnect_streamed=1...` 是**为点播长文件设计的**
+///       （FFmpeg 原文：`reconnect=1` = "Reconnect when disconnected BEFORE EOF"）；
+///       而 HLS 直播由**几百个独立 HTTP 请求**组成，每个分片读完就是一次 EOF
+///       ⇒ mpv 反复 `Will reconnect ... error=End of file.` → 重连时头丢了拿 403 → 再重连 = **几秒一卡**。
+///       **脚本 `panda直播.js` 一个 mpv 参数都不传**（全文件 grep 无 mpv/reconnect/cache）
+///       ⇒ 本站在 `_pinHeaders` 里 `stream-lavf-o=''` **恢复默认**（实测：卡顿消失 ✅）
+///     · 请求头改走 mpv 属性 `http-header-fields` + `referrer`（不再靠 `Media.httpHeaders` 一次性设置）
+///   · **三站等待文案统一**（用户要求）：`'正在打开直播…'` → **`'正在鸡速加载中...'`**
+///       · 常量 `kLiveLoadingText` 放 **`lib/app_background.dart`**（共享 UI 常量区）
+///         —— ⚠️ 不能放某个站点文件里，否则站点 A 要 import 站点 B（违反"站点独立文件"规矩）
+///       · 顺手修个真 bug：旧实现 `open()` 一返回就清文案 ⇒ **画面没出来文案先没了**（黑屏干等）
+///         ⇒ 现在只在 `position > 0`（真出画面）时才清 ✅
+///       · 文案位置：**屏幕居中**（用户纠错：原来我放在 `bottom:40`）✅
+///   · `KpPlayer` 新增**只读** `debugMpvProperty(name)`（+8 行，无行为改动）：
+///       mpv 手册「Unknown or misspelled options are **silently ignored**」⇒ 必须有读回自证
+///   · ⚠️ 范围：`panda_live*.dart` 是新文件；`sites.dart`/`main.dart` 只加注册与分发；
+///     `app_background.dart`/`player_widget.dart` 是公共区**最小追加**；**其它 16 个站点业务零改动** ✅
+///   号序：每次云推 +1 ⇒ **1.6.4** ☑️
+const String kAppVersion = '1.6.4';

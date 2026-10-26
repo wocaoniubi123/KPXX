@@ -485,6 +485,13 @@ class KpPlayer extends ValueNotifier<KpState> {
     return '（拿不到）';
   }
 
+  /// ★ 2026-10-27：**只读**读回一个 mpv 属性值（公开给站点页做"设置是否真生效"的自证）
+  ///
+  /// 为什么需要：mpv 手册原文「**Unknown or misspelled options are silently ignored.**」
+  /// ⇒ 设了没生效**不会报错**，只能靠读回来确认。
+  /// 纯只读、不改任何状态；非 NativePlayer / 拿不到 ⇒ 返回 `（拿不到）`（同 [_mpvProp]）✅
+  Future<String> debugMpvProperty(String name) => _mpvProp(name);
+
   Future<void> _logTiming(String why) async {
     if (!AppSettings.i.logConsole) return;
     final hw = await _mpvProp('hwdec-current');

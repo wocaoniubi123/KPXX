@@ -19,6 +19,7 @@ import 'site_error_log.dart'; // ★ 接管里写日志用它 ✓（日志页读
 import 'sites.dart';
 import 'sites/xhamsterlive.dart';
 import 'live_zhibo_page.dart'; // ★ 2026-10-24（用户要求）：直播聚合页（4 个分类 tab + 下拉双列选平台）
+import 'panda_live_page.dart'; // ★ 2026-10-27（用户要求）：PandaTV 直播页（分类 + 排序 + 双列房间）
 import 'web_page.dart';
 
 void main() {
@@ -406,16 +407,20 @@ class LiveGridPage extends StatelessWidget {
   void _open(BuildContext context, SiteEntry e) {
     // ★ 2026-10-24（用户要求）：**直播聚合站**走它自己的整页
     //   （4 个分类 tab + 下拉双列选平台；不走 xhamsterlive 那套 LiveSitePage ✅）
-    //   ⚠️ 共用 UI 里**不判站名** ✗ —— 判的是"是不是本类整页"，用 `template` 之外的方式：
-    //      这里按 `hosts.first` 判断（只有直播聚合用 hclyz 那个接口域名 ✅）。
-    final isZhibo = e.hosts.isNotEmpty && e.hosts.first.contains('hclyz');
+    // ★ 2026-10-27（用户要求）：**PandaTV** 同样走自己的整页 `PandaLivePage` ✅
+    //   ⚠️ 共用 UI 里**不判站名** ✗ —— 判的是"是不是本类整页"，用 `hosts.first`：
+    //      只有直播聚合用 `hclyz`、只有 PandaTV 用 `5721004.xyz` ✅
+    final h = e.hosts.isNotEmpty ? e.hosts.first : '';
+    final isZhibo = h.contains('hclyz');
+    final isPanda = h.contains('5721004');
     final Widget page = isZhibo
         ? LiveZhiboPage(site: e)
-        : LiveSitePage(site: e);
+        : (isPanda ? PandaLivePage(site: e) : LiveSitePage(site: e));
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PageBg(child: page),
-        settings: RouteSettings(name: isZhibo ? '直播聚合' : '直播列表'),
+        settings: RouteSettings(
+            name: isZhibo ? '直播聚合' : (isPanda ? 'PandaTV' : '直播列表')),
       ),
     );
   }

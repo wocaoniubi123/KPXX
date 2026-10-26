@@ -41,7 +41,7 @@ import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 //   mpv（`media_kit_video` / `KpPlayer`）那条路已从直播页**整条移除** ✗；`player_widget.dart` **没动** ✓ 别的站点还在用 ✓
 import 'package:video_player/video_player.dart';
 
-import '../app_background.dart';
+import '../app_background.dart'; // kTxt / kTxtSub / kStatusOverlay / kLiveLoadingText（共享 UI 常量）
 import '../app_bg.dart';
 import '../base/fetch.dart';
 import '../config.dart' show Site;
@@ -51,6 +51,8 @@ import '../fetched_image.dart';
 import '../home_page.dart' show RowsGrid;
 import '../sites.dart';
 import '../settings.dart'; // ★ 诊断守卫（`AppSettings.i.logConsole` ✓）；`debugPrint` 由 material 带入 ✓
+// ⚠️ 2026-10-27：等待文案 `kLiveLoadingText` 走 `../app_background.dart`（共享 UI 常量区），
+//   **不再 import 别的站点文件**（原来 import 了 `panda_live.dart` ⇒ 站点间耦合 ☠ 已改正 ✅）
 
 import 'dart:math' as math; // ④ 2026-10-05：X 与 AppBar 对齐需要 math.max 夹取 ✓（同一步内加 ✓）
 
@@ -845,7 +847,10 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
   /// 错误提示 —— ⚠️ 2026-10-05 用户拍板：**"状态提示"（打开中/连接中/仍在加载…/90 秒兜底）全删** ✗，
   ///   但**这条错误提示保留** ✓ —— 打不开/初始化失败时屏幕上必须有一行明确文案，
   ///   否则失败就是黑屏、无从判断 ✓（错误提示 ≠ 状态提示 ✓）。
-  String _err = '正在打开直播…';
+  ///
+  /// ★ 2026-10-27（用户要求）：三个直播站**等待出画面期间**统一显示这句
+  ///   ⇒ 初值改成 `kLiveLoadingText`（文案本体在 `lib/app_background.dart`，一处改三站生效 ✅）
+  String _err = kLiveLoadingText;
 
   /// 当前交给播放器的**变体 URL** ✓（出画时用它确认"缓存可用" ✓）
   String? _kpVariantUrl;
@@ -1053,7 +1058,7 @@ class _LiveRoomPageState extends State<LiveRoomPage> {
           await c.dispose();
         } catch (_) {}
         if (!mounted) return;
-        setState(() => _err = '正在打开直播…');
+        setState(() => _err = kLiveLoadingText);
         _checkAndPlay(); // 再走一遍 ✓（缓存已删 ⇒ 这次抓 master ✓）
         return;
       }

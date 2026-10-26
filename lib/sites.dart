@@ -14,6 +14,7 @@ import 'sites/yeguodj.dart';
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）—— **自管整页**（Nuxt blob + 分区行）✅
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net —— **独立站点文件**（自研模板，非 WordPress 系 ✅）
 import 'sites/live_zhibo_site.dart'; // ★ 2026-10-24：直播聚合（api.hclyz.com，136 个平台）—— 独立站点文件 ✅
+import 'sites/panda_live_site.dart'; // ★ 2026-10-27：PandaTV 直播（5721004.xyz，AWS IVS 实时流）—— 独立站点文件 ✅
 // ☠ 2026-10-15（**用户指令**："柚子短剧不搞了，本地站点删除柚子短剧，放入安全区" ✅）：
 //   柚子短剧（youzidj.com）**已整体下架** —— 源码 + 图标移入 **`_safe/youzidj/`** ✅
 //   带柚子的最后状态已打保命 tag：**`kpxx-youzidj-saved-20261015` → `3d94d50`** ✅
@@ -370,4 +371,7 @@ const List<SiteEntry> kSites = [
   // ★ 2026-10-24（用户要求）：**直播聚合**（136 个平台 / FLV 直链）—— 独立站点文件 `sites/live_zhibo_site.dart` ✅
   //   排在 xHamsterLive 之后（「直播」宫格第二个）✅
   kSiteLiveZhibo,
+  // ★ 2026-10-27（用户要求）：**PandaTV 直播**（韩国 팬더티비，AWS IVS 实时流 + `rec` 回放标记）
+  //   —— 独立站点文件 `sites/panda_live_site.dart` ✅
+  kSitePandaLive,
 ];

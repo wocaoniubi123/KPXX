@@ -20,7 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:media_kit_video/media_kit_video.dart';
 
-import 'app_background.dart'; // kTxt / kTxtSub / kStatusOverlay
+import 'app_background.dart'; // kTxt / kTxtSub / kStatusOverlay / kLiveLoadingText
 import 'app_bg.dart'; // AppBg（明暗）
 import 'fetched_image.dart'; // FetchedImage（全站共用封面组件）
 import 'player_widget.dart'; // KpPlayer（media_kit/mpv，原生支持 FLV ✅）
@@ -510,7 +510,9 @@ class ZhiboRoomPage extends StatefulWidget {
 
 class _ZhiboRoomPageState extends State<ZhiboRoomPage> {
   KpPlayer? _kp;
-  String _err = '正在打开直播…';
+
+  /// 等待文案（★ 2026-10-27 用户要求：三站统一「正在鸡速加载中...」）
+  String _err = kLiveLoadingText;
 
   // ★ 2026-10-24（用户要求"只需要右上角一个 X"）：照 `sites/xhamsterlive.dart:1129` 那套 ——
   //   X **默认隐藏**，点屏幕才出现；出现后 **3 秒自动隐藏**（Timer 必须在 dispose 里 cancel ✅）
@@ -566,8 +568,8 @@ class _ZhiboRoomPageState extends State<ZhiboRoomPage> {
     setState(() {});
     try {
       await kp.open(widget.room.url);
-      if (!mounted) return;
-      setState(() => _err = '');
+      // ★ 2026-10-27（用户要求）：这里**不再清** `_err` —— `open()` 返回只代表"指令收下了"，
+      //   画面还没出来。清掉会让用户看到黑屏干等；改由 `_onTick` 的 `position > 0` 判断 ✅
       if (AppSettings.i.logConsole) {
         debugPrint('[ZHIBO] 开播 平台=${widget.platform} 主播=${widget.room.name} '
             'url=${widget.room.url.length <= 60 ? widget.room.url : widget.room.url.substring(0, 60)}');
@@ -606,11 +608,9 @@ class _ZhiboRoomPageState extends State<ZhiboRoomPage> {
             else
               const Center(child: CircularProgressIndicator(strokeWidth: 2)),
             // ---- 错误/状态文字（画面之上、X 之下）----
+            // ★ 2026-10-27（用户要求）：**屏幕居中**（原来我放在 bottom:40 是错的）
             if (_err.isNotEmpty)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 40,
+              Positioned.fill(
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
