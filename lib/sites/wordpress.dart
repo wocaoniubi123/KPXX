@@ -76,11 +76,68 @@ class WpSite extends SiteUi {
   Future<List<Article>> search(String keyword,
       {int page = 1, List<MapEntry<String, String>>? extra}) async {
     final sw = Stopwatch()..start();
-    final kw = Uri.encodeComponent(keyword);
+    // ★ 2026-10-28（用户实测"搜「存在感：零」51吃瓜就失败感叹号"）：**按站点名过滤关键词** ——
+    //   🛢️ 根因（本机实测 + 拿到站方 JS 原文）：
+    //     · 51吃瓜 对**含符号/空格的关键词**直接返回 **HTTP 410 Gone**（不是超时、不是没结果）；
+    //       实测：`/search/存在感：零/` = 410、`/search/存在感 零/` = 410（各种分隔符 %+ - _ 全 410）；
+    //       而过滤后的 `/search/存在感零/` = 200 且有 29 条结果 ✅
+    //     · 站方自己的过滤函数在 `usr/themes/Mirages/js/7.10.0/search.js` 里，原文：
+    //       ```js
+    //       const sanitizeSearchKeyword = (k) => {
+    //         let out = '', cn = 0, en = 0;
+    //         for (const ch of String(k ?? '')) {
+    //           if (/[\u4e00-\u9fa5]/.test(ch)) { if (cn < 20) { out += ch; cn++; } }
+    //           else if (/[a-zA-Z0-9]/.test(ch)) { if (en < 30) { out += ch; en++; } }
+    //         }
+    //         return out;   // 其余字符（符号/空格/全角冒号）全部丢弃
+    //       };
+    //       const buildSearchUrl = (k) => `/search/${encodeURIComponent(sanitizeSearchKeyword(k))}/`;
+    //       ```
+    //       ⇒ 这就是用户看到的"网站里直接搜索会把符号去掉"（截图 URL = `/search/存在感零/`）✅
+    //   🛢️ **为什么只对本站生效**（不一律加）：本机把 5 个 WP 站全测了一遍 ——
+    //     每日大赛 / 91吃瓜 / 911爆料网 **对同样的 `%EF%BC%9A` 照样 200**（不过滤符号）
+    //     ⇒ 这是 51吃瓜 **独有** 的规则 ⇒ 一律加会改动其它 4 站的行为（违反站点独立口径）☠
+    //   ✅ 判据用站名（与同文件 `dropAdImages = _f.site.name == '91吃瓜'` 同一套既有模式 ✅）
+    final bool sanitizeKw = _f.site.name == '51吃瓜';
+    final kwText = sanitizeKw ? _sanitize51Keyword(keyword) : keyword;
+    // 过滤后为空 ⇒ 全是符号、站点必然搜不到 ⇒ 直接返空，不发这次请求（省一次 410）
+    if (kwText.isEmpty) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[LIST] ${_f.site.name} 入口=search kwLen=${keyword.length} '
+            '⇒ 过滤后为空（全符号）⇒ 直接返回空，未发请求');
+      }
+      return const [];
+    }
+    final kw = Uri.encodeComponent(kwText);
     final path = page <= 1 ? '/search/$kw/' : '/search/$kw/$page/';
     final res = parseArticles(await _f.text(path));
     if (AppSettings.i.logConsole) debugPrint('[LIST] ${_f.site.name} 入口=search 页=$page kwLen=${keyword.length} 解析出 ${res.length} 条 ms=${sw.elapsedMilliseconds}');
     return res;
+  }
+
+  /// 51吃瓜 的关键词过滤 —— **逐字照搬站方 `sanitizeSearchKeyword`**（原 JS 见 [search] 的注释）
+  ///
+  /// 规则：**只保留中文（最多 20 个）+ 字母数字（最多 30 个）**，其余字符全部丢弃。
+  /// ⚠️ 不要"优化"成别的写法（比如只去掉冒号）：站方是按"字符类别白名单"打的，
+  ///   任何非中文/非字母数字的字符都会让它 410（实测 `%` `+` `-` `_` 空格全 410）✅
+  String _sanitize51Keyword(String k) {
+    final out = StringBuffer();
+    var cn = 0, en = 0;
+    for (final r in k.runes) {
+      final ch = String.fromCharCode(r);
+      if (RegExp(r'[\u4e00-\u9fa5]').hasMatch(ch)) {
+        if (cn < 20) {
+          out.write(ch);
+          cn++;
+        }
+      } else if (RegExp(r'[a-zA-Z0-9]').hasMatch(ch)) {
+        if (en < 30) {
+          out.write(ch);
+          en++;
+        }
+      }
+    }
+    return out.toString();
   }
 
   /// 标签列表页（原 `Api.tag` 的 case body 原样搬来 ✓）
