@@ -32,14 +32,17 @@
 ///        ☠ **每次 build 都会调** ⇒ 里面**绝不能重建播放器/控制器**（否则每帧泄漏一套 mpv ✗✗）
 ///     —— `dispose()` :563 先 `await _creatingCompleter`，再 `_eventSubscription.cancel()` + `dispose(_playerId)` ✓
 ///
-/// ☠ **音量口径（用户 2026-10-10 拍的长期规则：桌面 dev 不许出声 ✓）**：
-///   · 初始音量 = `KpPlayer.startupVolumeOverride`（dev 入口设为 `0` ✓）；`null` ⇒ 0（本文件**恒静音**）✓。
+/// ☠ **音量口径（用户 2026-10-10 拍的长期规则：桌面 dev 默认不许出声 ✓）**：
+///   · 初始音量 = `KpPlayer.startupVolumeOverride`（dev 入口默认设 `0` ✓）；`null` ⇒ 0。
 ///     同时给 `PlayerConfiguration(muted: true)` ⇒ 从**引擎建起来那一刻**就静音，
 ///     不存在"open 起播到收到 setVolume(0) 之间"的出声窗口 ✓。
-///   · ★ 房间页 `xhamsterlive.dart:1026` 会显式 `await c.setVolume(1.0)`（**给 iOS 真机用的、注释写明"不静音"** ✓）
-///     —— 本实现**压住**它：任何 `volume > 0` 一律落成 `0.0`（转成 media_kit 的 0..100 ⇒ `0.0`）✓。
-///     ⚠️ 这是**桌面 dev 专属的刻意偏离**（用户点名要求 ✓）：**iOS 侧走不到本文件** ⇒ 那边一字不变 ✓。
-///     ⇒ 想临时听声音：把 `main_win_dev.dart` 里那句 `KpPlayer.startupVolumeOverride = 0` 改掉即可 ✓。
+///   · ★ 2026-10-27（用户要求：Windows 加静音按钮，点了要真有声，且**全局有效**）：
+///     ① 按钮开声音时会把 `KpPlayer.startupVolumeOverride` 改成 `1.0`
+///        ⇒ **之后新建的**引擎也按 1.0 起（不再是静音）✓
+///     ② 同时置 [devUnmuted] = true ⇒ [setVolume] 不再把 `volume>0` 压成 0 ✓
+///     ③ 当前已开着的引擎由 `KpPlayer.setVolumeAll` 立刻下发 ✓
+///   · 默认值仍是静音（`startupVolumeOverride = 0` / `devUnmuted = false`）⇒ 打开软件就是 🔕 ✓
+///     ⚠️ 这是**桌面 dev 专属**的刻意设计：**iOS 侧走不到本文件** ⇒ 那边一字不变 ✓
 /// ═══════════════════════════════════════════════════════════════════════════════════════════════
 library;
 
@@ -107,8 +110,10 @@ class MediaKitVideoPlayerPlatform extends vpi.VideoPlayerPlatform {
 
     final id = _nextId++;
 
-    // ★ 初始音量（见文件头「音量口径」✓）：dev 入口设 0 ⇒ 全程静音。
-    //   `startupVolumeOverride == null`（理论上桌面 dev 不会发生）也按 0 走 —— 本文件恒静音 ✓。
+    // ★ 初始音量（见文件头「音量口径」✓）：
+    //   桌面 dev 入口默认 `startupVolumeOverride = 0`（静音）；
+    //   ★ 2026-10-27（用户要求：右侧静音按钮**全局有效**）：按钮开声音时会把它改成 `1.0`
+    //   ⇒ 之后**新打开的**播放器也从 1.0 起，不再是静音 ✓
     final raw = KpPlayer.startupVolumeOverride;
     final initialVolume = (raw ?? 0.0).clamp(0.0, 1.0);
 
@@ -275,17 +280,23 @@ class MediaKitVideoPlayerPlatform extends vpi.VideoPlayerPlatform {
         .setPlaylistMode(looping ? PlaylistMode.single : PlaylistMode.none);
   }
 
-  /// ★★ 桌面 dev 的**静音压口**：任何 `volume > 0` 一律落成 `0`（见文件头「音量口径」✓）。
+  /// ★★ 桌面 dev 的**静音压口**：默认任何 `volume > 0` 一律落成 `0`（见文件头「音量口径」✓）。
+  ///
+  /// ★ 2026-10-27（用户要求：Windows dev 加静音按钮，点了要**真有声**）：
+  ///   左侧那个静音按钮一开声音，就把 [devUnmuted] 置 true ⇒ 这里**不再压**，按请求值下发 ✓。
+  ///   ⚠️ 只影响 Windows dev 入口（本文件）；**iOS 走不到这里** ⇒ 那边一字不变 ✓
+  static bool devUnmuted = false;
+
   @override
   Future<void> setVolume(int playerId, double volume) async {
     final entry = _entries[playerId];
     if (entry == null) return;
     final requested = volume.clamp(0.0, 1.0).toDouble();
-    // ⚠️ 请求多少都压成 0 ⇒ dev 恒静音（用户点名要求 ✓）；只打日志方便验证 ✓。
-    const double effective = 0.0;
+    // 默认压成 0（dev 恒静音）；用户点了静音按钮后按请求值走
+    final effective = devUnmuted ? requested : 0.0;
     entry.volume = effective * 100.0;
     debugPrint('[WIN-VIDEO] setVolume id=$playerId 请求=$requested 实际=$effective'
-        '${requested > 0 ? '（**被 dev 静音压住**，见 main_win_dev_video.dart 文件头 ✓）' : ''}');
+        '${!devUnmuted && requested > 0 ? '（**被 dev 静音压住**，见 main_win_dev_video.dart 文件头 ✓）' : ''}');
     await entry.player.setVolume(entry.volume);
   }
 

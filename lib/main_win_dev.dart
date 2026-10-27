@@ -361,7 +361,10 @@ Future<void> main() async {
       home: const _LiveRoomProbe(rooms: roomList),
     ));
   } else if (roomSpec.isEmpty) {
-    runApp(const KpxxApp()); // ★ 与发布入口**同一个** `KpxxApp` ✓（`main.dart:74` 那个 ✓）
+    // ★ 2026-10-27（用户要求 ✓ **Windows dev 专用**）：在正常 UI 外面套一层**右侧静音按钮** ✓
+    //   口径：默认 🔕（静音 = 现有 dev 基线，`startupVolumeOverride = 0`）；点一下变 🔔（有声）。
+    //   ⚠️ **只改这一个调试入口** ⇒ `lib/main.dart`（iOS 发布入口）**一个字没动** ✗ 见下方注释 ✓
+    runApp(const _DevMuteShell(child: KpxxApp()));
   } else {
     final parts = Uri.decodeComponent(roomSpec).split(':');
     final roomId = int.tryParse(parts.first.trim());
@@ -647,6 +650,111 @@ class _HlsProbePageState extends State<_HlsProbePage> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Color(0xFFB0B4BA))),
               ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ★ 2026-10-27（用户要求 ✓ **Windows dev 专用**）：右侧边缘的**静音开关按钮**
+//
+// 用户原话："kpxx Windows端。右侧边缘外增加 静音按钮。默认是🔕状态，点击就是有声音。方便我测试"
+//
+// 🛢️ 为什么按钮**不能真放在"边缘外"**（依据 = device_preview 3.0.0 源码，已读）：
+//   `DevicePreviewFrame` 的 `RenderDevicePreviewFrame.paint`（`showSystemUi` 同文件）用
+//   `context.pushClipPath(…)` 把模拟画面**整体裁到设备轮廓**里 ⇒ 放在轮廓外的控件会被裁掉、
+//   根本画不出来。当前窗口 490×1029（iPhone 16 Pro Max 比例），画面左右两侧总共只有约 8px 空白。
+//   ⇒ 因此按钮放在**画面右侧边缘内侧**（垂直居中），全屏悬浮、不占布局、不挡主要内容 ✅
+//     （已与用户确认选择方案 A）
+//
+// 🛢️ 音量口径（两条，别混）：
+//   · `KpPlayer.setVolumeAll(v)` 收 **0..1**（内部 ×100 换成 media_kit 口径）
+//   · `KpPlayer.startupVolumeOverride` 也是 **0..1**（0 = 静音）
+//
+// ☠ **iOS 零影响**（用户 2026-10-27 明确要求"这是Windows端的，拒绝影响ios"）：
+//   · 本类只在本文件（`-t lib/main_win_dev.dart` 时才编译）里定义和使用；
+//   · `lib/main.dart`（iOS 发布入口）**没有任何引用** ⇒ 发布包里这段代码**不存在** ✗
+//   · `KpPlayer` 侧只多了"登记/注销实例 + 一个静态 setter"，iOS 侧无人调用 ⇒ 行为逐字节不变 ✓
+class _DevMuteShell extends StatefulWidget {
+  const _DevMuteShell({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_DevMuteShell> createState() => _DevMuteShellState();
+}
+
+class _DevMuteShellState extends State<_DevMuteShell> {
+  /// 默认静音（= `KpPlayer.startupVolumeOverride = 0`，main() 里已设好；`devUnmuted` 默认 false）
+  ///
+  /// ★ 2026-10-27（用户要求"打开关闭软件全局有效"）：按钮状态**不只影响当前页**——
+  ///   `_toggle()` 会同时改 `KpPlayer.startupVolumeOverride`（新引擎默认值）
+  ///   和 `MediaKitVideoPlayerPlatform.devUnmuted`（video_player 系放行）⇒ 全局生效 ✓
+  bool _muted = true;
+
+  void _toggle() {
+    setState(() => _muted = !_muted);
+    // ★ 2026-10-27（用户实测："只在当前页有效…改成打开关闭软件全局有效"）：
+    //   必须**同时改三处**，否则只有"当时已经开着的引擎"会变声，新打开的还是静音 ☠
+    //   ① 全局默认值（= 新引擎构造时读的那个）—— 这是"全局有效"的关键
+    KpPlayer.startupVolumeOverride = _muted ? 0.0 : 1.0;
+    //   ② 当前存活的 media_kit 引擎（内嵌播放器 / 直播聚合 / PandaTV）—— 立刻生效
+    KpPlayer.setVolumeAll(_muted ? 0.0 : 1.0);
+    //   ③ video_player 系（xHamsterLive 直播房，走 main_win_dev_video.dart）
+    //      那个文件默认把 volume>0 压成 0 ⇒ 这里放行
+    MediaKitVideoPlayerPlatform.devUnmuted = !_muted;
+    debugPrint('[WIN-DEV] 静音按钮 ⇒ ${_muted ? '🔕 静音' : '🔔 有声'}'
+        '（全局：startupVolumeOverride=${KpPlayer.startupVolumeOverride} '
+        'devUnmuted=${MediaKitVideoPlayerPlatform.devUnmuted}）');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // ⚠️ 本壳套在 `KpxxApp`（= MaterialApp）**外面** ⇒ 这里没有 Directionality/MediaQuery
+    //   ⇒ 必须显式给 `Directionality`，否则 `Stack` 的默认 alignment 解析不了 text direction
+    //   （首次跑就撞了：`No Directionality widget found … Stack widgets require a Directionality ancestor`）
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          // ⚠️ 顺序：原 App 在**第一层**（下面），按钮浮在上面 ⇒ 按钮可点 ✓
+          Positioned.fill(child: widget.child),
+          // 右侧边缘内侧、垂直居中：只占 56px 宽，不挡主要内容 ✓
+          // ★ 2026-10-27（用户实测"按钮太小了"）：可见圆 26 → **44**、命中区 34 → **56**、emoji 14 → **22**
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 56,
+            child: Center(
+              // 命中区 56×56（好点），看得见的圆 = 44
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggle,
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Center(
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        // 半透明黑圆底：压在任何画面上都看得见
+                        color: Colors.black.withValues(alpha: 0.45),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        _muted ? '🔕' : '🔔',
+                        style: const TextStyle(fontSize: 22),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

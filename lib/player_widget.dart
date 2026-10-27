@@ -178,6 +178,27 @@ class KpPlayer extends ValueNotifier<KpState> {
   ///   ⚠️ 不许改它来动"系统音量"（那是全局的 ✗ 用户明确禁止 ✓）—— 这里动的是**播放器自己**的音量 ✓。
   static double? startupVolumeOverride;
 
+  /// ★ 2026-10-27（**Windows dev 静音按钮的接缝** ✓ 用户要求"右侧加静音按钮，方便测试"）：
+  ///   **当前存活的实例表** —— 桌面 dev 的按钮要能作用于**已经开着的**播放器
+  ///   （点一下立刻有声/静音），而 [startupVolumeOverride] 只在构造时读一次 ⇒ 不够 ✓。
+  ///
+  /// ✅ **iOS 零影响**（与 [startupVolumeOverride] 同一条保证）：iOS 侧**没有任何代码**
+  ///   读这个表、也没有任何代码调 [setVolumeAll] ⇒ 表恒空、方法永不被调用 ⇒
+  ///   行为与不写这几行**逐字节相同** ✓。
+  ///   ⚠️ 只持指针（无 native 资源）⇒ [shutdown] 里注销，不会留悬挂引用 ✓。
+  static final Set<KpPlayer> _liveForVolume = <KpPlayer>{};
+
+  /// 把音量下发到**所有存活实例**（只给桌面 dev 的静音按钮用 ✓）
+  ///
+  /// [v] 口径 **0..1**（与 [startupVolumeOverride] 一致）；内部换算成 media_kit 的 0..100 ✓
+  /// （⚠️ 别直接传 0..100 —— 那会和上面那个字段的口径打架，见 [main_win_dev_video] 的注释 ✓）。
+  static void setVolumeAll(double v) {
+    final vol = v.clamp(0.0, 1.0) * 100.0; // media_kit 口径 0..100
+    for (final kp in _liveForVolume) {
+      if (!kp.isDisposed) unawaited(kp._p.setVolume(vol));
+    }
+  }
+
   /// ★ 2026-10-11（用户拍板 A2 ✅）：**自动重试进行中**（0 = 不在重试；>0 = 第几次/共 5 次）。
   ///   为什么挂在引擎上：**全屏页**手里只有这个 `KpPlayer`（它拿不到内嵌那侧的 `_autoRetrying`）——
   ///   全屏那条"播放出错，请返回重试"要**同样让位**给"重连中"角标，就得读同一个值 ✅。
@@ -197,9 +218,16 @@ class KpPlayer extends ValueNotifier<KpState> {
     // 否则 iOS 上 mpv 打开 vo/libmpv 时会报 "No render context set"，
     // 表现就是只有声音、画面全黑（media-kit issue #1192）。
     _vc = VideoController(_p);
+    // ★ 2026-10-27（Windows dev 静音按钮接缝 ✓）：登记本实例（见 `_liveForVolume` 注释）
+    _liveForVolume.add(this);
     // ★ 2026-10-10（dev 接缝的应用点 ✓）：只在被显式要求时设 ⇒ iOS（null）一字不变 ✓
+    //   🛢️ 2026-10-27 修（用户实测"点了有声却听不到"）：`startupVolumeOverride` 的口径是 **0..1**
+    //   （0=静音、1=满），而 **media_kit 的 `setVolume` 口径是 0..100** ☠
+    //   ⇒ 原来直接把 `1.0` 当百分数传进去 = **音量只有 1%**（≈ 听不见）。
+    //   ⇒ 这里补 ×100（与 `setVolumeAll` 同口径 ✓）。
+    //   ⚠️ iOS 侧 `sv` 恒为 null ⇒ 这行永不执行 ⇒ iOS 行为逐字节不变 ✓
     final sv = KpPlayer.startupVolumeOverride;
-    if (sv != null) unawaited(_p.setVolume(sv));
+    if (sv != null) unawaited(_p.setVolume(sv.clamp(0.0, 1.0) * 100.0));
     _subs = [
       _p.stream.position.listen((v) {
         value = value.copyWith(position: v);
@@ -933,6 +961,7 @@ class KpPlayer extends ValueNotifier<KpState> {
   Future<void> shutdown() async {
     if (_disposed) return;
     _disposed = true;
+    _liveForVolume.remove(this); // ★ 2026-10-27：从 dev 静音按钮的实例表里注销（防悬挂引用）
     _stallTimer?.cancel();
     for (final s in _subs) {
       await s.cancel();
