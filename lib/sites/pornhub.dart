@@ -141,6 +141,22 @@ class PhSite extends SiteUi {
     var p = path.isEmpty ? '/' : path;
     // 首页第 2 页起站点自己指向 /video（实测），照它换
     if (page > 1 && p.split('?').first == '/') p = '/video';
+    // ★ 2026-10-27（用户实测"明星卡点进去视频反复几个重复，下一页还是那几个"）：
+    //   🛢️ 根因：明星卡存的是 `/pornstar/xxx`（**明星个人主页**），直接当列表页抓
+    //   ⇒ 抓到的是主页里"推荐/热门那一片"，**只有 38 条且翻页不变**（主页的 `?page=` 不换内容）☠
+    //   🛢️ 实测（`/pornstar/lauren-phillips`，2026-10-27）：
+    //      · 主页 `videoList` 块只有 **38 个 li**
+    //      · 主页计数器原文：`显示1-38个，共有1124个`
+    //      · 主页里那个「查看所有」按钮 href = **`/pornstar/lauren-phillips/videos`**
+    //        （用户说的"先点击 + 更多视频"就是它）
+    //   ⇒ 明星主页转成它的 `/videos` 子路径，那才是真正可翻页的完整视频列表 ✅
+    //   ⚠️ 只在**没有子路径**时补（`/pornstar/x/videos`、`/pornstar/x/photos/...` 不动）；
+    //      `/model/xxx` 同理（站点两种演员路径格式）。
+    final bare = p.split('?').first;
+    if (RegExp(r'^/(pornstar|model)/[^/]+/?$').hasMatch(bare)) {
+      p = '${bare.replaceAll(RegExp(r'/$'), '')}/videos'
+          '${p.contains('?') ? '?${p.split('?').skip(1).join('?')}' : ''}';
+    }
     if (page > 1) p += '${p.contains('?') ? '&' : '?'}page=$page';
     final doc = hp.parse(await _f.text(p));
     final star = p.split('?').first == '/pornstars'; // ★ 诊断用：**真实**走哪个解析器（与下面三元的条件同源 ✓ 不改判定 ☠）
@@ -162,11 +178,21 @@ class PhSite extends SiteUi {
   /// 但演员页的视频卡不是 li（实测 `li[data-video` 在演员页 0 条）。
   /// 标题取 `img[alt]` —— 卡片里第一个 <a> 是"已观看"角标，取它会拿到"已观看"三个字。
   /// [scope] 传了就在该子树里找（详情页的「相关推荐」= `#relatedVideos`）。
+  ///
+  /// ⚠️ 2026-10-27（用户实测"视频反复几个重复"）：**页内 vkey 去重**。
+  ///   🛢️ 实测（`/pornstar/lauren-phillips/videos`，2026-10-27）：一页 38 个
+  ///   `data-video-vkey`，其中**第 1、2 个是同一个 vkey**（`ph5c41da4a09151`，站点自己的
+  ///   置顶/推广位在同一个 DOM 里出现两次）；另外**每页第 1 条都是这同一条**置顶
+  ///   （page1/2/3 的 vkey 交集只有它）⇒ 不去重的话，翻页会反复看到它。
+  ///   ⇒ 页内按 vkey 去重（跨页那条置顶仍会每页出现 1 次，这是站点行为、不是我们的 bug）。
   List<Article> _phCards(dom.Document doc, [dom.Element? scope]) {
     final out = <Article>[];
+    final seen = <String>{};
     for (final el in (scope ?? doc).querySelectorAll('[data-video-vkey]')) {
       final a = el.querySelector('a[href*="view_video.php?viewkey="]');
       if (a == null) continue;
+      final vkey = el.attributes['data-video-vkey'] ?? '';
+      if (vkey.isNotEmpty && !seen.add(vkey)) continue;
       final img = el.querySelector('img.videoThumb') ?? el.querySelector('img');
       final title = _or(img?.attributes['alt'] ?? '',
               el.querySelector('a.thumbnailTitle')?.text ?? '')
@@ -189,7 +215,25 @@ class PhSite extends SiteUi {
     return out;
   }
 
-  /// 演员卡（`/pornstars`）：`.performerCard` → 名字、头像、排名角标（`.rank_number`）。
+  /// 演员卡（`/pornstars`）：`.performerCard` → 名字、头像、**视频数**角标。
+  ///
+  /// ★ 2026-10-27（用户实测纠正）：**右下角那个数字是"排名"，不是视频数** ——
+  ///   用户原话："明星封面右下角的数字是排序不是数量（案例：419 视频、1.8B 次观看。
+  ///   应当为前面 419）" ⇒ 角标应该显示**视频数**，不是 `.rank_number`。
+  ///
+  /// 🛢️ 实测（`/pornstars`，2026-10-27）：一张卡里两组数字都在，结构原文：
+  /// ```html
+  /// <span class="rankWrap"><span class="rank_number">42</span>…</span>          ← 排名（不要）
+  /// <div class="underThumb clearfix performerVideosViewsCount">
+  ///     <div class="videos performerCount"> 1314 视频 </div>                    ← 视频数（要这个）
+  ///     <div class="views  performerCount"> 767M 次观看 </div>                  ← 观看数
+  /// </div>
+  /// ```
+  ///   实测三个样本：Lauren Phillips = rank 42 / 1314 视频 / 767M 观看
+  ///                pinkloving     = rank 74 / 189 视频 / 234M 观看
+  ///                Pure Pleasure  = rank 149 / 195 视频 / 210M 观看
+  /// ⇒ 角标取 `.videos.performerCount` 里的数字（原文是 `1314 视频` ⇒ 只留 `视频` 前的数字）✅
+  ///   取不到时退回原 `.rank_number`（宁可显示排名也别空着）。
   List<Article> _phStarCards(dom.Document doc) {
     final out = <Article>[];
     for (final el in doc.querySelectorAll('.performerCard')) {
@@ -201,13 +245,19 @@ class PhSite extends SiteUi {
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
       if (name.isEmpty) continue;
+      // 视频数：`.videos.performerCount` 原文形如 ` 1314 视频 ` ⇒ 抓数字
+      final vTxt = el.querySelector('.videos.performerCount')?.text ?? '';
+      final vNum = RegExp(r'([\d.,]+)').firstMatch(vTxt)?.group(1) ?? '';
+      final badge = vNum.isNotEmpty
+          ? '$vNum 视频'
+          : (el.querySelector('.rank_number')?.text.trim() ?? '');
       out.add(Article(
         title: name,
         url: href,
         cover: _or(img?.attributes['src'] ?? '',
             img?.attributes['data-thumb_url'] ?? ''),
         meta: '',
-        badge: el.querySelector('.rank_number')?.text.trim() ?? '',
+        badge: badge,
         coverAspect: 3 / 4, // 演员是竖版头像（列表一行 3 个，见 home_page 的星 tab 分支）
       ));
     }
