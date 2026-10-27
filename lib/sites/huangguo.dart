@@ -72,6 +72,7 @@ import 'package:flutter/material.dart'
         GestureDetector,
         HitTestBehavior,
         Icon,
+        IconButton,
         Icons,
         ListenableBuilder,
         ListView,
@@ -94,7 +95,7 @@ import '../app_background.dart'; // kTxt / kTxtSub / PageBg（跟随背景明暗
 import '../app_bg.dart'; // AppBg（明暗）
 import '../fetched_image.dart'; // FetchedImage（全站共用封面组件）
 import '../detail_page.dart' show DetailPage; // 点卡片进详情页（与野果同款 ✅）
-import '../home_page.dart' show RowsGrid; // ★ 全站通用网格（行高自适应 ⇒ 间距与全站一致 ✅）
+import '../home_page.dart' show RowsGrid, SearchPage; // 全站通用网格 + 搜索页
 
 /// 黄果短剧本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class HuangguoSite extends SiteUi {
@@ -1213,11 +1214,26 @@ class _HuangguoHomePageState extends State<HuangguoHomePage>
           // 透明：让根层背景图透出来 ✅（与底座同款）
           backgroundColor: Colors.transparent,
           appBar: AppBar(
+            // ★ 与底座同款：状态栏图标样式跟着背景明暗走
+            //   （不写的话 iOS 状态栏会一直白字，浅色背景上白压白看不见 ☠）
+            systemOverlayStyle: kStatusOverlay,
             title: Text(widget.site.name),
             centerTitle: true,
             foregroundColor: kTxt,
-            // 右上角搜索（与底座、野果同款接法 ✅）
-            actions: const [],
+            // 右上角搜索（★ 与底座 `home_page.dart` 同款接法：
+            //   `SearchPage(site:)`，本站 `search()` 自己处理 ✅）
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.search),
+                tooltip: '搜索',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    settings: const RouteSettings(name: '搜索'),
+                    builder: (_) => PageBg(child: SearchPage(site: widget.site)),
+                  ),
+                ),
+              ),
+            ],
             bottom: TabBar(
               controller: _tab,
               isScrollable: true,

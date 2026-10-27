@@ -458,4 +458,13 @@
 ///         `startupVolumeOverride` 口径 0..1，而 media_kit `setVolume` 口径 **0..100**
 ///         ⇒ 原来直接传 `1.0` = 音量只有 **1%** ⇒ 补 `×100` ✅
 ///   · 号序：每次云推 +1 ⇒ **1.6.5** ☑️
-const String kAppVersion = '1.6.5';
+/// ★ 2026-10-28：**1.6.5 → 1.6.6**（补回黄果短剧顶栏被我自己漏掉的两个东西）：
+///   · 🛢️ **右上角搜索图标**（用户实测："右上角搜索你给我整没了"）——
+///     我整页自管时把 `AppBar.actions` 写成了 `const []` ⇒ 底座原有的搜索按钮被我删掉 ☠
+///     ⇒ 照底座原样补回（`IconButton(Icons.search)` → `SearchPage(site:)`，
+///       不是新造 API：底座 `home_page.dart:763-768` 就是这套 ✅）
+///   · 🛢️ **`systemOverlayStyle: kStatusOverlay`**（对照底座时查出的第二处遗漏）——
+///     不写的话 iOS 状态栏会一直白字，浅色背景上白压白看不见 ☠
+///   · ⚠️ 只改 `lib/sites/huangguo.dart`（+19/−3），公共区零改动 ✅
+///   号序：每次云推 +1 ⇒ **1.6.6** ☑️
+const String kAppVersion = '1.6.6';
