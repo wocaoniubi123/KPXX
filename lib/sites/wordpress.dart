@@ -154,6 +154,20 @@ class WpSite extends SiteUi {
           break;
         }
       }
+      // ★ 2026-10-27（用户实测"51吃瓜封面改版了"）：**站点已改成懒加载属性**
+      //   🛢️ 实测原文（`/category/wpcz/`，2026-10-27）：
+      //   ```html
+      //   <div class="blog-background"
+      //        z-bg-loader-url="https://pic.gyezbp.cn/upload_01/xiao/20261027/2026102717442632524.jpeg"
+      //        data-no-loading="1"></div>
+      //   ```
+      //   ⇒ 旧的两种写法**都已失效**：`loadBannerDirect(...)` 全页只剩 1 处（那是 JS 函数定义本身，
+      //     不再是每张卡的调用）；`img[data-src]` 实测 **0 次**。
+      if (cover.isEmpty) {
+        final bg = el.querySelector('[z-bg-loader-url]');
+        cover = (bg?.attributes['z-bg-loader-url'] ?? '').replaceAll('`', '').trim();
+      }
+      // 更老的兜底（结构变化时仍有站可能给 data-src）
       if (cover.isEmpty) {
         final img = el.querySelector('img[data-src]');
         cover = img?.attributes['data-src'] ?? '';
@@ -324,6 +338,22 @@ class WpSite extends SiteUi {
     }
     if (images.isEmpty) {
       for (final img in doc.querySelectorAll('img[data-image-preview]')) {
+        final src =
+            (img.attributes['z-image-loader-url'] ?? '').replaceAll('`', '').trim();
+        if (src.startsWith('http') && !images.contains(src)) images.add(src);
+      }
+    }
+    // ★ 2026-10-27（用户实测"51吃瓜剧照显示不出来"）：**站点已改版，上面两层都失效**
+    //   🛢️ 实测（`/archives/280368/`，2026-10-27）：
+    //   `data-xkrkllgl` / `data-image-preview` / `data-src` / `defaultimg` 在整页里**各 0 次**；
+    //   正文图改成这样（`z-image-loader-url` 共 25 处）：
+    //   ```html
+    //   <p><img alt="鱼神 2watermarked2" title="…" data-xuid="1"
+    //        z-image-loader-url="https://pic.gyezbp.cn/upload_01/xiao/20261027/…jpeg"></p>
+    //   ```
+    //   ⇒ 新增这一层：正文里所有带 `z-image-loader-url` 的 img
+    if (images.isEmpty) {
+      for (final img in doc.querySelectorAll('.post-content img[z-image-loader-url]')) {
         final src =
             (img.attributes['z-image-loader-url'] ?? '').replaceAll('`', '').trim();
         if (src.startsWith('http') && !images.contains(src)) images.add(src);
