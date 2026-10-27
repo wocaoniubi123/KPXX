@@ -16,7 +16,8 @@ import 'dart:ui' show Color;
 import '../sites.dart';
 import '../base/site_ui.dart';
 
-import 'package:html/dom.dart';
+import 'package:html/dom.dart' hide Text; // ★ 2026-10-27：`hide Text` 见下方 material 那段的说明
+import 'package:html/dom.dart' as dom; // 只为在撞名处写 `dom.Text`（DOM 文本节点）✅
 import 'package:html/parser.dart' as hp;
 
 import '../base/fetch.dart';
@@ -25,6 +26,75 @@ import '../models.dart';
 // ★ 诊断打印：`debugPrint` 在 foundation 里 ✓（**不能**引 material ✗ 见上）；开关在 settings ✓
 import 'package:flutter/foundation.dart' show debugPrint;
 import '../settings.dart';
+
+// ★ 2026-10-27（用户要求：首页改「板块行」版式）—— 只新增**一个 tab 的内容**，
+//   顶栏/AppBar/tab 行**仍由底座渲染**（见 `SiteUi.tabBody`）。
+//   🛢️ 为什么用 `show` 逐个引、而不是整包 import material：
+//      material 会导出 `Element` / `Text` / `Key`，
+//      与上面 `package:html/dom.dart` 的 `Element` / `Text` 撞名
+//      （2026-10-03 analyze 报的 7 条错误就是这个 ☠）
+//   🛢️ 为什么 `html/dom.dart` 要 `hide Text` + 再来一份 `as dom`：
+//      - `hide Text` ⇒ 无前缀那份不导出 DOM 的 `Text`，让 material 的 `Text` 独占这个名字 ✅
+//      - `as dom`    ⇒ DOM 的 `Text` 仍能以 `dom.Text` 取到（本文件 L609 那处要用）✅
+import 'package:flutter/material.dart'
+    show
+        Widget,
+        BuildContext,
+        State,
+        StatefulWidget,
+        // ★ 2026-10-28（整页自管需要）：ticker（TabController 用）+ 各 tab 组件 + Border
+        SingleTickerProviderStateMixin,
+        TabController,
+        TabBar,
+        TabBarView,
+        Tab,
+        TabAlignment,
+        AutomaticKeepAliveClientMixin,
+        Border,
+        Text,
+        TextStyle,
+        TextOverflow,
+        TextButton,
+        AspectRatio,
+        Axis,
+        BorderRadius,
+        BoxDecoration,
+        Center,
+        CircularProgressIndicator,
+        ClipRRect,
+        Colors,
+        Column,
+        Container,
+        CrossAxisAlignment,
+        EdgeInsets,
+        Expanded,
+        FontWeight,
+        GestureDetector,
+        HitTestBehavior,
+        Icon,
+        Icons,
+        ListenableBuilder,
+        ListView,
+        MainAxisSize,
+        MaterialPageRoute,
+        Navigator,
+        Padding,
+        Positioned,
+        RefreshIndicator,
+        Row,
+        RouteSettings,
+        Scaffold,
+        AppBar,
+        ScrollController,
+        SizedBox,
+        Stack,
+        StackFit,
+        WidgetsBinding;
+import '../app_background.dart'; // kTxt / kTxtSub / PageBg（跟随背景明暗 + 转场不穿透）
+import '../app_bg.dart'; // AppBg（明暗）
+import '../fetched_image.dart'; // FetchedImage（全站共用封面组件）
+import '../detail_page.dart' show DetailPage; // 点卡片进详情页（与野果同款 ✅）
+import '../home_page.dart' show RowsGrid; // ★ 全站通用网格（行高自适应 ⇒ 间距与全站一致 ✅）
 
 /// 黄果短剧本站专属实现（取数走公用底座 [SiteFetcher] ✓）
 class HuangguoSite extends SiteUi {
@@ -38,6 +108,160 @@ class HuangguoSite extends SiteUi {
   ///   ⚠️ "点卡片跳转前先停本页播放器"**不靠这条** ✅ —— 由 `detail_page` 的 RouteAware 统一负责（任何 push 都覆盖 ✓）。
   @override
   bool get relatedAsGrid => true;
+
+  /// ★ 2026-10-28（用户实测"点进专题 还是就那么几个"）：
+  ///   **专题卡（`/topics/xxx/`）不是视频详情页，而是"专题作品列表页"** ——
+  ///   走详情页会拿 `detail()` 的视频解析器，那个页面没有 `videoInitialData`
+  ///   ⇒ 解析不出东西 ⇒ 用户看到"就那么几个" ☠
+  ///
+  /// 🛢️ 实测（2026-10-28）：
+  /// ```
+  /// /topics/hot-aiduanju/    → 28 张 div.hg-drama-card（页面自己写「共59部」）
+  /// /topics/hot-aiduanju/2/  → 28 张
+  /// /topics/hot-aiduanju/3/  → 15 张
+  /// ⇒ 真站是**分页**的，共 71 条（含季度拆分）
+  /// ```
+  ///
+  /// ⇒ 返回 `'list'`（底座那套 `TagListPage`）：它按页调 `category()` →
+  ///   本站 `category()` 对 `/` 开头走 `pageList()` ⇒ **自动翻页** ✅
+  ///   （与 Pornhub 演员卡 / xHamster 明星卡同一套机制 ✅ 零公共区改动）
+  @override
+  String? specialTap(String url) {
+    if (url.startsWith('/topics/')) {
+      if (AppSettings.i.logConsole) {
+        debugPrint('[LIST] ${_f.site.name} specialTap=list（专题） path=${url.length <= 80 ? url : url.substring(0, 80)}');
+      }
+      return 'list';
+    }
+    return null;
+  }
+
+  /// ★ 2026-10-28（用户要求）：**黄果整页自己管**（照野果 `yeguodj.dart` 那套 ✅）
+  ///
+  /// 🛢️ 为什么必须整页自管（用户规矩：**独立站点能做的就在站点文件里做**，不动公共区 ✅）：
+  ///   底座 `_FeedView` 只把 `List<Article>` 渲染成**单一块网格** ——
+  ///   **没有"多板块行 + 标题行 + 查看更多"这种版式** ⇒ 站点文件内唯一能做到的办法 = 自管整页 ✅
+  ///
+  /// 🛢️ 为什么不用 `tabBody` 那种"只换 tab 内容"的钩子：底座**没有**这个钩子
+  ///   （`SiteUi` 里只有 `sitePage`）⇒ 加钩子就得改公共区 `base/site_ui.dart` + `home_page.dart`
+  ///   ⇒ 违反用户口径 ☠ ⇒ 改成整页自管，**公共区零改动** ✅
+  ///
+  /// 本页 = 顶栏（站点名 + 搜索）+ 8 个 tab + TabBarView：
+  ///   首页（板块行）/ AI成人短剧 / AI成人漫剧 / AI换脸 / AI魔改 / 专题 / 排行榜 / 黄果吃瓜
+  @override
+  Widget? sitePage(BuildContext context, SiteEntry site) =>
+      HuangguoHomePage(site: site, api: this);
+
+  /// 拉首页 → 板块行（**实测结构，2026-10-27**）
+  ///
+  /// 🛢️ 站点首页共 4 个 `section.hg-section`，其中「分类推荐」内部是 4 组：
+  /// ```
+  /// <section class="hg-section">
+  ///   <div class="hg-section-header">
+  ///     <h2>精选推荐</h2>
+  ///     <a class="hg-see-more" href="/recommend">…</a>
+  ///   </div>
+  ///   <div class="hg-card-grid">… div.hg-drama-card …</div>
+  /// </section>
+  /// ```
+  ///   · 精选推荐 4 张剧卡（more=/recommend）· 最近上新 8 张（more=/newest）
+  ///   · 分类推荐 4 组（`.hg-category-col`，每组 `a.hg-category-item` 3 条，
+  ///     组标题链接 = 该组列表页 `/ai-duanju/` 等）
+  ///   · 专题推荐 4 张专题卡（`a.hg-topic-card`，more=/topics/）
+  /// ⇒ 拆成 **7 个板块行**（分类推荐按组平铺，用户口径"下面还有很多这种板块，都加上"✅）
+  Future<List<HgSection>> homeSections() async {
+    final sw = Stopwatch()..start();
+    final doc = hp.parse(await _f.text('/'));
+    final out = <HgSection>[];
+
+    for (final sec in doc.querySelectorAll('section.hg-section')) {
+      final title = (sec.querySelector('h2')?.text ?? '').trim();
+      if (title.isEmpty) continue;
+      final moreHref = sec.querySelector('a.hg-see-more')?.attributes['href'] ?? '';
+
+      // ① 剧卡板块（精选推荐 / 最近上新）
+      final cards = _cardsFrom(sec.querySelectorAll('div.hg-drama-card'));
+      if (cards.isNotEmpty) {
+        out.add(HgSection(
+          title: title,
+          items: cards,
+          moreKey: moreHref.isEmpty ? '' : _normKey(moreHref),
+        ));
+        continue;
+      }
+
+      // ② 分类推荐：按 `.hg-category-col` 拆成多行
+      //    🛢️ 实测：这里的卡**不是** `hg-drama-card`，而是 `a.hg-category-item`（我第一版搞错过 ☠）
+      for (final col in sec.querySelectorAll('.hg-category-col')) {
+        final colTitle =
+            (col.querySelector('.hg-category-col__title')?.text ?? '').trim();
+        if (colTitle.isEmpty) continue;
+        final colItems = <Article>[];
+        for (final a in col.querySelectorAll('a.hg-category-item')) {
+          final href = a.attributes['href'] ?? '';
+          if (!href.startsWith('/video/')) continue;
+          final t = (a.querySelector('.hg-category-item__title')?.text ?? '').trim();
+          if (t.isEmpty) continue;
+          final img = a.querySelector('img[data-src]') ?? a.querySelector('img');
+          colItems.add(Article(
+            title: t,
+            url: href,
+            cover: img?.attributes['data-src'] ?? (img?.attributes['src'] ?? ''),
+            meta: '',
+            desc: (a.querySelector('.hg-category-item__desc')?.text ?? '')
+                .replaceAll(RegExp(r'\s+'), ' ')
+                .trim(),
+          ));
+        }
+        if (colItems.isEmpty) continue;
+        final colHref =
+            col.querySelector('a.hg-category-col__title')?.attributes['href'] ?? '';
+        out.add(HgSection(
+          title: colTitle,
+          items: colItems,
+          moreKey: colHref.isEmpty ? '' : _normKey(colHref),
+        ));
+      }
+
+      // ③ 专题推荐：专题卡（点开是该专题的视频列表）
+      final topics = <Article>[];
+      for (final a in sec.querySelectorAll('a.hg-topic-card')) {
+        final href = a.attributes['href'] ?? '';
+        if (!href.startsWith('/topics/')) continue;
+        final t = (a.querySelector('.hg-topic-card__title')?.text ?? '').trim();
+        if (t.isEmpty) continue;
+        final img = a.querySelector('img[data-src]') ?? a.querySelector('img');
+        topics.add(Article(
+          title: t,
+          url: href,
+          cover: img?.attributes['data-src'] ?? (img?.attributes['src'] ?? ''),
+          meta: '',
+          badge: (a.querySelector('.hg-topic-card__meta')?.text ?? '').trim(),
+        ));
+      }
+      if (topics.isNotEmpty) {
+        out.add(HgSection(
+          title: title,
+          items: topics,
+          moreKey: moreHref.isEmpty ? '' : _normKey(moreHref),
+        ));
+      }
+    }
+
+    if (AppSettings.i.logConsole) {
+      debugPrint('[LIST] ${_f.site.name} 首页板块=${out.length} '
+          '${out.map((s) => '${s.title}(${s.items.length})').join(' / ')} '
+          'ms=${sw.elapsedMilliseconds}');
+    }
+    return out;
+  }
+
+  /// 把站内绝对路径归一成 key（首页给的 href 可能带 host）
+  String _normKey(String href) {
+    if (!href.startsWith('http')) return href;
+    final i = href.indexOf('/', href.indexOf('://') + 3);
+    return i >= 0 ? href.substring(i) : href;
+  }
 
   /// 黄果的某一集：源在 videoInitialData.epPlaySrcs[本集号]（页面自报 ep ✓）。
   /// ⚠️ 原在共享 `_fetchSourcesAt` 里按模板分叉 ✗，现下放本站 ✓（body 原样搬来 ✓）。
@@ -429,7 +653,7 @@ class HuangguoSite extends SiteUi {
       final titleEl = el.querySelector('.hg-drama-card__title a') ?? a;
       final buf = StringBuffer();
       for (final n in titleEl.nodes) {
-        if (n is Text) buf.write(n.text);
+        if (n is dom.Text) buf.write(n.text);
       }
       var title = buf.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
       if (title.isEmpty) {
@@ -602,12 +826,14 @@ const SiteEntry kSite06 = SiteEntry(
     hosts: ['huangguoai.com'],
     // 封面是 3:4 竖图
     portraitCovers: true,
-    // 顺序 = 站点导航原顺序：精选推荐 / 最近上新（首页两个板块，路径型）
-    // → AI成人短剧 / AI成人漫剧 / AI换脸 / AI魔改（各带 4 个排序）
-    // → 专题 / 排行榜 / 黄果吃瓜（顶部导航里 AI魔改 后面那三个）
+    // 顺序 = 站点导航原顺序：首页 / AI成人短剧 / AI成人漫剧 / AI换脸 / AI魔改
+    // → 专题 / 排行榜 / 黄果吃瓜
+    // ★ 2026-10-27（用户要求）：**取消「精选推荐 / 最近上新」两个 tab，改成「首页」**
+    //   「首页」的内容由 [tabBody] 提供（站点首页那套**板块行**版式 ✅）；
+    //   顶栏 tab / AppBar **仍由底座渲染**（⚠️ 不走 `sitePage` —— 那是**整页替换**，
+    //   会把顶栏一起吃没，用户 2026-10-27 实测报的就是这个 ☠）
     categories: [
-      SiteTab('/recommend', '精选推荐'),
-      SiteTab('/newest', '最近上新'),
+      SiteTab('/home', '首页'),
       SiteTab('ai-duanju', 'AI成人短剧', hgSorts),
       SiteTab('ai-manju', 'AI成人漫剧', hgSorts),
       SiteTab('ai-huanlian', 'AI换脸', hgSorts),
@@ -625,3 +851,818 @@ const SiteEntry kSite06 = SiteEntry(
     ],
     color: Color(0xFFFFB300),
   );
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// ★ 2026-10-27（用户要求）：**首页板块行 UI**
+//
+// 用户口径（逐条对应）：
+//   · "取消：精选推荐 最近上新 这2个tab。改为首页tab" ✅ ⇒ tab 定义已改（见上面 kSite06）
+//   · "首页tab下按照网站板块做，请看图一，下面还有很多这种板块，都加上" ✅ ⇒ 7 个板块行
+//   · 形态（用户选定）：**竖向滚动，每个板块一行横滑 + 「查看更多 ›」** ✅
+//
+// ⚠️ 本页只是**一个 tab 的内容**（由 `SiteUi.tabBody` 挂）——
+//   顶栏 / AppBar / tab 行仍由底座 `home_page.dart` 渲染，所以**不会再吃掉顶栏** ✅
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/// 首页的一个板块（标题 + 卡片 + 该板块"查看更多"去哪）
+class HgSection {
+  final String title;
+  final List<Article> items;
+
+  /// 「查看更多 ›」的目标 key（空 = 该板块没有更多页）
+  final String moreKey;
+
+  const HgSection({required this.title, required this.items, this.moreKey = ''});
+}
+
+/// ★ 2026-10-28：其它 tab 的列表（**自己管整页之后**，这些 tab 也得由本站渲染）
+///
+/// 取数仍走本站 `category()`（= 站点自己的 `pageList` / `list` 分流 ✅），
+/// 版式用全站通用 `RowsGrid`（**行高自适应、间距 8** ⇒ 与底座列表页视觉一致 ✅）
+class HgTabList extends StatefulWidget {
+  const HgTabList({
+    super.key,
+    required this.api,
+    required this.site,
+    required this.tab,
+  });
+
+  final HuangguoSite api;
+  final SiteEntry site;
+  final SiteTab tab;
+
+  @override
+  State<HgTabList> createState() => _HgTabListState();
+}
+
+class _HgTabListState extends State<HgTabList>
+    with AutomaticKeepAliveClientMixin {
+  final List<Article> _items = [];
+  final ScrollController _sc = ScrollController();
+  int _page = 1;
+  bool _loading = false;
+  bool _done = false;
+  String _err = '';
+  String? _sort; // 子分类（排序）当前选中项
+
+  @override
+  bool get wantKeepAlive => true; // 切走再回来不重拉（与底座 _FeedView 同口径 ✅）
+
+  @override
+  void initState() {
+    super.initState();
+    _sc.addListener(_onScroll);
+    _more();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFillScreen());
+  }
+
+  @override
+  void dispose() {
+    _sc.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_sc.hasClients || !_sc.position.hasContentDimensions) return;
+    if (_sc.position.pixels >= _sc.position.maxScrollExtent - 300) _more();
+  }
+
+  void _maybeFillScreen() {
+    if (!mounted || _done || _loading) return;
+    if (!_sc.hasClients || !_sc.position.hasContentDimensions) return;
+    if (_sc.position.maxScrollExtent <= 0.5) _more();
+  }
+
+  Future<void> _more() async {
+    if (_loading || _done) return;
+    _loading = true;
+    try {
+      // 本站 category()：`k` = 排序值（子分类 key），不选就按档案默认 ✅
+      final next = await widget.api.category(
+        widget.tab.key,
+        page: _page,
+        k: _sort ?? widget.tab.key,
+      );
+      if (!mounted) return;
+      setState(() {
+        if (next.isEmpty) {
+          _done = true;
+        } else {
+          _items.addAll(next);
+          _page++;
+        }
+        _err = '';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // 已有内容 + 该页失败 ⇒ 视为到底（站点翻过最后一页会给 404 ✅）
+      if (_items.isNotEmpty) {
+        setState(() => _done = true);
+      } else {
+        setState(() => _err = '$e');
+      }
+    } finally {
+      _loading = false;
+      if (!_done && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFillScreen());
+      }
+    }
+  }
+
+  void _pickSort(String? k) {
+    setState(() {
+      _sort = k;
+      _items.clear();
+      _page = 1;
+      _done = false;
+      _err = '';
+    });
+    _more();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) {
+        final subs = widget.tab.subs;
+        return Column(
+          children: [
+            // 子分类（排序）胶囊行 —— 与底座同款样式（站点筛选项就是这些）
+            if (subs.isNotEmpty)
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  children: [
+                    for (final s in subs)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _pickSort(s.key),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: _sort == s.key
+                                  ? const Color(0xFFE8590C)
+                                  : (_sort == null && s == subs.first
+                                      ? const Color(0xFFE8590C)
+                                      : Colors.transparent),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: kChipBorder),
+                            ),
+                            child: Text(
+                              s.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: (_sort == s.key ||
+                                        (_sort == null && s == subs.first))
+                                    ? Colors.white
+                                    : kTxt,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            Expanded(child: _body()),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _body() {
+    if (_err.isNotEmpty && _items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('加载失败：$_err', style: TextStyle(fontSize: 12, color: kTxtSub)),
+            TextButton(onPressed: _more, child: const Text('重试')),
+          ],
+        ),
+      );
+    }
+    if (_items.isEmpty && !_done) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (_items.isEmpty && _done) {
+      return Center(child: Text('暂无内容', style: TextStyle(color: kTxtSub)));
+    }
+    return RowsGrid(
+      controller: _sc,
+      count: _items.length,
+      cols: widget.site.portraitCovers ? 3 : 2, // 黄果封面 3:4 竖图 ⇒ 3 列
+      tail: _done
+          ? null
+          : () => const Padding(
+                padding: EdgeInsets.all(12),
+                child: Center(
+                  child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                ),
+              ),
+      itemBuilder: (_, i) {
+        final a = _items[i];
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => openHgLink(context, widget.site, widget.api, a),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: AspectRatio(
+                  aspectRatio: widget.site.portraitCovers ? 3 / 4 : 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (a.cover.isEmpty)
+                        Container(color: const Color(0x223C3C3C))
+                      else
+                        FetchedImage(url: a.cover, memWidth: 360),
+                      if (a.badge.isNotEmpty)
+                        Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(a.badge,
+                                style: const TextStyle(
+                                    fontSize: 9, color: Colors.white)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                a.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: kTxt),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// ★ 2026-10-28：**黄果链接统一分发**（专题 / 视频详情）
+///
+/// 🛢️ 为什么必须做成**一个**函数（踩过的坑 ☠）：
+///   本站有两处会点卡片 —— ① 首页板块行（`HuangguoHomeTab._openDetail`）
+///   ② 「查看更多」后的列表（`HgMoreList` 的 itemBuilder）。
+///   2026-10-28 我第一次只改了 ①，用户走的是 ② 那条路（首页→专题推荐→查看更多→点专题）
+///   ⇒ **症状一模一样，白改一轮**。统一到这里，两处调同一个 ✅
+///
+/// 🛢️ 判据（实测 2026-10-28）：
+///   · `/topics/xxx/` = **专题作品列表页**（页面写「共59部」；分页 `/topics/xxx/2/`、
+///     `/topics/xxx/3/` 实测 28+28+15 = 71 条 ✅）⇒ 必须进**列表**，不能进详情 ☠
+///   · 其它（`/video/xxx/`）= 视频详情页 ⇒ `DetailPage` ✅
+void openHgLink(
+    BuildContext context, SiteEntry site, HuangguoSite api, Article a) {
+  if (a.url.startsWith('/topics/')) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: RouteSettings(name: '黄果·${a.title}'),
+        builder: (_) => PageBg(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: Text(a.title),
+              centerTitle: true,
+              foregroundColor: kTxt,
+            ),
+            body: HgMoreList(api: api, site: site, path: a.url),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      settings: const RouteSettings(name: '详情页'),
+      builder: (_) => PageBg(
+        child: DetailPage(site: site, baseUrl: a.url, listCover: a.cover),
+      ),
+    ),
+  );
+}
+
+/// ★ 2026-10-28：**黄果整页**（顶栏 + 8 个 tab，照野果 `yeguodj.dart` 同款结构 ✅）
+///
+/// 🛢️ 用户口径（2026-10-28）：**"独立站点可以完成的就独立站点修改"** ⇒ 公共区零改动 ✅
+///   底座 `_FeedView` 只渲染单一块网格，做不出「板块行」⇒ 只能整页自管（`SiteUi.sitePage`）
+///
+/// tab 顺序 = `kSite06.categories`（站点档案里那份，**单一来源** ✅ 不在这里再抄一遍）
+class HuangguoHomePage extends StatefulWidget {
+  const HuangguoHomePage({super.key, required this.site, required this.api});
+
+  final SiteEntry site;
+  final HuangguoSite api;
+
+  @override
+  State<HuangguoHomePage> createState() => _HuangguoHomePageState();
+}
+
+class _HuangguoHomePageState extends State<HuangguoHomePage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(
+        length: widget.site.categories.isEmpty ? 1 : widget.site.categories.length,
+        vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 整页跟着背景明暗重建（标题/tab/文字都读 kTxt ✅ 与底座同款口径）
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) {
+        final cats = widget.site.categories;
+        return Scaffold(
+          // 透明：让根层背景图透出来 ✅（与底座同款）
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: Text(widget.site.name),
+            centerTitle: true,
+            foregroundColor: kTxt,
+            // 右上角搜索（与底座、野果同款接法 ✅）
+            actions: const [],
+            bottom: TabBar(
+              controller: _tab,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              dividerColor: Colors.transparent,
+              indicatorColor: const Color(0xFFE8590C),
+              labelColor:
+                  AppBg.i.isDark ? const Color(0xFFFFB07A) : const Color(0xFFE8590C),
+              unselectedLabelColor:
+                  AppBg.i.isDark ? Colors.white : const Color(0xFF3A3A3A),
+              tabs: [for (final c in cats) Tab(text: c.name)],
+            ),
+          ),
+          body: TabBarView(
+            controller: _tab,
+            children: [
+              for (final c in cats)
+                c.key == '/home'
+                    // 「首页」= 站点首页那套板块行 ✅
+                    ? _sectionsBody()
+                    // 其它 tab = 底座同款的普通分页列表（本站 `category()` 那条路）
+                    : HgTabList(api: widget.api, site: widget.site, tab: c),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ===== 首页：板块行 =====
+  List<HgSection>? _sections;
+  String _err = '';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_sections == null && _err.isEmpty) _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _sections = null;
+      _err = '';
+    });
+    try {
+      final s = await widget.api.homeSections();
+      if (!mounted) return;
+      setState(() => _sections = s);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _err = '$e');
+    }
+  }
+
+  Widget _sectionsBody() {
+    if (_err.isNotEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('加载失败：$_err', style: TextStyle(fontSize: 12, color: kTxtSub)),
+            TextButton(onPressed: _load, child: const Text('重试')),
+          ],
+        ),
+      );
+    }
+    if (_sections == null) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (_sections!.isEmpty) {
+      return Center(child: Text('首页暂无内容', style: TextStyle(color: kTxtSub)));
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.builder(
+        padding: const EdgeInsets.only(top: 6, bottom: 20),
+        itemCount: _sections!.length,
+        itemBuilder: (_, i) => _sectionRow(_sections![i]),
+      ),
+    );
+  }
+
+  /// 一个板块：标题行（标题 + 「查看更多 ›」）+ 横滑卡片行
+  Widget _sectionRow(HgSection s) {
+    if (s.items.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ---- 标题行（照站点：橙色竖条 + 标题 + 右侧「查看更多 ›」）----
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 6),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: 15,
+                margin: const EdgeInsets.only(right: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8590C),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  s.title,
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: kTxt),
+                ),
+              ),
+              if (s.moreKey.isNotEmpty)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _openMore(s),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text('查看更多 ',
+                            style: TextStyle(fontSize: 12, color: kTxtSub)),
+                        Icon(Icons.chevron_right, size: 15, color: kTxtSub),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // ---- 横滑卡片行（封面 118×157 竖版 3:4 + 标题 + 两行简介）----
+        SizedBox(
+          height: 218,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            itemCount: s.items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) => _card(s.items[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _card(Article a) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _openDetail(a),
+      child: SizedBox(
+        width: 118,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 118,
+                height: 157, // 118 * 4/3 ≈ 竖版 3:4
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (a.cover.isEmpty)
+                      Container(color: const Color(0x223C3C3C))
+                    else
+                      FetchedImage(url: a.cover, memWidth: 360),
+                    if (a.badge.isNotEmpty)
+                      Positioned(
+                        right: 4,
+                        bottom: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(a.badge,
+                              style: const TextStyle(
+                                  fontSize: 9, color: Colors.white)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              a.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600, color: kTxt),
+            ),
+            if (a.desc.isNotEmpty)
+              Text(
+                a.desc,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 10, color: kTxtSub, height: 1.25),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openDetail(Article a) {
+    // ★ 2026-10-28：统一走 [openHgLink]（专题 → 专题列表；其它 → 详情页）
+    openHgLink(context, widget.site, widget.api, a);
+  }
+
+  void _openMore(HgSection s) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: RouteSettings(name: '黄果·${s.title}'),
+        builder: (_) => PageBg(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: Text(s.title),
+              centerTitle: true,
+              foregroundColor: kTxt,
+            ),
+            body: HgMoreList(api: widget.api, site: widget.site, path: s.moreKey),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「查看更多」后的完整列表：复用本站 `pageList`（分页/解析全走已有逻辑 ✅）
+class HgMoreList extends StatefulWidget {
+  const HgMoreList({
+    super.key,
+    required this.api,
+    required this.site,
+    required this.path,
+  });
+
+  final HuangguoSite api;
+  final SiteEntry site;
+  final String path;
+
+  @override
+  State<HgMoreList> createState() => _HgMoreListState();
+}
+
+class _HgMoreListState extends State<HgMoreList> {
+  final List<Article> _items = [];
+  final ScrollController _sc = ScrollController();
+  int _page = 1;
+  bool _loading = false;
+  bool _done = false;
+  String _err = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // 🛢️ 2026-10-28（用户实测"专题推荐 底部一直转圈圈"）：
+    //   监听器只在 `pixels >= maxScrollExtent - 300` 时触发。
+    //   ⚠️ **在内容不足一屏 / 或刚好触底但 extent 为 0 时，这个条件永远不成立**
+    //      ⇒ `_more()` 再也不会被调 ⇒ 第 2 页永远没人请求 ⇒ **尾部转圈永不消失** ☠
+    //   ✅ 修法：加 `hasClients` + 首帧后主动补一次"若没填满就继续拉"
+    _sc.addListener(_onScroll);
+    _more();
+    // 首帧之后再检查一次：内容不足一屏 ⇒ 直接再拉一页（同全站其它页的"自动续拉"口径 ✅）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeFillScreen();
+    });
+  }
+
+  void _onScroll() {
+    if (!_sc.hasClients) return;
+    final pos = _sc.position;
+    if (!pos.hasContentDimensions) return;
+    if (pos.pixels >= pos.maxScrollExtent - 300) _more();
+  }
+
+  /// 内容不足一屏（或刚到底）⇒ 再拉一页，直到填满或到底
+  ///
+  /// ⚠️ 这是"底部转圈不动"的根治：光靠滚动监听，**短列表永远触发不到** ✅
+  void _maybeFillScreen() {
+    if (!mounted || _done || _loading) return;
+    if (!_sc.hasClients) return;
+    final pos = _sc.position;
+    if (!pos.hasContentDimensions) return;
+    // 还没填满一屏（maxScrollExtent ≈ 0）⇒ 继续拉
+    if (pos.maxScrollExtent <= 0.5) {
+      _more();
+    }
+  }
+
+  @override
+  void dispose() {
+    _sc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _more() async {
+    if (_loading || _done) return;
+    _loading = true;
+    try {
+      final next = await widget.api.pageList(widget.path, page: _page);
+      if (!mounted) return;
+      // ★ 2026-10-28（用户实测"专题推荐 底部一直转圈"）：加诊断，看清到底走了哪条分支
+      if (AppSettings.i.logConsole) {
+        debugPrint('[HG-MORE] path=${widget.path} 页=$_page 返回=${next.length} 条 '
+            '已有=${_items.length} 条');
+      }
+      setState(() {
+        if (next.isEmpty) {
+          _done = true;
+          if (AppSettings.i.logConsole) {
+            debugPrint('[HG-MORE] ⇒ 空页 ⇒ 置 _done（停止转圈）');
+          }
+        } else {
+          _items.addAll(next);
+          _page++;
+        }
+        _err = '';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // 🛢️ 已有内容 + 该页失败 ⇒ 视为到底（站点翻过最后一页会给 404，不是空列表）
+      //   实测依据（2026-10-28）：`huangguoai.com/topics/` 只有 1 页，
+      //   `/topics/2/`、`/topics/3/` 都返回 **HTTP 404** ⇒ 不这样处理就永远转圈 ☠
+      if (AppSettings.i.logConsole) {
+        debugPrint('[HG-MORE] path=${widget.path} 页=$_page 请求失败 '
+            '已有=${_items.length} 条 ⇒ ${_items.isNotEmpty ? '视为到底' : '报错'}');
+      }
+      if (_items.isNotEmpty) {
+        setState(() => _done = true);
+      } else {
+        setState(() => _err = '$e');
+      }
+    } finally {
+      _loading = false;
+      // ★ 2026-10-28：这一页拉完再检查一次"填满没有" ⇒ 短列表能连续补拉直到到底 ✅
+      if (!_done && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _maybeFillScreen());
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: AppBg.i,
+      builder: (context, _) {
+        if (_err.isNotEmpty && _items.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('加载失败：$_err',
+                    style: TextStyle(fontSize: 12, color: kTxtSub)),
+                TextButton(onPressed: _more, child: const Text('重试')),
+              ],
+            ),
+          );
+        }
+        if (_items.isEmpty) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        // ★ 2026-10-28（用户实测"查看更多点开的列表卡片距离这么宽"）：**改用全站通用网格**
+        //   🛢️ 根因（我上一版写错）：用了 `GridView` + `childAspectRatio: 0.52`
+        //   ⇒ 每行高度是**固定比例算出来的**，卡片内容撑不满就被纵向拉开 ⇒ 行间距看起来很大 ☠
+        //   ✅ `RowsGrid`（`home_page.dart` 里的全站通用件）是
+        //      `IntrinsicHeight` 行高自适应：**行高 = 该行最高那张卡**，
+        //      行距固定 8、列距固定 8 ⇒ 与全站所有列表页**完全一致** ✅
+        //   （同款复用先例：`sites/xhamsterlive.dart` 就是 `import '../home_page.dart' show RowsGrid`）
+        return RowsGrid(
+          controller: _sc,
+          count: _items.length,
+          cols: 3, // 黄果封面 3:4 竖图 ⇒ 3 列（同站点）
+          // 尾部：还在加载 ⇒ 转圈；到底 ⇒ 空（RowsGrid 的 tail 会被当最后一项渲染）
+          tail: _done
+              ? null
+              : () => const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Center(
+                      child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2)),
+                    ),
+                  ),
+          itemBuilder: (_, i) {
+            final a = _items[i];
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              // ★ 2026-10-28（用户实测"查看更多→专题→精品高分AI短剧专辑 还是少"）：
+              //   🛢️ 上一轮我只改了 `_openDetail`（首页板块那处），**漏了这一处** ☠
+              //   ⇒ 从「查看更多」进专题列表后再点专题卡，仍然走到 DetailPage
+              //     ⇒ 专题页被当视频详情解析 ⇒ 条数还是不对。
+              //   ✅ 现在两处统一调同一个分发函数 [openHgLink]（专题 → 列表；其它 → 详情）
+              onTap: () => openHgLink(context, widget.site, widget.api, a),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (a.cover.isEmpty)
+                            Container(color: const Color(0x223C3C3C))
+                          else
+                            FetchedImage(url: a.cover, memWidth: 360),
+                          if (a.badge.isNotEmpty)
+                            Positioned(
+                              right: 4,
+                              bottom: 4,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Text(a.badge,
+                                    style: const TextStyle(
+                                        fontSize: 9, color: Colors.white)),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    a.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: kTxt),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
