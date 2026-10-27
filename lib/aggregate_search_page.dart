@@ -26,6 +26,11 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
   final TextEditingController _ctl = TextEditingController();
   final FocusNode _focus = FocusNode();
 
+  // ★ 2026-10-28（用户要求：本页也自动升起键盘）—— 与站点搜索页同款状态
+  bool _focusScheduled = false; // 转场后聚焦只安排一次
+  Animation<double>? _focusAnim; // 挂过监听的转场动画（dispose 要摘）
+  Timer? _focusTimer; // 延迟聚焦的定时器（dispose 要取消）
+
   /// 参与聚合的站点：点播组、可见（顺序与点播页一致）
   late final List<SiteEntry> _sites = visibleSitesOf(SiteGroup.module);
 
@@ -148,6 +153,48 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
     _sc.addListener(_onScroll);
   }
 
+  /// ★ 2026-10-28（**用户要求：聚合搜索页也自动升起键盘**）：
+  ///   与站点内搜索页（`home_page.dart` 的 `_SearchPageState`）**同一套时序** ——
+  ///   `等转场 completed → 让出一帧 → 再 80ms → requestFocus`。
+  ///
+  ///   🛢️ 为什么不能直接 `autofocus: true` 或 `initState` 里 requestFocus：
+  ///     转场动画期间插 UIKit 键盘（`MediaQuery.viewInsets` 变 ⇒ 整页 relayout）
+  ///     会和转场绘制叠在一起掉帧 —— 站点搜索页 2026-10-01 就踩过（提交 `9ad04dd`），
+  ///     iOS 的 `CupertinoPageTransitionsBuilder` 比 Windows 的缩放转场重得多，
+  ///     只在 `completed` 那一刻聚焦**仍不够**（2026-10-28 用户实报"只有 iOS 卡"）。
+  ///   ⇒ 这里从一开始就用**完全错峰**的写法，不做两遍 ✅
+  void _onRouteAnimStatus(AnimationStatus s) {
+    if (s != AnimationStatus.completed) return;
+    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
+    _focusAnim = null;
+    _focusAfterTransition();
+  }
+
+  /// 转场彻底结束后再聚焦（两帧 + 80ms，见 [_onRouteAnimStatus] 的来由）
+  void _focusAfterTransition() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focusTimer?.cancel();
+      _focusTimer = Timer(const Duration(milliseconds: 80), () {
+        if (mounted) _focus.requestFocus();
+      });
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_focusScheduled) return;
+    _focusScheduled = true;
+    final anim = ModalRoute.of(context)?.animation;
+    if (anim == null || anim.status == AnimationStatus.completed) {
+      _focusAfterTransition();
+    } else {
+      _focusAnim = anim;
+      anim.addStatusListener(_onRouteAnimStatus);
+    }
+  }
+
   /// ★ 2026-10-22：滚动监听（距底 300px ⇒ 自动翻页）
   void _onScroll() {
     if (!_sc.hasClients) return;
@@ -255,6 +302,9 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
 
   @override
   void dispose() {
+    // ★ 2026-10-28：取消延迟聚焦定时器 + 摘掉转场动画监听（与站点搜索页同款）
+    _focusTimer?.cancel();
+    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
     SearchHistory.i.removeListener(_onHistoryChanged);
     _sc.removeListener(_onScroll);
     _sc.dispose();

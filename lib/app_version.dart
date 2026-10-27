@@ -467,4 +467,26 @@
 ///     不写的话 iOS 状态栏会一直白字，浅色背景上白压白看不见 ☠
 ///   · ⚠️ 只改 `lib/sites/huangguo.dart`（+19/−3），公共区零改动 ✅
 ///   号序：每次云推 +1 ⇒ **1.6.6** ☑️
-const String kAppVersion = '1.6.6';
+/// ★ 2026-10-28：**1.6.6 → 1.6.7**（搜索页键盘时序：站点搜索页治卡顿 + 聚合搜索页加自动升键盘）：
+///   · 🛢️ **站点内搜索页首帧卡一下，只在 iOS 出现**（用户实测："1.6.4 也卡，且只有 iOS 端会出现"）：
+///     · ✅ 取证（用户给的对照）：**聚合搜索不卡**，两者唯一差别 = **它不弹键盘**；
+///     · ✅ 历史上修过一次：提交 `9ad04dd`「搜索：键盘改成转场后再弹」
+///       （`autofocus: true` → `focusNode` + 转场 `completed` 后 `requestFocus()`），代码仍在；
+///     · 🔍 推断上述为何不够：iOS 走 `CupertinoPageTransitionsBuilder`
+///       （SDK `cupertino/route.dart:1572`）= 整页位移 + 视差 + 阴影，比 Windows 的
+///       `ZoomPageTransitionsBuilder`（缩放淡入）重得多 ⇒ `completed` 那一刻**尾帧视差还在收尾**，
+///       此时插 UIKit 键盘（`MediaQuery.viewInsets` 变 ⇒ 整页 relayout）⇒ 两个重活仍叠在一起；
+///     · ✅ 修法（用户拍板方案 A，代价"键盘晚出现"已获批）：**完全错峰** ——
+///       `completed` → `addPostFrameCallback`（让出尾帧）→ `Timer(80ms)` → `requestFocus()`；
+///       ⚠️ 只作用于"首帧自动聚焦"这条路；用户点输入框 / 点 × 的聚焦**不受影响** ✅
+///   · ✅ **聚合搜索页新增自动升起键盘**（用户要求）—— 直接采用上面那套**已错峰**的时序
+///     （不先写 `autofocus` 再返工）；新增 `_focusScheduled` / `_focusAnim` / `_focusTimer`
+///     三个字段 + `_onRouteAnimStatus()` / `_focusAfterTransition()` / `didChangeDependencies()`。
+///   · 🛢️ 顺带修掉自引入的隐患：`Timer` 初版没存句柄 ⇒ 页面在 80ms 内被关会留野定时器
+///     （`mounted` 守得住不崩，但属泄漏）⇒ 两处 `dispose` 都补 `_focusTimer?.cancel()` ✅
+///   · 影响面：`lib/home_page.dart`（+37/−5，**仅 `_SearchPageState` 内部时序，不改接口**）+
+///     `lib/aggregate_search_page.dart`（+50）。其它站点/页面零改动 ✅
+///   · ❓ 未验证项：本机是 Windows（无 iOS 模拟器、无 iOS 帧耗时数据）⇒
+///     **卡顿是否消失只能装机验**；80ms 这个值是按原理定的，没有帧数据支撑。
+///   号序：每次云推 +1 ⇒ **1.6.7** ☑️
+const String kAppVersion = '1.6.7';
