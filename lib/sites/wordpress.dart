@@ -331,13 +331,29 @@ class WpSite extends SiteUi {
     // 正文剧照：
     // - WP 系只认 data-xkrkllgl（推广图/主题图都不在这里）
     // - 51fans1 是 .defaultimg 里 img[data-image-preview][z-image-loader-url]
+    // ★ 2026-10-27（用户要求）：**91吃瓜 排除站方外宣图**（只对本站生效 ✓）
+    //   🛢️ 实测（`91cg1.com/archives/126223/`，2026-10-27）：正文 20 张图里有
+    //   ```
+    //   [0] alt=91吃瓜外宣图 1   https://pic.hdhwqx.cn/.../2026102711434029404.jpeg
+    //   [8] alt=91吃瓜外宣图 2   https://pic.hdhwqx.cn/.../2026102711434741431.jpeg
+    //   ```
+    //   这两张是站点自己的"回家的路"宣传长图（免翻墙入口/永久入口/App下载…），不是文章剧照。
+    //   ⇒ 按 `alt`/`title` 含「外宣图」剔除；**其它 4 个 WP 站不受影响**（判据是站名）✅
+    final bool dropAdImages = _f.site.name == '91吃瓜';
+    bool isZhanAd(Element img) {
+      final t = '${img.attributes['alt'] ?? ''} ${img.attributes['title'] ?? ''}';
+      return t.contains('外宣图');
+    }
+
     final images = <String>[];
     for (final img in doc.querySelectorAll('.post-content img')) {
+      if (dropAdImages && isZhanAd(img)) continue;
       final src = img.attributes['data-xkrkllgl'] ?? '';
       if (src.startsWith('http') && !images.contains(src)) images.add(src);
     }
     if (images.isEmpty) {
       for (final img in doc.querySelectorAll('img[data-image-preview]')) {
+        if (dropAdImages && isZhanAd(img)) continue;
         final src =
             (img.attributes['z-image-loader-url'] ?? '').replaceAll('`', '').trim();
         if (src.startsWith('http') && !images.contains(src)) images.add(src);
@@ -354,6 +370,7 @@ class WpSite extends SiteUi {
     //   ⇒ 新增这一层：正文里所有带 `z-image-loader-url` 的 img
     if (images.isEmpty) {
       for (final img in doc.querySelectorAll('.post-content img[z-image-loader-url]')) {
+        if (dropAdImages && isZhanAd(img)) continue;
         final src =
             (img.attributes['z-image-loader-url'] ?? '').replaceAll('`', '').trim();
         if (src.startsWith('http') && !images.contains(src)) images.add(src);
@@ -362,6 +379,7 @@ class WpSite extends SiteUi {
     // 结构变化兜底：整篇都没有上面的标记时才退回 data-src/src（排除推广图）
     if (images.isEmpty) {
       for (final img in doc.querySelectorAll('.post-content img')) {
+        if (dropAdImages && isZhanAd(img)) continue;
         final src = img.attributes['data-src'] ?? (img.attributes['src'] ?? '');
         if (!src.startsWith('http') || src.contains('/hc237/')) continue;
         if (!images.contains(src)) images.add(src);
