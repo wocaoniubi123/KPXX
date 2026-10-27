@@ -1618,9 +1618,8 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _ctl = TextEditingController();
   final FocusNode _focus = FocusNode();
-  bool _focusScheduled = false; // 转场后聚焦只安排一次
-  Animation<double>? _focusAnim; // 挂过监听的转场动画（dispose 要摘）
-  Timer? _focusTimer; // ★ 2026-10-28：延迟聚焦的定时器（dispose 要取消）
+  // ⚠️ 2026-10-28：`_focusScheduled` / `_focusAnim` 已随"去掉自动升起键盘"一起删掉
+  //   （原来用来实现"转场完成后自动聚焦"，用户已拍板不要自动弹 ✅）
   final List<Article> _results = [];
   late final Api _api = Api(site: widget.site);
   int _page = 1;
@@ -1632,64 +1631,23 @@ class _SearchPageState extends State<SearchPage> {
   // ---- Hanime1：搜索页顶部也有筛选行（照站点四个下拉）----
   final _hnCtl = HnFilterController();
 
-  /// 转场动画结束后再聚焦（弹键盘）：键盘第一次冷启动开销大，和页面转场叠在一起
-  /// 会掉帧（用户实报"第一次点开搜索有点掉帧"）。页面滑入完再弹，两者错峰。
-  ///
-  /// ★ 2026-10-28（**用户实测：1.6.4 也卡，且只有 iOS 卡**；聚合搜索不卡 —— 差别就是它不弹键盘）：
-  ///   🛢️ 上一条只把聚焦从"转场开始"挪到"转场 `completed` 那一刻"，**iOS 上仍不够**：
-  ///     · iOS 走 `CupertinoPageTransitionsBuilder`（`cupertino/route.dart:1572`）——
-  ///       整页水平位移 + 视差 + 阴影，比 Windows 的 `ZoomPageTransitionsBuilder`（缩放淡入）重得多；
-  ///     · `completed` 那一刻**尾帧的视差/阴影还在收尾**，此时插 UIKit 键盘
-  ///       （`MediaQuery.viewInsets` 变 ⇒ 整页 relayout）⇒ 两个重活仍叠在一起 ☠
-  ///   ✅ 本版改成**完全错峰**：`completed` 后先让出一帧（`addPostFrameCallback`），
-  ///      再等 80ms 让尾帧彻底收敛，最后才 `requestFocus()`。
-  ///      ⇒ 键盘晚出现约 80~100ms（用户已批准这个代价），换掉那一卡 ✅
-  ///   ⚠️ 只在**首帧自动聚焦**这条路上加延迟；用户点输入框/点 × 的聚焦**不受影响**（本来就是即时响应 ✅）
-  void _onRouteAnimStatus(AnimationStatus s) {
-    if (s != AnimationStatus.completed) return;
-    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
-    _focusAnim = null;
-    _focusAfterTransition();
-  }
-
-  /// 转场彻底结束后再聚焦（**两帧 + 80ms**，见 [_onRouteAnimStatus] 的来由）
-  ///
-  /// 顺序：post-frame（让出当前尾帧）→ Timer 80ms（让 UIKit 键盘插入不和尾帧重叠）→ requestFocus
-  ///
-  /// ⚠️ Timer 句柄记在 [_focusTimer] 里、`dispose` 时取消 —— 否则页面在这 80ms 内被关掉
-  ///   会留一个野定时器（虽有 `mounted` 守卫不会崩，但属资源泄漏 ☠）
-  void _focusAfterTransition() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _focusTimer?.cancel();
-      _focusTimer = Timer(const Duration(milliseconds: 80), () {
-        if (mounted) _focus.requestFocus();
-      });
-    });
-  }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // ★ 2026-10-12（**用户批准**）：搜索历史**惰性加载**（幂等 ✅）—— 这样**不必动**
     //   `main.dart` / `main_win_dev.dart`（本轮不许碰 ✅；内部已兜错，读盘异常 ⇒ 空历史 ✅）
     unawaited(SearchHistory.i.ensureLoaded());
-    if (_focusScheduled) return;
-    _focusScheduled = true;
-    final anim = ModalRoute.of(context)?.animation;
-    if (anim == null || anim.status == AnimationStatus.completed) {
-      // 没有转场（或已完成）：同样走两帧 + 80ms（与 [_focusAfterTransition] 同一口径 ✅）
-      _focusAfterTransition();
-    } else {
-      _focusAnim = anim;
-      anim.addStatusListener(_onRouteAnimStatus);
-    }
+    // ★ 2026-10-28（**用户拍板：去掉键盘自动升起**）：
+    //   本页原来有三套"自动聚焦弹键盘"的时序（`autofocus` ⇒ 转场 completed ⇒ 再延 80ms），
+    //   但**只在 iOS 掉帧**（用户实测：1.6.4 就卡、聚合搜索不弹键盘就不卡），
+    //   且两次调整时序都没根治（第三版反而更卡）⇒ **用户决定直接不自动弹** ✅
+    //   ⇒ 现在打开搜索页**不自动聚焦**；用户点输入框才弹键盘（聚合搜索页一直是这个行为 ✅）
+    //   ⚠️ 用户主动点输入框 / 点 × 后的聚焦**照旧即时响应**（见下面 suffixIcon 的 onPressed）✅
+    //   ⚠️ 搜索历史惰性加载**保留**（与聚焦无关，性能需要 ✅）
   }
 
   @override
   void dispose() {
-    _focusTimer?.cancel(); // ★ 2026-10-28：取消延迟聚焦定时器（防野定时器）
-    _focusAnim?.removeStatusListener(_onRouteAnimStatus);
     _focus.dispose();
     _ctl.dispose();
     super.dispose();
