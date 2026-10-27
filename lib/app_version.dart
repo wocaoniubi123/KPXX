@@ -409,4 +409,53 @@
 ///   · ⚠️ 范围：`panda_live*.dart` 是新文件；`sites.dart`/`main.dart` 只加注册与分发；
 ///     `app_background.dart`/`player_widget.dart` 是公共区**最小追加**；**其它 16 个站点业务零改动** ✅
 ///   号序：每次云推 +1 ⇒ **1.6.4** ☑️
-const String kAppVersion = '1.6.4';
+/// ★ 2026-10-28：**1.6.4 → 1.6.5**（四个站点修复 + Windows dev 静音按钮）：
+///   · **黄果短剧**（用户要求，"独立站点能做的就独立站点修改"⇒ **公共区零改动**）：
+///       · 取消「精选推荐 / 最近上新」两个 tab ⇒ 改成**「首页」板块行**
+///         （竖向滚动、每个板块一行横滑 + 「查看更多 ›」；用户选定形态）
+///       · 走底座**已有的** `SiteUi.sitePage` 钩子整页自管（野果 `yeguodj.dart` 同款先例）
+///         ⇒ `Scaffold` + `AppBar` + `TabBar`(8 tab，顺序读 `kSite06.categories`) + `TabBarView`
+///       · 🛢️ 首页实测 4 个 `section.hg-section`，其中「分类推荐」内部 4 组 ⇒ **拆成 7 个板块行**：
+///         精选推荐(4)/最近上新(8)/AI成人短剧(3)/AI成人漫剧(3)/AI换脸(3)/AI魔改(3)/专题推荐(4专题卡)
+///         ⚠️ 分类推荐那块的卡**不是** `hg-drama-card`，而是 `a.hg-category-item`（第一版搞错过 ☠）
+///       · 🛢️ **修「专题点进去视频数量不对」**：`/topics/xxx/` **不是视频详情页**，是**专题作品列表页**
+///         （实测该页自报「共59部」；`/topics/hot-aiduanju/`=28、`/2/`=28、`/3/`=15，共 71 条含季度拆分）
+///         ⇒ 原来走 `DetailPage` ⇒ `detail()` 视频解析器 ⇒ 该页无 `videoInitialData` ⇒ 解析不出 ☠
+///         ⇒ 新增 `openHgLink()` **统一分发**（`/topics/` → 列表；其它 → 详情）；
+///           ⚠️ 上一轮只改了首页那一处，用户走的是"查看更多→专题"另一条路，白改一轮 ⇒ 收敛成一个函数 ✅
+///       · 🛢️ **修「查看更多列表底部一直转圈」**：滚动监听只在 `pixels >= maxScrollExtent - 300` 触发，
+///         内容不足一屏时**永远触发不到** ⇒ 第 2 页没人请求 ⇒ 转圈不消失
+///         ⇒ 加 hasClients/hasContentDimensions 守卫 + 首帧后 `_maybeFillScreen()` 补拉 + 每页拉完再检查
+///       · 🛢️ **修「卡片间距过宽」**：上一版用 `GridView + childAspectRatio:0.52`（行高按比例硬算）
+///         ⇒ 改用全站通用 `RowsGrid`（`IntrinsicHeight` 行高自适应、行距 8）与全站一致 ✅
+///   · **Pornhub 色情明星**（用户实测纠错）：
+///       · 明星卡角标原来是**排名**（`.rank_number`）⇒ 改成**视频数**（`.videos.performerCount`）
+///         （用户："419 视频、1.8B 次观看，应当为前面 419"；实测 61/61 张卡全部取到 ✅）
+///       · 🛢️ **修「明星视频反复重复、下一页还是那几个」**：明星卡存的是 `/pornstar/xxx`（**个人主页**）
+///         ⇒ 被当列表页抓 ⇒ 只有主页那 38 条且 `?page=` 不换内容 ☠
+///         ⇒ 裸的 `/pornstar/xxx`、`/model/xxx` 自动补 `/videos` 子路径（那才是可翻页的完整列表）
+///       · `_phCards` 加**页内 vkey 去重**（实测 lauren-phillips 一页 38 个 vkey 里第 1、2 个重复）
+///       · 🛢️ **修「列表翻到底显示『加载失败，点击重试』」**：站点翻过最后一页返回 **HTTP 404**（不是空列表）
+///         ⇒ `fetch.dart:93` 把 4xx 抛成异常 ⇒ `TagListPage` 把"已经到底"误报成"加载失败" ☠
+///         ⇒ 判据改成"已有内容 + 该页失败 ⇒ 视为到底"（与站点无关，顺带覆盖空页/异常两种收尾）
+///   · **91吃瓜**（用户给截图要求）：正文排除站方**外宣图**（那张"回家的路"宣传长图）
+///       · 按 `alt`/`title` 含「外宣图」剔除；**判据是站名 ⇒ 只对本站生效** ✅（其它 4 个 WP 站零影响）
+///       · 4 个解析层全部加同一判断（`data-xkrkllgl` / `data-image-preview` /
+///         `z-image-loader-url` / `data-src-src` 兜底），防以后站点换写法又漏
+///   · **51吃瓜**（用户实测"封面改版了"）：站点改成懒加载属性，旧写法全失效
+///       · 🛢️ 实测：`loadBannerDirect(...)` 全页仅剩 1 处（那是 JS 函数定义本身）；
+///         `img[data-src]` = **0 次**；封面改到 **`[z-bg-loader-url]`**（实测 25 处）
+///       · 剧照同理：`data-xkrkllgl`/`data-image-preview`/`defaultimg` 全 0，
+///         正文图改成 `z-image-loader-url`（实测 25 处）⇒ 两层各加一条兜底 ✅
+///       · 验证：列表页 25 张封面、详情页 9 张剧照，图片全 HTTP 200（裸请求也 200，无防盗链）✅
+///   · **Windows dev 静音按钮**（用户要求，**拒绝影响 iOS**）：
+///       · `_DevMuteShell`：右侧边缘内侧 44px 半透明黑圆 + 22 号 emoji，命中区 56×56
+///         （🛢️ 不能真放"边缘外"：`DevicePreviewFrame` 用 `pushClipPath` 裁到设备轮廓）
+///       · 默认 🔕 静音；点击切 🔔 有声；**全局有效**（同时改三处：
+///         `KpPlayer.startupVolumeOverride` 新引擎默认值 / `setVolumeAll` 当前存活引擎 /
+///          `MediaKitVideoPlayerPlatform.devUnmuted` video_player 系放行）
+///       · 🛢️ **修音量口径 100 倍错误**（用户实测"点了有声却听不到"）：
+///         `startupVolumeOverride` 口径 0..1，而 media_kit `setVolume` 口径 **0..100**
+///         ⇒ 原来直接传 `1.0` = 音量只有 **1%** ⇒ 补 `×100` ✅
+///   · 号序：每次云推 +1 ⇒ **1.6.5** ☑️
+const String kAppVersion = '1.6.5';
