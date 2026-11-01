@@ -224,6 +224,26 @@ class WpSite extends SiteUi {
         final bg = el.querySelector('[z-bg-loader-url]');
         cover = (bg?.attributes['z-bg-loader-url'] ?? '').replaceAll('`', '').trim();
       }
+      // ★ 2026-11-01（用户实测"51吃瓜又改版了，有些卡片封面获取不到"）：**属性名多了一个 `x-` 变体**
+      //   🛢️ 本机实测（`51cg1.com` 首页，2026-11-01，按 `<article>` 正确分组后统计）：
+      //     25 张真文章卡的封面属性分布 =
+      //       只有 `z-bg-loader-url` : 23 张 ✅（上面那层已覆盖）
+      //       只有 `x-bg-loader-url` : **2 张** ❌（旧代码取不到 ⇒ 就是用户看到的空白封面）
+      //       两种都有 : 0 张   两种都无 : 0 张
+      //     ⚠️ 那 2 张正是**置顶/热门位**（`id=post-card-280726`、`280466`），原文：
+      //     ```html
+      //     <div class="blog-background"
+      //          x-bg-loader-url="https://pic.gyezbp.cn/upload_01/xiao/20261030/2026103021530984834.jpeg"
+      //          data-no-loading="1"></div>
+      //     ```
+      //   ✅ 兜底顺序：`x-bg-loader-url`（新变体）→ `z-bg-loader-url`（原）→ `img[data-src]`（更老）
+      //     ⚠️ 两值**不会互相污染**：实测 25 张卡里**没有一张同时带两种**，
+      //        且这 2 张的 x-bg 值都在真封面目录 `upload_01/xiao/` 下（不是广告图目录 `hc237/`），
+      //        两张图实测 HTTP 200 / 91KB & 68KB ⇒ 是合法封面 ✅
+      if (cover.isEmpty) {
+        final xbg = el.querySelector('[x-bg-loader-url]');
+        cover = (xbg?.attributes['x-bg-loader-url'] ?? '').replaceAll('`', '').trim();
+      }
       // 更老的兜底（结构变化时仍有站可能给 data-src）
       if (cover.isEmpty) {
         final img = el.querySelector('img[data-src]');
@@ -586,12 +606,19 @@ const SiteEntry kSite01 = SiteEntry(
     // 固定用这个：2026-09-29 实测 /category/wpcz/ 返回 200 + 25 篇文章（真站）
     hosts: ['51cg1.com'],
     // 顺序 = 站点导航原顺序（27 个，2026-09-30 实测首页导航）
+    // ★ 2026-11-01（用户要求"检查 51 站点有没有新增分类或减少分类"）：**站点新增了「瓜友点播」**
+    //   🛢️ 实测（`51cg1.com` 首页导航，2026-11-01）：
+    //     · 站点 `/category/` 链接共 **28 个**，代码登记 27 个 ⇒ **新发现 1 个：`qghj` = 瓜友点播**；
+    //     · 无"代码有、站点已删"的分类（27 个全部仍存在 ✅）；无名称变更 ✅
+    //     · 导航位置：在「吃瓜榜单(mrdg)」之后、「热门大瓜(rdsj)」之前 —— 照站点原顺序插入 ✅
+    //     · 探活：`/category/qghj/` = **HTTP 200 / 25 张卡**；`/category/qghj/2/` = **HTTP 200** ✅
     categories: [
       SiteTab('wpcz', '今日吃瓜'),
       SiteTab('xsxy', '学生校园'),
       SiteTab('whhl', '网红黑料'),
       SiteTab('rdsj', '热门大瓜'),
       SiteTab('mrdg', '吃瓜榜单'),
+      SiteTab('qghj', '瓜友点播'), // ★ 2026-11-01 新增（站点本次新增的分类）
       SiteTab('bkdg', '必看大瓜'),
       SiteTab('cbdj', 'AI成人短剧'),
       SiteTab('ysyl', '成人视频'),
