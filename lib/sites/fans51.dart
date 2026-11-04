@@ -79,10 +79,35 @@ class Fans51Site extends SiteUi {
     return utf8.decode(r.bodyBytes, allowMalformed: true);
   }
 
+  /// 相对地址 → 绝对地址（封面 / 剧照 / 详情链接都走这里）
+  ///
+  /// ★ 2026-11-04（用户实测"51fans.net 封面全空"）：**站点改版**后 `data-src` 写成了
+  ///   **单斜杠**畸形 URL，原实现不认 ⇒ 拼成站内路径 ⇒ 每张封面 404。
+  ///   🛢️ 实测（`www.51fans.net`，2026-11-04）：
+  ///     · 首页 **359 个** `data-src` **全部**是 `https:/dfdf.tjacq.com/image/…`（`https:` 后只有 1 个斜杠）；
+  ///     · 图床也从建站时的 **CloudFront**（`d2qyuoh1tjbp7d.cloudfront.net`，现全站已 0 次）
+  ///       换成了 **`dfdf.tjacq.com`**；
+  ///     · 详情页主线路 `cdnLine` 同样是 `https:\/dfdf.tjacq.com`（也被写成单斜杠）。
+  ///   ☠ 原实现的后果（本机实测复现）：
+  ///     `https:/dfdf.tjacq.com/image/xxx`
+  ///       ⇒ 不以 `https://` 开头、也不以 `/` 开头
+  ///       ⇒ 落到 `'$_kBase/$s'` ⇒ `https://www.51fans.net/https:/dfdf.tjacq.com/image/xxx`
+  ///       ⇒ **HTTP 404**（实测）⇒ 列表封面全空。
+  ///   ✅ 修法：**先补单斜杠、再判绝对/相对** —— 与本文件 `_sources()`（L326 那段）**同一套容错**
+  ///     （那边取播放源早就加了，所以**视频一直能播**、只有封面挂 ⇒ 用户实测印证 ✅）。
+  ///   ⚠️ 正常 URL（`https://…` / `http://…` / `/xxx` / `xxx`）**走原路径，行为不变** ✅
   static String _abs(String u) {
-    final s = u.trim();
+    var s = u.trim();
     if (s.isEmpty) return '';
+    // ① 站点拼写错误容错：`https:/host/…` ⇒ `https://host/…`（`http:/` 同理）
+    if (s.startsWith('https:/') && !s.startsWith('https://')) {
+      s = 'https://${s.substring('https:/'.length)}';
+    } else if (s.startsWith('http:/') && !s.startsWith('http://')) {
+      s = 'http://${s.substring('http:/'.length)}';
+    }
+    // ② 已是绝对地址 ⇒ 原样返回
     if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    // ③ 站内相对路径 ⇒ 拼站点根
     return s.startsWith('/') ? '$_kBase$s' : '$_kBase/$s';
   }
 

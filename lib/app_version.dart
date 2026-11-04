@@ -584,4 +584,49 @@
 ///     ⇒ 每日大赛 / 91吃瓜 / 911爆料网 / 51fans **零改动** ✅
 ///   · 验证：`flutter analyze lib` → 1 条 info（`aggregate_search_page.dart:340`，既有、非本次）✅
 ///   号序：每次云推 +1 ⇒ **1.6.10** ☑️
-const String kAppVersion = '1.6.10';
+/// ★ 2026-11-04：**1.6.10 → 1.6.11**（51fans.net 封面全空 —— 站点改版后 URL 变单斜杠）：
+///
+///   🛢️ 用户实报："51fans.net 这个站点封面是换了吗还是我网络问题"
+///   ✅ 先排除网络：本机与用户同环境实测 —— 站点 `www.51fans.net` **HTTP 200**、
+///      封面图 `https://dfdf.tjacq.com/image/…` **HTTP 200 + 明文 PNG/JPEG**（能正常下载）
+///      ⇒ **不是用户网络问题** ✅
+///
+///   ✅ 站点确实改版了（对比建站时 `fans51.dart` 的注释，2026-10-15 写的）：
+///     · 图床：建站时注释记的是 **CloudFront** `d2qyuoh1tjbp7d.cloudfront.net`；
+///       现在实测该域名全站 **0 次**，封面 **359/359 全部**变成 **`dfdf.tjacq.com`**；
+///     · URL 写法：`data-src` 变成 **`https:/dfdf.tjacq.com/…`（`https:` 后只有 1 个斜杠）**，
+///       首页共 **378 处**这种单斜杠写法；详情页主线路 `cdnLine` 同样变成 `https:\/dfdf.tjacq.com`；
+///     · 封面**没有加密**（站点 `imgDecypt.js` 里的 XOR 解密**整段被注释掉了**，实际只是原样包一层 Blob）。
+///
+///   ☠ 直接原因在 App 侧：`lib/sites/fans51.dart` 的 `_abs()` 不认识单斜杠写法 ⇒
+///     `https:/dfdf.tjacq.com/image/xxx` 既不以 `https://` 开头、也不以 `/` 开头
+///     ⇒ 落到 `'$_kBase/$s'` ⇒ 拼成 `https://www.51fans.net/https:/dfdf.tjacq.com/image/xxx`
+///     ⇒ **本机实测 HTTP 404** ⇒ 列表/详情封面全空 ✅（用户实测"视频能播、只有封面空"完全吻合）
+///
+///   ✅ **视频为什么一直能播**：同文件 `_sources()`（L326 那段）**早就写了**这个单斜杠容错
+///     （建站时就发现"第二条线路原文是 `https:/` 单斜杠"）⇒ 只有封面这条链没跟上 ⇒ 本次只补封面 ✅
+///
+///   ✅ 修法（**只改 `lib/sites/fans51.dart` 一个文件、一个函数，+26/−1**）：
+///     给 `_abs()` 加"先补单斜杠、再判绝对/相对"，与本文件 `_sources()` 已有的容错**逐字一致**：
+///     · `https:/x` → `https://x`；`http:/x` → `http://x`
+///     · 已是 `http(s)://…` ⇒ 原样返回；以 `/` 开头 ⇒ 拼站点根；否则 ⇒ 拼 `根/`
+///
+///   ✅ 验证（用站点真实数据，本机实跑）：
+///     · 首页 `li.section-content__item` 共 **132** 张卡 ⇒ 修复前错拼 **132/132**、
+///       修复后**合格 132/132** ✅
+///     · 随机抽 **8 张**真实下载 ⇒ **8/8 HTTP 200 + 真 PNG/JPEG**
+///       （94KB / 108KB / 120KB / 295KB / 439KB / 451KB / 815KB / 4.2MB，最大的也能取）✅
+///     · 回归（其它 URL 形态行为不变，逐条比对）：
+///       `/video/123/` 、`video/123/` 、`https://a.com/x` 、`http://a.com/x` 、`''`
+///       ⇒ 修复前后产物**完全一致** ✅
+///     · `flutter analyze lib` → 1 条 info（`aggregate_search_page.dart:340`，既有、非本次）✅
+///
+///   · 影响面：**只有 51fans.net**。
+///     `_abs` 是 `Fans51Site` 类内的私有静态方法（Dart `_` 前缀 = 文件级私有），
+///     全项目仅 3 个调用点、全部在 `fans51.dart` 内部（L203 列表封面 / L239 详情地址 / L296 详情剧照）；
+///     `Fans51Site` 只经 `api.dart:112` 的 `SiteTemplate.fans51 =>` 分发，只有 kSite17（51fans.net）用它。
+///     ⇒ 其它所有站点、`base/*`、`home_page` / `detail_page` / `player_widget` **零改动** ✅
+///     （⚠️ `app_bg.dart` 里也有个同名 `_abs`，那是"背景图路径"的另一个私有函数，本次**没碰** ✅）
+///   · 播放源 `_sources()` **未改**（视频本来就正常）✅
+///   号序：每次云推 +1 ⇒ **1.6.11** ☑️
+const String kAppVersion = '1.6.11';
