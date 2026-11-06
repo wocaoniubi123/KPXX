@@ -12,7 +12,24 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    # ★ 2026-11-06：`macos-14` → **`macos-15`**
+    #   🛢️ 根因（本机实测 + 官方公告）：GitHub **已于 2026-11-02 正式退役 macOS 14 镜像**
+    #     · 失败现象：run 创建后 1~2 秒就 `cancelled`，`runner_name` 空、`steps` 空、
+    #       `billable.MACOS.total_ms = 0`（一秒机器时间都没用）；
+    #     · 直接报错（check-run annotation 原文，两次 attempt 完全一致）：
+    #       `The configuration 'macos-14-arm64-us-default' is not supported`
+    #     · 官方公告 `actions/runner-images` issue #15226 原文：
+    #       「Target date: **GitHub Actions macOS 14 (Intel and arm64): November 2, 2026**」
+    #       「workflows using macOS 14 labels … should migrate to supported images;
+    #         these are **not extended** beyond November 2, 2026.」
+    #     · 官方镜像表已把 `macOS 14` 标为 **deprecated**
+    #   ✅ 替代选择（README 表里的可用 label）：
+    #     `macos-15`(arm64, GA) · `macos-15-intel`(x64) · `macos-26`(arm64) · `macos-latest`(=macos-26)
+    #     ⇒ 用户拍板选 **`macos-15`**（arm64 / GA 稳定 / 标准 runner 公开仓库免费）
+    #   ⚠️ 已核实本 workflow **没有任何架构相关写法**（无 brew、无 /usr/local、无 opt/homebrew、
+    #      无 x86_64/arm64 硬编码）⇒ 换 arm64 **不会**出现路径问题 ✅
+    #   ⚠️ 别选 `-large` / `-xlarge`（付费大机器，免费额度不覆盖）
+    runs-on: macos-15
     # 发 Releases 需要写权限 ✓
     permissions:
       contents: write
