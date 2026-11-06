@@ -334,6 +334,28 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
     );
   }
 
+  /// 该行应显示的「搜到多少条」
+  ///
+  /// ★ 2026-11-06（**用户要求**）：搜索完成后，在左侧站点名后面显示每个站点的条目数。
+  ///   · 站点行：自己那站 `_state == 'ok'` 时才显示（`fail` ⇒ 不显示数字、仍显示红色 ❗）
+  ///   · 「全部站点」行：= 各站已搜到条数之和；**必须等所有站点都不在 loading** 才显示
+  ///     （否则会一路跳 0→3→8→…，看着像在抖）
+  ///   · 还没搜过（`_state` 空）⇒ 全部返回 null ⇒ 界面与改动前完全一致 ✅
+  int? _countOf(int key) {
+    if (_state.isEmpty) return null; // 还没搜过
+    if (key < 0) {
+      // 「全部站点」：等全部跑完再给总数
+      if (_state.values.any((v) => v == 'loading')) return null;
+      var n = 0;
+      for (final s in _sites) {
+        n += _results[s.name]?.length ?? 0;
+      }
+      return n;
+    }
+    final name = _sites[key].name;
+    return _state[name] == 'ok' ? (_results[name]?.length ?? 0) : null;
+  }
+
   Widget _navList() {
     // 第一项 = 全部站点；其后 = 各站点
     final items = <MapEntry<int, String>>[
@@ -348,6 +370,8 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
         final on = _sel == it.key;
         // 站点自己的加载状态（「全部站点」不显示小圈）
         final st = it.key < 0 ? null : _state[_sites[it.key].name];
+        // ★ 2026-11-06：条目数（见 `_countOf` 的口径）
+        final cnt = _countOf(it.key);
         return InkWell(
           onTap: () => setState(() => _sel = it.key),
           child: Container(
@@ -365,7 +389,11 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
               Expanded(
                 child: Text(
                   it.value,
-                  maxLines: 2,
+                  // ★ 2026-11-06（**用户口径**："条目数量保证显示全，站点名过长自动省略后面的字"）：
+                  //   站名 **单行** + 超出省略号（原来 `maxLines: 2` 会换行成两行 ⇒ 行高参差、
+                  //   还把数字的位置挤来挤去）⇒ 改成 1 行后**每行等高**、数字位置稳定 ✅
+                  //   ⚠️ 优先级：右边那个数字在 `Expanded` 之外 ⇒ **先拿到自己的宽度、永不被压缩** ✅
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
@@ -374,6 +402,22 @@ class _AggregateSearchPageState extends State<AggregateSearchPage> {
                   ),
                 ),
               ),
+              // ★ 2026-11-06（用户要求）：站点名后面显示该站点搜到的条目数
+              //   · **纯数字、不带单位**（用户明确）✅
+              //   · 放在 `Expanded` 之后 ⇒ 数字先占位、站名让路（用户口径：数字优先）✅
+              if (cnt != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 3),
+                  child: Text(
+                    '$cnt',
+                    style: TextStyle(
+                      fontSize: 10,
+                      height: 1.1,
+                      fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+                      color: kTxtSub,
+                    ),
+                  ),
+                ),
               if (st == 'loading')
                 const SizedBox(
                   width: 8,
