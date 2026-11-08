@@ -39,6 +39,12 @@ dependencies:
   #   ⚠️ 它**不带 DLL** ✗ —— 构建时由它的 `windows/CMakeLists.txt:70` 现下 `mpv-dev-…7z`
   #      （GitHub release ✓ 走 `file(DOWNLOAD)` ⇒ 受 `HTTPS_PROXY` 影响 ✓ ⇒ 本机构建要带代理环境变量 ✓）。
   media_kit_libs_windows_video: ^1.0.11
+  # ★ 2026-11-08（用户要求"配置安卓版"）：**Android 的 libmpv 原生库包** —— 与上面 iOS/Windows 同一套道理，
+  #   media_kit 在**每个平台**都要一个"带原生库"的伴生包；缺了它 ⇒ Android 上
+  #   `MediaKit.ensureInitialized()` 会抛找不到 libmpv ⇒ 播放链路整个起不来 ☠
+  #   ⚠️ 版本线三家各不相同（iOS = 1.1.x / Windows = 1.0.x / **Android = 1.3.x** ✅）
+  #   ⚠️ 它是 **Android-only**（pubspec 只声明 android）⇒ iOS / Windows 构建**零影响** ✅
+  media_kit_libs_android_video: '>=1.3.0 <2.0.0'
 
   # 2026-10-05（用户拍板）：直播房间页改用 iOS 原生播放器（iOS = AVPlayer）；版本钉 **2.10.1**
   #   理由（2026-10-05 二次拍板：升框架 ✓）：2.10.0 是**首次**支持 `videoViewType` 的版本（可选平台视图/纹理 ✓），

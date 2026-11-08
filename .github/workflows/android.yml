@@ -1,0 +1,148 @@
+name: Build Android APK
+
+# ★ 2026-11-08（用户要求「配置安卓版 · 采用云端构建」）
+#   与 `ios.yml` **完全独立**：各自触发、各自出包、互不影响 ✅
+#   · 触发：push 到 main（与 iOS 同款）+ 手动 workflow_dispatch
+#   · 机器：`ubuntu-latest`（Android 不需要 macOS，Linux 更快更便宜）
+#   · 产物：**通用 release APK**（含 arm64-v8a + armeabi-v7a + x86_64）⇒ 一份包通吃
+#   · 签名：用 GitHub Secrets 还原 keystore（**稳定签名 ⇒ 以后能覆盖升级**）
+#           ⚠️ 若 Secrets 缺失 —— **本 workflow 会直接失败**，绝不悄悄用 debug 签名糊过去
+#   · 版本号：与 iOS 同步，读 `lib/app_version.dart` 的 `kAppVersion`（现在 1.7.0）
+#            `--build-name=$VER`、`--build-number=去掉点`（1.7.0 ⇒ 170，单调递增）
+#
+# ⚠️ 需要预先配置的 Secrets（本仓库已在设置里写好）：
+#     ANDROID_KEYSTORE_BASE64      = cert/android-keystore.p12 的 base64
+#     ANDROID_KEYSTORE_PASSWORD    = 该 keystore 的 storePassword（PKCS12 里 keyPassword 相同）
+#     ANDROID_KEY_ALIAS            = kpxx
+#   keystore 实体在本地 `cert/android-keystore.p12` + 密码在 `cert/android-keystore.txt`
+#   —— 两者都**不入库**（`cert/` 与 `*.p12` 已被仓库根 .gitignore 忽略）
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  APP_NAME: KPXX
+
+jobs:
+  build:
+    # Android 构建用 Linux 机器（不用 macOS 额度）
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      # ★ 还原签名材料（缺任何一个 ⇒ **当场失败**，避免产出 debug 签名的包）
+      - name: 还原签名 keystore
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -e
+          if [ -z "$KS_B64" ] || [ -z "$KS_PW" ] || [ -z "$KS_ALIAS" ]; then
+            echo "::error::缺少 Secrets：ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS（三者都要）"
+            exit 1
+          fi
+          mkdir -p android
+          # base64 → p12（放到 android/ 下，下面的 key.properties 用相对 rootProject 的路径引用）
+          echo "$KS_B64" | base64 -d > android/keystore.p12
+          # 基本校验：PKCS12 是 DER 二进制，开头不该是文本；且大小要合理
+          SZ=$(stat -c%s android/keystore.p12)
+          echo "keystore 大小 = $SZ 字节"
+          if [ "$SZ" -lt 500 ]; then echo "::error::keystore 解出来太小（$SZ B），Secrets 可能写错了"; exit 1; fi
+          # 写 key.properties（**该文件被 android/.gitignore 忽略，不入库**）
+          {
+            echo "storeFile=keystore.p12"
+            echo "storeType=PKCS12"
+            echo "storePassword=$KS_PW"
+            echo "keyAlias=$KS_ALIAS"
+            echo "keyPassword=$KS_PW"
+          } > android/key.properties
+          echo "已生成 android/key.properties（不打印密码）"
+
+      - name: 代码检查 (flutter analyze)
+        run: |
+          flutter pub get
+          # ⚠️ 只查 lib（与 ios.yml 同口径）；infos/warnings 不算失败
+          flutter analyze lib --no-fatal-infos --no-fatal-warnings
+
+      - name: 接受 Android SDK 许可
+        run: |
+          # ubuntu runner 预装 SDK；个别镜像 build-tools 许可未打 ⇒ 这步兜一下（失败不致命）
+          yes | flutter doctor --android-licenses > /dev/null 2>&1 || true
+          flutter doctor -v | sed -n '/Android toolchain/,/^\[/p' | head -20
+
+      - name: Flutter build APK
+        run: |
+          flutter pub get
+          # 版本号与 iOS 同步：读 kAppVersion（唯一真源）
+          VER=$(sed -n "s/.*kAppVersion = '\([^']*\)'.*/\1/p" lib/app_version.dart | head -1)
+          if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
+          BN=$(echo "$VER" | tr -d '.')
+          echo "构建版本 versionName=$VER versionCode=$BN"
+          # 通用 APK（一份包含三种 ABI）
+          flutter build apk --release \
+            --build-name="$VER" --build-number="$BN"
+          ls -la build/app/outputs/flutter-apk/
+
+      - name: 按版本号重命名 APK
+        run: |
+          VER=$(sed -n "s/.*kAppVersion = '\([^']*\)'.*/\1/p" lib/app_version.dart | head -1)
+          if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+          cd build/app/outputs/flutter-apk
+          for f in *.apk; do
+            [ "$f" = "kpxx-$VER.apk" ] && continue
+            mv "$f" "kpxx-$VER.apk"
+          done
+          ls -la
+
+      - name: 校验签名（确认不是 debug 签的）
+        run: |
+          APK="build/app/outputs/flutter-apk/kpxx-$APP_VERSION.apk"
+          if [ ! -f "$APK" ]; then echo "::error::找不到 $APK"; exit 1; fi
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then echo "::warning::找不到 apksigner，跳过签名校验"; exit 0; fi
+          "$APKSIGNER" verify --print-certs "$APK" | head -10
+          # 证书主体是我们自己生成的（CN=KPXX）——不是 "Android Debug"
+          "$APKSIGNER" verify --print-certs "$APK" | grep -q "CN=KPXX" \
+            || { echo "::error::APK 不是用我们的 keystore 签的（可能回落成 debug 签名了）"; exit 1; }
+          echo "签名校验通过：CN=KPXX ✓"
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpxx-apk
+          path: build/app/outputs/flutter-apk/*.apk
+
+      - name: 发布到 Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(date -u +%Y.%m.%d-%H%M)-android"
+          gh release create "$TAG" build/app/outputs/flutter-apk/*.apk \
+            --title "$TAG" \
+            --notes "Android 自动构建 ${{ github.sha }}（$(date -u +%Y-%m-%dT%H:%MZ)）"
+          echo "已发布 Release: $TAG"
+
+      - name: 列出产物
+        run: ls -la build/app/outputs/flutter-apk/ && sha256sum build/app/outputs/flutter-apk/*.apk
