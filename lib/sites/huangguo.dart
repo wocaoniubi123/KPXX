@@ -14,6 +14,9 @@ import 'dart:convert';
 // `Color` 本来就定义在 dart:ui ✓ Flutter 只是转发 ✓
 import 'dart:ui' show Color;
 import '../sites.dart';
+// ★ 2026-11-08：新取源接口要发 GET 并带 UA，需要 `Site.ua`
+//   `show Site` 只引这一个符号 ⇒ 不会把 config.dart 里其它名字带进来撞名 ✅
+import '../config.dart' show Site;
 import '../base/site_ui.dart';
 
 import 'package:html/dom.dart' hide Text; // ★ 2026-10-27：`hide Text` 见下方 material 那段的说明
@@ -281,6 +284,75 @@ class HuangguoSite extends SiteUi {
     if (AppSettings.i.logConsole) debugPrint('[SRC] 黄果短剧 ep=$ep 解析出 ${out.length} 条源');
     return out;
   }
+
+  /// ★ 2026-11-08（用户报「黄果短剧视频链接获取失败」）：**站点改版，取源改走新接口**
+  ///
+  /// 🛢️ 实测依据（2026-11-08，真站 `huangguoai.com`，视频 `/video/11734/`）：
+  ///   · 详情页 `videoInitialData` 里 `epPlaySrcs` 现在是 **空 `{}`**；
+  ///     `videoSrc` / `videoSrcHevc` / `videoKey` / `videoIv` / `videoApi`
+  ///     在服务端下发的 JSON 里**全是空串**（页面注释写明它们是前端取址后才填的）
+  ///     ⇒ 老逻辑 `epPlaySrcs[ep]` 必然 0 条 ☠ 这就是"获取失败"的确切原因
+  ///   · 新机制（`/static/web/js/pages/cyber-video.js` 原文）：
+  ///       `playback.video(data.id, ep).then(function (payload) {`
+  ///       `  if (!payload.manifest_method || payload.manifest_method !== 'GET' …) throw`
+  ///       `  data.videoSrc = payload.streams.main … })`
+  ///   · 新接口实测：`GET /api/videos/<id>/play?ep=<n>` ⇒ HTTP 200，`data.video_url` 就是 m3u8
+  ///     ⇒ 该 m3u8 **HTTP 200 / 7239 字符 / `#EXTM3U` / 带 `#EXT-X-KEY`(AES-128)**；
+  ///        首分片 **HTTP 200 / 6,004,868 字节** ✅；`ep=2` / `ep=3` 同样返回 video_url ✅
+  ///   · `video_api` / `video_key` / `video_iv` 实测都是空 ⇒ **不需要解密**，拿到即可播 ✅
+  ///
+  /// ⚠️ 地址形态：本站在 `lazyUrl` 里填的是**选集页地址**（`/video/<id>/` 或 `/video/<id>/ep-<n>/`），
+  ///   这里按它解析出 id + 集号再打接口 ⇒ **点哪集取哪集**，一行不用改 `detail()` ✅
+  /// ⚠️ 不是本站在用的地址形态 ⇒ 返回 `null`（= 交回底座老路，行为不变）✅
+  @override
+  Future<List<String>?> fetchSources(String url) async {
+    // 站内相对路径为准；顺手容忍绝对地址与查询串
+    var path = url;
+    if (path.startsWith('http')) {
+      final i = path.indexOf('/', path.indexOf('://') + 3);
+      path = i >= 0 ? path.substring(i) : path;
+    }
+    final qi = path.indexOf('?');
+    if (qi >= 0) path = path.substring(0, qi);
+    final m = _kVideoPathRe.firstMatch(path);
+    if (m == null) return null; // 不是本站在用的选集地址 ⇒ 交回底座老路 ✅
+    final vid = m.group(1)!;
+    final ep = int.tryParse(m.group(2) ?? '1') ?? 1;
+    final sw = Stopwatch()..start();
+    var src = '';
+    try {
+      final r = await _f.client.get(
+        Uri.parse('https://${_f.host}/api/videos/$vid/play?ep=$ep'),
+        headers: {
+          'User-Agent': Site.ua,
+          'Referer': 'https://${_f.host}/video/$vid/',
+          'Accept': 'application/json, text/plain, */*',
+        },
+      ).timeout(const Duration(seconds: 12));
+      if (r.statusCode == 200) {
+        final j = jsonDecode(utf8.decode(r.bodyBytes));
+        if (j is Map) {
+          final d = j['data'];
+          if (d is Map) {
+            final u = '${d['video_url'] ?? ''}'.trim();
+            if (u.isNotEmpty) src = u;
+          }
+        }
+      }
+    } catch (_) {
+      src = '';
+    }
+    // 看：本站新链路换源结果 —— 拿到=false 就是接口又改了/被墙。
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 换源新 /api/videos/$vid/play?ep=$ep '
+          '拿到=${src.isNotEmpty} host=${Uri.tryParse(src)?.host ?? '?'} '
+          'ms=${sw.elapsedMilliseconds}');
+    }
+    return src.isEmpty ? <String>[] : <String>[src];
+  }
+
+  /// 选集地址形态：`/video/<id>/`（= 第 1 集）或 `/video/<id>/ep-<n>/`
+  static final RegExp _kVideoPathRe = RegExp(r'^/video/(\d+)(?:/ep-(\d+))?/?$');
 
   /// 详情入口：**按路径分流**到不同的解析器（原 `Api.detail` 的 case body 原样搬来 ✓）
   /// 吃瓜社区的帖子是图文帖（/archives/N/ ✓），跟视频详情不是一套 ✓

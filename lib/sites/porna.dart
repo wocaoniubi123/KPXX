@@ -11,6 +11,10 @@
 
 import 'dart:convert';
 
+// ★ 2026-11-08：新取源接口要发 POST，需要 `Site.ua`（User-Agent 常量）。
+//   `show Site` 只引这一个符号 ⇒ 不会把 config.dart 里的其它名字带进来撞名 ✅
+import '../config.dart' show Site;
+
 // ⚠️ 本站只用 `Color`（SiteEntry.color ✓），**不要** import flutter/material ✗
 // —— material 会同时导出 `Element`/`Text`/`Key`，与 html/dom、encrypt 撞名 ✗（2026-10-03 analyze 报的 7 条错误就是这个 ✓）
 // `Color` 本来就定义在 dart:ui ✓ Flutter 只是转发 ✓
@@ -476,17 +480,22 @@ class PornaSite extends SiteUi {
       if (src.startsWith('http') && !images.contains(src)) images.add(src);
     }
     // 正文里的视频（一篇可能有多个）
+    // ★ 2026-11-08 站点改版：先走新接口 `/api/posts/<id>/playback`；
+    //   拿不到才回落老的 `parseInt|<token>|` + `melon_detail_play` 链路
     final videos = <ArticleVideo>[];
-    var order = 0;
-    for (final m in RegExp(r'parseInt\|([0-9a-f]{60,400})\|').allMatches(html)) {
-      order++;
-      final src = await _pornaPlayUrlByToken(m.group(1)!, 'melon_detail_play');
-      if (src.isEmpty) continue;
-      videos.add(ArticleVideo(
-        label: '视频 $order',
-        ordinal: order,
-        sources: [src],
-      ));
+    videos.addAll(await _heiliaoVideosNew(html));
+    if (videos.isEmpty) {
+      var order = 0;
+      for (final m in RegExp(r'parseInt\|([0-9a-f]{60,400})\|').allMatches(html)) {
+        order++;
+        final src = await _pornaPlayUrlByToken(m.group(1)!, 'melon_detail_play');
+        if (src.isEmpty) continue;
+        videos.add(ArticleVideo(
+          label: '视频 $order',
+          ordinal: order,
+          sources: [src],
+        ));
+      }
     }
     // 标签：`/黑料吃瓜/xxx` 分类链接（点进去是该分类的图文列表）
     final tags = <MapEntry<String, String>>[];
@@ -573,9 +582,11 @@ class PornaSite extends SiteUi {
       }
     }
 
-    // 播放地址：/index/detail_play
+    // 播放地址：★ 2026-11-08 站点改版 ⇒ 先走新接口 `/api/videos/<id>/playback`；
+    //   新接口拿不到时**回落**老链路 `/index/detail_play`（老链路对老页面/黑料帖仍有效）
     final videos = <ArticleVideo>[];
-    final src = await _pornaPlayUrl(html, cover);
+    var src = await _pornaPlayUrlNew(html);
+    if (src.isEmpty) src = await _pornaPlayUrl(html, cover);
     if (src.isNotEmpty) {
       videos.add(ArticleVideo(label: '视频 1', ordinal: 1, sources: [src]));
     }
@@ -595,6 +606,144 @@ class PornaSite extends SiteUi {
     // ★【常驻诊断】详情解析结果：站名 + path(截 80) + 视频/图/相关条数 + 耗时 ✓（**不打完整 URL** ☠）
     if (AppSettings.i.logConsole) debugPrint('[DETAIL] ${_f.site.name} path=${url.length <= 80 ? url : url.substring(0, 80)} 视频=${det.videos.length} 图=${det.images.length} 相关=${det.related.length} ms=${sw.elapsedMilliseconds}');
     return det;
+  }
+
+  /// 统一打站点的换源接口（POST JSON，body `{}`），返回响应里的 `data`；失败返回 null。
+  ///
+  /// ✅ 实测（2026-11-08，按 App 同款请求打真站 `91porna.com`）：
+  ///   · 视频详情页：`POST /api/videos/<videoId>/playback`
+  ///     → `{"status":1,"data":{"manifest_method":"GET","streams":{"main":"<m3u8>",…}}}`
+  ///   · 黑料图文帖：`POST /api/posts/<playbackPostId>/playback`
+  ///     → `{"status":1,"data":{"manifest_method":"GET","videos":[{"index":0,"url":"<m3u8>"}]}}`
+  ///   · 两者响应里都带 `cdn`（要求 `x-cdn-auth` 头），但**实测不带这些头也是 200**
+  ///     ⇒ 这里不设自定义头，mpv / AVPlayer 直接播即可 ✅
+  ///   · 非 200 或 `status != 1` ⇒ 返回 null（调用方据此回落老链路）
+  Future<Map?> _postPlayback(String path) async {
+    try {
+      final r = await _f.client
+          .post(
+            Uri.parse('https://${_f.host}$path'),
+            headers: {
+              'User-Agent': Site.ua,
+              'Referer': 'https://${_f.host}/',
+              'Accept': 'application/json, text/plain, */*',
+              'Content-Type': 'application/json',
+            },
+            body: '{}',
+          )
+          .timeout(const Duration(seconds: 12));
+      if (r.statusCode != 200) return null;
+      final j = jsonDecode(utf8.decode(r.bodyBytes));
+      if (j is! Map || j['status'] != 1) return null;
+      final d = j['data'];
+      return (d is Map) ? d : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// ★ 2026-11-08（用户报「91porna 黑料吃瓜专区的视频也失效」）：**黑料帖子同样改版了**
+  ///
+  /// 🛢️ 实测依据（2026-11-08，真站）：
+  ///   · 老链路的两块基石**都没了**：黑料帖页面里 `parseInt|<hex>|` 命中 **0 个**、
+  ///     `melon_detail_play` 出现 **0 次** ⇒ 老代码 `_pornaPlayUrlByToken` 一次都发不出去 ☠
+  ///   · 新机制（页面内联 `dxPlayback.posts()` 的源码原文）：
+  ///       `const nodes = document.querySelectorAll('[data-playback-post]')`
+  ///       `request('/api/posts/' + nodes[0].dataset.playbackPost + '/playback', {})`
+  ///       `for (const item of data.videos) { nodes[item.index].dataset.url = item.url; … }`
+  ///   · 实测：帖子 `/heiliao-chigua/18917711806` 里有 `data-playback-post="11806"`
+  ///     ⇒ POST `/api/posts/11806/playback` `{}` ⇒ `status=1`、`videos[0].url` = m3u8
+  ///     ⇒ 该 m3u8 **HTTP 200 / 10485 字节 / `#EXTM3U` / 带 `#EXT-X-KEY`**；
+  ///        首分片 **HTTP 200 / 750,128 字节** ✅
+  ///   · 12 个帖子里 **11 个**都带 `data-playback-post`（剩下 1 个是纯图文无视频）
+  ///
+  /// ⚠️ 只有 91porna 用这个解析器（`SiteTemplate.porna` 全仓唯一）⇒ 其它站零影响 ✅
+  /// ⚠️ 拿不到时返回空列表，调用方**回落**老的 `parseInt` + `melon_detail_play` 链路 ✅
+  Future<List<ArticleVideo>> _heiliaoVideosNew(String html) async {
+    final sw = Stopwatch()..start();
+    final ids = <String>[];
+    for (final m in RegExp(r'data-playback-post="([^"]+)"').allMatches(html)) {
+      final v = m.group(1)!.trim();
+      if (v.isNotEmpty && !ids.contains(v)) ids.add(v);
+    }
+    // 看：黑料新链路① 有没有拿到 playbackPost id —— 空就是页面属性又改了。
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 黑料新①playbackPost='
+          '${ids.isEmpty ? '空' : ids.join(',')} ms=${sw.elapsedMilliseconds}');
+    }
+    if (ids.isEmpty) return const [];
+    final data = await _postPlayback('/api/posts/${ids.first}/playback');
+    final list = (data == null) ? null : data['videos'];
+    final out = <ArticleVideo>[];
+    if (list is List) {
+      var order = 0;
+      for (final it in list) {
+        if (it is! Map) continue;
+        final u = '${it['url'] ?? ''}'.trim();
+        if (u.isEmpty) continue;
+        order++;
+        out.add(ArticleVideo(label: '视频 $order', ordinal: order, sources: [u]));
+      }
+    }
+    // 看：黑料新链路② 拿到几条 —— 0 条就回落老链路。
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 黑料新②/playback 拿到=${out.length} 条 '
+          'ms=${sw.elapsedMilliseconds}');
+    }
+    return out;
+  }
+
+  /// ★ 2026-11-08（用户报「91porna 站点获取不到视频链接了」）：**站点改版换了取源机制**
+  ///
+  /// 🛢️ 实测依据（2026-11-08，按 App 同款请求打真站 `91porna.com`）：
+  ///   · 详情页里 `detail_play` 出现 **0 次**，老的那串 160 位 hex token 也是 **0 个**
+  ///     ⇒ 老链路（本文件 `_pornaPlayUrl`）必然拿到空串，这就是"取不到视频链接"的原因 ☠
+  ///   · 页面改成 `dxPlayback` 播放器。把页内 packed JS 用**本文件同款 `_unpackJs` 算法**解开后，原文是：
+  ///       `window.dxPlaybackReady = dxPlayback.start(document.getElementById('mse'),`
+  ///       `  function(){ return dxPlayback.request('/api/videos/448151/playback', {}) },`
+  ///       `  function(data){ var streams = data.streams;`
+  ///       `    window.my_player = create_player({ id:'mse', url: streams.main, hevc_url: streams.hevc, … }); })`
+  ///   · 新接口实测：`POST https://91porna.com/api/videos/<videoId>/playback`，body `{}`
+  ///     ⇒ HTTP 200，JSON：
+  ///       `{"status":1,"data":{"manifest_method":"GET",`
+  ///        `"streams":{"main":"<m3u8>","hevc":"","preview":"<m3u8>"},`
+  ///        `"cdn":{"app":"065","authKey":"x-cdn-auth","authValue":"…","m3u8Enabled":true}}}`
+  ///   · 拿到的 m3u8 实测：**HTTP 200 / 38329 字节 / `#EXTM3U` / 带 `#EXT-X-KEY`（AES-128）**；
+  ///     首分片 **HTTP 200 / 1,433,888 字节** ✅
+  ///   · **不需要任何自定义请求头**：带与不带 `x-cdn-auth` / `x-cdn-app` 都是 200
+  ///     ⇒ mpv / AVPlayer 直接播即可，不用加头 ✅
+  ///   · videoId 来源：页面 `data-video_id="448151"`；备用 `let videoId = '448151';`
+  ///
+  /// ⚠️ 作用面：本文件被 `SiteTemplate.porna` 用，而**全仓只有 91porna 用这个模板**
+  ///    （`lib/sites/porna.dart:758` 是唯一一处 `template: SiteTemplate.porna`）
+  ///    ⇒ 这个改动**只影响 91porna**，其它站点一个字没动 ✅
+  /// ⚠️ 老方法 `_pornaPlayUrl` **原样保留**：新接口拿不到时回落老链路，黑料帖的 melon 那条也不变 ✅
+  Future<String> _pornaPlayUrlNew(String html) async {
+    final sw = Stopwatch()..start();
+    final m = RegExp(r'data-video_id="(\d+)"').firstMatch(html) ??
+        RegExp(r"""let\s+videoId\s*=\s*'(\d+)'""").firstMatch(html);
+    final id = m?.group(1) ?? '';
+    // 看：新链路① 有没有拿到 videoId —— 拿到空就是页面这个属性又改版了。
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 换源新①videoId=${id.isEmpty ? '空' : id} '
+          'ms=${sw.elapsedMilliseconds}');
+    }
+    if (id.isEmpty) return '';
+    var src = '';
+    final data = await _postPlayback('/api/videos/$id/playback');
+    final streams = (data == null) ? null : data['streams'];
+    if (streams is Map) {
+      final main = '${streams['main'] ?? ''}'.trim();
+      final hevc = '${streams['hevc'] ?? ''}'.trim();
+      // main 优先（实测有值）；main 空时退到 hevc（本次实测 hevc 是空串）
+      src = main.isNotEmpty ? main : hevc;
+    }
+    // 看：新链路② 换源结果 —— 拿到=false 就会回落老链路。
+    if (AppSettings.i.logConsole) {
+      debugPrint('[SRC] ${_f.site.name} 换源新②/playback 拿到=${src.isNotEmpty} '
+          'host=${Uri.tryParse(src)?.host ?? '?'} ms=${sw.elapsedMilliseconds}');
+    }
+    return src;
   }
 
   /// 拿 91porna 的播放地址：请求 `/index/detail_play`（黑料帖是 `/index/melon_detail_play.js`），
