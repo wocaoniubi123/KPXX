@@ -765,4 +765,50 @@
 ///   ☑️ 未验证：安卓真机/模拟器实际效果 —— 本机无安卓设备。装机后看日志
 ///      `[BOOT] imagePicker 系统相册选择器=true platform=ImagePickerAndroid` 即可确认相册修复生效。
 ///   号序：本次云推 ⇒ **1.7.2** ☑️
-const String kAppVersion = '1.7.2';
+/// ★ 2026-11-09：**1.7.2 → 1.7.3**（修「安卓点横版全屏直接跳回首页点播」）：
+///
+///   🛢️ 用户实报：安卓版点全屏 ⇒ 直接跳回首页「点播」tab。
+///   🛢️ 根因：**1.7.1 引入的「设计画布」在横竖屏跨 440dp 阈值时换了 widget 结构** ——
+///     `lib/design_canvas.dart` 的 build 原本有三种 return：
+///       `if (!Platform.isAndroid) return child;`
+///       `if (m == null) return child;`      ← 宽 ≥ 440（全屏横屏）走这条
+///       `return FittedBox(...)`             ← 宽 < 440（竖屏）走这条
+///     ⇒ 同一位置换了 widget 类型 ⇒ Flutter 销毁旧 Element 子树 ⇒
+///       MaterialApp / Navigator / RootPage 全部重建 ⇒ 新 Navigator 从 `home` 起
+///       ⇒ `RootPage._index = 0` = **点播**（`main.dart:295`）☠
+///   🛢️ 现场日志（用户提交，1.7.2 安卓，时间正序）：
+///       `[PLAY] 控件按钮按下 icon=58059`（点全屏）
+///       → `[NAV] → PageRouteBuilder<Object?>`（全屏页 push 成功）
+///       → `[PLAY] 全屏 转场状态=AnimationStatus.forward`（开始旋屏）
+///       → **`[NAV] → /`**（整页被踢回根路由）
+///       → `[DETAIL] dispose` / `[PLAY] PlayerWidget.dispose` / `[PLAY] 全屏 dispose`
+///       → `[ERR] 框架异常 PlatformException(error, No active stream to cancel, null, null)`
+///     （最后那条来自 Flutter 引擎自己的 `EventChannel.java:238`，
+///       是"整棵子树被强拆"的连带产物，不是独立 bug）
+///   🛢️ 为什么只有安卓：iOS / Windows 走 `!Platform.isAndroid` 早返回 ⇒ 结构恒定 ⇒ 从不出事 ✅
+///     另已排除「Activity 被重建」：`AndroidManifest` 的 `configChanges` 含
+///     `orientation|screenSize|density` ⇒ 旋屏不重建 Activity ☑️
+///   ✅ 修法（只改 `lib/design_canvas.dart`）：**结构必须与「要不要缩放」无关** ——
+///     永远返回同一套 `FittedBox → SizedBox → MediaQuery`；不需要缩放时
+///     `scale = 1.0`、`designW/H = 真实宽高`（数学上等价于原样，`s()` 连除法都不做）
+///     ⇒ 横竖屏切换只剩**参数变化**，不再换 widget 类型 ⇒ Navigator 保住状态 ✅
+///
+///   ✅ 顺带全仓排查了同类风险（"按尺寸/方向换 widget 类型"）：
+///     · `main.dart:231` 的 `MaterialApp.builder` → `AppBackground` **无条件**、结构恒定 ✅
+///     · `AppBackground.build` = `ListenableBuilder → Stack[RepaintBoundary(Image), child]` 恒定 ✅
+///     · 全仓 orientation 相关代码只有 `setPreferredOrientations`（系统调用，不改树）✅
+///     ⇒ 该项目此类坑仅此一处，已消除。
+///
+///   📌 已记录、本版**未改**的两个已知项（等用户定）：
+///     · 横屏宽 ≥440 ⇒ 不缩放 ⇒ 全屏里控件比竖屏"看起来大 14%"（按宽度算 scale 的必然结果；
+///       若要一致得改成按 `min(宽,高)` 算 —— 会同时改变横屏观感，故先不动）
+///     · `devicePixelRatio` 现在会随横竖屏变化（0.875×dpr ⇄ 1.0×dpr）⇒ **不要缓存 dpr**；
+///       已查全仓唯一缓存点是 `online_album_common.dart:403/922`，它每次 build 现取 ⇒ 无影响 ✅
+///     · `displayFeatures`（折叠屏铰链）未做 scale 换算（本仓目前无手写使用）
+///
+///   ✅ 验证：`flutter analyze lib` 只剩 1 条既有 info；结构恒定性已读回核对
+///      （全文件仅 1 个 `return FittedBox`）；Windows/iOS 走早返回 ⇒ 行为与改动前逐字相同。
+///   ☑️ 未验证：安卓真机/模拟器 —— 这条修复只在 Android 生效，**Windows 调试端跑不到该分支**，
+///      必须装机验：竖屏进全屏 / 退全屏 / 横竖屏来回切，都不能跳回首页。
+///   号序：本次云推 ⇒ **1.7.3** ☑️
+const String kAppVersion = '1.7.3';

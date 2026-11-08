@@ -98,31 +98,54 @@ class DesignCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // ⚠️ iOS / Windows 桌面 / 其它平台：**原样返回**，一行都不缩放（逐字节不变）✅
+    //   `Platform.isAndroid` 是**运行期恒定**的 ⇒ 这条早返回不会在运行中来回切换 ✅
     if (!Platform.isAndroid) return child;
 
     final mq = MediaQuery.of(context);
     final m = canvasMetricsFor(mq.size);
-    if (m == null) return child; // 宽屏不缩（平板/横屏/折叠屏内屏）
+
+    // 🛢️🛢️ 2026-11-09（用户实报「安卓点横版全屏直接跳回首页点播」）——
+    //   **这里绝对不能再 `if (m == null) return child;`**。
+    //   根因（日志 + 代码双向确认）：
+    //     · 竖屏 385dp ⇒ 走「FittedBox 分支」；全屏强制横屏后宽 ≈684dp ≥ 440
+    //       ⇒ 走「直接 return child 分支」⇒ **同一位置换了 widget 类型**
+    //     ⇒ Flutter 销毁旧 Element 子树 ⇒ MaterialApp / Navigator / RootPage 全部重建
+    //     ⇒ 新 Navigator 从 `home` 起 ⇒ `RootPage._index = 0` = **点播**（`main.dart:295`）
+    //   现场日志（1.7.2 安卓，用户提交）时间正序：
+    //     `[PLAY] 控件按钮按下 icon=58059`（点全屏）→ `[NAV] → PageRouteBuilder<Object?>`
+    //     → `[PLAY] 全屏 转场状态=AnimationStatus.forward`（开始旋屏）
+    //     → **`[NAV] → /`** → `[DETAIL] dispose` / `[PLAY] PlayerWidget.dispose`
+    //   为什么只有安卓：iOS / Windows 走上面那条早返回 ⇒ 结构恒定 ⇒ 从不出事 ✅
+    //   ✅ 修法：**结构必须与「要不要缩放」无关** —— 永远返回同一套
+    //     `FittedBox → SizedBox → MediaQuery`；不需要缩放时 `scale = 1.0`、
+    //     `designW/H = 真实宽高` ⇒ 数学上等价于原样，但 widget 类型不再变化 ⇒ Navigator 保住状态 ✅
+    final double scale = m?.scale ?? 1.0;
+    final double designW = m?.designW ?? mq.size.width;
+    final double designH = m?.designH ?? mq.size.height;
 
     // 边距类数据必须按同一系数换算，否则状态栏/刘海/键盘避让会错位 ☠
-    EdgeInsets s(EdgeInsets e) => EdgeInsets.fromLTRB(
-          e.left / m.scale,
-          e.top / m.scale,
-          e.right / m.scale,
-          e.bottom / m.scale,
-        );
+    // ⚠️ scale == 1.0 时**原样返回**（不做除法，避免 1.0 除法的无意义误差）
+    EdgeInsets s(EdgeInsets e) => scale == 1.0
+        ? e
+        : EdgeInsets.fromLTRB(
+            e.left / scale,
+            e.top / scale,
+            e.right / scale,
+            e.bottom / scale,
+          );
 
     return FittedBox(
       // designH 是用同一个 scale 反算出来的 ⇒ 横纵缩放比严格相等（不会变形）✅
+      // scale == 1.0 时 child 尺寸 == 可用尺寸 ⇒ 恒等变换（相当于没缩）✅
       fit: BoxFit.fill,
       child: SizedBox(
-        width: m.designW,
-        height: m.designH,
+        width: designW,
+        height: designH,
         child: MediaQuery(
           data: mq.copyWith(
-            size: Size(m.designW, m.designH),
+            size: Size(designW, designH),
             // 每个「画布 dp」对应的物理像素 = 真实 dpr × scale ⇒ 图片按物理分辨率解码，不降清晰度 ✅
-            devicePixelRatio: mq.devicePixelRatio * m.scale,
+            devicePixelRatio: mq.devicePixelRatio * scale,
             padding: s(mq.padding), // 状态栏 / 刘海
             viewPadding: s(mq.viewPadding), // 键盘弹起时仍保留的系统栏
             viewInsets: s(mq.viewInsets), // 键盘高度（不换算 ⇒ 输入框避让错位）
