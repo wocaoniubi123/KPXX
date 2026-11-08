@@ -30,6 +30,9 @@ library;
 // ⚠️ `library;` 必须在**所有其它指令之前**（analyzer: library_directive_not_first ☠）
 //   ⇒ 文件级文档注释写在它上面，import 一律放在它下面 ✅
 import 'dart:io' show Platform;
+// ★ 2026-11-09：`DisplayFeature`（折叠屏铰链/挖孔）在 `dart:ui`，**不在** flutter/widgets 里
+//   `show` 只取这一个符号 ⇒ 不会和 widgets 的其它名字撞名 ✅
+import 'dart:ui' show DisplayFeature;
 
 import 'package:flutter/widgets.dart';
 
@@ -76,13 +79,26 @@ class CanvasMetrics {
 /// 纯计算：给定真实逻辑尺寸，算出画布参数；**返回 `null` = 不需要缩放**。
 ///
 /// 抽成纯函数是为了能脱离 BuildContext 核对数值（无副作用、不读平台）。
+///
+/// ★ 2026-11-09（用户要求「隐患都修」）：**基准取「短边」而不是「宽」**。
+///   🛢️ 为什么改（旧口径的问题，用户实报后才暴露）：
+///     · 旧口径 `raw = real.width / 440` ⇒ 竖屏 385 缩 0.875，**横屏 684 ≥ 440 ⇒ 完全不缩**
+///       ⇒ 同一个控件在竖屏变小、横屏又变大（横屏比竖屏"看起来大 14%"）☠ 方向不一致
+///     · 改用短边后：竖屏 min=385 ⇒ 0.875；横屏 min=385 ⇒ **同样 0.875**
+///       ⇒ 横竖屏控件**物理大小一致** ✅（视频全屏那种横屏场景也一并受益）
+///   ✅ 与旧口径的关系：**竖屏结果完全相同**（竖屏时 min 就是宽度）⇒ 竖屏观感零变化 ✅
+///   ✅ 平板/Fold 内屏（如 800×1280、619×720）短边 ≥440 ⇒ 仍**不缩放** ✅
 /// ⚠️ 注意 `designW` 不恒等于 [kDesignWidth]：被 [kMinCanvasScale] 夹住时会小于它
-///   （例：323dp 屏 ⇒ scale=0.80 ⇒ designW=403.75），这样「缩放系数」与「画布尺寸」始终自洽 ✅
+///   （例：短边 323dp ⇒ scale=0.80 ⇒ designW=403.75），这样「缩放系数」与「画布尺寸」始终自洽 ✅
+///   ⚠️ 横屏时 `designW` 会明显大于 [kDesignWidth]（684/0.875 = 781.7），这是**对的**：
+///     画布宽高比恒等于真实宽高比，不会变形。
 @visibleForTesting
 CanvasMetrics? canvasMetricsFor(Size real) {
   if (real.width <= 0 || real.height <= 0) return null;
-  final raw = real.width / kDesignWidth;
-  if (raw >= 1.0) return null; // 宽 ≥ 基准 ⇒ 不缩（平板/横屏/Fold 内屏）
+  // 短边 = 基准（横竖屏都按它算 ⇒ 两向观感一致）
+  final shortSide = real.width < real.height ? real.width : real.height;
+  final raw = shortSide / kDesignWidth;
+  if (raw >= 1.0) return null; // 短边 ≥ 基准 ⇒ 不缩（平板 / Fold 内屏 / 大屏横屏）
   final scale = raw < kMinCanvasScale ? kMinCanvasScale : raw;
   return CanvasMetrics(scale, real.width / scale, real.height / scale);
 }
@@ -134,6 +150,30 @@ class DesignCanvas extends StatelessWidget {
             e.bottom / scale,
           );
 
+    // ★ 2026-11-09（用户要求「隐患都修」）：**折叠屏铰链/挖孔也要换算**。
+    //   🛢️ 为什么：`MediaQueryData.displayFeatures` 里的 `bounds` 同样是「真实逻辑像素」，
+    //     不按 scale 换算 ⇒ 在折叠屏上铰链位置会偏（其它空间类字段 size/padding/viewInsets/
+    //     viewPadding/systemGestureInsets 都已经换算了，就这个漏了）。
+    //   ⚠️ 本仓目前没有手写使用 displayFeatures 的地方，但第三方控件/框架内部可能会读
+    //     ⇒ 补齐这一项，避免以后上折叠屏出玄学问题 ✅
+    final features = mq.displayFeatures;
+    final scaledFeatures = scale == 1.0
+        ? features
+        : <DisplayFeature>[
+            for (final f in features)
+              DisplayFeature(
+                bounds: Rect.fromLTRB(
+                  f.bounds.left / scale,
+                  f.bounds.top / scale,
+                  f.bounds.right / scale,
+                  f.bounds.bottom / scale,
+                ),
+                // cutout 类型要求 state 必须是 unknown（dart:ui 里的 assert）⇒ 原样透传最安全
+                type: f.type,
+                state: f.state,
+              ),
+          ];
+
     return FittedBox(
       // designH 是用同一个 scale 反算出来的 ⇒ 横纵缩放比严格相等（不会变形）✅
       // scale == 1.0 时 child 尺寸 == 可用尺寸 ⇒ 恒等变换（相当于没缩）✅
@@ -150,6 +190,7 @@ class DesignCanvas extends StatelessWidget {
             viewPadding: s(mq.viewPadding), // 键盘弹起时仍保留的系统栏
             viewInsets: s(mq.viewInsets), // 键盘高度（不换算 ⇒ 输入框避让错位）
             systemGestureInsets: s(mq.systemGestureInsets), // 手势条
+            displayFeatures: scaledFeatures, // 折叠屏铰链 / 挖孔
           ),
           child: child,
         ),
