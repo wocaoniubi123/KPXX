@@ -1,3 +1,54 @@
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// ★ 2026-11-08（Android 第 4 次修复）：**这段必须放在文件最前面**
+//
+//   🛢️ 第 3 次失败原文（run 42481232340）：
+//     `Build file '.../android/build.gradle.kts' line: 47`
+//     `Cannot run Project.afterEvaluate(Action) when the project is already evaluated.`
+//     全量日志里 **一条 `[kpxx]` 都没有** ⇒ 反射代码一次都没执行，配置阶段就炸了。
+//   🛢️ 根因：本文件原来的**第 19 行 `project.evaluationDependsOn(":app")`**
+//     —— 它在**根脚本配置期间就强制评估 `:app`**，而 Flutter 的 Gradle 插件会顺带把
+//     各 plugin 子工程一起拉进配置 ⇒ 等脚本走到文件末尾那段 `subprojects{ afterEvaluate{} }` 时，
+//     子工程**已经评估完了** ⇒ 再注册 afterEvaluate 直接抛异常 ☠
+//   ✅ 修法：把这段**挪到文件最顶部**（此时还没任何子工程被评估 ⇒ 注册必然成功）。
+//     注册成功后，回调仍在**插件自己 `compileSdkVersion 31` 之后**执行 ⇒ 我们的 36 生效 ✅
+//   ✅ 另加 `state.executed` 兜底：万一将来又有人把 `evaluationDependsOn` 放到前面，
+//     这里会**打印出是哪个模块被跳过**，而不是整场构建炸掉。
+//
+//   要解决的问题（第 2 次失败原文，run 42480382666）：
+//     `:media_kit_video:checkReleaseAarMetadata` → 22 issues，全因
+//     `:media_kit_video is currently compiled against android-31`，依赖要求 33/34/36。
+//   本机 pub 缓存实读：写死 31 的插件有三个 ——
+//     `media_kit_video-1.2.5` / `volume_controller-2.0.8` / `screen_brightness_android-0.1.0+2`
+//   ⇒ 一次全抬到 36（36 ≥ 33/34/36 全部要求）。
+//
+//   ⚠️ 为什么不改插件源码：在 `~/.pub-cache` 里，改了不入库、CI 上仍是原版 ⇒ 无效
+//   ⚠️ 为什么不升 media_kit_video：会牵动 iOS 播放链路（用户口径：不动 iOS）
+//   ✅ 为什么用反射：不依赖 AGP 类型在根脚本可见（本机无 Android SDK，没法验证那个前提）；
+//      `compileSdkVersion(int)` 一定存在 —— 那三个插件自己的 build.gradle 就在调它。
+// ═══════════════════════════════════════════════════════════════════════════════════════
+subprojects {
+    if (state.executed) {
+        logger.lifecycle("[kpxx] ${name}: ⚠️ 已评估，afterEvaluate 注册不了（compileSdk 可能仍是 31）")
+    } else {
+        afterEvaluate {
+            val androidExt = extensions.findByName("android") ?: return@afterEvaluate
+            var done = false
+            for (m in listOf("compileSdkVersion", "compileSdk")) {
+                if (done) break
+                // ⚠️ `Int::class.javaPrimitiveType` 是 `Class<Int>?`（可空），getMethod 的可变参数要求非空
+                val prim = Int::class.javaPrimitiveType!!
+                done = runCatching {
+                    androidExt.javaClass.getMethod(m, prim).invoke(androidExt, 36)
+                }.isSuccess
+                if (done) logger.lifecycle("[kpxx] ${name}: 用 $m(36) 覆盖 compileSdk 成功")
+            }
+            if (!done) {
+                logger.lifecycle("[kpxx] ${name}: ⚠️ compileSdk 覆盖失败（找不到 compileSdkVersion/compileSdk(int)）")
+            }
+        }
+    }
+}
+
 allprojects {
     repositories {
         google()
@@ -19,49 +70,11 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
-// ★ 2026-11-08（修「首次/第二次 Android 云端构建」的第二个阻塞点）
-//
-//   🛢️ 报错原文（run 42480382666，步骤 #9 `Flutter build APK`）：
-//     `Execution failed for task ':media_kit_video:checkReleaseAarMetadata'.`
-//     `22 issues were found when checking AAR metadata:`
-//     `1. Dependency ':wakelock_plus' requires ... compile against version 36 or later`
-//     `   :media_kit_video is currently compiled against android-31.`
-//     （22 条全同一个受害者 `:media_kit_video`，只是依赖项不同；要求最高到 36）
-//
-//   🛢️ 本机 pub 缓存实读：**有三个插件把自己的 compileSdk 写死在 31**
-//       · `media_kit_video-1.2.5/android/build.gradle`      → `compileSdkVersion 31`
-//       · `volume_controller-2.0.8/android/build.gradle`    → `compileSdkVersion 31`
-//       · `screen_brightness_android-0.1.0+2/android/build.gradle` → `compileSdkVersion 31`
-//       其余插件没写 → 走 AGP 默认（够新）；我们自己的 `:app` 是 `flutter.compileSdkVersion`(36) ✅
-//     ⇒ 只抬 `media_kit_video` 的话，另外两个下一步照样会炸 ⇒ **一次全抬到 36** ✅
-//
-//   ⚠️ 为什么不改插件源码：它在 `~/.pub-cache` 里，改了不入库、CI 上仍取原版 ⇒ 无效 ☠
-//   ⚠️ 为什么不用 `extensions.configure<com.android.build.api.dsl.LibraryExtension>`：
-//       那要求 AGP 的类在**根构建脚本**里可见 —— 本机没有 Android SDK，我**没法验证**这个前提。
-//   ✅ 改用**反射**调 `compileSdkVersion(int)`：不依赖任何 AGP 类型。
-//      为什么断定这个方法一定存在 —— 那三个插件自己的 `build.gradle` 就在用 `compileSdkVersion 31`，
-//      AGP 不可能把这个方法删掉（删了它们自己就编译不了）。
-//      同时兼容性兜底：也试 AGP 新 DSL 的 `compileSdk(int)`。
-//   ⚠️ 只在 `afterEvaluate` 里改 ⇒ 一定**晚于**插件自己的 `compileSdkVersion 31` ⇒ 我们的 36 生效 ✅
-subprojects {
-    afterEvaluate {
-        val androidExt = extensions.findByName("android") ?: return@afterEvaluate
-        var done = false
-        for (m in listOf("compileSdkVersion", "compileSdk")) {
-            if (done) break
-            // ⚠️ `Int::class.javaPrimitiveType` 的类型是 `Class<Int>?`（可空），而 getMethod 的
-            //    可变参数要求非空 ⇒ 必须 `!!`，否则 Kotlin DSL 编译不过 ☠
-            val prim = Int::class.javaPrimitiveType!!
-            done = runCatching {
-                androidExt.javaClass.getMethod(m, prim).invoke(androidExt, 36)
-            }.isSuccess
-            if (done) logger.lifecycle("[kpxx] ${project.name}: 用 $m(36) 覆盖 compileSdk 成功")
-        }
-        if (!done) {
-            logger.lifecycle("[kpxx] ${project.name}: ⚠️ compileSdk 覆盖失败（找不到 compileSdkVersion/compileSdk(int)）")
-        }
-    }
-}
+// ⚠️ 2026-11-08：原来这里还有一段 `subprojects { afterEvaluate { ...通compileSdk... } }`，
+//   **已整块挪到文件最顶部**（原因见顶部那段注释：此处执行时子工程早已被
+//   `evaluationDependsOn(":app")` 评估完，注册 afterEvaluate 会抛
+//   `Cannot run Project.afterEvaluate(Action) when the project is already evaluated`）。
+//   两份不能共存 —— 这里注册会立刻复现那个异常 ☠ 故删除。
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
