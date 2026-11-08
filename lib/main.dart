@@ -10,6 +10,16 @@ import 'base/downloads/episode_update_checker.dart'; // ★ 启动后台静默�
 import 'downloads_page.dart'; // ★ 底栏第 4 格「下载」页
 // ★ 2026-11-08：安卓专属「设计画布」（按屏宽把固定 dp 等比缩到 iOS 基准；iOS/桌面原样返回）
 import 'design_canvas.dart';
+// ★ 2026-11-08：只为了在 main() 里设 `useAndroidPhotoPicker`（安卓切系统相册选择器）
+//   ⚠️ `ImagePickerPlatform` **不能**从 `image_picker` 拿 —— 它的 export 是 show 白名单，
+//      里面没有这个类型（`image_picker-1.1.2/lib/image_picker.dart:9-19`）⇒ 走 platform interface
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart'
+    show ImagePickerPlatform;
+import 'package:image_picker_android/image_picker_android.dart';
+// ★ 2026-11-08：转场主题要给 iOS/macOS 显式写回 `CupertinoPageTransitionsBuilder`，
+//   而它在 `cupertino/route.dart`（不在 material 里）⇒ 必须单独引。
+//   ⚠️ `show` 只取这一个符号 ⇒ 不会把 cupertino 的其它名字带进来与 material 撞名 ✅
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'favorites.dart';
 import 'favorites_page.dart';
 import 'home_page.dart';
@@ -26,9 +36,38 @@ import 'web_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // ★ 2026-11-08（用户报「安卓 app 从相册选择打开的是文件管理器」）：
+  //   把 `image_picker` 的安卓侧切到**系统相册选择器**（Photo Picker）。
+  //   🛢️ 依据（读 pub 缓存 `image_picker_android-0.8.13+25` 源码）：
+  //     · `useAndroidPhotoPicker` **默认 false**（`image_picker_android.dart:27`）
+  //     · false ⇒ 走 `ACTION_GET_CONTENT`（`ImagePickerDelegate.java:476`）
+  //       ⇒ 弹的是**文件/文档选择器**（用户截图「最近 / 上次修改时间 / 无任何文件」= 系统 Files 界面）
+  //     · true ⇒ `ImagePickerUtils.effectiveUsePhotoPicker()` = true
+  //       ⇒ 走 `ActivityResultContracts.PickVisualMedia` = **系统相册网格**，且**不需要任何存储权限** ✅
+  //   ⚠️ 只在 Android 生效（这是 Android 实现包里的实例字段）⇒ iOS / Windows 行为零变化 ✅
+  //   ⚠️ 它是 **实例字段**（`image_picker_android.dart:27` 的 `bool useAndroidPhotoPicker`，
+  //      **不是 static**）⇒ 必须通过 `ImagePickerPlatform.instance` 那唯一实例去设 ✅
+  final pickerPlatform = ImagePickerPlatform.instance;
+  final bool isAndroidPicker = pickerPlatform is ImagePickerAndroid;
+  if (isAndroidPicker) {
+    pickerPlatform.useAndroidPhotoPicker = true;
+  }
   // 播放器引擎 media_kit(libmpv) 必须在 runApp 之前初始化
   MediaKit.ensureInitialized();
-  AppSettings.i.load(); // 读设置（双击快进秒数）
+  // ⚠️ 复核时改过：原来这行是 `AppSettings.i.load();`（不接返回值）。
+  //   现在把 Future 接住，只为让下面那条诊断日志**在设置真的读完以后**再打 ——
+  //   `load()` 是 async（`settings.dart:131` `Future<void> load() async` + 第一步
+  //   `await SharedPreferences.getInstance()`），`_logConsole` 默认 `false`（`settings.dart:58`）
+  //   ⇒ 若在 load 之前读 `logConsole`，这条日志**永远不会输出**（等于白加）。
+  final settingsReady = AppSettings.i.load(); // 读设置（双击快进秒数）
+  // 看：安卓侧到底认没认出来（`true` = 已切系统相册选择器；`false` = 仍是文件选择器）
+  //   ⚠️ 只在「控制台日志」开着时打印；iOS / Windows 上恒为 false（那是正常的，Android-only 开关）
+  settingsReady.then((_) {
+    if (AppSettings.i.logConsole) {
+      debugPrint('[BOOT] imagePicker 系统相册选择器=$isAndroidPicker '
+          'platform=${pickerPlatform.runtimeType}');
+    }
+  });
   // ★ 2026-10-05（用户要求 ✓「需要调试的时候打开开关」）：**接管控制台打印** ✗ ——
   //   开了 ⇒ 每条 `debugPrint` 都进 **App 自带的错误日志页**（手机上可见 ✓；原来只进 Xcode 控制台 ✗ 手机上看不到 ☠）；
   //   关了 ⇒ **第一句就 return** ✓ ⇒ 后面一个字都不执行（零开销 ✓ 佐证见下面那行 ✓）。
@@ -138,6 +177,40 @@ class KpxxApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
         useMaterial3: true,
+        // ★ 2026-11-08（用户报「安卓切页面背景闪白」）：**根因在 Flutter 自己的默认转场**
+        //   🛢️ 依据链（全部读 Flutter 3.47.6 SDK 源码，不是猜）：
+        //     ① `material/page_transitions_theme.dart:766` 的 `_defaultBuilders` 里
+        //        `TargetPlatform.android: PredictiveBackPageTransitionsBuilder()`
+        //     ② `predictive_back_page_transitions_builder.dart:49`
+        //        `const PredictiveBackPageTransitionsBuilder({this.fallbackColor})` ⇒ 默认 **null**
+        //     ③ 同文件 `:95` 无返回手势时兜底：
+        //        `FadeForwardsPageTransitionsBuilder(backgroundColor: fallbackColor)`（= null）
+        //     ④ `FadeForwardsPageTransitionsBuilder.backgroundColor` 文档原文：
+        //        「The background color during transition between two routes … **Defaults to
+        //          ColorScheme.surface**」
+        //     ⇒ 本仓 `colorScheme` 是浅色（见上一行，未设 brightness）⇒ surface 近白
+        //       ⇒ **安卓每次切页都会在两张页面之间画一层近白**（用户实测就是这么闪的）
+        //     ⑤ 对照 iOS：`_defaultBuilders[TargetPlatform.iOS] = CupertinoPageTransitionsBuilder()`
+        //        —— 滑动转场、没有这层底色 ⇒ **iOS 从来不闪**（与用户观察一致）✅
+        //   ✅ 修法：给安卓那项**保留** Flutter 默认的 `PredictiveBackPageTransitionsBuilder`
+        //      （这样安卓 14+ 的「返回手势跟随预览」照样可用），只把它的
+        //      **`fallbackColor` 改成透明** —— 该参数正是它兜底给 FadeForwards 的底色（见依据 ③）。
+        //      ⇒ 转场时露出来的是我们自己的背景图（AppBackground + 每页 PageBg），不再有白层 ✅
+        //      其余 4 个平台**照抄 Flutter 默认值** ⇒ 行为逐字不变 ✅
+        //      ⚠️ 为什么要抄全 5 个平台：`page_transitions_theme.dart:803` 是
+        //        `builders[platform] ?? const ZoomPageTransitionsBuilder()` —— **缺项不回落平台默认**，
+        //        只给 android 会把 iOS 从「滑动」变成「zoom」☠
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: <TargetPlatform, PageTransitionsBuilder>{
+            TargetPlatform.android: PredictiveBackPageTransitionsBuilder(
+              fallbackColor: Colors.transparent,
+            ),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.windows: ZoomPageTransitionsBuilder(),
+            TargetPlatform.linux: ZoomPageTransitionsBuilder(),
+          },
+        ),
         // ---- 全屏背景图配套：页面自己一律透明，图才不会在某几页断掉 ----
         // ⚠️ 不透明底色出现在哪一层，背景就会在哪一层被挡住（模拟器里踩过两次）
         scaffoldBackgroundColor: Colors.transparent,

@@ -706,4 +706,63 @@
 ///      Windows 调试端已重载确认非安卓路径无回归。
 ///   ☑️ 未验证：安卓真机观感（含键盘避让、WebView 清晰度、视频画面缩放）—— 本机无安卓设备。
 ///   号序：本次云推 ⇒ **1.7.1** ☑️
-const String kAppVersion = '1.7.1';
+/// ★ 2026-11-08：**1.7.1 → 1.7.2**（修「安卓切页背景闪白」+「安卓从相册选择打开的是文件管理器」）：
+///
+///   🛢️ ① 切页白闪 —— **不是模拟器问题，是 Flutter 3.47 安卓默认转场自带的近白底色**。
+///     依据链（全读 SDK 源码，不是推测）：
+///       · `material/page_transitions_theme.dart:766` 安卓默认
+///         `PredictiveBackPageTransitionsBuilder()`
+///       · `predictive_back_page_transitions_builder.dart:49`
+///         `const PredictiveBackPageTransitionsBuilder({this.fallbackColor})` ⇒ 默认 **null**
+///       · 同文件 `:95` 无返回手势时兜底
+///         `FadeForwardsPageTransitionsBuilder(backgroundColor: fallbackColor)`
+///       · `FadeForwardsPageTransitionsBuilder.backgroundColor` 文档：
+///         「…**Defaults to `ColorScheme.surface`**」⇒ 本仓 colorScheme 浅色 ⇒ **近白**
+///       · 对照 iOS：默认是 `CupertinoPageTransitionsBuilder()`（滑动、无底色）⇒ **iOS 从不闪**
+///     ✅ 修法（`lib/main.dart` 的 `theme`）：给安卓**保留** `PredictiveBackPageTransitionsBuilder`，
+///        只把 `fallbackColor` 改成 `Colors.transparent`（安卓 14+ 的返回手势预览照样可用）。
+///        源码核对：`page_transitions_theme.dart:547-552` 是
+///        `color: secondaryAnimation.isAnimating ? backgroundColor ?? ColorScheme.of(context).surface
+///                                              : Colors.transparent`
+///        ⇒ 传 `Colors.transparent` **非 null**，`??` 不触发 ⇒ 真透明，转场时露出我们自己的背景图 ✅
+///        另核对 `fallbackColor` 只作为 FadeForwards 的 backgroundColor（`:96`/`:173`），
+///        **不参与手势遮罩** ⇒ 返回手势观感不变 ✅
+///     ⚠️ 必须把 5 个平台写全：`page_transitions_theme.dart:803` 是
+///        `builders[platform] ?? const ZoomPageTransitionsBuilder()` —— **缺项不回落平台默认**，
+///        只写 android 会把 iOS 从「滑动」变成「zoom」☠
+///
+///   🛢️ ② 相册选择器 —— `image_picker_android` 的 `useAndroidPhotoPicker` **默认 false**
+///     （`image_picker_android.dart:27`）⇒ 走 `ACTION_GET_CONTENT`（`ImagePickerDelegate.java:476`）
+///     ⇒ 安卓上弹的是**文件/文档选择器**（用户截图「最近 / 上次修改时间 / 无任何文件」= 系统 Files）。
+///     ✅ 修法（`lib/main.dart` 的 `main()`）：`ImagePickerPlatform.instance` 若是
+///        `ImagePickerAndroid` 就置 `useAndroidPhotoPicker = true`
+///        ⇒ `ImagePickerUtils.effectiveUsePhotoPicker()` = true ⇒
+///        `ActivityResultContracts.PickVisualMedia` = **系统相册网格，且无需任何存储权限** ✅
+///     ⚠️ 它是**实例字段不是 static**（`image_picker_android.dart:27` `bool useAndroidPhotoPicker`）
+///        ⇒ 必须从 `ImagePickerPlatform.instance` 那唯一实例去设（先踩了 `static_access_to_instance_member`）
+///     ⚠️ `ImagePickerPlatform` **不能**从 `image_picker` 拿 —— 它的 export 是 **show 白名单**
+///        （`image_picker-1.1.2/lib/image_picker.dart:9-19` 只有 CameraDevice / ImageSource / LostData /
+///          LostDataResponse / PickedFile / RetrieveType / XFile / kTypeImage / kTypeVideo）
+///        ⇒ 改从 `image_picker_platform_interface` 引，并在 pubspec **显式声明**
+///          `image_picker_android` + `image_picker_platform_interface`（原本都是传递依赖）
+///     ✅ 已核实不降级：`pickImage` 仍把 `ImageSelectionOptions(maxWidth/maxHeight/quality)`
+///        与 `usePhotoPicker` **并列**传下去（`image_picker_android.dart:119-123`）
+///        ⇒ 选图后照样压到 1440×2400 / quality 88，内存预算不变 ✅
+///
+///   ✅ 复核（用户要求连续两轮）自查出并修掉一个**自己引入的瑕疵**：
+///      诊断日志原先写在 `AppSettings.i.load()` 之前，而 `load()` 是 async
+///      （`settings.dart:131` + 第一步 `await SharedPreferences.getInstance()`）、
+///      `_logConsole` 默认 false（`settings.dart:58`）⇒ 那条日志**永远不会输出**。
+///      已改成 `final settingsReady = AppSettings.i.load();` + `settingsReady.then((_) { … })`，
+///      **没有重复调用 load()**（替换原调用）；`load()` 内部有 `catch (_) {}`（`settings.dart:185`）
+///      ⇒ `.then` 不会抛未捕获异常 ✅
+///
+///   ✅ 验证：`flutter analyze lib` 只剩 1 条既有 info（`aggregate_search_page.dart:362`）；
+///      整项目 analyze 的 103 条全在 `_safe/`（本地备份、已 gitignore、不在仓库）与
+///      `plugins/kp_avif`（1 条既有），`lib/` 里只有那 1 条；
+///      锁文件解析版本未变（`image_picker 1.1.2` / `image_picker_android 0.8.13+25` /
+///      `image_picker_platform_interface 2.11.2`）；Windows 调试端已重载无回归。
+///   ☑️ 未验证：安卓真机/模拟器实际效果 —— 本机无安卓设备。装机后看日志
+///      `[BOOT] imagePicker 系统相册选择器=true platform=ImagePickerAndroid` 即可确认相册修复生效。
+///   号序：本次云推 ⇒ **1.7.2** ☑️
+const String kAppVersion = '1.7.2';
