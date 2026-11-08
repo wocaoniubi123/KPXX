@@ -658,4 +658,52 @@
 ///     所有站点文件、`base/*`、`home_page` / `detail_page` / `player_widget` **零改动** ✅
 ///   · ⚠️ 版本号：用户指定 **1.7.0**（不是按自增的 1.6.12）
 ///   号序：本次云推 ⇒ **1.7.0** ☑️
-const String kAppVersion = '1.7.0';
+/// ★ 2026-11-08：**1.7.0 → 1.7.1**（三个站点取源失效修复 + 安卓端接入 + 安卓专属设计画布）：
+///
+///   🛢️ 三个站点侧改版（用户逐个报「获取失败」，全部本机实锤后修）：
+///     · **91porna 视频详情**：页面里 `/index/detail_play` 出现 **0 次**、160 位 hex token **0 个**
+///       ⇒ 老链路必然空。用 `_unpackJs` 同款算法（Dart 实跑）解开页内 packed JS，拿到生产代码：
+///       `dxPlayback.request('/api/videos/448151/playback', {})` ⇒ 新接口
+///       `POST /api/videos/<id>/playback`（body `{}`）→ `data.streams.main`。
+///     · **91porna 黑料吃瓜**：`parseInt|<hex>|` **0 个**、`melon_detail_play` **0 次**；
+///       扫 12 个帖子 11 个带 `data-playback-post` ⇒ 新接口
+///       `POST /api/posts/<id>/playback` → `data.videos[].url`。
+///     · **黄果短剧**：`videoInitialData.epPlaySrcs` 变空 `{}`、
+///       `videoSrc/Key/Iv/Api` 服务端下发全空 ⇒ 老逻辑必空。新接口
+///       `GET /api/videos/<id>/play?ep=<n>` → `data.video_url`
+///       （`cyber-video.js` 里 `playback.video(data.id, ep)`）。
+///   ✅ 实现：`lib/sites/porna.dart`（新增共用 `_postPlayback` + 两条新链路）、
+///      `lib/sites/huangguo.dart`（只覆写底座现成的 `SiteUi.fetchSources` 钩子）。
+///      两处都是「**新路优先 + 老路兜底**」，老方法一行未删；其它站点文件 0 改动。
+///   ✅ 实测（Dart 复刻补丁逻辑打真站）：91porna 视频 m3u8 38329B / 首分片 1,433,888B；
+///      91porna 黑料 m3u8 10485B / 首分片 750,128B；黄果 ep1/ep2/ep6 首分片
+///      6,340,496 / 5,418,736 / 1,604,960 字节（三集各不相同 ⇒ 确认「点哪集取哪集」）。
+///
+///   ✅ 安卓端接入（用户要求「配置安卓版，采用云端构建」）：
+///     · 新增 `android/`（包名 `ysc.tool6041.sign`、minSdk 24、PKCS12 签名走 Secrets）
+///     · 新增 `.github/workflows/android.yml`（ubuntu + JDK17 + Flutter 3.47.6，与 ios.yml 完全独立）
+///     · `pubspec.yaml` 加 `media_kit_libs_android_video`（Android-only，iOS/Windows 零影响）
+///     · 期间修的三个 CI 阻塞：`volume_controller` JVM target 不一致（校验降为 warning）、
+///       三个插件写死 `compileSdk 31` 被 AAR metadata 拦（subprojects 反射抬到 36）、
+///       `afterEvaluate` 注册过早（覆盖块挪到 build.gradle.kts 最顶部）
+///
+///   ✅ **安卓专属「设计画布」**（用户拍板方案 A · 全局一处 · 基准按 iOS · 加 0.80 下限）：
+///     · 新增 `lib/design_canvas.dart`；`main.dart` 改为
+///       `runApp(const DesignCanvas(child: KpxxApp()))`
+///     · 依据：本仓 UI 全是固定 dp（固定 fontSize 221 处、固定 width 121 / height 159、
+///       自适应 0 处）⇒ 观感由设备逻辑宽决定。iOS 基准 440（= main_win_dev 的 iPhone16ProMax，
+///       `presets.g.dart` 实测 `Size(440, 956)`）。安卓主流逻辑宽 410~414dp、次一档 360dp、
+///       折叠屏外屏 323dp ⇒ 一律按 `scale = clamp(宽/440, 0.80, 1.0)` 等比缩回。
+///     · 机制依据（SDK 源码）：`app.dart:369`「WidgetsApp never introduces its own MediaQuery;
+///       the View widget takes care of that.」+ `view.dart:275` 的 `MediaQuery.fromView`
+///       ⇒ 在 View 之下插一层 MediaQuery 一定生效、不会被冲掉。
+///     · ⚠️ **只对 Android 生效**（`Platform.isAndroid` 守卫）⇒ **iOS / Windows 逐字节不变**；
+///       宽 ≥440dp 不缩（平板/横屏/折叠内屏）。`padding/viewPadding/viewInsets/systemGestureInsets`
+///       全部按同一系数换算（状态栏与键盘避让）。
+///
+///   ✅ 验证：`flutter analyze lib` 只剩 1 条既有 info（`aggregate_search_page.dart:362`）；
+///      站点侧真站端到端实测见上；画布公式对 15 种屏宽（323~692dp）逐一手算核对通过；
+///      Windows 调试端已重载确认非安卓路径无回归。
+///   ☑️ 未验证：安卓真机观感（含键盘避让、WebView 清晰度、视频画面缩放）—— 本机无安卓设备。
+///   号序：本次云推 ⇒ **1.7.1** ☑️
+const String kAppVersion = '1.7.1';

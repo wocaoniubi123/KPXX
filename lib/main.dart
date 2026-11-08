@@ -8,6 +8,8 @@ import 'app_background.dart';
 import 'app_bg.dart';
 import 'base/downloads/episode_update_checker.dart'; // ★ 启动后台静默检测集数更新（黄点）
 import 'downloads_page.dart'; // ★ 底栏第 4 格「下载」页
+// ★ 2026-11-08：安卓专属「设计画布」（按屏宽把固定 dp 等比缩到 iOS 基准；iOS/桌面原样返回）
+import 'design_canvas.dart';
 import 'favorites.dart';
 import 'favorites_page.dart';
 import 'home_page.dart';
@@ -83,7 +85,13 @@ void main() {
   //      那层管"下载到的字节"、这层管"解码后的位图" —— 不是重复算一份 ✅。
   //   ⚠️ `maximumSize`（张数）**保持框架默认** ☑️ 不动（只收字节上限）。
   PaintingBinding.instance.imageCache.maximumSizeBytes = 48 << 20;
-  runApp(const KpxxApp());
+  // ★ 2026-11-08（用户拍板「方案 A · 全局一处」）：安卓专属「设计画布」——
+  //   本仓库 UI 全是固定 dp（221 处固定字号 / 121 处固定 width / 159 处固定 height / 0 处自适应），
+  //   设计基准宽 440（= main_win_dev 用的 iPhone16ProMax）。安卓机逻辑宽更窄 ⇒ 整 App 被等比放大
+  //   （用户那台 ≈385dp ⇒ 放大 1.14 倍）。这里在根层按屏宽等比缩回 iOS 观感。
+  //   ⚠️ `DesignCanvas` 内部有 `Platform.isAndroid` 守卫 ⇒ **iOS / Windows 逐字节不变** ✅
+  //   ⚠️ 缩放下限 0.80（折叠屏外屏 323dp 不会缩到 0.734）；宽 ≥440dp 不缩（平板/横屏）✅
+  runApp(const DesignCanvas(child: KpxxApp()));
 }
 
 /// ★ 2026-10-05（用户要求 ✓）：**导航轨迹**（进了/退出了哪个页面 ✓）——
