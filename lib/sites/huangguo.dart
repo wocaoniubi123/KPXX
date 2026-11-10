@@ -285,7 +285,26 @@ class HuangguoSite extends SiteUi {
     return out;
   }
 
+  /// ★ 2026-11-10（用户再报「黄果短剧的视频提取又失效了」）：**站点又把取源接口换了**
+  ///
+  /// 🛢️ 实测依据（2026-11-10，真站 `huangguoai.com`，视频 `/video/11734/`）：
+  ///   · 11-08 那版接口 `GET /api/videos/<id>/play?ep=<n>` **还在、还是 200、`status` 还是 1**，
+  ///     但 `data.video_url` / `video_url_hevc` / `video_key` / `video_iv` **全是空串**
+  ///     ⇒ 老代码只认 `video_url` ⇒ 必然 0 条 ☠ 这就是这次"又失效"的确切原因
+  ///   · 新接口（详情页内联的接口清单原文里就有这一条）：
+  ///       `POST /api/videos/<id>/episodes/<ep>/playback`，body `{}`
+  ///     ⇒ `status=1`、`data.streams.main` = m3u8 ✅（`streams.hevc` 也有，`main` 空时用它）
+  ///   · 实测：m3u8 `HTTP 200 / 7239 字节 / #EXTM3U / #EXT-X-KEY(AES-128) / 40 个分片`；
+  ///     首分片 **HTTP 200 / 6,340,496 字节**（AES 密文，首字节 0x18 不是 TS 同步字 0x47，正常）✅
+  ///   · **不带 `x-cdn-auth` / `x-cdn-app` 头也是 200** ⇒ 不需要任何自定义头，mpv 直接播 ✅
+  ///   · 集号对得上：`/video/11734/ep-2/` 页面内 `"ep":2`；ep=1/2/6 的 m3u8 **文件名各不相同**
+  ///     （`5da61e2e…` / `01fa8f86…` / `81a403e0…`）⇒ 点哪集取哪集 ✅
+  ///   · 越界：`ep=99` ⇒ `{"status":0,"msg":"视频不存在或不可播放","data":[]}`
+  ///     （⚠️ 此时 `data` 是 **List** 不是 Map，判类型必须防崩）
+  ///   · 另一条视频 `id=12` / `id=2833` 同样 200 + `streams.main` 有值 ⇒ 不是单条缓存 ✅
+  ///
   /// ★ 2026-11-08（用户报「黄果短剧视频链接获取失败」）：**站点改版，取源改走新接口**
+  /// ⚠️ 该版接口已降级为**回落链路**（见下面 `fetchSources` 的 ② 分支）
   ///
   /// 🛢️ 实测依据（2026-11-08，真站 `huangguoai.com`，视频 `/video/11734/`）：
   ///   · 详情页 `videoInitialData` 里 `epPlaySrcs` 现在是 **空 `{}`**；
@@ -319,36 +338,74 @@ class HuangguoSite extends SiteUi {
     final vid = m.group(1)!;
     final ep = int.tryParse(m.group(2) ?? '1') ?? 1;
     final sw = Stopwatch()..start();
-    var src = '';
+    final out = <String>[];
+    // ① 新接口（2026-11-10）：`POST /api/videos/<id>/episodes/<ep>/playback`，body `{}`
+    //    → `data.streams.main`（空则退 `hevc`）
+    String pick(Map? d) {
+      final s = (d == null) ? null : d['streams'];
+      if (s is! Map) return '';
+      final main = '${s['main'] ?? ''}'.trim();
+      return main.isNotEmpty ? main : '${s['hevc'] ?? ''}'.trim();
+    }
+
     try {
-      final r = await _f.client.get(
-        Uri.parse('https://${_f.host}/api/videos/$vid/play?ep=$ep'),
+      final r = await _f.client.post(
+        Uri.parse('https://${_f.host}/api/videos/$vid/episodes/$ep/playback'),
         headers: {
           'User-Agent': Site.ua,
           'Referer': 'https://${_f.host}/video/$vid/',
           'Accept': 'application/json, text/plain, */*',
+          'Content-Type': 'application/json',
         },
+        body: '{}',
       ).timeout(const Duration(seconds: 12));
       if (r.statusCode == 200) {
         final j = jsonDecode(utf8.decode(r.bodyBytes));
-        if (j is Map) {
+        // `status=1` 才算成功；越界集号是 `status=0` + `data: []`（List 不是 Map）
+        if (j is Map && j['status'] == 1) {
           final d = j['data'];
-          if (d is Map) {
-            final u = '${d['video_url'] ?? ''}'.trim();
-            if (u.isNotEmpty) src = u;
-          }
+          final u = pick(d is Map ? d : null);
+          if (u.isNotEmpty) out.add(u);
         }
       }
     } catch (_) {
-      src = '';
+      // 新接口挂了不抛，交给下面的老接口回落
     }
-    // 看：本站新链路换源结果 —— 拿到=false 就是接口又改了/被墙。
+    // ② 老接口回落（2026-11-08 那版接口，站点回滚时还能用）：
+    //    `GET /api/videos/<id>/play?ep=<n>` → `data.video_url`
+    var used = 'episodes/$ep/playback';
+    if (out.isEmpty) {
+      used = 'play?ep=$ep';
+      try {
+        final r = await _f.client.get(
+          Uri.parse('https://${_f.host}/api/videos/$vid/play?ep=$ep'),
+          headers: {
+            'User-Agent': Site.ua,
+            'Referer': 'https://${_f.host}/video/$vid/',
+            'Accept': 'application/json, text/plain, */*',
+          },
+        ).timeout(const Duration(seconds: 12));
+        if (r.statusCode == 200) {
+          final j = jsonDecode(utf8.decode(r.bodyBytes));
+          if (j is Map) {
+            final d = j['data'];
+            if (d is Map) {
+              final u = '${d['video_url'] ?? ''}'.trim();
+              if (u.isNotEmpty) out.add(u);
+            }
+          }
+        }
+      } catch (_) {
+        // 老接口也挂 ⇒ 就是 0 条，播放器照旧提示
+      }
+    }
+    // 看：本站换源结果 —— 拿到=0 条就是两个接口都变了/被墙。
     if (AppSettings.i.logConsole) {
-      debugPrint('[SRC] ${_f.site.name} 换源新 /api/videos/$vid/play?ep=$ep '
-          '拿到=${src.isNotEmpty} host=${Uri.tryParse(src)?.host ?? '?'} '
+      debugPrint('[SRC] ${_f.site.name} 换源新 vid=$vid ep=$ep 链路=$used '
+          '拿到=${out.length} 条 host=${out.isEmpty ? '?' : (Uri.tryParse(out.first)?.host ?? '?')} '
           'ms=${sw.elapsedMilliseconds}');
     }
-    return src.isEmpty ? <String>[] : <String>[src];
+    return out;
   }
 
   /// 选集地址形态：`/video/<id>/`（= 第 1 集）或 `/video/<id>/ep-<n>/`
