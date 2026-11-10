@@ -852,4 +852,42 @@
 ///      （见上表）；结构恒定性不变（仍只有 1 个 `return FittedBox`）。
 ///   ☑️ 未验证：安卓真机/模拟器 —— Windows 调试端走 `!Platform.isAndroid` 早返回，跑不到该分支。
 ///   号序：本次重出包 ⇒ **仍为 1.7.2**（用户指定：版本号不变）☑️
-const String kAppVersion = '1.7.2';
+///
+/// ★ 2026-11-10：**1.7.2 → 1.7.3**（**黄果短剧取源第三次修复**；另 51fans 按要求保持原样）：
+///
+///   ✅ 修：**黄果短剧视频取不到源**（用户 2026-11-10 再报「视频提取又失效了」）
+///     🛢️ 实测根因（真站 `huangguoai.com`，视频 `/video/11734/`）：
+///       · 11-08 那版接口 `GET /api/videos/<id>/play?ep=<n>` **仍回 200、`status` 仍是 1**，
+///         但 `data.video_url` / `video_url_hevc` / `video_key` / `video_iv` **全变成空串**
+///         ⇒ 只认 `video_url` 的老代码**静默取到 0 条**，App 不报错、只是播不了 ☠
+///       · 新接口（详情页内联的接口清单原文里就有）：
+///         `POST /api/videos/<id>/episodes/<ep>/playback`，body `{}`
+///         ⇒ `status=1`、`data.streams.main` = m3u8（`main` 空则退 `streams.hevc`）
+///     ✅ 实测（Dart 探针，与补丁同一套解析逻辑）：
+///       · `11734` ep=1/2/6 → 各 1 条；m3u8 `HTTP 200 / 7239·9153·8631 字符`、
+///         均带 `#EXT-X-KEY`(AES-128)、分片 40/51/48；三集 m3u8 **文件名各不相同**
+///         （`5da61e2e…` / `01fa8f86…` / `81a403e0…`）⇒ 点哪集取哪集 ✅
+///       · `id=12` ep=1、`id=2833` ep=1 → 同样 200 + `main` 有值（不是单条缓存）✅
+///       · 首分片 `HTTP 200 / 6,340,496 字节`（首字节 0x18 非 TS 同步字 0x47 ⇒ AES 密文，正常）✅
+///       · **不带 `x-cdn-auth` / `x-cdn-app` 头也是 200** ⇒ 不需要任何自定义头 ✅
+///       · 越界 `ep=99` ⇒ `{"status":0,"msg":"视频不存在或不可播放","data":[]}`
+///         （⚠️ `data` 是 **List 不是 Map**）⇒ 代码按类型判定，0 条不崩 ✅
+///     · 改法（**只动 `lib/sites/huangguo.dart`**，+70/−13）：
+///       ① `fetchSources` 先打新接口；② 为空才回落老接口（站点回滚时还能用）；
+///       ③ 诊断日志扩成 `[SRC] … 换源新 vid= ep= 链路= 拿到= 条 host= ms=`；
+///       `detail()` / `sourcesFromHtml()` / 选集 `epUrls` 逻辑**一字未动** ✅
+///     · 影响面：只有黄果短剧；其它站点、`base/`、`api.dart`、`models.dart` **零改动** ✅
+///
+///   ☑️ 未改（用户 2026-11-10 明确「保持现状不动」）：**51fans（`51fans1.com`）首页列表偶发失败**
+///     · 已查明根因（本机实测，2026-11-10）：站点经 Cloudflare 动态回源
+///       （响应头 `server: cloudflare` / `cf-cache-status: DYNAMIC`），
+///       `/` 20 次请求 **17 成功 / 3 失败**（`curl (52) Empty reply` 约 18~19s、
+///       `curl (35) schannel handshake 失败` 约 5s），另有 2 次响应 **≥8s**（最慢 12.47s / 单次 14.99s）
+///     · App 侧放大器：`fetch.dart:70` 超时 **8s**；`fetch.dart:87-90` 超时/连接失败**不重试**
+///       （仅 5xx 在同域名重试一次，见 `:53-54`）；51fans **只有 1 个域名**（`wordpress.dart:761`）
+///       ⇒ 任一次抖动 = `throw Exception('所有域名均无法访问')` ⇒ 界面 `加载失败：…`（`home_page.dart:1184`）
+///     · 已排除：解析没坏（同一份 HTML 解析出 首页 13 条 / `/order/hot/` 20 条）；
+///       20 次下载字节数完全一致（276170）⇒ 不是空壳页；无 429/503；页面里没有官方备用域名
+///     · 📌 待办（用户点头才做）：A 站点独立加重试 / B 改公用 `fetch.dart` / C 前端重试 / D 不改
+///     · 号序：本次云推 ⇒ **1.7.3** ☑️
+const String kAppVersion = '1.7.3';
