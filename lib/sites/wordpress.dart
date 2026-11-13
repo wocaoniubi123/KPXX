@@ -57,6 +57,17 @@ class WpSite extends SiteUi {
   /// 而各站已拆成独立文件 → 跨文件调不到 ✗，所以上移并公开 ✓。
   /// 把绝对地址归一化成站内相对路径（详情页只认 /archives/xxx/ 这种）
   String _toRelPath(String href) {
+    // ★ 2026-11-13（用户报「91吃瓜 多视频的链接提取失败」）：**只对 91吃瓜 去掉 href 里的空白** ✅
+    //   🛢️ 实测（真站 `91cg1.com` 合集帖 `/archives/127712/`，2026-11-13）：
+    //     · 子文章链接原文 `<a href="/archives/126499/ " …>` —— **斜杠后面多一个空格**
+    //     · 带空格请求会被编成 `…/archives/126499/%20`
+    //       ⇒ 站点回 **HTTP 404 / 128,822 字节**（App 日志里那两行 404 就是它）
+    //       ⇒ 同一地址 trim 后 **HTTP 200 / 192,798 字节**（页面里有播放器，m3u8 可取）
+    //     · 浏览器会自动吃掉 href 末尾空白，所以网页点进去能播；App 原样请求 ⇒ 404
+    //       ⇒ 合集帖「按需取源」拿到 0 条 ⇒ 报"这一集已失效" + 自动重试 1/5
+    //   ⚠️ 用户 2026-11-13 明确：**只针对 91吃瓜**；其它 WordPress 站（51吃瓜/每日大赛/
+    //      911爆料网/51fans）逐字不变 ✅
+    if (_f.site.name == '91吃瓜') href = href.trim();
     if (!href.startsWith('http')) return href;
     final i = href.indexOf('/archives/');
     if (i >= 0) return href.substring(i);
