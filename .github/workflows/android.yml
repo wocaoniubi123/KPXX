@@ -138,7 +138,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v$(date -u +%Y.%m.%d-%H%M)-android"
+          # ★ 2026-11-15（用户要求）：**Release tag 改成版本号**，不再用日期时间
+          #   例：kAppVersion=1.7.5 ⇒ tag `v1.7.5-android`（加 -android 与 iOS 区分）
+          #   同一版本重复出包时 tag 已存在 ⇒ 自动加 `-2`、`-3`…
+          VER=$(sed -n "s/.*kAppVersion = '\([^']*\)'.*/\1/p" lib/app_version.dart | head -1)
+          if [ -z "$VER" ]; then echo "::error:: 读不到 kAppVersion"; exit 1; fi
+          TAG="v${VER}-android"
+          n=2
+          while gh release view "$TAG" >/dev/null 2>&1; do
+            TAG="v${VER}-android-${n}"
+            n=$((n+1))
+          done
           gh release create "$TAG" build/app/outputs/flutter-apk/*.apk \
             --title "$TAG" \
             --notes "Android 自动构建 ${{ github.sha }}（$(date -u +%Y-%m-%dT%H:%MZ)）"
