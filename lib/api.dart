@@ -25,6 +25,7 @@ import 'sites/yeguodj.dart';
 //   （原 import 行 = `import 'sites/youzidj.dart';` —— 恢复方法见 `_safe/youzidj/README.md` ✅）
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net（**独立站点文件** ✅ 自研模板，非 WordPress 系）
 import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（自管整页 ✅）
+import 'sites/heitaodj.dart'; // ★ 2026-11-15：黑桃短剧（heitaodj.com，MacCMS，独立站点文件 ✅）
 import 'sites.dart';
 
 /// 站点抓取层。按 [SiteEntry.template] 分派到各站模板的解析规则：
@@ -110,6 +111,9 @@ class Api {
         //   原来的那一行 = `SiteTemplate.youzidj => _yzSite,` —— 源码在 `_safe/youzidj/` ✅
         // ★ 2026-10-12：51fans.net（**独立站点文件** `sites/fans51.dart`；自研模板 ☠ 不是 WordPress 系）
         SiteTemplate.fans51 => _f51Site,
+        // ★ 2026-11-15：黑桃短剧（heitaodj.com，MacCMS）—— 独立站点文件 `sites/heitaodj.dart` ✅
+        //   取源必须自己走（播放页 → 播放器页带年龄 cookie → player_aaaa.url）
+        SiteTemplate.heitao => _htSite,
       };
 
   /// wordpress 本站专属实现（2026-10-03 站点独立改造）✓
@@ -154,6 +158,9 @@ class Api {
   //   源码在 `_safe/youzidj/youzidj.dart` ✅）
   /// ★ 2026-10-12：51fans.net 本站专属实现（**独立站点文件** ✅）
   late final Fans51Site _f51Site = Fans51Site(_f);
+
+  /// ★ 2026-11-15：黑桃短剧（heitaodj.com）本站专属实现（独立站点文件 ✅）
+  late final HeitaoSite _htSite = HeitaoSite(_f);
 
   /// 切回「短片」tab 时让下一次取数重新随机（`home_page` 会调 ✓；原方法随段搬去了 XhSite ✗）
 

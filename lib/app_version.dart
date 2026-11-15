@@ -915,4 +915,40 @@
 ///     对照「51吃瓜」规则下同一 href **仍带空白** ⇒ 证明其它站行为未被改动 ✅
 ///   ☑️ 未验证：iOS / 安卓真机播放（本机只有 Windows 调试端）；Windows 端已重载并由用户实机点播验证方向
 ///   号序：本次云推 ⇒ **1.7.4** ☑️
-const String kAppVersion = '1.7.4';
+///
+/// ★ 2026-11-15：**1.7.4 → 1.7.5**（**新增独立站点「黑桃短剧」** + 51fans.net 排序调整）：
+///
+///   ✅ 新增：**黑桃短剧**（`heitaodj.com`，`SiteTemplate.heitao`，kSite19，**独立站点文件** `lib/sites/heitaodj.dart`）
+///     🛢️ 站点事实（2026-11-15 真站实测）：
+///       · MacCMS 内核：`/index.php/vod/type|show|search|detail|play|player/...`
+///       · 列表卡片 `li.m-item`（`a.thumb[href]` / `img.quic[src]` / `h3.stitle|h3.title a[title]` / `p.des` /
+///         `div.icon-br span.label` 集数角标）
+///       · ☠ 取源要**两道**：播放页 `data-heitao-player-src` → 播放器页**必须带 cookie
+///         `heitao_age_confirmed=1`**（否则只回年龄门）→ `var player_aaaa{…}.url` = m3u8
+///         （实测 m3u8 200 / `#EXT-X-KEY` AES-128；首分片 200；**不需要额外请求头**）
+///       · ☠ **站点按 UA 给不同内容**：手机 UA 首页 51 张卡、本周热播 3 张；
+///         桌面 UA 首页 **93** 张、本周热播 **6** 张（与网页一致）⇒ 首页/分区改用**桌面 UA**抓
+///       · ☠ 两种 UA 的**版式类名也不同**（手机 `section.mod`/`h2.mod-head-name`/`h3.stitle`；
+///         桌面 `div.mod`/`h2.title`/`h3.title`）⇒ 解析两套都兼容，`div.mod` 嵌套按"标题+首条 url"去重
+///       · 分类页顶部**四行**（`div.classifyType`）：频道 / **分类**(9) / **子分类**(7) / **标签**(79)
+///         ⇒ 「分类」走 `/vod/show/id/<id>.html`、「子分类」走 `/vod/type/id/<id>.html`、
+///         「标签」走 `/vod/search/tag/<编码名>.html`；**子分类那排只在「现代都市」显示**
+///         （其余 5 个 tab 的子分类与分类完全重复，用户 2026-11-15 指定去掉）
+///       · 末页再往后站点回 **404** ⇒ `page>1` 失败当"到底"返回空（避免误报"加载失败"）
+///     🎨 界面：
+///       · **自管整页**（`SiteUi.sitePage` → `HtHomePage`）：Tab = 首页 + 6 分类
+///       · 首页按站点真实分块：**推荐(3) / 本周热播(6) / 最新更新(12) / 六个分类块(各 12)** = 93 张，
+///         横滑卡片行 + 「更多 ›」切到对应分类 tab
+///       · 卡片**不用底座白 Card**，改成黄果那套（透明底 + 圆角封面 3:4 + 右下角集数角标 + 标题 + 分类）；
+///         分类 tab 三列网格，高度按实际格宽算（`cellW×4/3+46`）⇒ 不再出现 debug 溢出黄条
+///       · 图标：`assets/site_icons/heitaodj.png`（128×128，橙渐变圆角 + 黑色黑桃，无边框）
+///     ⚠️ 影响面：**只有新站自己**；其它站点 / 底座 / 播放器零改动 ✅
+///
+///   ✅ 调整：**51fans.net（kSite17）默认排序移到 xHamster（kSite14）后面**
+///     · 只动 `lib/sites.dart` 的 `kSites` 一行；站点档案 `sites/fans51.dart` 一个字没改
+///     · 注意是 **`51fans.net`**，与 kSite05 的 `51fans`（`51fans1.com`）不是一个站
+///   ✅ 验证：`flutter analyze lib` 只剩 1 条既有 info；Windows 调试端逐项实机确认
+///     （首页 93 张 / 三排筛选 / 卡片无溢出 / 宫格顺序截图）
+///   ☑️ 未验证：iOS / 安卓真机（本机只有 Windows 调试端）
+///   号序：本次云推 ⇒ **1.7.5** ☑️
+const String kAppVersion = '1.7.5';

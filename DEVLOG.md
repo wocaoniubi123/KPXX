@@ -537,3 +537,107 @@ html/dom 要 `as dom` ✓ · `const` 里不能用 getter（`kTxtSub` ✓）· �
 - **异常必须带堆栈原文**（不许只写"报错了"）✅
 - **站点逻辑独立文件；公共区改动先报备** ✅
 - **注释必须写"条件"**（哪版库 / 哪天 / 什么前提）☠ —— 别写成像定律：例，不要写"不能销毁重建"，要写"**在 libmpv X.Y + 当前纹理路径下**，销毁重建会黑屏（2026-XX-XX 实测）" ✅
+
+---
+
+## 十四、2026-11-15 · 新增站点「黑桃短剧」（`heitaodj.com`，kSite19 / `SiteTemplate.heitao`）
+
+> 用户指定新增；**未提交**（用户要求在 Windows 端先测）。站点逻辑**全部**在 `lib/sites/heitaodj.dart` ✅
+
+### 站点事实（2026-11-15 实测 ✅）
+| 项 | 结论 |
+|---|---|
+| 内核 | MacCMS（路径全 `/index.php/vod/...`），**无 SiteTemplate 可复用** ⇒ 新建 `heitao` |
+| 首页 | `GET /` ⇒ 200 / 44,129 B / `li.m-item` **51** 张；**`/?page=2` 与首页字节一致 ⇒ 首页无分页**（page>1 直接返回空） |
+| 分类 | `/index.php/vod/type/id/<id>.html`；第 n 页 `/page/<n>.html`（末页 34）。分类表：1 现代都市 / 2 古装传奇 / 3 仙侠玄幻 / 4 科幻脑洞 / 5 灵异悬疑 / 6 其他短剧 |
+| 搜索 | `/index.php/vod/search.html?wd=<kw>`（+`&page=n`）⇒ 30 张卡 |
+| 标签 | `/index.php/vod/search/tag/<编码名>.html`（+`/page/<n>.html`）⇒ 30 张卡 |
+| 卡片 | `li.m-item` → `a.thumb[href]` / `img.quic[src]` / `h3.stitle a[title]` / `p.des`（分类）/ `div.icon-br span.label`（集数，30 张里 15 张有） |
+| 详情 | `h1.title` / `summary.albumDetailIntroTxt` / `.detail-tags a.tag-chip` / 选集 `.albumSelect li a` / 同类推荐 `li.m-item` |
+
+### ☠ 取源要过两道（本站最关键）
+1. 播放页 `/index.php/vod/play/id/<id>/sid/<s>/nid/<n>.html` 里**只有一个 iframe 路径**：
+   `data-heitao-player-src="/index.php/vod/player/id/<id>/nid/<n>/sid/<s>.html"`
+2. 播放器页**不带年龄 cookie 只返回年龄门**（2.6KB、无源）；
+   带 `Cookie: heitao_age_confirmed=1`（名/值取自 `/static/js/heitao-age-gate.js`）
+   ⇒ 返回 `var player_aaaa={…}`，`url` 即 m3u8（`from=zym3u8`、`encrypt=0`）
+- ✅ m3u8：200 / 2,587 B / `#EXTM3U` / `#EXT-X-KEY`(AES-128) / **带不带 Referer 都 200**
+- ✅ 多集：id=1324 共 5 集，nid=1 与 nid=2 的 m3u8 **文件名不同** ⇒ 点哪集取哪集
+
+### 接线（唯一允许的"模板→实例"点）
+- `sites.dart`：`SiteTemplate.heitao` + `import` + `kSites` 里 `kSite19`（放「点播」宫格最后）
+- `api.dart`：`import` + `late final HeitaoSite _htSite` + `ui` getter 一个 case
+- `lib/sites/heitaodj.dart`：类 + `kSite19` 档案（`portraitCovers: true`，封面 200×300）
+
+### 验证
+- `flutter analyze lib` ⇒ 只剩 1 条既有 info ✅
+- 真站探针（静音）：首页 51 / 分类第2页 30 / 搜索 30 / 标签 30 / 详情 5 集 6 相关 / 取源 1 条 + m3u8 200 ✅
+- ☑️ Windows 端已起，**用户手测**：首页 → 黑桃短剧 → 列表 / 详情 / 播放
+
+### 2026-11-15 补（用户反馈两条）
+1. **少了首页** ⇒ 加了 `SiteTab('/home', '首页')`；`category()` 里 `kk == '/home'` 直接转 `home(page:)`
+2. **分类下的子分类没加** ⇒ 每个主分类页顶部第 2 道 `classifyList` 就是子分类（实测原文），
+   全部走 `/index.php/vod/show/id/<id>.html`；页 2 = `/show/id/<id>/page/<n>.html`
+   ```
+   现代都市(1): 全部1 校园爱情64 情感爱恋11 职场权色12 家庭纠葛13 逆袭打脸14 群芳后宫15 年代风月16 都市其他17
+   古装传奇(2): 全部2 宫廷权谋21 武侠江湖22 古装言情23 后宫争宠24 古装其他25
+   仙侠玄幻(3): 全部3 宗门情仇31 双修升级32 系统逆袭33 仙侠其他34
+   科幻脑洞(4): 全部4 未来科幻41 游戏副本42 异能超能43 身体奇谭44 末世求生45 科幻其他46
+   灵异悬疑(5): 全部5 都市怪谈51 鬼艳志怪52 悬疑反转53 灵异其他54
+   其他短剧(6): 全部6 综合脑洞61 未分类型62
+   ```
+   ⚠️ 末页再往后站点回 **404**（`show/id/64/page/2.html`）⇒ `category()` 里 page>1 失败当"到底"返回空，
+   否则列表会弹"加载失败"
+- 实测：子分类页 64→13 条 / 11→30 / 21→16 / 31→5 / 51→6 / 61→11 ✅
+
+### 2026-11-15 补 ②（用户：「首页根据网页实际模块添加。推荐-本周热播」）
+- 首页改成**自管整页**（`SiteUi.sitePage` → `HtHomePage`）：Tab = 首页 + 6 分类；
+  首页按站点真实区块排版（标题 + 横滑卡片行 + 「更多 ›」切到对应分类 tab）
+- 🛢️ **站点按 UA 给不同内容**（实测，这是本页的关键）：
+  | UA | 全页 `li.m-item` | 本周热播 | 最新更新 | 各分类块 |
+  |---|---|---|---|---|
+  | 手机（`Site.ua`） | 51 | 3 | 9 | 6 |
+  | 桌面 Chrome/Win | **93** | **6** | 12 | 12 |
+  ⇒ 首页/分区改用**桌面 UA**抓（`_textWithUa` / `textDesktop`），才对得上网页；
+  已核实桌面 UA 对详情页/播放器页同样正常（detail 200 选集 6；player 200 能取 m3u8）
+- 🛢️ 两种 UA 的**版式类名也不一样**（解析要兼容两套）：
+  手机 `section.mod` + `h2.mod-head-name` + `h3.stitle a`；
+  桌面 `div.mod` + `h2.title[mod-skin=line]` + `h3.title a`（`div.mod` 会嵌套 ⇒ 已按"标题+首条url"去重）
+- 实测分区块（桌面 UA）：推荐 3 / 本周热播 6 / 最新更新 12 / 现代都市 12(更多=1) /
+  古装传奇 12(2) / 仙侠玄幻 12(3) / 科幻脑洞 12(4) / 灵异悬疑 12(5) / 其他短剧 12(6) = **93 张** ✅
+- 分类 tab = 子分类胶囊行 + 三列网格 + 滚到底自动翻页（末页 404 当"到底"）
+
+### 2026-11-15 补 ③（用户：「去除卡片样式，参考黄果」）
+- **不再用底座 `ArticleCard`（白 Card + 阴影）**，改成本站私有 `_HtCard`，形态照黄果 `huangguo.dart:1509 _card()`：
+  透明底 · 封面 `ClipRRect(6)` 3:4 · 右下角集数角标（黑 60% + 圆角 3 + 9 号白字）·
+  标题 12/w600 单行 · 下面一行 10 号浅字 = 站点分类名
+  ⚠️ **黄果文件一个字没改**（只读参考 ✅）；其它站点同样零改动 ✅
+- 同时修掉 debug 版黄黑溢出条（`TOM OVERFLOWED BY N PIX`）：
+  首页分区行高 = **220**（= 128×4/3 + 46）；分类网格不再写死比例，改 `LayoutBuilder` 算
+  `mainAxisExtent = cellW×4/3 + 46`
+
+### 2026-11-15 补 ④（用户：「子分类-标签你还是没加」+ 网站截图）
+- 🛢️ 站点分类页顶部其实有 **4 行**（桌面 UA 原文，`div.classifyWarp` 里 4 个 `div.classifyType`）：
+  1. `频道：` 现代都市… → `/vod/show/id/<父id>.html`（= App 顶栏 tab，不重复画）
+  2. `分类：` 全部/校园爱情/…（**9 个**）→ `/vod/show/id/<id>.html`
+  3. `子分类：` 情感爱恋/职场权色/…（**7 个**）→ `/vod/type/id/<id>.html` ← 之前漏
+  4. `标签：` 都市/古装/仙侠/…（**79 个**）→ `/vod/search/tag/<编码名>.html` ← 之前漏
+- 解析：`HeitaoSite.parseClassify()`（桌面 UA 抓一次分类页，解析三行 → `HtChip{name,key}`，
+  key 形如 `/show/64`、`/type/11`、`tag:都市`）
+- 页面：`_HtCatTab` 现在画 **三排胶囊**（分类 / 子分类 / 标签，各带左侧小标题），点哪个就按哪种路由取列表
+  （分类→category `/show/`；子分类→category `/type/`；标签→`tag()`）
+- 实测解析：分类 9 · 子分类 7 · 标签 79 ✅
+- 胶囊样式：定高 30 + 居中文字（修掉"文字偏上"）
+
+### 2026-11-15 补 ⑤（用户：5 个 tab 下的「子分类」这一排去掉）
+- 实测：**只有「现代都市」的子分类与「分类」不同**（分类=全部+8 个；子分类=7 个，少了「校园爱情」）；
+  其余 5 个 tab 的子分类与「分类(去掉全部)」**完全一样**（例：type2 分类=全部+5 个，子分类=同样那 5 个）
+- ⇒ 代码里 `if (widget.tabKey == '1') _chipRow('子分类', …)`：**只有现代都市画这一排**；
+  古装传奇/仙侠玄幻/科幻脑洞/灵异悬疑/其他短剧 = 分类 + 标签 两排
+
+### 2026-11-15 补 ⑥（用户：51fans.net 默认排序移到 xHamster 后面）
+- `lib/sites.dart` 的 `kSites` 里把 **`kSite17`（51fans.net）** 从「点播最后一格」挪到 **`kSite14`（xHamster）之后** ✅
+- 现顺序：… kSite13(Pornhub) → **kSite14(xHamster) → kSite17(51fans.net)** → kSite15(野果) → kSite06(黄果)
+  → kSite18(荔枝) → kSite19(黑桃短剧)
+- 只动 `kSites` 一行（+注释），站点档案本身一个字没改 ✅
+- ✅ 实机截图确认：宫格第 4 行 = xHamster / 51fans.net / 野果短剧 / 黄果短剧

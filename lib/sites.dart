@@ -15,6 +15,7 @@ import 'sites/liz01.dart'; // ★ 2026-10-12：荔枝短剧（liz01.com）——
 import 'sites/fans51.dart'; // ★ 2026-10-12：51fans.net —— **独立站点文件**（自研模板，非 WordPress 系 ✅）
 import 'sites/live_zhibo_site.dart'; // ★ 2026-10-24：直播聚合（api.hclyz.com，136 个平台）—— 独立站点文件 ✅
 import 'sites/panda_live_site.dart'; // ★ 2026-10-27：PandaTV 直播（5721004.xyz，AWS IVS 实时流）—— 独立站点文件 ✅
+import 'sites/heitaodj.dart'; // ★ 2026-11-15：黑桃短剧（heitaodj.com，MacCMS）—— 独立站点文件 ✅
 // ☠ 2026-10-15（**用户指令**："柚子短剧不搞了，本地站点删除柚子短剧，放入安全区" ✅）：
 //   柚子短剧（youzidj.com）**已整体下架** —— 源码 + 图标移入 **`_safe/youzidj/`** ✅
 //   带柚子的最后状态已打保命 tag：**`kpxx-youzidj-saved-20261015` → `3d94d50`** ✅
@@ -153,6 +154,12 @@ enum SiteTemplate {
   ///   卡片：横版 16:9 ⇒ 双列；角标 `时长 ＞ 集数 ＞ 播放量`（有 `.cover-duration` 与 `.eye` ✅）
   ///   源：`window.__ARCHIVE_PLAYER__` 的 `cdnLine + rawPath`（HLS + AES-128，**不需要请求头** ✅）
   fans51,
+
+  /// 黑桃短剧（heitaodj.com，用户 2026-11-15 指定新增）：MacCMS 内核 `index.php/vod/...`。
+  /// 列表 = `li.m-item`（首页**无分页**；分类 `/type/id/<id>/page/<n>.html`）。
+  /// 取源要过两道：播放页 `data-heitao-player-src` → 播放器页（**必须带 `heitao_age_confirmed=1`**）
+  /// 里的 `var player_aaaa{…}.url` ⇒ m3u8（AES-128，不需要 Referer）。
+  heitao,
 }
 
 /// 一个分类 tab，可以带子分类（子项同样是 tab）。
@@ -352,6 +359,10 @@ const List<SiteEntry> kSites = [
   kSite12,
   kSite13,
   kSite14,
+  // ★ 51fans.net（kSite17）—— **用户 2026-11-15 指定：默认排序移到 xHamster(kSite14) 后面** ✅
+  //   独立站点文件 `sites/fans51.dart`（自研模板，不走 `wordpress.dart` ✅）
+  //   ⚠️ 与 kSite05 的 `51fans`（`51fans1.com`）**不是同一个站** ✅
+  kSite17,
   // 野果短剧（kSite15 ✅ 2026-10-08 新增）：紧接 kSite14 之后 ✅
   kSite15,
   // ⚠️ 黄果短剧（kSite06 ✓）—— **用户指定挪到野果之后** ✅（就挪这一行 ☑️ ——
@@ -359,12 +370,9 @@ const List<SiteEntry> kSites = [
   kSite06,
   // ★ 荔枝短剧（kSite18 ✅ 2026-10-12 新增，自管整页）—— 放在黄果之后 ✅（默认可见，无任何隐藏 ✅）
   kSite18,
-  // ★ 51fans.net（kSite17 ✅ 2026-10-12 新增，**独立站点文件** `sites/fans51.dart`）：
-  //   本站是**自研模板**（不是 WordPress 系）⇒ 不走 `wordpress.dart` ✅
-  //   ⚠️ 与既有 `51fans`（kSite05 / `51fans1.com`）**不是同一个站** ✅
-  //   ⚠️ 宫格位置（2026-10-15 更新）：原来它排在"用户指定的点播最后一格（柚子 kSite16）"之后；
-  //      柚子已下架 ⇒ 现在 **kSite17 就是「点播」宫格的最后一格** ✅
-  kSite17,
+  // ★ 黑桃短剧（kSite19 ✅ 2026-11-15 用户指定新增，**独立站点文件** `sites/heitaodj.dart`）
+  //   ⚠️ 编号用 19（kSite18 已被荔枝短剧占用）✅；放「点播」宫格最后 ✅
+  kSite19,
   // 直播站（xHamsterLive ✓）：`group: SiteGroup.live` → 只进底栏「直播」宫格 ✓，不进「点播」✗。
   // ⚠️ 名字**故意不带数字** ✓ —— 模拟器只认 `kSiteNN` ✗（见 lib/sites/xhamsterlive.dart 里那条注释 ✓）
   kSiteLive,
