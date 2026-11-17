@@ -1615,6 +1615,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       //   probe26（界面路径、复用）**16/17 次黑**（新源 Opening done 后不出帧）；probe23（每集新建）**5/5 正常**。
       _sources = widget.sources.where((s) => s.isNotEmpty).toList();
       _nextFired = false;
+      _nextArmed = false; // 换集：新源起播前，旧引擎的 completed 不算数
       _errShown = false;
       _error = null;
       // 换集：自动重试排期与计数一并清零
@@ -1658,6 +1659,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (list.isEmpty) return;
     _sources = list;
     _nextFired = false;
+    _nextArmed = false; // 换源/换档：新源起播前，旧引擎的 completed 不算数
     _errShown = false;
     _error = null;
     _autoRetryTimer?.cancel();
@@ -2234,6 +2236,16 @@ class PlayerWidgetState extends State<PlayerWidget>
   /// 缓冲提示自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
   bool _nextFired = false; // 本次播放是否已触发过自动下一集
 
+  /// ★ 2026-11-17（用户实测：「开了自动下一集 + 拖到底 ⇒ 一秒连跳 3 集」）：
+  ///   `_nextArmed` = 本次播放**是否已经真正起播过**。
+  ///   换片/换源时置 false；`_onTick` 看到 `started`（或 position > 0）才置 true。
+  ///   ⇒ 新引擎挂上之前，**旧引擎残留的 `completed=true` 一律不算数** ✅
+  bool _nextArmed = false;
+
+  /// 上次**自动**切集的时间戳 —— 只给 `_onTick` 里的自动分支当冷却用。
+  /// ⚠️ 手动点集数走 `switcher.select/next`（父级直接改 index），**不经过这里** ✅
+  DateTime? _lastNextAt;
+
   void _onTick() {
     final err = _kp?.value.error ?? false;
     final started = _kp?.value.started ?? false;
@@ -2262,13 +2274,34 @@ class PlayerWidgetState extends State<PlayerWidget>
         _setAutoRetrying(false);
       }
     }
-    // 播完 → 按设置决定是否自动切下一个（每次播放只触发一次）
-    if ((_kp?.value.completed ?? false) && !_nextFired) {
+    // ★ 2026-11-17（用户实测：「开了自动下一集 + 拖到底 ⇒ 一秒连跳 3 集」）
+    //   🛢️ 根因链（日志实证 13:02:04：一秒内 3 次「播完 ⇒ 切下一集」）：
+    //     · 播完 ⇒ `switcher.next()` ⇒ `didUpdateWidget` 换片时把 `_nextFired` 复位（闸门打开）
+    //     · 但 `_kp` 还是**旧引擎**（只是 `pause()`），它的 `completed` 仍是 true
+    //     · `_onTick` 每 200ms 跑一次 ⇒ 新引擎挂上之前**每个 tick 都切一集**
+    //       （合集类还要"按需取源"，最长 6 秒 ⇒ 能连跳好几集）
+    //   ⇒ 两道护栏，都**只作用于自动分支**；手动点集数走 `switcher.select/next`（父级直接改
+    //     index）⇒ 不经过这里，随点随切 ✅
+    //     ① `_nextArmed`：本次播放必须**真正起播**过才允许自动切；
+    //     ② 3 秒冷却：不管哪环出意外，3 秒内最多自动切一次；冷却命中时也置
+    //        `_nextFired=true`（这一次放弃），避免 3 秒后再补切一刀。
+    if (started || pos > Duration.zero) _nextArmed = true;
+    if ((_kp?.value.completed ?? false) && !_nextFired && _nextArmed) {
+      final now = DateTime.now();
+      final cooled = _lastNextAt == null ||
+          now.difference(_lastNextAt!) >= const Duration(seconds: 3);
       _nextFired = true;
-      // ★【常驻诊断】播完 ⇒ 是否自动切下一集（开关 + 有没有下一集 ✓）
-      if (AppSettings.i.logConsole) debugPrint('[PLAY] 播完 ⇒ 自动下一集开关=${AppSettings.i.autoNext} 有下一集=${widget.switcher?.hasNext ?? false} ${AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false) ? '→ 切下一集' : '→ 不切'}');
-      if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
-        widget.switcher?.next();
+      if (!cooled) {
+        if (AppSettings.i.logConsole) {
+          debugPrint('[PLAY] 播完但距上次自动切集不足 3 秒 ⇒ 忽略（防连跳）');
+        }
+      } else {
+        _lastNextAt = now;
+        // ★【常驻诊断】播完 ⇒ 是否自动切下一集（开关 + 有没有下一集 ✓）
+        if (AppSettings.i.logConsole) debugPrint('[PLAY] 播完 ⇒ 自动下一集开关=${AppSettings.i.autoNext} 有下一集=${widget.switcher?.hasNext ?? false} ${AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false) ? '→ 切下一集' : '→ 不切'}');
+        if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
+          widget.switcher?.next();
+        }
       }
       // ★ 用户 2026-10-19：播完**没有下一集** ⇒ 中间显示「重播」—— 控件不能被 3 秒定时器藏掉，
       //   否则按钮跟着消失（"播完了什么也看不到"）。这里强制显示并取消隐藏排期。
