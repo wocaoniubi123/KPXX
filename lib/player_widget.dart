@@ -372,10 +372,17 @@ class KpPlayer extends ValueNotifier<KpState> {
       //      :162-168 ✓）—— 不新造判据 ✓。首帧出来之后（`_everStarted == true` ✓）照旧按 9 秒判卡住 ✓。
       //      ⚠️ 2026-10-11（A1 ✅）：首帧前**唯一**会写 `error` 的只剩"硬错误早判"（:280 ✓，
       //         确定性失败：403/404/连接被拒/解析不了 ✓）与下面这条 6 秒无首帧 —— 3 秒宽限那条已删 ✅。
-      if (_userPaused || s.error) {
+      // ★ 2026-11-17：**播完 / 位置到结尾 ⇒ 不是卡住**。
+      //   用户实测：播完 9 秒后被判「缓冲超时」→ `_recover` 刷新源 + 原地续播跳回尾部
+      //   → 又播完 → 21 秒一轮死循环（日志 `播放结束 position=137s/137s` 每 21 秒刷一次）。
+      //   容差 400ms 与 `_showReplay`（:2555 / :3310）**同口径** ⇒ 连"不报 completed 的源"也覆盖。
+      final atEnd = s.completed ||
+          (s.duration > Duration.zero &&
+              s.position >= s.duration - const Duration(milliseconds: 400));
+      if (_userPaused || s.error || atEnd) {
         _stuckMs = 0;
         _noFrameMs = 0;
-        _bufExcuseMs = 0; // 暂停 / 已失败：缓冲豁免额度也复位 ✓
+        _bufExcuseMs = 0; // 暂停 / 已失败 / 已播完：缓冲豁免额度也复位 ✓
         _lastPos = s.position;
         return;
       }
@@ -1614,8 +1621,7 @@ class PlayerWidgetState extends State<PlayerWidget>
       //   现在改成"**先挂新、再收旧**"（见 [_initPlayerOnce] 里那段 + [_retireKp]）⇒ 复用那条路才是黑的：
       //   probe26（界面路径、复用）**16/17 次黑**（新源 Opening done 后不出帧）；probe23（每集新建）**5/5 正常**。
       _sources = widget.sources.where((s) => s.isNotEmpty).toList();
-      _nextFired = false;
-      _nextArmed = false; // 换集：新源起播前，旧引擎的 completed 不算数
+      _nextFired = true; // 换集：封锁自动切 —— 新源"起播成功"才解锁（见 _initPlayerOnce 的 if (ok)）
       _errShown = false;
       _error = null;
       // 换集：自动重试排期与计数一并清零
@@ -1658,8 +1664,7 @@ class PlayerWidgetState extends State<PlayerWidget>
     if (AppSettings.i.logConsole) debugPrint('[PLAY] switchSources 传入=${srcs.length}条 有效=${list.length}条 ${list.isEmpty ? '⇒ 空表，直接返回（不换源）' : '⇒ 换源'}');
     if (list.isEmpty) return;
     _sources = list;
-    _nextFired = false;
-    _nextArmed = false; // 换源/换档：新源起播前，旧引擎的 completed 不算数
+    _nextFired = true; // 换源/换档：封锁自动切 —— 新源"起播成功"才解锁
     _errShown = false;
     _error = null;
     _autoRetryTimer?.cancel();
@@ -1944,6 +1949,10 @@ class PlayerWidgetState extends State<PlayerWidget>
           if (ok) {
             // ★【常驻诊断】这条源起播成功（后面若不跳转就直接返回了 ✓）
             if (AppSettings.i.logConsole) debugPrint('[PLAY] 起播成功 i=$i ready=${kp.value.ready} duration=${kp.value.duration.inSeconds}s 续播目标=${_restoreTo?.inMilliseconds ?? 0}ms');
+            // ★ 2026-11-17：**这条源起播成功 ⇒ 解锁自动下一集**（换片时封锁的那把锁）。
+            //   放在这里而不是"看到 position>0"：合集走"复用同一引擎"，旧 position 一直在，
+            //   只有"新源 open 成功"这个事件才能可靠区分新旧（日志 `起播成功 … ready=true` 每集必打）。
+            _nextFired = false;
             // 续播：本次起播前记录下来的进度，跳完就置空（换集不再跳）
             final to = _restoreTo;
             _restoreTo = null;
@@ -2234,17 +2243,17 @@ class PlayerWidgetState extends State<PlayerWidget>
 
   /// 只在「出错 / 已开播」这两个状态翻转时重建：位置/缓冲的变化由控制条和
   /// 缓冲提示自己用 ValueListenableBuilder 局部刷新，避免每 200ms 重建整个视频子树
-  bool _nextFired = false; // 本次播放是否已触发过自动下一集
-
-  /// ★ 2026-11-17（用户实测：「开了自动下一集 + 拖到底 ⇒ 一秒连跳 3 集」）：
-  ///   `_nextArmed` = 本次播放**是否已经真正起播过**。
-  ///   换片/换源时置 false；`_onTick` 看到 `started`（或 position > 0）才置 true。
-  ///   ⇒ 新引擎挂上之前，**旧引擎残留的 `completed=true` 一律不算数** ✅
-  bool _nextArmed = false;
-
-  /// 上次**自动**切集的时间戳 —— 只给 `_onTick` 里的自动分支当冷却用。
-  /// ⚠️ 手动点集数走 `switcher.select/next`（父级直接改 index），**不经过这里** ✅
-  DateTime? _lastNextAt;
+  /// 本次播放是否已触发过自动下一集。
+  ///
+  /// ★ 2026-11-17 第三版（**实证驱动**，替换前两版）：
+  ///   **换片/换源时置 `true`（封锁），新源"起播成功"那一刻置 `false`（解锁）**。
+  ///   🛢️ 为什么必须是这两个时机：
+  ///     · 换片后 `_kp` 可能还是**旧引擎**（黄果这类合集走"复用同一引擎"，position 也一直 > 0）
+  ///       ⇒ 任何用 position / 引擎身份判断"新旧"的方案都会失效（前两版就栽在这里）
+  ///     · `completed` 由 `_p.stream.completed` 驱动（:292-296），日志实证**每集都会 true→false
+  ///       回落**（同一集每轮都能再打 `[PLAY] 播放结束`，共 28 次）⇒ 起播解锁是干净的
+  ///   ⇒ 新源起播之前，旧引擎残留的 `completed = true` 一律不算数 ✅
+  bool _nextFired = false;
 
   void _onTick() {
     final err = _kp?.value.error ?? false;
@@ -2275,33 +2284,17 @@ class PlayerWidgetState extends State<PlayerWidget>
       }
     }
     // ★ 2026-11-17（用户实测：「开了自动下一集 + 拖到底 ⇒ 一秒连跳 3 集」）
-    //   🛢️ 根因链（日志实证 13:02:04：一秒内 3 次「播完 ⇒ 切下一集」）：
-    //     · 播完 ⇒ `switcher.next()` ⇒ `didUpdateWidget` 换片时把 `_nextFired` 复位（闸门打开）
-    //     · 但 `_kp` 还是**旧引擎**（只是 `pause()`），它的 `completed` 仍是 true
-    //     · `_onTick` 每 200ms 跑一次 ⇒ 新引擎挂上之前**每个 tick 都切一集**
-    //       （合集类还要"按需取源"，最长 6 秒 ⇒ 能连跳好几集）
-    //   ⇒ 两道护栏，都**只作用于自动分支**；手动点集数走 `switcher.select/next`（父级直接改
-    //     index）⇒ 不经过这里，随点随切 ✅
-    //     ① `_nextArmed`：本次播放必须**真正起播**过才允许自动切；
-    //     ② 3 秒冷却：不管哪环出意外，3 秒内最多自动切一次；冷却命中时也置
-    //        `_nextFired=true`（这一次放弃），避免 3 秒后再补切一刀。
-    if (started || pos > Duration.zero) _nextArmed = true;
-    if ((_kp?.value.completed ?? false) && !_nextFired && _nextArmed) {
-      final now = DateTime.now();
-      final cooled = _lastNextAt == null ||
-          now.difference(_lastNextAt!) >= const Duration(seconds: 3);
+    //   修正为**封锁/解锁**模型（详见 `_nextFired` 字段注释）：
+    //     · 换片/换源 ⇒ `_nextFired = true`（封锁）
+    //     · 新源起播成功（`_initPlayerOnce` 的 `if (ok)`）⇒ `_nextFired = false`（解锁）
+    //     · 这里触发一次后再置 true（本次已切过）
+    //   ⚠️ 只作用于自动分支；手动点集数走 `switcher.select/next`（父级直接改 index）⇒ 不经过这里
+    if ((_kp?.value.completed ?? false) && !_nextFired) {
       _nextFired = true;
-      if (!cooled) {
-        if (AppSettings.i.logConsole) {
-          debugPrint('[PLAY] 播完但距上次自动切集不足 3 秒 ⇒ 忽略（防连跳）');
-        }
-      } else {
-        _lastNextAt = now;
-        // ★【常驻诊断】播完 ⇒ 是否自动切下一集（开关 + 有没有下一集 ✓）
-        if (AppSettings.i.logConsole) debugPrint('[PLAY] 播完 ⇒ 自动下一集开关=${AppSettings.i.autoNext} 有下一集=${widget.switcher?.hasNext ?? false} ${AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false) ? '→ 切下一集' : '→ 不切'}');
-        if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
-          widget.switcher?.next();
-        }
+      // ★【常驻诊断】播完 ⇒ 是否自动切下一集（开关 + 有没有下一集 ✓）
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] 播完 ⇒ 自动下一集开关=${AppSettings.i.autoNext} 有下一集=${widget.switcher?.hasNext ?? false} ${AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false) ? '→ 切下一集' : '→ 不切'}');
+      if (AppSettings.i.autoNext && (widget.switcher?.hasNext ?? false)) {
+        widget.switcher?.next();
       }
       // ★ 用户 2026-10-19：播完**没有下一集** ⇒ 中间显示「重播」—— 控件不能被 3 秒定时器藏掉，
       //   否则按钮跟着消失（"播完了什么也看不到"）。这里强制显示并取消隐藏排期。
@@ -2484,6 +2477,13 @@ class PlayerWidgetState extends State<PlayerWidget>
   Future<void> _recover() async {
     // ★【常驻诊断】中途卡住恢复入口（距上次恢复 <10 秒会直接作废 ⇒ 那条也在这里看出来 ✓）
     if (AppSettings.i.logConsole) debugPrint('[PLAY] _recover 起 index=${widget.switcher?.index.value ?? 0} curIndex=$_curIndex 距上次恢复=${DateTime.now().millisecondsSinceEpoch - _lastRecoverMs}ms 位置=${_kp?.value.position.inMilliseconds ?? 0}ms');
+    // ★ 2026-11-17：**播完不是卡住** —— 就算别处排了恢复，也不许"刷新源 + 跳回尾部"（双保险，
+    //   与看门狗那处 atEnd 判据配套；否则用户看到的仍是"重新加载 → 又跳回结尾"）
+    if (_kp?.value.completed ?? false) {
+      if (AppSettings.i.logConsole) debugPrint('[PLAY] _recover 作废（已播完，不是卡住）');
+      _clearRetryingHint();
+      return;
+    }
     // 用户已经切走（换集/换视频）→ 这次恢复作废，别去掐新视频 ✓
     // ★ B4（2026-10-11）：作废也要**把"重连中"提示撤掉** ☠ —— 原来这里直接 return，
     //   提示会一直挂在屏上（位置本来就不动 ⇒ 连"恢复即撤"都等不到）。
