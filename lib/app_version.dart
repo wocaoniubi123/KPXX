@@ -1017,4 +1017,33 @@
 ///   ⚠️ 行为变化（有意为之）：新集是坏源、一直起不来时**不再连环跳到后面**，停在该集走既有重试/失效提示
 ///   ☑️ 未验证：iOS / 安卓真机
 ///   号序：本次云推 ⇒ **1.7.7** ☑️（versionCode 177）
-const String kAppVersion = '1.7.7';
+///
+/// ★ 2026-11-22：**1.7.7 → 1.7.8**（**收藏 / 播放记录：封面存本地副本**）：
+///
+///   🛢️ 问题（用户实报多次）：收藏页与播放记录页的封面是"加入那一刻的 URL 快照"，
+///     站点改过/换过域名之后旧 URL 永久失效 ⇒ 整列只剩 broken_image（"空白"）。
+///     详情页那侧也没有替代源：黄果 `images: const []`（无剧照）、Pektino 同样没有剧照。
+///   ✅ 做法（**与封面 URL 解耦**，新文件 `lib/cover_pin.dart`）：
+///     · 本地副本目录 = **`getApplicationDocumentsDirectory()/kpxx_covers`**
+///       （与下载页 `Documents/downloads`、背景图同一个 base ⇒ 手机端 iOS `Documents/`、
+///        Android `…/app_flutter/`，都是**持久**目录；⚠️ 刻意**不用** `ImageDiskCache`，
+///        它在 `getTemporaryDirectory()` 且带 60MB/400 文件 LRU，会把收藏封面当缓存清掉）
+///     · 文件名 = FNV-1a(`站点|详情路径`) ⇒ **key 按"内容"算，不按封面 URL 算**
+///       ⇒ 站点换域名/换路径/换图床都不影响
+///     · 显示（`play_record_tile.dart` 的 `MediaRow`）：**先读本地副本**（同步、亚毫秒）
+///       命中就直接画；没命中照旧走远程 `FetchedImage`，并顺手把这次字节存一份（`CoverPin.pin`）
+///       ⇒ 只要这张图**曾经显示成功过一次**，以后站点怎么变都不会再空白
+///     · 入口：`main.dart` / `main_win_dev.dart` 各加 `CoverPin.init()`（正式入口是 unawaited）
+///   ✅ 删除联动（用户要求："点 X / 清空时本地也要清"）：
+///     · 收藏页 ✕ / 「清空」、播放记录页 ✕ / 「清空」 ⇒ 都会调 `CoverPin.dropIfUnused`
+///     · ⚠️ 收藏与播放记录**共用同一份副本** ⇒ 只要还有一边在用就**不删**
+///       （否则会出现"删了收藏，播放记录那条也变空白"）
+///     · 下载页不用改：`removeTask` 走 `_deleteTaskDir()` 整目录删，`cover.jpg/png` 随之消失
+///   ✅ 实测（本机 Windows 调试端）：
+///     · 目录确实建在 `C:\Users\<u>\Documents\kpxx_covers`，3 个副本字节与日志逐一相等
+///     · **重启后不再重复抓取** ⇒ 证明读的是本地文件（日志只有新条目才出现 `已存副本`）
+///     · 临时自检（验完已删）：`①假条目应删=true  ②收藏在用应保留=true`
+///   ⚠️ 未改 `FavoriteItem` / `PlayRecord` 的 JSON 结构（不加字段）⇒ 老数据零兼容成本
+///   ☑️ 未验证：iOS / 安卓真机（目录在这两端分别是 Documents / app_flutter，代码同一套 API）
+///   号序：本次云推 ⇒ **1.7.8** ☑️（versionCode 178）
+const String kAppVersion = '1.7.8';

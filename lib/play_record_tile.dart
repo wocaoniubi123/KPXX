@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_background.dart';
+import 'cover_pin.dart'; // ★ 2026-11-22：收藏/播放记录的封面本地副本（站点变了也不空白）
 import 'fetched_image.dart';
 import 'settings.dart';
 
@@ -33,6 +34,12 @@ class MediaRow extends StatelessWidget {
   ///   默认 `false` ⇒ 播放记录页等其它调用方**行为零变化** ✅。
   final bool dot;
 
+  /// ★ 2026-11-21（用户：站点换过之后收藏/播放记录封面全空白）：
+  ///   这一行对应哪条内容 —— 用来取/存**封面的本地副本**（`CoverPin`，key 与封面 URL 解耦）。
+  ///   空 ⇒ 不启用本地副本（其它调用方行为零变化 ✅）。
+  final String pinSite;
+  final String pinUrl;
+
   const MediaRow({
     super.key,
     required this.cover,
@@ -44,6 +51,8 @@ class MediaRow extends StatelessWidget {
     this.onTap,
     this.onDelete,
     this.dot = false,
+    this.pinSite = '',
+    this.pinUrl = '',
   });
 
   @override
@@ -161,6 +170,21 @@ class MediaRow extends StatelessWidget {
     const w = 104.0;
     const h = 59.0;
     const radius = BorderRadius.all(Radius.circular(9));
+    // ★ 2026-11-22（用户拍板）：**先看本地副本** —— 只要这张封面曾经显示成功过一次，
+    //   本地就有一份（`CoverPin`，按"内容"存、与封面 URL 解耦）⇒ 站点换域名/换路径也不空白。
+    final pin = CoverPin.local(pinSite, pinUrl);
+    if (pin != null) {
+      return ClipRRect(
+        borderRadius: radius,
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: Image.memory(pin, fit: BoxFit.cover, cacheWidth: 240),
+        ),
+      );
+    }
+    // 没有本地副本：照旧走远程；顺手把这次显示成功的图存一份（下次就不怕站点了）
+    if (cover.isNotEmpty) CoverPin.pin(pinSite, pinUrl, cover);
     if (cover.isEmpty) {
       return Container(
         width: w,
@@ -213,6 +237,8 @@ class PlayRecordTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return MediaRow(
       cover: record.cover,
+      pinSite: record.site, // ★ 2026-11-22：封面本地副本的 key 来源
+      pinUrl: record.url,
       title: record.title.isEmpty ? record.url : record.title,
       progress: _bar(),
       metaLeft: _metaLeft(),

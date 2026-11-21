@@ -20,9 +20,9 @@ import 'package:image_picker_android/image_picker_android.dart';
 //   而它在 `cupertino/route.dart`（不在 material 里）⇒ 必须单独引。
 //   ⚠️ `show` 只取这一个符号 ⇒ 不会把 cupertino 的其它名字带进来与 material 撞名 ✅
 import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'cover_pin.dart'; // ★ 2026-11-22：收藏/播放记录封面本地副本（持久目录）
 import 'favorites.dart';
-import 'favorites_page.dart';
-import 'home_page.dart';
+import 'favorites_page.dart';import 'home_page.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 // ★ 2026-10-12（用户新需求 ✅）：站点管理页 + **站点展示清单的唯一读取口** `visibleSitesOf` ✅
@@ -115,6 +115,11 @@ void main() {
   //   ⚠️ 这句**必须在任何 toggle/save 之前**跑完 ☠：收藏没读出来就写盘 ⇒ 会把用户已有收藏覆盖掉。
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 收藏加载（Favorites）开始');
   Favorites.i.load(); // 读收藏（底栏「收藏」页 + 详情页那颗星都要）
+  // ★ 2026-11-22（用户拍板：收藏/播放记录存一份**本地封面副本**，站点换了也不空白）：
+  //   目录 = `Documents/kpxx_covers`（与下载页 `Documents/downloads` 同一 base，持久不丢）
+  //   ⚠️ 这里不 await（`main()` 是同步的）：`CoverPin.local` 在目录没就绪时返回 null ⇒
+  //      第一屏仍走远程 URL，`pin` 内部自己会 `await init()` ⇒ 之后就都能读到副本。
+  unawaited(CoverPin.init());
   if (AppSettings.i.logConsole) debugPrint('[BOOT] 背景图加载（AppBg）开始');
   AppBg.i.load(); // 读背景图（没设过就用内置的 assets/bg_default.jpg）
   // ★ 2026-10-05（用户批准 · 内存 · ③c）：**给 Flutter 自己的图片缓存设预算** ✅ ——

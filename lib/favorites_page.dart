@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'base/site_ui.dart';
 import 'app_bg.dart';
 import 'app_background.dart';
+import 'cover_pin.dart'; // ★ 2026-11-22：删收藏时同步清本地封面副本
 import 'detail_page.dart';
 import 'favorites.dart';
 import 'play_record_tile.dart';
@@ -118,6 +119,9 @@ class FavoritesPage extends StatelessWidget {
                 index: i,
                 child: MediaRow(
                   cover: it.cover,
+                  // ★ 2026-11-22：封面本地副本的 key（站点换域名后仍能显示）
+                  pinSite: it.site,
+                  pinUrl: it.url,
                   title: it.title.isEmpty ? it.url : it.title,
                 // ★ 2026-10-10（用户要求 ✅）：进度条 + 进度小字 —— 与播放记录行用
                 //   **同一个** `playProgressBar` / `playProgressText` ⇒ 外观格式逐项一致 ✅
@@ -142,7 +146,13 @@ class FavoritesPage extends StatelessWidget {
                 //   （★ 2026-10-10：`total > 1` 时连第 1 集也显示 ✅）
                 subtitle: siteLine(it.site, it.videoIndex, it.total),
                 onTap: () => _open(context, it),
-                onDelete: () => Favorites.i.remove(it.key),
+                onDelete: () {
+                  // ★ 2026-11-22（用户要求）：删收藏时，本地封面副本也要清
+                  //   （`dropIfUnused` 内部会先看播放记录里还有没有这条）
+                  Favorites.i.remove(it.key).then((_) {
+                    CoverPin.dropIfUnused(it.site, it.url);
+                  });
+                },
                 // ★ 2026-10-21（用户要求：收藏自己有记录，直接用它判，立刻亮不等联网）
                 dot: _hasUpdate(it),
                 ),
@@ -161,7 +171,13 @@ class FavoritesPage extends StatelessWidget {
       if (AppSettings.i.logConsole) {
         debugPrint('[UI] 清空收藏（原 ${Favorites.i.length} 条）');
       }
+      // ★ 2026-11-22（用户要求）：清空前先留一份名单 —— 清完逐条清本地封面副本
+      //   （`dropIfUnused` 会跳过"播放记录里还在用"的那些）
+      final gone = Favorites.i.items.toList();
       await Favorites.i.clear();
+      for (final it in gone) {
+        CoverPin.dropIfUnused(it.site, it.url);
+      }
     }
   }
 

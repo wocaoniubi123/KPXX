@@ -41,6 +41,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // 写图集索引 
 import 'package:video_player/video_player.dart'; // ★ 只给 ⑥ 的 dev 探针读 `VideoPlayerController.value` ✓
 
 import 'app_bg.dart';
+import 'cover_pin.dart'; // ★ 2026-11-22：收藏/播放记录封面本地副本（持久目录）
 import 'config.dart'; // ★ Site.devClientOverride（h2 通道挂载点 ✓ 只有本入口会写 ✓）+ Site.ua（探针要照房间页带 UA ✓）
 import 'favorites.dart'; // ★ 收藏（与发布入口同一份存储 ✅ 不读出来就会被"保存"覆盖掉 ☠）
 import 'main.dart'
@@ -306,6 +307,9 @@ Future<void> main() async {
   // ★ 2026-10-10（收藏 ✅）：发布入口也加了这一行（`main.dart` 的 `Favorites.i.load()`）⇒ 本入口照抄同序 ✅。
   //   ⚠️ **必须有** ☠：收藏页/详情页那颗星要在 `load()` 之后才能写盘；没读出来就 save ⇒ 会把用户已有收藏覆盖掉。
   await tryLoad('收藏（Favorites）', Favorites.i.load);
+  // ★ 2026-11-22（同发布入口）：初始化收藏/播放记录的**本地封面副本**目录
+  //   （`Documents/kpxx_covers`；列表里要同步读 ⇒ 必须 await）
+  await tryLoad('封面副本（CoverPin）', CoverPin.init);
   await tryLoad('背景图（AppBg）', AppBg.i.load);
 
   // ☑️ 这里原来有一段"在 `load()`（= 清扫）之后再补写种子文件 + 重新应用当前背景"的**绕法** ✗ ——

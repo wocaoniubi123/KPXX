@@ -4,6 +4,7 @@ import 'base/downloads/download_manager.dart';
 import 'base/site_ui.dart';
 import 'app_bg.dart';
 import 'app_background.dart';
+import 'cover_pin.dart'; // ★ 2026-11-22：删记录时同步清本地封面副本
 import 'detail_page.dart';
 import 'offline_player_page.dart';
 import 'play_record_tile.dart';
@@ -68,7 +69,13 @@ class PlayHistoryPage extends StatelessWidget {
                 key: ValueKey(r.key), // 稳定身份：增删一条时别把整列封面重挂载
                 record: r,
                 onTap: () => _open(context, r),
-                onDelete: () => PlayHistory.i.remove(r.key),
+                onDelete: () {
+                  // ★ 2026-11-22（用户要求）：删记录时，本地封面副本也要清
+                  //   （`dropIfUnused` 内部会先看收藏里还有没有这条）
+                  PlayHistory.i.remove(r.key).then((_) {
+                    CoverPin.dropIfUnused(r.site, r.url);
+                  });
+                },
               );
             },
           );
@@ -85,7 +92,13 @@ class PlayHistoryPage extends StatelessWidget {
     if (ok == true) {
       // ★ 2026-10-05【常驻诊断·④】清空播放记录（只看不改逻辑 ☠ 清空本身仍走同一句 ✓）
       if (AppSettings.i.logConsole) debugPrint('[UI] 清空播放记录（原 ${PlayHistory.i.records.length} 条）');
+      // ★ 2026-11-22（用户要求）：清空前先留名单 —— 清完逐条清本地封面副本
+      //   （`dropIfUnused` 会跳过"收藏里还在用"的那些）
+      final gone = PlayHistory.i.records.toList();
       await PlayHistory.i.clear();
+      for (final r in gone) {
+        CoverPin.dropIfUnused(r.site, r.url);
+      }
     }
   }
 
